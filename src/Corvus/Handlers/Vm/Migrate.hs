@@ -253,8 +253,8 @@ driveTransfers ctx vmId destNode plan origStatus = do
   case result of
     Left (err, created) -> do
       liftIO $ rollbackCreated state plan destNode created
-      liftIO $ rollbackMigrating state vmId
-      pure (RespError err)
+      liftIO $ rollbackMigrating state vmId (mpStateFile plan)
+      pure (RespError (err <> " (state file: " <> stateFileStatus (mpStateFile plan) <> ")"))
     Right created -> do
       -- Stage 2: state-file transfer for saved VMs. The PreCheck
       -- set 'mpStateFile' iff the source row was 'VmSaved' (either
@@ -268,8 +268,8 @@ driveTransfers ctx vmId destNode plan origStatus = do
           case stateRes of
             Left err -> do
               liftIO $ rollbackCreated state plan destNode created
-              liftIO $ rollbackMigrating state vmId
-              pure (RespError err)
+              liftIO $ rollbackMigrating state vmId (mpStateFile plan)
+              pure (RespError (err <> " (state file: " <> stateFileStatus (mpStateFile plan) <> ")"))
             Right () -> commitMigration ctx vmId destNode plan created origStatus
         else commitMigration ctx vmId destNode plan created origStatus
 
@@ -533,25 +533,33 @@ rollbackCreated state plan destNode created = do
       void $ deleteSavedStateOnNode state destNode (M.vmName vm)
 
 -- | Roll the VM row out of 'VmMigrating' on a pre-check or transfer
--- failure. Uses 'ActionMigrateFail' so the FSM picks the post-fail
--- status — currently 'VmSaved' (the source-side saved state, if
--- any, is intact; a cold migrate that failed before any disks
--- transferred still has its disks on the source). Operator can
--- inspect, retry, or 'vm reset' to clean up.
---
--- TODO: differentiate "fail with state file intact" from "fail
--- before state file existed" — for now both land on VmSaved if
--- the source had a state file, else operator notices the missing
--- file at next 'vm start' which falls back to cold boot.
-rollbackMigrating :: ServerState -> M.VmId -> IO ()
-rollbackMigrating state vmId = do
+-- failure. The @hasStateFile@ argument distinguishes "fail with
+-- state file intact" from "fail before state file existed" so the
+-- operator can decide whether to retry with 'crv vm start' or
+-- perform a cold boot.
+rollbackMigrating :: ServerState -> M.VmId -> Bool -> IO ()
+rollbackMigrating state vmId hasStateFile = do
   mVm <- runSqlPool (get vmId) (ssDbPool state)
   case mVm of
     Just vm -> case validateTransition (M.vmStatus vm) ActionMigrateFail of
-      Right next ->
-        runSqlPool (update vmId [M.VmStatus =. next]) (ssDbPool state)
+      Right next -> do
+        -- Use the next status from the FSM when a state file exists;
+        -- when there is no state file, force VmStopped so the operator
+        -- knows a cold boot is needed (the row stays VmMigrating would
+        -- block any further action).
+        let target =
+              if hasStateFile
+                then next
+                else M.VmStopped
+        runSqlPool (update vmId [M.VmStatus =. target]) (ssDbPool state)
       Left _ -> pure ()
     Nothing -> pure ()
+
+-- | Human-readable status of the migration state file for the error
+-- message.
+stateFileStatus :: Bool -> T.Text
+stateFileStatus True = "saved (retry with 'crv vm start')"
+stateFileStatus False = "not saved (cold boot required)"
 
 opDiskKey :: MigrationDriveOp -> M.DiskImageId
 opDiskKey (OpCopy d) = d

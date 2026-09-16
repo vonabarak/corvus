@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -146,7 +145,7 @@ def node_user_for(_node):
 
 def _test_subdir(node, name):
     """Create a unique per-test subdirectory on the test node."""
-    cp = _run(node, f"mktemp -d", user=NODE_USER)
+    cp = _run(node, "mktemp -d", user=NODE_USER)
     result_dir = cp.stdout.decode().strip()
     # Create our named subdirectory so we can find it in teardown.
     _run(node, f"mkdir -p {result_dir}/admin {result_dir}/xdg", user=NODE_USER)
@@ -187,9 +186,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
                 attach_source=True,
             )
             topology.init_cas(("shared",))
-            sys.stderr.write(
-                f"[harness] booting bare node for {cls.__qualname__}\n"
-            )
+            sys.stderr.write(f"[harness] booting bare node for {cls.__qualname__}\n")
             sys.stderr.flush()
             for short_name in cls.NODES:
                 topology.add(short_name, role=NodeRole.FULL_STACK, ca_key="shared")
@@ -315,9 +312,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
 
         result = _shrun(
             self.node,
-            (
-                f"corvus-admin deploy web --dry-run"
-            ),
+            ("corvus-admin deploy web --dry-run"),
             check=False,
             timeout_sec=30.0,
         )
@@ -353,18 +348,18 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
             (
                 "python3 -c "
                 f"'import sys, json; "
-                f"sys.path.insert(0, \"/mnt/corvus/python\"); "
+                f'sys.path.insert(0, "/mnt/corvus/python"); '
                 f"from corvus_admin import ca, store; "
-                f"st = store.AdminStore(\"{ca_dir}\"); "
-                f"issued = ca.issue_cert(st, role=\"corvus-node\", name=\"testnode\", "
-                f"ip=\"10.91.0.21\"); "
-                f"cert_dir=\"{cert_dir}\"; "
+                f'st = store.AdminStore("{ca_dir}"); '
+                f'issued = ca.issue_cert(st, role="corvus-node", name="testnode", '
+                f'ip="10.91.0.21"); '
+                f'cert_dir="{cert_dir}"; '
                 f"import pathlib; pathlib.Path(cert_dir).mkdir(exist_ok=True); "
                 f"ca_pem = ca.ca_cert_pem(st); "
-                f"open(f\"{{cert_dir}}/ca.crt\", \"wb\").write(ca_pem); "
-                f"open(f\"{{cert_dir}}/corvus-node.crt\", \"wb\").write(issued.cert_pem); "
-                f"open(f\"{{cert_dir}}/corvus-node.key\", \"wb\").write(issued.key_pem); "
-                f"print(json.dumps({{\"cn\": issued.cn, \"role\": issued.record.role}}))'"
+                f'open(f"{{cert_dir}}/ca.crt", "wb").write(ca_pem); '
+                f'open(f"{{cert_dir}}/corvus-node.crt", "wb").write(issued.cert_pem); '
+                f'open(f"{{cert_dir}}/corvus-node.key", "wb").write(issued.key_pem); '
+                f'print(json.dumps({{"cn": issued.cn, "role": issued.record.role}}))\''
             ),
             check=False,
             timeout_sec=30.0,
@@ -458,9 +453,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
 
         result = _shrun(
             self.node,
-            (
-                f"corvus-admin renew --ca-dir {ca_dir} --due --within 36500 --dry-run"
-            ),
+            (f"corvus-admin renew --ca-dir {ca_dir} --due --within 36500 --dry-run"),
             check=False,
             timeout_sec=30.0,
         )
@@ -512,7 +505,9 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
             f"cat > {script_file} << 'PYEOF'\nimport shutil, sys\nsys.path.insert(0, '/mnt/corvus/python')\nfrom corvus_admin import register\nold_which = shutil.which\nshutil.which = lambda name: None if name == 'crv' else old_which(name)\ntry:\n    register.register_node(name='test', host='10.0.0.1')\n    sys.exit(1)\nexcept register.RegisterError:\n    print('REGISTER_ERROR:ok')\n    sys.exit(0)\nexcept Exception:\n    print('OTHER_ERROR:fail')\n    sys.exit(2)\nPYEOF",
             check=True,
         )
-        result = _shrun(self.node, f"python3 {script_file}", check=False, timeout_sec=10.0)
+        result = _shrun(
+            self.node, f"python3 {script_file}", check=False, timeout_sec=10.0
+        )
         assert result.returncode == 0, (
             f"register_node missing-crv test failed: {_stdout_text(result)}\n"
             f"stderr={result.stderr.decode(errors='replace')}"
@@ -538,10 +533,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
 
         result = _shrun(
             self.node,
-            (
-                f"corvus-admin "
-                f"deploy client test-client --ca-dir {ca_dir} --dry-run"
-            ),
+            (f"corvus-admin deploy client test-client --ca-dir {ca_dir} --dry-run"),
             check=False,
             timeout_sec=30.0,
         )
@@ -568,17 +560,18 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
 
         result = _shrun(
             self.node,
-            (
-                f"corvus-admin "
-                f"deploy web --bind-host 0.0.0.0 --bind-port 9090 --dry-run"
-            ),
+            ("corvus-admin deploy web --bind-host 0.0.0.0 --bind-port 9090 --dry-run"),
             check=False,
             timeout_sec=30.0,
         )
         assert result.returncode == 0, result.stderr.decode(errors="replace")
         assert "[DRY-RUN]" in _stdout_text(result)
-        assert "0.0.0.0" in _stdout_text(result), f"bind host not in output: {_stdout_text(result)!r}"
-        assert "9090" in _stdout_text(result), f"bind port not in output: {result.stdout!r}"
+        assert "0.0.0.0" in _stdout_text(result), (
+            f"bind host not in output: {_stdout_text(result)!r}"
+        )
+        assert "9090" in _stdout_text(result), (
+            f"bind port not in output: {result.stdout!r}"
+        )
         assert "corvus-web.service" in _stdout_text(result)
 
 

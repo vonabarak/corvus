@@ -47,17 +47,13 @@ def _make_vm_stats(
 
 def _vm_up_lines(body: bytes) -> list[bytes]:
     """Return data lines (not HELP/TYPE) for corvus_vm_up."""
-    return [
-        line for line in body.split(b"\n")
-        if line.startswith(b"corvus_vm_up{")
-    ]
+    return [line for line in body.split(b"\n") if line.startswith(b"corvus_vm_up{")]
 
 
 def _node_load1_lines(body: bytes) -> list[bytes]:
     """Return data lines (not HELP/TYPE) for corvus_node_load1."""
     return [
-        line for line in body.split(b"\n")
-        if line.startswith(b"corvus_node_load1{")
+        line for line in body.split(b"\n") if line.startswith(b"corvus_node_load1{")
     ]
 
 
