@@ -212,6 +212,12 @@ library
       Capnp.Gen.Netagent
       Capnp.Gen.Nodeagent
   other-modules:
+      Corvus.Client.Capnp.Rpc.Disk
+      Corvus.Client.Capnp.Rpc.Network
+      Corvus.Client.Capnp.Rpc.Node
+      Corvus.Client.Capnp.Rpc.Stream
+      Corvus.Client.Capnp.Rpc.Task
+      Corvus.Client.Capnp.Rpc.Vm
       Corvus.Client.Commands.Network
       Corvus.Database.Migrations
       Corvus.Database.Migrations.V003
