@@ -218,6 +218,9 @@ library
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck
+      Corvus.Node.Caps.Session.Disk
+      Corvus.Node.Caps.Session.Utils
+      Corvus.Node.Caps.Session.Vm
       Corvus.Node.ProcStats
       Corvus.Node.QmpQQ
       Corvus.Node.Transfer
