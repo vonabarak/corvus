@@ -131,6 +131,7 @@ library
       Corvus.Handlers.Build.Cache
       Corvus.Handlers.Build.Cleanup
       Corvus.Handlers.Build.Qga
+      Corvus.Handlers.Build.Provisioner
       Corvus.Build.Cache.Hash
       Corvus.Build.Cache.Store
       Corvus.Handlers.CloudInit

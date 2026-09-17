@@ -9,7 +9,6 @@
 --------------------------------------------------------------------------------
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -1516,8 +1515,8 @@ handleVmGuestExecStream sc req stdoutCli stderrCli = do
                   System.Timeout.timeout 30000000 $
                     callSink
                       #write
-                        CGS.ByteSink'write'params {CGS.chunk = bs}
-                        client
+                      CGS.ByteSink'write'params {CGS.chunk = bs}
+                      client
               case r of
                 Left _ -> writeIORef brokenRef True
                 Right Nothing -> writeIORef brokenRef True

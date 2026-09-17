@@ -5,6 +5,7 @@ module Corvus.Protocol.Build
   ( BuildResult (..)
   , BuildOne (..)
   , BuildEvent (..)
+  , BuildSink (..)
   )
 where
 
@@ -80,3 +81,6 @@ data BuildEvent
 
 instance ToJSON BuildEvent where
   toJSON = genericToJSON innerOptions
+
+-- | Type alias for build event callbacks used by the streaming pipeline.
+type BuildSink = BuildEvent -> IO ()
