@@ -228,21 +228,12 @@ test structure, implementation conventions, and required verification.
 
 ### Test Images
 
-Integration tests require VM images. Build them with:
-
-```bash
-make test-image              # Build all test images (node + vm + multi-os + windows)
-make test-image-vm           # Alpine Linux inner-VM image only
-make test-image-node         # Gentoo outer-node image only
-make test-image-node-rebuild # Rebuild only a stale cached node image
-make test-image-windows      # Windows Server 2025 only (downloads evaluation ISO)
-```
-
-Both images are built declaratively via `crv build` — see
-[yaml/alpine-test/](../yaml/alpine-test/) and
-[yaml/windows-server-2025/](../yaml/windows-server-2025/). The
-artifacts are the same images referenced by
-[yaml/test-images/test-images.yml](../yaml/test-images/test-images.yml).
+Integration tests require host-side image fixtures. Build every managed image
+with `make images`, or select, check, clean, and rebuild a fixture with
+`make image IMAGE=<name>`, `make image-check IMAGE=<name>`,
+`make image-clean IMAGE=<name>`, and `make image-rebuild IMAGE=<name>`.
+Run `make image-list` for the available names. See
+[image-build guide](test-images.md) for each artifact and its ownership.
 
 ### Running Locally
 

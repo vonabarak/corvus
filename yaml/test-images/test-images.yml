@@ -1,8 +1,9 @@
 ---
-# An apply setup using test images (see the "scripts" directory for scripts to generate them)
+# An apply setup using images built by `make image IMAGE=vm` and
+# `make image IMAGE=windows`.
 disks:
   - name: alpine-test-base
-    register: "BaseImages/Alpine/corvus-test.qcow2"
+    register: "BaseImages/Alpine/corvus-test-vm.qcow2"
     format: qcow2
 
   - name: windows-server-2025-base

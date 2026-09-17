@@ -129,7 +129,7 @@ def probe_spice_link(
     if not host_key_path.exists():
         raise RuntimeError(
             f"SSH private key not found at {host_key_path} — "
-            "run `make test-image-key` to generate it"
+            "run `make image IMAGE=key` to generate it"
         )
 
     payload_b64 = base64.b64encode(build_link_frame()).decode("ascii")

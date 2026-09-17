@@ -1,4 +1,4 @@
-.PHONY: all build clean build-headless build-test latest-url latest-sha256
+.PHONY: all build clean rebuild check cache-clean build-headless build-test latest-url latest-sha256
 
 # The Gentoo cloud-init autobuild URL changes every few days. We
 # discover the current filename/checksum at build time and pass them
@@ -83,3 +83,14 @@ clean:
 	crv disk delete gentoo-base-headless || true
 	crv disk delete gentoo-builder || true
 	crv disk delete gentoo-base-cloud || true
+
+check:
+	@for disk in gentoo-base-cloud gentoo-builder gentoo-base-headless gentoo-base-headless-cloudinit gentoo-corvus-test gentoo-headless; do \
+	  crv -o json disk show $$disk >/dev/null || exit $$?; \
+	done
+
+rebuild:
+	$(MAKE) clean
+	$(MAKE) build
+cache-clean:
+	@:

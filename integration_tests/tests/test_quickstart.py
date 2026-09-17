@@ -25,7 +25,7 @@ emerged at test time — they have to be baked in by
 ``yaml/corvus-test-node/corvus-test-node.yml``. Rebuild the
 image after pulling this commit:
 
-    make test-image-node
+    make image-rebuild IMAGE=node
 """
 
 from __future__ import annotations

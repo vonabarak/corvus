@@ -3,7 +3,7 @@
 This module is a *precondition check only* — it confirms the
 `corvus-test-node` disk is already registered with the outer daemon
 and fails fast otherwise. Image baking lives entirely in the
-Makefile (`make test-image` / `make test-image-node`); running it
+Makefile (`make image IMAGE=node`); running it
 from inside a pytest fixture used to race under pytest-xdist
 because session scope is per-worker, so two workers could both
 spawn `crv build` against the same outer daemon when the disk was
@@ -16,9 +16,8 @@ disk via an inline `apply` YAML; see `topology.py`.
 
 Build path (run once per machine, lives outside pytest):
 
-    make test-image            # umbrella: all integration-test images
-    make test-image-node       # just this one
-    make test-image-node-rebuild # after changing its recipe
+    make image IMAGE=node
+    make image-rebuild IMAGE=node
 """
 
 from __future__ import annotations
@@ -41,8 +40,8 @@ DEFAULT_YAML = (
 
 # The synthetic-installer ISO consumed by
 # `test_build_installer.py`. Registered out-of-band by
-# `scripts/build-synthetic-installer.sh` (via `make
-# test-image-installer`).
+# `yaml/corvus-test-installer/build-synthetic-installer.sh` (via `make
+# image IMAGE=installer`).
 INSTALLER_DISK_NAME = "corvus-test-installer-iso"
 INSTALLER_YAML = (
     Path(__file__).resolve().parents[2]
@@ -79,8 +78,7 @@ class ImageReady:
         if not _disk_exists(crv, disk_name):
             raise RuntimeError(
                 f"Integration-test image {disk_name!r} is not registered "
-                f"with the outer daemon. Run `make test-image` (or "
-                f"`make test-image-node` for just this one) before "
+                f"with the outer daemon. Run `make image IMAGE=node` before "
                 f"`make integration-tests`."
             )
         return cls(disk_name=disk_name, yaml_path=path)
@@ -94,7 +92,7 @@ class InstallerImageReady:
     the tiny boot ISO used by `test_build_installer.py` to exercise
     the installer build strategy without spinning up a real vendor
     installer. The ISO itself is assembled out-of-band by
-    `scripts/build-synthetic-installer.sh`; the harness only
+    `yaml/corvus-test-installer/build-synthetic-installer.sh`; the harness only
     verifies it's registered with the outer daemon.
     """
 
@@ -116,8 +114,7 @@ class InstallerImageReady:
             raise RuntimeError(
                 f"Synthetic installer ISO {disk_name!r} is not "
                 f"registered with the outer daemon. Run "
-                f"`make test-image-installer` (or `make test-image` "
-                f"for the full set) before `make integration-tests`."
+                f"`make image IMAGE=installer` before `make integration-tests`."
             )
         return cls(disk_name=disk_name, yaml_path=path)
 

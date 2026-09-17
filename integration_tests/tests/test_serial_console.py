@@ -241,7 +241,7 @@ class TestSerialConsole(SingleNodeCase):
         """Log in as `corvus` over the serial console.
 
         Uses the test image's password-based login (corvus:corvus,
-        baked at `yaml/alpine-test/alpine-test.yml:179` via
+        baked at `yaml/corvus-test-vm/corvus-test-vm.yml` via
         `chpasswd`). Sends username + password through the
         bidirectional `serial_console()` stream, then issues
         `whoami` and reads the response from the same stream.

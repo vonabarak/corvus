@@ -90,35 +90,28 @@ registered with the outer daemon and fails fast with the relevant make target
 when one is missing. This avoids xdist workers racing each other on a cold
 image bake.
 
-Build everything once:
+Build the required fixtures once:
 
 ```sh
-make test-image
+make image IMAGE=node
+make image IMAGE=vm
+make image IMAGE=windows
+make image IMAGE=installer
 ```
 
-Useful narrower targets:
-
-- `make test-image-key`: create `integration_tests/keys/corvus-test-key`.
-  The public key is baked into the Gentoo test-node image and Alpine test VM.
-- `make test-image-node`: build/register `corvus-test-node`, the Gentoo-based
-  test-node image used by every topology.
-- `make test-image-node-rebuild`: discard and rebuild only that cached image
-  after changing its recipe; it retains the expensive `gentoo-headless` base.
-- `make test-image-vm`: build/register `corvus-test-vm`, the Alpine image used
-  by most Linux VM tests.
-- `make test-image-multi-os`: download/register Debian, Ubuntu, AlmaLinux,
-  FreeBSD, and Alpine cloud images used by cloud-init tests.
-- `make test-image-windows`: build/register `windows-server-2025-eval`.
-- `make test-image-installer`: build/register the tiny synthetic installer ISO
-  used by `TestBuildInstaller`.
+Use `make image-list` to list fixture names, then run
+`make image IMAGE=<name>`. `make image-check IMAGE=<name>`,
+`make image-clean IMAGE=<name>`, and `make image-rebuild IMAGE=<name>` check,
+remove, and recreate a fixture. The [integration-test image guide](../doc/test-images.md)
+maps every fixture to its artifact and test use.
 
 Image artifacts are registered with the outer daemon and usually live under
 `~/VMs/BaseImages`. The test-node VM mounts that host directory at
 `/home/corvus/VMs/BaseImages`, so tests can register base images with the inner
 daemon without copying image bytes.
 
-To force a rebuild, delete the registered disk/template first, or use the
-matching clean target such as `make test-image-node-clean`.
+Use `make image-rebuild IMAGE=<name>` or `make image-clean IMAGE=<name>` to
+recreate or remove a fixture.
 
 ## Running Tests
 
@@ -366,14 +359,13 @@ integration_tests/scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImages
 
 ## Common Problems
 
-- **Missing `corvus-test-node`**: run `make test-image-node`.
+- **Missing `corvus-test-node`**: run `make image IMAGE=node`.
 - **Test-node recipe changed** (for example, a new host tool): run
-  `make test-image-node-rebuild`.
-- **Missing Alpine/base image in a VM test**: run `make test-image-vm` or
-  `make test-image`.
-- **Missing cloud-init distro image**: run `make test-image-multi-os`.
-- **Missing Windows image**: run `make test-image-windows`.
-- **Missing synthetic installer ISO**: run `make test-image-installer`.
+  `make image-rebuild IMAGE=node`.
+- **Missing Alpine/base image in a VM test**: run `make image IMAGE=vm`.
+- **Missing cloud-init distro image**: run `make image IMAGE=multi-os`.
+- **Missing Windows image**: run `make image IMAGE=windows`.
+- **Missing synthetic installer ISO**: run `make image IMAGE=installer`.
 - **Stale binary warning**: run `stack build` before trusting results.
 - **No `vsock_cid` on a test node**: check the outer VM is running and the host
   supports VSOCK/KVM; inspect `crv vm show <node>`.
@@ -418,7 +410,7 @@ integration_tests/
 This suite is not suitable for stock GitHub Actions runners because they lack
 nested KVM. Use a bare-metal or self-hosted runner with nested virtualization,
 enough RAM for the selected worker count, and access to any image-download
-sources needed by the `make test-image*` targets.
+sources needed by the image build targets.
 
 Most test classes boot one 8 vCPU / 8 GiB test node. Multi-node classes boot
 more than one. If the host starts swapping or QEMU processes get killed, lower

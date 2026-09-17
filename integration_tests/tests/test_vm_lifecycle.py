@@ -683,7 +683,7 @@ class TestVmTpm(_VmLifecycleBase):
             pytest.fail(
                 "test-node is missing swtpm on PATH. Rebake only the cached "
                 "test-node image after this recipe change:\n"
-                "  make test-image-node-rebuild\n"
+                "  make image-rebuild IMAGE=node\n"
                 f"(probe stdout={r.stdout!r}, stderr={r.stderr!r})"
             )
 

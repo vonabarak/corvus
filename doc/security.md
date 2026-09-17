@@ -281,7 +281,7 @@ Two-node tests pick one of two shapes:
   its own CA. Useful for asserting cross-cluster isolation.
 
 After a test-node recipe change, rebuild the cached test image with
-`make test-image-node-rebuild` before the suite passes again. Once
+`make image-rebuild IMAGE=node` before the suite passes again. Once
 rebuilt, `make integration-tests` is the gate — any visible
 `--no-tls` flag in the harness or test-node systemd units
 indicates drift.

@@ -182,7 +182,7 @@ class TestNode:
         if not HOST_ALPINE_KEY_PATH.exists():
             raise RuntimeError(
                 f"SSH private key not found at {HOST_ALPINE_KEY_PATH} — "
-                "run `make test-image-key` to generate it"
+                "run `make image IMAGE=key` to generate it"
             )
         return NodeShell(cid=self.cid, user=user, key_path=HOST_ALPINE_KEY_PATH).run(
             command, timeout_sec=timeout_sec, check=check
@@ -466,7 +466,7 @@ class Topology:
         # home-corvus-VMs-BaseImages.mount auto-mounts it under
         # /home/corvus/VMs/BaseImages, so tests can register pre-baked
         # images without touching the node. Tolerate a missing host dir
-        # (developers may not have run `make test-image-*` yet) — the
+        # (developers may not have built the required images yet) — the
         # daemon doesn't fault if the share is absent, and the
         # `base_images` fixture surfaces a clear error per-test.
         if HOST_BASE_IMAGES_DIR.is_dir():

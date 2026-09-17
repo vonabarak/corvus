@@ -32,10 +32,10 @@ set -euo pipefail
 
 DISK_NAME=corvus-test-installer-iso
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 YAML_DIR="$REPO_ROOT/yaml/corvus-test-installer"
-BUILD_DIR="$REPO_ROOT/build/synthetic-installer"
-CACHE_DIR="$REPO_ROOT/build/synthetic-installer-cache"
+BUILD_DIR="$YAML_DIR/build"
+CACHE_DIR="$YAML_DIR/cache"
 
 # The host-resident path of the assembled ISO. Lives under
 # ~/VMs/BaseImages/ so the integration harness's

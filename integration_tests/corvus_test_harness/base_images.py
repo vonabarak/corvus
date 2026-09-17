@@ -90,7 +90,7 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
     Files ending in `.bak.qcow2` are skipped (backup snapshots).
     Subdirectories with no recognisable image file are skipped
     silently. Returns an empty dict if `host_dir` itself doesn't
-    exist (developer hasn't run `make test-image-*` yet).
+    exist (developer hasn't built the required images yet).
     """
     if not host_dir.is_dir():
         return {}

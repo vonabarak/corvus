@@ -664,17 +664,17 @@ once before building):
   Debian 12 with nginx preinstalled (`debian12` template).
 - [yaml/ubuntu-nginx/ubuntu-nginx.yml](../yaml/ubuntu-nginx/ubuntu-nginx.yml) —
   Ubuntu 24.04 LTS with nginx preinstalled (`ubuntu24` template).
-- [yaml/gentoo-corvus/gentoo-corvus.yml](../yaml/gentoo-corvus/gentoo-corvus.yml) —
+- [yaml/gentoo-test/gentoo-test.yml](../yaml/gentoo-test/gentoo-test.yml) —
   Gentoo image preloaded with the full Corvus build/test toolchain
   (`gentoo20260412` template). The bake takes ~15 minutes.
 
 From-scratch builds:
 
-- [yaml/gentoo-headless/gentoo-headless.yml](../yaml/gentoo-headless/gentoo-headless.yml) —
+- [yaml/gentoo-test/gentoo-headless.yml](../yaml/gentoo-test/gentoo-headless.yml) —
   minimal headless Gentoo on an empty target disk, custom kernel
   (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
   kernel `.config` next to the YAML.
-- [yaml/alpine-test/alpine-test.yml](../yaml/alpine-test/alpine-test.yml) —
+- [yaml/corvus-test-vm/corvus-test-vm.yml](../yaml/corvus-test-vm/corvus-test-vm.yml) —
   the integration-test Alpine image (BIOS+UEFI, sshd, qemu-ga,
   vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian
   bake VM.

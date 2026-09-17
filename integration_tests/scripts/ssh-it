@@ -65,7 +65,7 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 key_path="${script_dir}/../keys/corvus-test-key"
 if [[ ! -f $key_path ]]; then
     echo "ssh-it: SSH key not found at $key_path" >&2
-    echo "        Run \`make test-image-key\` to generate it." >&2
+    echo "        Run \`make image IMAGE=key\` to generate it." >&2
     exit 1
 fi
 

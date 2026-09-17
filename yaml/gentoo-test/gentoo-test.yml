@@ -45,10 +45,10 @@ pipeline:
               # of recompiling. nfs4 + vers=4.2 also matches the
               # other binpkgs_corvus mounts in the pipeline.
               cat >> /etc/fstab <<'EOF'
-              192.168.88.1:/data/portage/distfiles /var/cache/distfiles nfs rw 0 0
+              192.168.72.1:/data/portage/distfiles /var/cache/distfiles nfs rw 0 0
               192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0
-              192.168.88.1:/var/db/repos /var/db/repos nfs ro 0 0
-              192.168.88.1:/home/bobr/Work/corvus /mnt/corvus nfs rw 0 0
+              192.168.72.1:/var/db/repos /var/db/repos nfs ro 0 0
+              192.168.72.1:/home/bobr/Work/corvus /mnt/corvus nfs rw 0 0
               EOF
 
               systemctl daemon-reload

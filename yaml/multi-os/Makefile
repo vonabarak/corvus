@@ -1,4 +1,4 @@
-.PHONY: all build
+.PHONY: all build build-force check clean rebuild cache-clean
 
 DEBIAN_BASE := https://cloud.debian.org/images/cloud/bookworm/latest
 DEBIAN_FILE := debian-12-generic-amd64.qcow2
@@ -21,6 +21,9 @@ ALPINE_FILE_SH = curl -fsS $(ALPINE_BASE)/ \
 all: build
 
 build:
+	@$(MAKE) --no-print-directory check >/dev/null 2>&1 || $(MAKE) --no-print-directory build-force
+
+build-force:
 	@debian_url="$(DEBIAN_BASE)/$(DEBIAN_FILE)"; \
 	debian_sha512=$$(curl -fsS "$(DEBIAN_BASE)/SHA512SUMS" | awk -v f="$(DEBIAN_FILE)" '$$2 == f {print $$1; exit}'); \
 	ubuntu_url="$(UBUNTU_BASE)/$(UBUNTU_FILE)"; \
@@ -58,3 +61,17 @@ build:
 	  --var alpine_url="$$alpine_url" \
 	  --var alpine_sha512="$$alpine_sha512" \
 	  --wait
+
+check:
+	@for disk in debian-12-generic-base ubuntu-24-04-server-base almalinux-10-base freebsd-14-base alpine-3-21-base; do \
+	  crv -o json disk show $$disk >/dev/null || exit $$?; \
+	done
+
+clean:
+	@for disk in alpine-3-21-base freebsd-14-base almalinux-10-base ubuntu-24-04-server-base debian-12-generic-base; do \
+	  crv -o json disk show $$disk >/dev/null 2>&1 && crv disk delete $$disk || true; \
+	done
+
+rebuild: clean build
+cache-clean:
+	@:

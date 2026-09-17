@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-rebuild test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -159,143 +159,13 @@ test: unit-tests python-test integration-tests
 unit-tests:
 	script -qec 'stack test $(STACK_BUILD_FLAGS) --test-arguments "--jobs=$(shell nproc)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
 
-# Umbrella: build (or no-op) every disk the integration-test suite
-# needs — the corvus test-node, the inner Alpine test-vm, the
-# multi-OS cloud base images, and Windows Server 2025. Each
-# prerequisite is individually idempotent (a `crv disk show` guard
-# wraps every bake), so re-running this target on a warm tree
-# costs a handful of `crv disk show` calls; on a cold tree first
-# run is ~2 hours total (Gentoo + Windows are the long bakes).
-#
-# The pytest harness expects these images to be present and fails
-# fast otherwise — see `ImageReady.ensure()` and the
-# `register_base_images()` flow. The build path lives here so the
-# bake never races between pytest-xdist workers.
-test-image: test-image-node test-image-vm test-image-multi-os test-image-windows test-image-installer
-
-# Fetch the multi-OS cloud images (Debian, Ubuntu, AlmaLinux, FreeBSD,
-# Alpine) used by the cloud-init integration test class. Idempotent:
-# `crv apply --skip-existing` no-ops once the disks are registered.
-test-image-multi-os:
-	@make -C yaml/multi-os
-
-# Generate the SSH keypair the integration-test images embed.
-#
-# Both the Alpine test image and the Gentoo integration-test image
-# inject the same `corvus-test-key.pub` into authorized_keys at bake
-# time, so the host-side SSH tunnel can reach the inner Alpine VM
-# through the outer Gentoo VM with a single keypair. Idempotent:
-# subsequent runs no-op if the key already exists.
-test-image-key:
-	mkdir -p integration_tests/keys
-	test -f integration_tests/keys/corvus-test-key || \
-	  ssh-keygen -t ed25519 -f integration_tests/keys/corvus-test-key -N '' -C corvus-test
-
-# Build the minimal Alpine test-VM image (the inner VM the harness
-# boots inside the outer test node).
-#
-# Prereqs (declared as make deps so we don't redo them each invocation):
-#   1. test-image-key — the shared SSH keypair at
-#      integration_tests/keys/corvus-test-key{,.pub}.
-#   2. test-image-multi-os — registers the `debian12` bake template
-#      this VM is overlaid on (it bootstraps Alpine via
-#      apk-tools-static from inside the bake VM, so it doesn't need
-#      any pre-cached ISO).
-#
-# Idempotent: a `crv disk show` guard skips the bake when
-# `corvus-test-vm` is already registered. The artifact lands at
-# `BaseImages/Alpine/corvus-test-vm.qcow2` under the daemon's
-# BaseImages tree. The build's `file:` step reads the pubkey
-# directly out of `integration_tests/keys/`.
-test-image-vm: test-image-key test-image-multi-os
-	@crv -o json disk show corvus-test-vm >/dev/null 2>&1 || \
-	  crv build yaml/corvus-test-vm/corvus-test-vm.yml --wait
-test-image-vm-clean:
-	crv disk delete corvus-test-vm || true
-
-# Build the Gentoo test-node image (the harness's outer VM).
-#
-# Prereq: test-image-key — the shared SSH keypair at
-# integration_tests/keys/corvus-test-key{,.pub}, baked into
-# /home/corvus/.ssh/authorized_keys.
-#
-# Two independently-guarded bakes (each skipped when its target
-# disk is already registered):
-#   1. yaml/gentoo-test/gentoo-headless.yml — produces the
-#      `gentoo-base-headless` disk plus the `gentoo-cloud` and
-#      `gentoo-headless` templates the test-node build is an
-#      overlay on. First-run cost is the headless bake itself
-#      (~30-60 min: kernel + stage3 + emerges).
-#   2. yaml/corvus-test-node/corvus-test-node.yml — produces the
-#      `corvus-test-node` disk consumed by the harness's
-#      `ImageReady.ensure()` check.
-#
-# To force a node-image rebake without discarding gentoo-headless,
-# use `make test-image-node-rebuild`.
-test-image-node: test-image-key
-	@crv -o json template show gentoo-headless >/dev/null 2>&1 || \
-	  make -C yaml/gentoo-test build-headless
-	@crv -o json disk show corvus-test-node >/dev/null 2>&1 || \
-	  crv build yaml/corvus-test-node/corvus-test-node.yml --wait
-
-# Rebuild only the cached test-node artifact after its recipe changes.
-# Unlike test-image-node-clean, retain the expensive gentoo-headless base image.
-test-image-node-rebuild: test-image-key
-	crv template delete corvus-test-node || true
-	crv disk delete corvus-test-node || true
-	crv build yaml/corvus-test-node/corvus-test-node.yml --wait
-
-test-image-node-clean:
-	crv template delete corvus-test-node || true
-	crv disk delete corvus-test-node || true
-	make -C yaml/gentoo-test clean
-
-# Build the Windows Server 2025 test image.
-#
-# windows-server-2025.yml is a self-contained pipeline: its first
-# `apply` step downloads the Microsoft evaluation ISO (~8 GiB) and the
-# VirtIO-Win drivers ISO (~750 MiB) on first run (later runs are
-# no-ops via `ifExists: skip`), the `build` step drives the autounattend
-# install end-to-end, and a final `apply` registers a convenience
-# `windows-server-2025` runtime template that overlays the baked image.
-# The autounattend.xml floppy is materialised per-build by `crv build`
-# from yaml/windows-server-2025/autounattend.xml — edit it freely; no
-# manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM. The artifact
-# lands at ~/VMs/BaseImages/WindowsServer2025/.
-test-image-windows:
-	@crv -o json disk show windows-server-2025-eval >/dev/null 2>&1 || \
-	  crv build yaml/windows-server-2025/windows-server-2025.yml --wait
-test-image-windows-clean:
-	crv disk delete windows-server-2025-eval || true
-	crv template delete windows-server-2025 || true
-
-# Build the synthetic installer-strategy ISO used by
-# `integration_tests/tests/test_build_installer.py`.
-#
-# The ISO is tiny (~13 MB): an Alpine `linux-virt` kernel +
-# busybox-static initramfs + isolinux. Its PID 1 (sourced from
-# yaml/corvus-test-installer/init.sh) mounts uploaded answer media
-# by `crv build`, copies the marker payload onto /dev/vda, and
-# powers off — exercising Corvus's `installer` build path
-# end-to-end without any vendor installer.
-#
-# The bake itself lives in `scripts/build-synthetic-installer.sh`
-# (kernel + busybox + syslinux fetched from Alpine's CDN and
-# cached under `build/synthetic-installer-cache/`), not in a
-# `crv build` pipeline — assembling a 13 MB ISO from scratch in a
-# bake VM would be many minutes for no benefit. Idempotent: a
-# `crv disk show` guard skips the assembly when the disk is
-# already registered.
-test-image-installer:
-	@crv -o json disk show corvus-test-installer-iso >/dev/null 2>&1 || \
-	  scripts/build-synthetic-installer.sh
-test-image-installer-clean:
-	crv disk delete corvus-test-installer-iso || true
-	crv template delete corvus-test-installer || true
-
-
+# Image build commands are dispatched to yaml/Makefile. Each image recipe
+# owns its build logic alongside its YAML and supporting files; see
+# doc/test-images.md for the inventory and command reference.
+image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild:
+	+$(MAKE) -C yaml $@
 # Instantiate a one-off VM from the `corvus-test-node` template
-# (registered by `make test-image-node`), attach the developer's
+# (built by `make image IMAGE=node`), attach the developer's
 # freshly built binaries over virtiofs at the `corvus_host` tag —
 # matching the image's `opt-corvus-bin.mount` — and start it. The
 # `corvus_host` mount makes /opt/corvus/bin inside the VM the
@@ -586,9 +456,7 @@ cleanup:
 #       completions/{bash,zsh,fish}/
 #       python/                 # corvus-<pyver>.{whl,tar.gz}
 #       doc/                    # verbatim from the source tree
-#       yaml/                   # every example
 #       schema/                 # capnp schemas pycapnp loads at runtime
-#       scripts/build-synthetic-installer.sh
 #       README.md
 #       INSTALL.md
 #       VERSION
@@ -621,7 +489,6 @@ release: build
 	mkdir -p $(RELEASE_DIR)/completions/zsh
 	mkdir -p $(RELEASE_DIR)/completions/fish
 	mkdir -p $(RELEASE_DIR)/python
-	mkdir -p $(RELEASE_DIR)/scripts
 	mkdir -p release/python
 	#
 	# 1. Binaries. `stack path --local-install-root` resolves to
@@ -666,12 +533,11 @@ release: build
 	#
 	# 4. Verbatim source trees: docs, every YAML example, the
 	#    Cap'n Proto schemas pycapnp loads at runtime, the
-	#    synthetic-installer helper script, and the top-level
+	#    synthetic-installer helper (included in yaml), and the top-level
 	#    README.
 	cp -r doc $(RELEASE_DIR)/doc
 	cp -r yaml $(RELEASE_DIR)/yaml
 	cp -r schema $(RELEASE_DIR)/schema
-	cp scripts/build-synthetic-installer.sh $(RELEASE_DIR)/scripts/
 	cp README.md $(RELEASE_DIR)/README.md
 	#
 	# 4a. Built SPA. Mirrors python/corvus_web/static/ (populated

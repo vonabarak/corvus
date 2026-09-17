@@ -10,8 +10,8 @@ powers off — exactly the contract `runInstallerPhase` (in
 installer.
 
 The ISO is produced out-of-band by
-`scripts/build-synthetic-installer.sh` (invoked by
-`make test-image-installer`) and lives under
+`yaml/corvus-test-installer/build-synthetic-installer.sh` (invoked by
+`make image IMAGE=installer`) and lives under
 `~/VMs/BaseImages/SyntheticInstaller/corvus-test-installer-iso.raw`,
 so the harness's `register_base_images()` picks it up and
 registers it with the inner daemon without any per-test
@@ -56,7 +56,7 @@ class TestBuildInstaller(SingleNodeCase):
         """Fail fast if the synthetic-installer ISO isn't registered.
 
         Mirrors `image_ready` for `corvus-test-node`: the bake
-        lives in the Makefile (`make test-image-installer`); the
+        lives in the Makefile (`make image IMAGE=installer`); the
         harness only checks. Without this, the build's apply step
         would fail later with a less actionable error.
         """

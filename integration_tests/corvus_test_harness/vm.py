@@ -131,7 +131,7 @@ class Vm:
         if base_disk is None:
             pytest.skip(
                 f"{self.base_image_key!r} base image not registered — "
-                f"run `make test-image-{self.base_image_key}` to build it"
+                "run `make images` or the matching `make image IMAGE=<name>` command"
             )
         self._prepare()
         # Anything past this point owns resources in the inner daemon;

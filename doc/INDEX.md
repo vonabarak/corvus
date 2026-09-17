@@ -48,12 +48,11 @@ any companion files like kernel configs or autounattend answer files):
 
 - [yaml/example-apply/](../yaml/example-apply/) -- Full environment with UEFI, networking, templates
 - [yaml/multi-os/](../yaml/multi-os/) -- Multi-OS template library (shared prereq for several builds)
-- [yaml/test-images/](../yaml/test-images/) -- Local test image VMs (Alpine + Windows)
-- [yaml/alpine-test/](../yaml/alpine-test/) -- Build the minimal Alpine integration-test image
+- [Integration-test images](test-images.md) -- Build, check, clean, and rebuild the image fixtures used by pytest
+- [yaml/corvus-test-vm/](../yaml/corvus-test-vm/) -- Build the minimal Alpine integration-test image
 - [yaml/windows-server-2025/](../yaml/windows-server-2025/) -- Build a Windows Server 2025 image
 - [yaml/windows-11/](../yaml/windows-11/) -- Build a Windows 11 Pro image without cloud-init
-- [yaml/gentoo-headless/](../yaml/gentoo-headless/) -- Build a minimal headless Gentoo image
-- [yaml/gentoo-corvus/](../yaml/gentoo-corvus/) -- Build a Gentoo image with the Corvus toolchain
+- [yaml/gentoo-test/](../yaml/gentoo-test/) -- Build headless Gentoo and the Corvus test image
 - [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
 - [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 24.04 base
 - [yaml/template-example/template-example.yml](../yaml/template-example/template-example.yml) -- Standalone template file

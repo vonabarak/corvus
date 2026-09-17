@@ -1,7 +1,7 @@
 ---
 # Minimal Alpine Linux test image for Corvus integration tests.
 #
-# Replaces the legacy `scripts/build-test-image.sh` shell script with
+# Replaces the legacy image-build shell script with
 # a declarative `crv build`. Same output: a 512 MiB qcow2 with BIOS +
 # UEFI boot, serial + graphical console, sshd (TCP and AF_VSOCK),
 # doas, and qemu-guest-agent.
@@ -11,7 +11,7 @@
 #     bake VM template — the from-scratch build runs apk-tools-static
 #     plus chroot inside a Debian bake VM with a network connection).
 #   * Generate the SSH keypair to embed into the image. `make
-#     test-image-key` does this; manual equivalent:
+#     image IMAGE=key` does this; manual equivalent:
 #
 #       mkdir -p integration_tests/keys
 #       ssh-keygen -t ed25519 -f integration_tests/keys/corvus-test-key \
@@ -22,9 +22,9 @@
 #     authorises both the outer and inner halves of the SSH tunnel.
 #
 # Usage:
-#   make test-image-key
+#   make image IMAGE=key
 #   crv apply yaml/multi-os/multi-os.yml --skip-existing
-#   crv build yaml/alpine-test/alpine-test.yml --wait
+#   make -C yaml/corvus-test-vm build
 #
 # Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm`.
 #
