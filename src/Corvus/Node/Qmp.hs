@@ -68,10 +68,11 @@ module Corvus.Node.Qmp
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (IOException, SomeException, bracket, catch, try)
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), EnumText (..))
+import Corvus.Node.Qmp.Transport (classifyQmpResponse, extractReplyLine, sendQmpCommand, sendQmpRaw)
+import Corvus.Node.Qmp.Types (QmpMigrationStatus (..), QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)
-import Corvus.Node.Runtime (getQmpSocket, shellQuotePath)
+import Corvus.Node.Runtime (shellQuotePath)
 import Corvus.Qemu.Config (QemuConfig)
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BSWide
@@ -83,21 +84,10 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word64)
-import GHC.IO.Exception (IOErrorType (..))
-import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, connect, defaultProtocol, socket)
-import Network.Socket.ByteString (recv, sendAll)
-import System.IO.Error (ioeGetErrorType)
 
 --------------------------------------------------------------------------------
 -- Types
 --------------------------------------------------------------------------------
-
--- | Result of a QMP command
-data QmpResult
-  = QmpSuccess
-  | QmpError !Text
-  | QmpConnectionFailed !Text
-  deriving (Eq, Show)
 
 --------------------------------------------------------------------------------
 -- QMP Commands
@@ -128,21 +118,6 @@ qmpQuit config vmId =
 --------------------------------------------------------------------------------
 -- Migration (save / load coordination)
 --------------------------------------------------------------------------------
-
--- | Status returned by QMP @query-migrate@. The full QEMU vocabulary
--- ('none', 'setup', 'cancelling', 'cancelled', 'active',
--- 'postcopy-active', 'postcopy-paused', 'postcopy-recover-setup',
--- 'postcopy-recover', 'completed', 'failed', 'colo',
--- 'pre-switchover', 'device', 'wait-unplug') is collapsed into the
--- four states the save/load coordinator actually cares about. Any
--- terminal failure (including @cancelled@) lands in 'MigFailed' with
--- the verbatim response payload for the daemon to surface.
-data QmpMigrationStatus
-  = MigInactive
-  | MigActive
-  | MigCompleted
-  | MigFailed !Text
-  deriving (Eq, Show)
 
 -- | Issue @migrate "exec:zstd -T0 > <path>"@. QMP returns
 -- immediately on accepting the command; the actual transfer
@@ -181,15 +156,9 @@ qmpMigrate config vmId path =
 -- whitespace, which QEMU does not emit).
 qmpQueryMigrate :: QemuConfig -> Int64 -> IO (Either Text QmpMigrationStatus)
 qmpQueryMigrate config vmId = do
-  qmpSock <- getQmpSocket config vmId
-  result <- try $ withUnixSocket qmpSock $ \sock -> do
-    _ <- recv sock 4096
-    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
-    _ <- drainUntilReply sock BS.empty
-    sendAll sock [qmpQQ| { "execute": "query-migrate" } |]
-    drainUntilReply sock BS.empty
+  result <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-migrate" } |]
   pure $ case result of
-    Left (e :: SomeException) -> Left $ T.pack $ show e
+    Left e -> Left e
     Right response
       | BS.isInfixOf "\"error\"" response ->
           Left $ T.pack $ BS.unpack response
@@ -1141,37 +1110,6 @@ qmpQueryBalloon config vmId = do
         Left e -> Left (T.pack ("query-balloon decode: " <> e))
         Right (BalloonReply actual) -> Right (Just actual)
 
--- | Raw QMP send that returns the response bytes without
--- 'classifyQmpResponse' coercion. Used by commands whose reply
--- carries structured data (counters, lists, …).
-sendQmpRaw
-  :: QemuConfig -> Int64 -> BS.ByteString -> IO (Either Text BS.ByteString)
-sendQmpRaw config vmId cmd = do
-  qmpSock <- getQmpSocket config vmId
-  result <- try $ withUnixSocket qmpSock $ \sock -> do
-    _ <- recv sock 4096
-    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
-    _ <- drainUntilReply sock BS.empty
-    sendAll sock cmd
-    drainUntilReply sock BS.empty
-  pure $ case result of
-    Left (e :: SomeException) -> Left (T.pack (show e))
-    Right response -> Right response
-
--- | Pick the line that carries @"return"@ or @"error"@ out of the
--- QMP response buffer. QMP may interleave async events between
--- the qmp_capabilities reply and our command's reply; the last
--- reply line is the one we want.
-extractReplyLine :: BS.ByteString -> Either Text BS.ByteString
-extractReplyLine bs =
-  case reverse (filter isReply (BS.lines bs)) of
-    (x : _) -> Right x
-    [] -> Left "no QMP reply line in response"
-  where
-    isReply line =
-      BSWide.isInfixOf "\"return\"" line
-        || BSWide.isInfixOf "\"error\"" line
-
 newtype BlockstatsReply = BlockstatsReply [BlockstatsRow]
 
 instance A.FromJSON BlockstatsReply where
@@ -1194,99 +1132,3 @@ instance A.FromJSON BalloonReply where
   parseJSON = A.withObject "BalloonReply" $ \o -> do
     ret <- o A..: "return"
     BalloonReply <$> ret A..: "actual"
-
--- ---------------------------------------------------------------------------
-
--- | Send a QMP command to a VM
-sendQmpCommand :: QemuConfig -> Int64 -> BS.ByteString -> IO QmpResult
-sendQmpCommand config vmId cmd = do
-  qmpSock <- getQmpSocket config vmId
-  result <- try $ withUnixSocket qmpSock $ \sock -> do
-    -- Read QMP greeting
-    _ <- recv sock 4096
-    -- Send qmp_capabilities to enter command mode
-    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
-    _ <- drainUntilReply sock BS.empty
-    -- Send the actual command
-    sendAll sock cmd
-    drainUntilReply sock BS.empty
-  pure $ case result of
-    Left (e :: SomeException) -> QmpConnectionFailed $ T.pack $ show e
-    Right response -> classifyQmpResponse response
-
--- | Read from the QMP socket until the accumulated buffer contains a
--- COMPLETE command reply (either @"return"@ or @"error"@). Async
--- events get folded into the accumulator and stay there for the
--- classifier to ignore.
---
--- A single 'recv' call is not robust: QEMU emits state-change events
--- (e.g. @RESUME@ after @cont@, @STOP@ after @stop@) BEFORE the
--- command's @{"return": {}}@, and the kernel may surface them in
--- separate reads — so a naive @recv 4096@ can return only the event
--- with no @"return"@ substring, leaving 'classifyQmpResponse' to
--- wrongly decide the command failed. Reading until we actually see
--- a reply payload fixes it.
---
--- *Substring on @"return"@ is also not enough on its own.* A large
--- reply (e.g. @query-blockstats@ on a multi-drive VM, which is
--- ~8 KiB on a single line) arrives in multiple 4 KiB chunks; the
--- first chunk contains @"return":@ at the start but the JSON line
--- isn't complete yet. Returning early hands @sendQmpRaw@ a
--- truncated payload that aeson then fails to decode. So we
--- additionally require the buffer to end with @'\\n'@ — QMP
--- terminates every message with a newline, so a trailing newline
--- past the @"return"@ substring means the line is whole.
-drainUntilReply :: Socket -> BS.ByteString -> IO BS.ByteString
-drainUntilReply sock acc = do
-  chunk <- recv sock 4096
-  if BS.null chunk
-    then pure acc
-    else do
-      let combined = acc <> chunk
-          hasReply =
-            BS.isInfixOf "\"return\"" combined
-              || BS.isInfixOf "\"error\"" combined
-          messageComplete = case BS.unsnoc combined of
-            Just (_, '\n') -> True
-            _ -> False
-      if hasReply && messageComplete
-        then pure combined
-        else drainUntilReply sock combined
-
--- | Classify a raw QMP response payload as success or error.
---
--- QEMU QMP sends either @{"return": ...}@ for a successful command or
--- @{"error": {"class": ..., "desc": ...}}@ on failure. We detect success
--- by substring match on @\"return\"@ rather than parsing the JSON — the
--- QMP wire format guarantees the key appears literally, and the keys we
--- send ourselves don't contain the literal @\"return\"@ substring.
--- Exposed for unit tests; real callers go through 'sendQmpCommand'.
-classifyQmpResponse :: BS.ByteString -> QmpResult
-classifyQmpResponse response
-  | BS.isInfixOf "\"return\"" response = QmpSuccess
-  | otherwise = QmpError $ T.pack $ BS.unpack response
-
--- | Connect to a Unix socket and run an action.
--- Retries on EAGAIN (resource temporarily unavailable), which occurs when
--- QEMU's chardev listen backlog (1) is full under heavy parallel load.
-withUnixSocket :: FilePath -> (Socket -> IO a) -> IO a
-withUnixSocket path =
-  bracket (connectWithRetry 10) close
-  where
-    connectWithRetry :: Int -> IO Socket
-    connectWithRetry 0 = do
-      sock <- socket AF_UNIX Stream defaultProtocol
-      connect sock (SockAddrUnix path)
-      pure sock
-    connectWithRetry n = do
-      sock <- socket AF_UNIX Stream defaultProtocol
-      (connect sock (SockAddrUnix path) >> pure sock)
-        `catch` \(e :: IOException) ->
-          if ioeGetErrorType e == ResourceExhausted
-            then do
-              close sock
-              threadDelay 300000 -- 300ms
-              connectWithRetry (n - 1)
-            else do
-              close sock
-              ioError e

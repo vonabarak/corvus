@@ -118,6 +118,8 @@ library
       Corvus.Qemu.Config
       Corvus.Node.Runtime
       Corvus.Node.Qmp
+      Corvus.Node.Qmp.Types
+      Corvus.Node.Qmp.Transport
       Corvus.Utils.Yaml
       Corvus.Utils.Network
       Corvus.Node.Command
