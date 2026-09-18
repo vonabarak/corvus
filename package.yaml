@@ -192,6 +192,11 @@ library:
     - Corvus.Handlers.Build.Qga
     - Corvus.Handlers.Build.Provisioner
     - Corvus.Handlers.Build.Artifact
+    - Corvus.Handlers.Build.CacheResume
+    - Corvus.Handlers.Build.Installer
+    - Corvus.Handlers.Build.Template
+    - Corvus.Handlers.Build.CleanupBakeVm
+    - Corvus.Handlers.Build.Run
     - Corvus.Build.Cache.Hash
     - Corvus.Build.Cache.Store
     - Corvus.Handlers.CloudInit

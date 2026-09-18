@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -33,15 +32,15 @@ import Corvus.Node.GuestAgent (GuestExecResult (..))
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
-import Corvus.Types (ServerState)
 import Corvus.Rpc.Streams (newLineBufferSink)
+import Corvus.Types (ServerState)
+import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word32)
-import qualified Data.ByteString as BS
 
 -- | One-shot guest exec via @nodeagent.vmGuestExec@.
 agentGuestExec :: ServerState -> Int64 -> Text -> Word32 -> IO GuestExecResult

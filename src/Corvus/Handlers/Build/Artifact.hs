@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -22,8 +21,6 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action (mkActionContext, runActionAsSubtask)
 import Corvus.Handlers.Disk (DiskDelete (..))
-import Corvus.Protocol (Response (RespDiskOk, RespError))
-import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
   , getImageSizeMbViaAgent
@@ -34,6 +31,8 @@ import Corvus.Handlers.Disk.Path (resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
+import Corvus.Protocol (Response (RespDiskOk, RespError))
+import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Schema.Build
 import Corvus.Types
 import Data.Int (Int64)

@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -25,22 +24,23 @@ import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN)
+import Corvus.Action (cancelRemainingSubtasks)
 import Corvus.Handlers.Build.Qga
   ( agentGuestExec
   , agentGuestExecWithStdin
   , agentGuestExecWithTail
   , agentGuestPing
   )
-import Corvus.Action (cancelRemainingSubtasks)
 import Corvus.Handlers.Vm (getVmDetails)
 import Corvus.Model
 import Corvus.Node.GuestAgent (GuestExecResult (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildSink)
 import Corvus.Protocol.Vm (vdName, vdVsockCid)
 import Corvus.Schema.Build
-import Corvus.Types (ServerState)
-import Paths_corvus (version)
 import Corvus.Types
+import qualified Data.Aeson as Aeson
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -52,9 +52,7 @@ import Data.Time (UTCTime, getCurrentTime)
 import qualified Data.Version as Version
 import Database.Persist (insert, update)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey, (=.))
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
+import Paths_corvus (version)
 
 -- | Per-step output cap persisted to @task.message@. Streamed lines are
 -- forwarded to the client unbounded; only the snapshot we save to the DB
