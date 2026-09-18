@@ -260,6 +260,11 @@ library:
     - Corvus.Netd.Caps.Session
     # corvus-nodeagent (per-host privileged agent)
     - Corvus.NodeAgentClient
+    - Corvus.NodeAgentClient.Core
+    - Corvus.NodeAgentClient.Disk
+    - Corvus.NodeAgentClient.Snapshot
+    - Corvus.NodeAgentClient.CloudInit
+    - Corvus.NodeAgentClient.Vm
     - Corvus.NodeAgentClient.Spec
     - Corvus.Node.Server
     - Corvus.Node.Ledger

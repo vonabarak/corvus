@@ -200,6 +200,11 @@ library
       Corvus.Netd.Caps.NetAgent
       Corvus.Netd.Caps.Session
       Corvus.NodeAgentClient
+      Corvus.NodeAgentClient.Core
+      Corvus.NodeAgentClient.Disk
+      Corvus.NodeAgentClient.Snapshot
+      Corvus.NodeAgentClient.CloudInit
+      Corvus.NodeAgentClient.Vm
       Corvus.NodeAgentClient.Spec
       Corvus.Node.Server
       Corvus.Node.Ledger
