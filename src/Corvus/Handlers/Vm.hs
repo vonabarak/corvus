@@ -40,41 +40,62 @@ module Corvus.Handlers.Vm
 
     -- * In-daemon helpers used by other handlers
   , getVmDetails
+  , getVmWithStatus
+  , getVmStatusOnly
   , setVmStatus
   , setVmError
+  , setVmStarted
+  , setVmStopped
   , hasNetdMediatedNetIf
   )
 where
 
 import Corvus.Action
 
-import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
-import Control.Monad (filterM, unless, when)
-import qualified Control.Monad
+import Control.Concurrent (threadDelay)
+import Control.Monad (filterM, forM_, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
-import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk (DiskDelete (..))
 import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForVm)
+import Corvus.Handlers.Vm.CloudInit (ensureCloudInitIso, handleVmCloudInit)
+import Corvus.Handlers.Vm.Console
+  ( generateSpicePassword
+  , handleHmpMonitor
+  , handleHmpMonitorFlush
+  , handleSerialConsole
+  , handleSerialConsoleFlush
+  , handleVmSendCtrlAltDel
+  , handleVmViewGrant
+  )
+import Corvus.Handlers.Vm.Db
+  ( getVmStatusOnly
+  , getVmWithStatus
+  , hasNetdMediatedNetIf
+  , setVmError
+  , setVmStarted
+  , setVmStatus
+  , setVmStopped
+  )
+import Corvus.Handlers.Vm.Monitor
+  ( attachVmMonitor
+  , reattachVmMonitors
+  , releaseManagedTaps
+  )
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
-import qualified Corvus.NetAgentClient as NA
-import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Node.SpicePort (withAllocatedSpicePort)
 import Corvus.Node.VsockCid (withAllocatedVsockCid)
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.NodeAgentClient.Spec as NSpec
-import Corvus.NodeRouting (withVmNetAgent, withVmNodeAgent)
+import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
-import Corvus.Qemu
+import Corvus.Qemu (QemuConfig, getGuestAgentSocket, getMonitorSocket, getSerialSocket)
 import Corvus.Types
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base64.URL as B64URL
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
 import qualified Data.Map.Strict as Map
@@ -82,24 +103,11 @@ import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import Data.Time (getCurrentTime)
 import Data.Word (Word32)
 import Database.Persist
 import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
 import System.FilePath ((</>))
-import System.IO (IOMode (ReadMode), withBinaryFile)
-
--- | VM statuses in which a user may attach to the console, HMP monitor,
--- or SPICE viewer. Anything non-@stopped@ where QEMU is (or should soon
--- be) alive — deliberately excludes 'VmPaused' (no live I/O) and
--- 'VmError' (QEMU has already died).
-viewableStatuses :: [VmStatus]
-viewableStatuses = [VmRunning, VmStarting, VmStopping]
-
--- | True when the VM is in a state that accepts console/monitor/view attach.
-isViewable :: VmStatus -> Bool
-isViewable = (`elem` viewableStatuses)
 
 --------------------------------------------------------------------------------
 -- VM Handlers
@@ -467,17 +475,6 @@ startQemuAndMonitor ctx vmId vm nextStatus = do
         Left err ->
           recordPreStartFailure state vmId pool "Failed to secure a free vsock CID" err
         Right _ -> launchVmViaAgent state vmId vm pool nextStatus
-
--- | Generate the NoCloud cloud-init ISO for this VM (if cloud-init
--- is enabled and the ISO isn't already attached). Failures are
--- non-fatal — the subtask records its own error.
-ensureCloudInitIso :: ActionContext -> Int64 -> Vm -> LoggingT IO ()
-ensureCloudInitIso ctx vmId vm = when (vmCloudInit vm) $ do
-  hasIso <- liftIO $ runSqlPool (hasCloudInitIso vmId) (ssDbPool (acState ctx))
-  unless hasIso $ do
-    logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
-    _ <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
-    pure ()
 
 -- | When the VM is not headless, allocate a SPICE port and persist
 -- it on the VM row. Headless VMs short-circuit to 'Right Nothing'.
@@ -1017,234 +1014,10 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit m
                     (ssDbPool state)
                   pure RespVmEdited
 
--- | Handle cloud-init ISO generation/regeneration for a VM
-handleVmCloudInit :: ServerState -> Text -> Int64 -> IO Response
-handleVmCloudInit state clientName vmId = do
-  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  case result of
-    Nothing -> pure RespVmNotFound
-    Just (vm, _) ->
-      if not (vmCloudInit vm)
-        then pure $ RespError "Cloud-init is not enabled on this VM"
-        else do
-          ciResp <- runAction state clientName (RegenerateCloudInit vmId (vmName vm))
-          case ciResp of
-            RespError err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
-            _ -> pure RespVmEdited
-
--- | Validate that the VM can be addressed for serial console
--- attachment (running + headless). The agent owns the ring buffer;
--- this only does the user-facing-message validation.
-handleSerialConsole :: ServerState -> Int64 -> IO Response
-handleSerialConsole state vmId = do
-  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  pure $ case result of
-    Nothing -> RespVmNotFound
-    Just (vm, status)
-      | not (isViewable status) -> RespVmNotRunning
-      | not (vmHeadless vm) -> RespVmHeadless
-      | otherwise -> RespSerialConsoleOk
-
--- | Validate the VM for serial-console flush (same predicate as
--- attach). The actual flush is dispatched through the agent.
-handleSerialConsoleFlush :: ServerState -> Int64 -> IO Response
-handleSerialConsoleFlush state vmId = do
-  resp <- handleSerialConsole state vmId
-  pure $ case resp of
-    RespSerialConsoleOk -> RespSerialConsoleFlushed
-    other -> other
-
--- | Validate that the VM is running for HMP monitor attachment.
--- Headlessness doesn't matter: HMP exists for both headless and
--- graphical VMs.
-handleHmpMonitor :: ServerState -> Int64 -> IO Response
-handleHmpMonitor state vmId = do
-  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  pure $ case result of
-    Nothing -> RespVmNotFound
-    Just (_, status)
-      | not (isViewable status) -> RespVmNotRunning
-      | otherwise -> RespHmpMonitorOk
-
--- | Validate the VM for HMP-monitor flush; actual flush dispatches
--- through the agent.
-handleHmpMonitorFlush :: ServerState -> Int64 -> IO Response
-handleHmpMonitorFlush state vmId = do
-  resp <- handleHmpMonitor state vmId
-  pure $ case resp of
-    RespHmpMonitorOk -> RespHmpMonitorFlushed
-    other -> other
-
--- | Inject Ctrl+Alt+Del into a running VM via QMP. Delivered through
--- the daemon's QMP client so it works regardless of whether the
--- caller is on the daemon host.
-handleVmSendCtrlAltDel :: ServerState -> Int64 -> IO Response
-handleVmSendCtrlAltDel state vmId = do
-  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  case result of
-    Nothing -> pure RespVmNotFound
-    Just (_, status)
-      | not (isViewable status) -> pure RespVmNotRunning
-      | otherwise -> do
-          qmpResult <- qmpSendCtrlAltDel (ssQemuConfig state) vmId
-          case qmpResult of
-            QmpSuccess -> pure RespOk
-            QmpError err -> pure $ RespError $ "QMP send-key failed: " <> err
-            QmpConnectionFailed err -> pure $ RespError $ "QMP connection failed: " <> err
-
--- | Grant a short-lived SPICE connection for a running non-headless VM.
---
--- Generates a fresh 18-byte (24-char URL-safe base64) random password,
--- installs it via QMP @set_password@, and schedules expiry via
--- @expire_password@ so an unused grant disappears on its own. The
--- daemon never persists the password — it lives in QEMU's in-memory
--- SPICE state until it expires or is rotated by the next grant.
-handleVmViewGrant :: ServerState -> Int64 -> IO Response
-handleVmViewGrant state vmId = do
-  let pool = ssDbPool state
-      cfg = ssQemuConfig state
-  mVm <- runSqlPool (get (toSqlKey vmId :: VmId)) pool
-  case mVm of
-    Nothing -> pure RespVmNotFound
-    Just vm
-      | vmHeadless vm -> pure RespVmHeadless
-      | not (isViewable (vmStatus vm)) -> pure RespVmNotRunning
-      | otherwise -> case vmSpicePort vm of
-          Nothing -> pure $ RespError "VM has no SPICE port assigned (daemon bug)"
-          Just spicePort -> do
-            pw <- generateSpicePassword
-            let ttl = 120 :: Int
-            outer <- withVmNodeAgent state vmId $ \nac ->
-              NOA.vmSetSpiceTicket nac vmId pw (fromIntegral ttl)
-            case outer of
-              Left err -> pure $ RespError err
-              Right r -> case r of
-                Left e ->
-                  pure $ RespError $ "vmSetSpiceTicket: " <> T.pack (show e)
-                Right () ->
-                  pure $
-                    RespVmViewGrant
-                      { host = qcSpiceBindAddress cfg
-                      , port = spicePort
-                      , password = pw
-                      , ttlSeconds = ttl
-                      }
-
--- | Read 18 bytes from @/dev/urandom@ and encode as URL-safe base64
--- (24 printable characters, no padding issues in SPICE tickets).
-generateSpicePassword :: IO Text
-generateSpicePassword = do
-  bytes <- withBinaryFile "/dev/urandom" ReadMode $ \h -> BS.hGet h 18
-  pure $ TE.decodeUtf8 $ B64URL.encode bytes
-
 --------------------------------------------------------------------------------
 -- Database Operations
 --------------------------------------------------------------------------------
-
--- | Get VM with its current status
-getVmWithStatus :: Int64 -> SqlPersistT IO (Maybe (Vm, VmStatus))
-getVmWithStatus vmId = do
-  let key = toSqlKey vmId :: VmId
-  mVm <- get key
-  pure $ case mVm of
-    Nothing -> Nothing
-    Just vm -> Just (vm, vmStatus vm)
-
--- | Just the current status, or 'Nothing' if the row is gone.
--- Used by 'attachVmMonitor' to skip reconciliation when a
--- competing handler ('handleVmReset') has already committed a
--- terminal state.
-getVmStatusOnly :: Int64 -> SqlPersistT IO (Maybe VmStatus)
-getVmStatusOnly vmId = fmap vmStatus <$> get (toSqlKey vmId :: VmId)
-
--- | Set VM status (used during start: VmStarting or VmRunning).
--- Clears any prior error reason so a recovered VM doesn't keep
--- showing a stale "Last error" in @crv vm show@.
--- The @_pid@ parameter is kept for caller-side symmetry but is no
--- longer persisted — the agent owns every PID. Drop the parameter
--- on the next breaking change.
-setVmStarted :: Int64 -> VmStatus -> Int -> SqlPersistT IO ()
-setVmStarted vmId status _pid = do
-  let key = toSqlKey vmId :: VmId
-  update
-    key
-    [ M.VmStatus =. status
-    , M.VmErrorMessage =. Nothing
-    , M.VmLastErrorAt =. Nothing
-    ]
-
--- | Set VM status to stopped and clear healthcheck, SPICE port,
--- prior error reason, and guest network data.
-setVmStopped :: Int64 -> SqlPersistT IO ()
-setVmStopped vmId = do
-  let key = toSqlKey vmId :: VmId
-  update
-    key
-    [ M.VmStatus =. VmStopped
-    , M.VmHealthcheck =. Nothing
-    , M.VmSpicePort =. Nothing
-    , M.VmErrorMessage =. Nothing
-    , M.VmLastErrorAt =. Nothing
-    ]
-  updateWhere
-    [M.NetworkInterfaceVmId ==. key]
-    [M.NetworkInterfaceGuestIpAddresses =. Nothing]
-
--- | Set VM status to error, record the reason + timestamp on the
--- VM row, and clear runtime state (healthcheck, SPICE port, guest
--- IPs). The @reason@ surfaces verbatim in @crv vm show@ so the
--- operator sees the actual cause (e.g. "QEMU exited with code 137
--- before first guest-agent ping") instead of having to chase task
--- history.
-setVmError :: Int64 -> Text -> SqlPersistT IO ()
-setVmError vmId reason = do
-  now <- liftIO getCurrentTime
-  let key = toSqlKey vmId :: VmId
-  update
-    key
-    [ M.VmStatus =. VmError
-    , M.VmHealthcheck =. Nothing
-    , M.VmSpicePort =. Nothing
-    , M.VmErrorMessage =. Just reason
-    , M.VmLastErrorAt =. Just now
-    ]
-  updateWhere
-    [M.NetworkInterfaceVmId ==. key]
-    [M.NetworkInterfaceGuestIpAddresses =. Nothing]
-
--- | Check whether the VM has a cloud-init ISO disk attached
-hasCloudInitIso :: Int64 -> SqlPersistT IO Bool
-hasCloudInitIso vmId = do
-  let key = toSqlKey vmId :: VmId
-  drives <- selectList [M.DriveVmId ==. key, M.DriveMedia ==. Just MediaCdrom] []
-  -- Check if any CDROM drive's disk name ends with "-cloud-init"
-  results <- mapM checkDrive drives
-  pure $ or results
-  where
-    checkDrive (Entity _ drive) = case driveDiskImageId drive of
-      Nothing -> pure False
-      Just diskKey -> do
-        mDisk <- get diskKey
-        pure $ case mDisk of
-          Just disk -> "-cloud-init" `T.isSuffixOf` diskImageName disk
-          Nothing -> False
-
--- | Set VM status (without changing PID). Clears any prior error
--- reason when transitioning out of 'VmError'; leaves it alone for
--- 'VmError' itself so explicit error setters keep the message
--- they wrote (see 'setVmError').
-setVmStatus :: Int64 -> VmStatus -> SqlPersistT IO ()
-setVmStatus vmId status = do
-  let key = toSqlKey vmId :: VmId
-  if status == VmError
-    then update key [M.VmStatus =. status]
-    else
-      update
-        key
-        [ M.VmStatus =. status
-        , M.VmErrorMessage =. Nothing
-        , M.VmLastErrorAt =. Nothing
-        ]
+-- (Shared read/update helpers live in "Corvus.Handlers.Vm.Db".)
 
 -- | Insert a 'Vm' row on the resolved node. The caller
 -- ('handleVmCreate') is responsible for resolving the node ref
@@ -1626,45 +1399,6 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mR
     [] -> pure ()
     us -> update key us
 
--- | Check if a VM has any netd-mediated network interface: a
--- managed NIC (attached to a Corvus virtual network) or a bridge
--- NIC (attached to a user-managed host bridge). Both go through
--- the same netd applyTap path during 'assembleVmSpec'.
-hasNetdMediatedNetIf :: Int64 -> SqlPersistT IO Bool
-hasNetdMediatedNetIf vmId = do
-  let vmKey = toSqlKey vmId :: VmId
-  nics <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
-  pure $ any (isNetdMediated . entityVal) nics
-  where
-    isNetdMediated ni =
-      M.networkInterfaceInterfaceType ni == M.NetBridge
-        || isJust (M.networkInterfaceNetworkId ni)
-
--- | Tell the agent to drop every netd-allocated TAP attached to
--- the given VM (both managed and bridge NICs). Used by the post-
--- QEMU-exit supervisor thread. Best-effort: errors are logged via
--- the agent client, not propagated to the caller — the VM is
--- gone either way.
-releaseManagedTaps :: ServerState -> Int64 -> IO ()
-releaseManagedTaps state vmId = do
-  let vmKey = toSqlKey vmId :: VmId
-  ifaces <-
-    runSqlPool
-      (selectList [M.NetworkInterfaceVmId ==. vmKey] [])
-      (ssDbPool state)
-  let netdMediated = filter (isNetdMediated . entityVal) ifaces
-      isNetdMediated ni =
-        M.networkInterfaceInterfaceType ni == M.NetBridge
-          || isJust (M.networkInterfaceNetworkId ni)
-  _ <- withVmNetAgent state vmId $ \nac ->
-    mapM_
-      ( \(Entity ifaceKey _) ->
-          let tapName = Spec.corvusTapName (fromSqlKey ifaceKey)
-           in Control.Monad.void (NA.deleteTap nac tapName)
-      )
-      netdMediated
-  pure ()
-
 -- | Check if all networks referenced by a VM's network interfaces are running.
 -- Returns Just networkName if a stopped network is found, Nothing if all are running.
 checkNetworksRunning :: Int64 -> SqlPersistT IO (Maybe Text)
@@ -1846,201 +1580,6 @@ instance Action VmStop where
 -- and QEMU spawning happens inline via 'NOA.vmStart' in
 -- 'launchVmViaAgent' rather than as a separate subtask.)
 
--- | Poll the node agent every 1 s for VM liveness via
--- 'NOA.vmStatus'. Returns when the agent reports anything other
--- than 'VmAgentRunning' (stopped / errored / unknown all count as
--- "gone"), or when the agent itself disappears.
-pollVmUntilExit :: ServerState -> Int64 -> IO ExitOutcome
-pollVmUntilExit state vmId = loop 0
-  where
-    -- Consecutive non-running reads required before concluding the
-    -- VM has exited. A vmStart / reboot-quirk re-spawn briefly drops
-    -- the VM from the agent ledger (removeVm → spawn → insertVm).
-    -- Now that the agent's lifecycle handlers run concurrently with
-    -- status polls (they no longer serialise on the session loop),
-    -- this poller can observe that transient gap mid-(re)start —
-    -- a lingering monitor from a prior run is especially prone to
-    -- catching the next start's window. Debounce so a momentary
-    -- "not running" read can't trigger a false 'setVmStopped'; a
-    -- genuine exit stays non-running and is concluded after the
-    -- confirmation window (~5 s). The monitor is anyway redundant
-    -- for operator-driven stops (those flip the row synchronously),
-    -- so the small added latency is harmless.
-    confirmReads :: Int
-    confirmReads = 5
-    loop misses = do
-      outer <- withVmNodeAgent state vmId $ \nac -> NOA.vmStatus nac vmId
-      case outer of
-        Left _ -> pure ExitAgentGone
-        Right (Left _) -> pure ExitAgentGone
-        Right (Right status) -> case NOA.vasState status of
-          NOA.VmAgentRunning -> threadDelay 1000000 >> loop 0
-          st ->
-            let outcome = case st of
-                  NOA.VmAgentStopped -> ExitClean
-                  NOA.VmAgentErrored ->
-                    ExitErrored (fromIntegral (NOA.vasLastExitCode status))
-                  _ -> ExitVanished
-             in if misses + 1 >= confirmReads
-                  then pure outcome
-                  else threadDelay 1000000 >> loop (misses + 1)
-
--- | How a VM's monitor loop concluded. Drives the DB-status
--- reconciliation in 'attachVmMonitor'.
-data ExitOutcome
-  = ExitClean
-  | ExitErrored !Int
-  | ExitVanished
-  | ExitAgentGone
-
--- | Fork a background thread that waits for VM @vmId@ to exit on
--- the agent side, then reconciles DB state.
---
--- Called by the VM-start handler right after 'NOA.vmStart' returns,
--- and by 'reattachVmMonitors' for each VM the daemon finds already
--- running when it (re)connects to the agent.
-attachVmMonitor :: ServerState -> Int64 -> IO ()
-attachVmMonitor state vmId = do
-  _ <- forkIO $ runServerLogging state $ do
-    logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
-    outcome <- liftIO $ pollVmUntilExit state vmId
-    -- Skip reconciliation if a competing handler (e.g.
-    -- 'handleVmReset') already committed a terminal status.
-    -- Replaces the old "Vm.pid was cleared" signal.
-    mStatus <- liftIO $ runSqlPool (getVmStatusOnly vmId) (ssDbPool state)
-    case mStatus of
-      Nothing ->
-        logDebugN $ "VM " <> T.pack (show vmId) <> " was deleted; monitor exiting"
-      Just VmStopped ->
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " already marked stopped (likely by reset); skipping status update"
-      Just VmError ->
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " already marked error; skipping status update"
-      Just VmSaved ->
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " already marked saved; skipping status update"
-      Just VmSaving ->
-        -- The save executor owns the terminal flip from VmSaving to
-        -- VmSaved / VmError; the monitor only watches for unexpected
-        -- exits. QMP @quit@ is part of the save flow so an observed
-        -- exit here is expected — leave the row alone.
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " is being saved; skipping monitor status update"
-      Just VmMigrating ->
-        -- The migration orchestrator owns the terminal flip.
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " is being migrated; skipping monitor status update"
-      Just _ -> case outcome of
-        ExitClean -> do
-          logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
-          liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-        ExitErrored code -> do
-          let msg = "QEMU exited with error code " <> T.pack (show code)
-          logWarnN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " "
-              <> msg
-          liftIO $ runSqlPool (setVmError vmId msg) (ssDbPool state)
-        ExitVanished -> do
-          logInfoN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " no longer in agent ledger; marking stopped"
-          liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-        ExitAgentGone ->
-          logDebugN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " monitor exiting: agent disconnected"
-    -- Tell netd it can drop the VM's managed TAPs.
-    liftIO $ releaseManagedTaps state vmId
-  pure ()
-
--- | On daemon (re)connect to the agent: walk the DB for every VM
--- whose intent is "should be running" (status in
--- @{Starting, Running, Paused}@), ask the agent for current
--- status, and reconcile:
---
---   * 'VmAgentRunning' — agent still has the VM; re-attach the
---     monitor thread.
---   * 'VmAgentStopped' / 'VmAgentErrored' — agent observed the
---     exit while the daemon was down; reflect it in the DB.
---   * 'VmAgentUnknown' — agent has no record (e.g. it restarted
---     and reaped the orphan QEMU on startup). Re-issue 'vmStart'
---     to honour the daemon's intent. 'vmStart' is idempotent, so
---     this is also safe if the agent had the VM and we're just
---     catching up.
---
--- Paused VMs lose their pause state across an agent restart —
--- they come back as VmRunning. Documented trade-off; symmetric
--- to "agent restart = VM restart" from the parent plan.
-reattachVmMonitors :: ServerState -> IO ()
-reattachVmMonitors state = do
-  let pool = ssDbPool state
-  candidates <-
-    runSqlPool
-      ( selectList
-          [ M.VmStatus
-              <-. [VmStarting, VmLoading, VmRunning, VmPaused]
-          ]
-          []
-      )
-      pool
-  runServerLogging state $
-    Control.Monad.forM_ candidates $ \(Entity vmKey vm) -> do
-      let vmId = fromSqlKey vmKey
-      outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> do
-        rstat <- NOA.vmStatus nac vmId
-        pure (nac, rstat)
-      case outer of
-        Left err ->
-          logDebugN $
-            "Skipping reattach for VM " <> vmName vm <> ": " <> err
-        Right (nac, r) -> case r of
-          Right status -> case NOA.vasState status of
-            NOA.VmAgentRunning -> do
-              logInfoN $
-                "Re-attaching monitor for VM " <> vmName vm
-              liftIO $ attachVmMonitor state vmId
-            NOA.VmAgentStopped -> do
-              logInfoN $
-                "VM "
-                  <> vmName vm
-                  <> " exited cleanly while daemon was disconnected; reconciling"
-              liftIO $ runSqlPool (setVmStopped vmId) pool
-            NOA.VmAgentErrored -> do
-              let msg =
-                    "QEMU exited with error code "
-                      <> T.pack (show (NOA.vasLastExitCode status))
-                      <> " (observed while daemon was disconnected)"
-              logWarnN $
-                "VM " <> vmName vm <> ": " <> msg
-              liftIO $ runSqlPool (setVmError vmId msg) pool
-            NOA.VmAgentUnknown -> do
-              logInfoN $
-                "VM "
-                  <> vmName vm
-                  <> " not in agent ledger; re-issuing vmStart to honour DB intent"
-              reapplyVm state nac vmId vm
-          Left e ->
-            logWarnN $
-              "vmStatus RPC failed for VM "
-                <> vmName vm
-                <> ": "
-                <> T.pack (show e)
-
 -- | Per-node autostart pass. Called by the per-node supervisor's
 -- nodeagent @onConnect@ callback the FIRST time it lands a
 -- successful dial after the supervisor spawned — see
@@ -2053,6 +1592,10 @@ reattachVmMonitors state = do
 -- had connected). 'reattachVmMonitors' has also already run, so
 -- any VMs the agent still has alive are getting their monitor
 -- back; autostart strictly handles the @{stopped, saved}@ side.
+--
+-- Lives in the umbrella module (not in "Corvus.Handlers.Vm.Monitor")
+-- because it issues 'VmStart' actions defined here, and the monitor
+-- sub-module must not import back into the umbrella.
 autostartVmsOnNode :: ServerState -> M.NodeId -> IO ()
 autostartVmsOnNode state nodeId = do
   let pool = ssDbPool state
@@ -2070,7 +1613,7 @@ autostartVmsOnNode state nodeId = do
     unless (null vms) $ do
       logInfoN $
         "Autostarting " <> T.pack (show (length vms)) <> " VM(s) on node " <> T.pack (show (fromSqlKey nodeId))
-      Control.Monad.forM_ vms $ \(Entity vmKey vm) -> do
+      forM_ vms $ \(Entity vmKey vm) -> do
         resp <- liftIO $ runAction state autostartClientName (VmStart (fromSqlKey vmKey))
         case classifyResponse resp of
           (TaskError, Just err) ->
@@ -2082,47 +1625,3 @@ autostartVmsOnNode state nodeId = do
 -- autostart-driven starts apart from operator-issued ones.
 autostartClientName :: Text
 autostartClientName = "system-autostart"
-
--- | Re-issue 'vmStart' for one VM. Assembles 'VmSpec' from the
--- DB (same path 'launchVmViaAgent' uses on a cold start),
--- dispatches, and attaches the monitor on success. On any
--- failure the row lands in 'VmError' — a follow-up @crv vm
--- start@ can recover it.
-reapplyVm :: ServerState -> NOA.NodeAgentClient -> Int64 -> Vm -> LoggingT IO ()
-reapplyVm state nac vmId vm = do
-  let pool = ssDbPool state
-      cfg = ssQemuConfig state
-  mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
-  needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
-  let netAgentForSpec = if needsNetd then mNetAgent else Nothing
-      waitMs =
-        if vmGuestAgent vm then 300000 else 0
-  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
-  case mSpec of
-    Left err
-      | "disappeared from DB" `T.isInfixOf` err -> do
-          logWarnN $
-            "VM "
-              <> vmName vm
-              <> " disappeared from DB during reapply; marking stopped"
-          liftIO $ runSqlPool (setVmStopped vmId) pool
-      | otherwise -> do
-          logWarnN $
-            "VM " <> vmName vm <> " reapply: assembleVmSpec failed: " <> err
-          liftIO $ runSqlPool (setVmError vmId err) pool
-    Right spec -> do
-      r <- liftIO $ NOA.vmStart nac spec
-      case r of
-        Right info -> do
-          logInfoN $ "VM " <> vmName vm <> " re-applied via vmStart"
-          let pid = fromIntegral (NOA.vriQemuPid info) :: Int
-          liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) pool
-          liftIO $ attachVmMonitor state vmId
-        Left e -> do
-          let msg = "vmStart reapply: " <> T.pack (show e)
-          logWarnN $
-            "vmStart reapply failed for VM "
-              <> vmName vm
-              <> ": "
-              <> T.pack (show e)
-          liftIO $ runSqlPool (setVmError vmId msg) pool

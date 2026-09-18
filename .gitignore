@@ -6,7 +6,7 @@
 .stack-work/
 dist-newstyle/
 dist/
-plans/
+plans/*
 .test-cache/
 .test-images/
 # Python tool caches

@@ -51,6 +51,10 @@ library
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
       Corvus.Handlers.Vm.Snapshot
+      Corvus.Handlers.Vm.CloudInit
+      Corvus.Handlers.Vm.Console
+      Corvus.Handlers.Vm.Db
+      Corvus.Handlers.Vm.Monitor
       Corvus.Handlers.Disk
       Corvus.Handlers.Disk.Path
       Corvus.Handlers.Disk.Db
