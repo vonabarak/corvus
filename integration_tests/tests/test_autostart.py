@@ -286,6 +286,9 @@ class TestVmAutostart(SingleNodeCase):
                 timeout_sec=10.0,
                 msg="VM did not settle at stopped before manual start",
             )
+            # This optimistic no-QGA start/reset sequence intentionally
+            # exercises the lifecycle fence: a late start completion must not
+            # revive the row before the reconnect assertion below.
             vm.start(wait=False)
             _poll_until(
                 lambda: vm.show().status == "running",

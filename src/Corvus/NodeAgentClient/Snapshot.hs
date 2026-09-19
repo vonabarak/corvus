@@ -1,6 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedLabels #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- | Disk and VM snapshot RPCs.
 module Corvus.NodeAgentClient.Snapshot

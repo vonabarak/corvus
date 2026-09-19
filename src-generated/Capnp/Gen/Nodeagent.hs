@@ -1698,7 +1698,7 @@ type instance (R.ReprFor Session'vmStopHard'params) = (R.Ptr (Std_.Just R.Struct
 instance (C.HasTypeId Session'vmStopHard'params) where
     typeId  = 18426405290603545736
 instance (C.TypedStruct Session'vmStopHard'params) where
-    numStructWords  = 1
+    numStructWords  = 3
     numStructPtrs  = 0
 instance (C.Allocate Session'vmStopHard'params) where
     type AllocHint Session'vmStopHard'params = ()
@@ -1710,19 +1710,29 @@ instance (C.AllocateList Session'vmStopHard'params) where
 instance (C.EstimateListAlloc Session'vmStopHard'params (C.Parsed Session'vmStopHard'params))
 data instance C.Parsed Session'vmStopHard'params
     = Session'vmStopHard'params 
-        {vmId :: (RP.Parsed Std_.Int64)}
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,lifecycleRevision :: (RP.Parsed Std_.Int64)
+        ,hasLifecycleFence :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStopHard'params))
 deriving instance (Std_.Eq (C.Parsed Session'vmStopHard'params))
 instance (C.Parse Session'vmStopHard'params (C.Parsed Session'vmStopHard'params)) where
-    parse raw_ = (Session'vmStopHard'params <$> (GH.parseField #vmId raw_))
+    parse raw_ = (Session'vmStopHard'params <$> (GH.parseField #vmId raw_)
+                                            <*> (GH.parseField #lifecycleRevision raw_)
+                                            <*> (GH.parseField #hasLifecycleFence raw_))
 instance (C.Marshal Session'vmStopHard'params (C.Parsed Session'vmStopHard'params)) where
     marshalInto raw_ Session'vmStopHard'params{..} = (do
         (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
+        (GH.encodeField #hasLifecycleFence hasLifecycleFence raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot Session'vmStopHard'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "lifecycleRevision" GH.Slot Session'vmStopHard'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "hasLifecycleFence" GH.Slot Session'vmStopHard'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 2 1 0)
 data Session'vmStopHard'results 
 type instance (R.ReprFor Session'vmStopHard'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopHard'results) where
@@ -4049,7 +4059,7 @@ type instance (R.ReprFor VmSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSpec) where
     typeId  = 13869854766932503674
 instance (C.TypedStruct VmSpec) where
-    numStructWords  = 4
+    numStructWords  = 6
     numStructPtrs  = 6
 instance (C.Allocate VmSpec) where
     type AllocHint VmSpec = ()
@@ -4080,7 +4090,9 @@ data instance C.Parsed VmSpec
         ,loadFromSavedState :: (RP.Parsed Std_.Bool)
         ,cpuModel :: (RP.Parsed Basics.Text)
         ,startPaused :: (RP.Parsed Std_.Bool)
-        ,tpm :: (RP.Parsed Std_.Bool)}
+        ,tpm :: (RP.Parsed Std_.Bool)
+        ,lifecycleRevision :: (RP.Parsed Std_.Int64)
+        ,runtimeGeneration :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSpec))
 deriving instance (Std_.Eq (C.Parsed VmSpec))
@@ -4104,7 +4116,9 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
                          <*> (GH.parseField #loadFromSavedState raw_)
                          <*> (GH.parseField #cpuModel raw_)
                          <*> (GH.parseField #startPaused raw_)
-                         <*> (GH.parseField #tpm raw_))
+                         <*> (GH.parseField #tpm raw_)
+                         <*> (GH.parseField #lifecycleRevision raw_)
+                         <*> (GH.parseField #runtimeGeneration raw_))
 instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
     marshalInto raw_ VmSpec{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -4127,6 +4141,8 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #cpuModel cpuModel raw_)
         (GH.encodeField #startPaused startPaused raw_)
         (GH.encodeField #tpm tpm raw_)
+        (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
+        (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmSpec Std_.Int64) where
@@ -4169,6 +4185,10 @@ instance (GH.HasField "startPaused" GH.Slot VmSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 6 2 1 0)
 instance (GH.HasField "tpm" GH.Slot VmSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 7 2 1 0)
+instance (GH.HasField "lifecycleRevision" GH.Slot VmSpec Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 4 64 0)
+instance (GH.HasField "runtimeGeneration" GH.Slot VmSpec Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 5 64 0)
 data VmDriveSpec 
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where
@@ -4324,7 +4344,7 @@ type instance (R.ReprFor VmRuntimeInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmRuntimeInfo) where
     typeId  = 16495572734220069740
 instance (C.TypedStruct VmRuntimeInfo) where
-    numStructWords  = 2
+    numStructWords  = 4
     numStructPtrs  = 1
 instance (C.Allocate VmRuntimeInfo) where
     type AllocHint VmRuntimeInfo = ()
@@ -4339,7 +4359,9 @@ data instance C.Parsed VmRuntimeInfo
         {qemuPid :: (RP.Parsed Std_.Int32)
         ,virtiofsdPids :: (RP.Parsed (R.List Std_.Int32))
         ,spicePort :: (RP.Parsed Std_.Int32)
-        ,swtpmPid :: (RP.Parsed Std_.Int32)}
+        ,swtpmPid :: (RP.Parsed Std_.Int32)
+        ,lifecycleRevision :: (RP.Parsed Std_.Int64)
+        ,runtimeGeneration :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmRuntimeInfo))
 deriving instance (Std_.Eq (C.Parsed VmRuntimeInfo))
@@ -4347,13 +4369,17 @@ instance (C.Parse VmRuntimeInfo (C.Parsed VmRuntimeInfo)) where
     parse raw_ = (VmRuntimeInfo <$> (GH.parseField #qemuPid raw_)
                                 <*> (GH.parseField #virtiofsdPids raw_)
                                 <*> (GH.parseField #spicePort raw_)
-                                <*> (GH.parseField #swtpmPid raw_))
+                                <*> (GH.parseField #swtpmPid raw_)
+                                <*> (GH.parseField #lifecycleRevision raw_)
+                                <*> (GH.parseField #runtimeGeneration raw_))
 instance (C.Marshal VmRuntimeInfo (C.Parsed VmRuntimeInfo)) where
     marshalInto raw_ VmRuntimeInfo{..} = (do
         (GH.encodeField #qemuPid qemuPid raw_)
         (GH.encodeField #virtiofsdPids virtiofsdPids raw_)
         (GH.encodeField #spicePort spicePort raw_)
         (GH.encodeField #swtpmPid swtpmPid raw_)
+        (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
+        (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "qemuPid" GH.Slot VmRuntimeInfo Std_.Int32) where
@@ -4364,6 +4390,10 @@ instance (GH.HasField "spicePort" GH.Slot VmRuntimeInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 0 32 0)
 instance (GH.HasField "swtpmPid" GH.Slot VmRuntimeInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
+instance (GH.HasField "lifecycleRevision" GH.Slot VmRuntimeInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
+instance (GH.HasField "runtimeGeneration" GH.Slot VmRuntimeInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 3 64 0)
 data VmStopResult 
 type instance (R.ReprFor VmStopResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStopResult) where
@@ -4822,7 +4852,7 @@ type instance (R.ReprFor VmStatusEntry) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStatusEntry) where
     typeId  = 18089874872843444784
 instance (C.TypedStruct VmStatusEntry) where
-    numStructWords  = 4
+    numStructWords  = 6
     numStructPtrs  = 2
 instance (C.Allocate VmStatusEntry) where
     type AllocHint VmStatusEntry = ()
@@ -4841,7 +4871,9 @@ data instance C.Parsed VmStatusEntry
         ,guestAgentOk :: (RP.Parsed Std_.Bool)
         ,lastPingMillis :: (RP.Parsed Std_.Int64)
         ,netIfs :: (RP.Parsed (R.List GuestNetIf))
-        ,stats :: (RP.Parsed Capnp.Gen.ById.Xa7366eabdb0b1db4.VmStats)}
+        ,stats :: (RP.Parsed Capnp.Gen.ById.Xa7366eabdb0b1db4.VmStats)
+        ,lifecycleRevision :: (RP.Parsed Std_.Int64)
+        ,runtimeGeneration :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStatusEntry))
 deriving instance (Std_.Eq (C.Parsed VmStatusEntry))
@@ -4853,7 +4885,9 @@ instance (C.Parse VmStatusEntry (C.Parsed VmStatusEntry)) where
                                 <*> (GH.parseField #guestAgentOk raw_)
                                 <*> (GH.parseField #lastPingMillis raw_)
                                 <*> (GH.parseField #netIfs raw_)
-                                <*> (GH.parseField #stats raw_))
+                                <*> (GH.parseField #stats raw_)
+                                <*> (GH.parseField #lifecycleRevision raw_)
+                                <*> (GH.parseField #runtimeGeneration raw_))
 instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
     marshalInto raw_ VmStatusEntry{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -4864,6 +4898,8 @@ instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
         (GH.encodeField #lastPingMillis lastPingMillis raw_)
         (GH.encodeField #netIfs netIfs raw_)
         (GH.encodeField #stats stats raw_)
+        (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
+        (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmStatusEntry Std_.Int64) where
@@ -4882,6 +4918,10 @@ instance (GH.HasField "netIfs" GH.Slot VmStatusEntry (R.List GuestNetIf)) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "stats" GH.Slot VmStatusEntry Capnp.Gen.ById.Xa7366eabdb0b1db4.VmStats) where
     fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "lifecycleRevision" GH.Slot VmStatusEntry Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 4 64 0)
+instance (GH.HasField "runtimeGeneration" GH.Slot VmStatusEntry Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 5 64 0)
 data GuestNetIf 
 type instance (R.ReprFor GuestNetIf) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestNetIf) where

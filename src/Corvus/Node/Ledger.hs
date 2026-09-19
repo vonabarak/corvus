@@ -14,10 +14,15 @@ module Corvus.Node.Ledger
   , lookupVm
   , insertVm
   , removeVm
+  , VmStartAdmission (..)
+  , admitVmStart
+  , publishVmStart
+  , clearVmStartReservation
+  , fenceVmReset
   )
 where
 
-import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVarIO, readTVar, stateTVar)
+import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVarIO, readTVar, stateTVar, writeTVar)
 import qualified Corvus.Node.VmSpec as VS
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
@@ -78,12 +83,26 @@ data VmLiveState = VmLiveState
 -- | The agent-wide ledger of currently-tracked VMs, keyed by
 -- vmId. Atomic STM access so the periodic poller, the RPC
 -- handlers, and the reaper threads can interleave safely.
-newtype VmLedger = VmLedger
-  { vmVar :: TVar (Map.Map Int64 VmLiveState)
+data VmFence = VmFence
+  { vfHighestRevision :: !Int64
+  , vfStartReservation :: !(Maybe Int64)
   }
 
+-- | Process-wide live-state ledger plus retained per-VM fence tombstones.
+-- Tombstones deliberately survive removal of a live entry: a delayed start
+-- RPC must not become valid merely because reset already removed QEMU.
+data VmLedger = VmLedger
+  { vmVar :: TVar (Map.Map Int64 VmLiveState)
+  , vmFences :: TVar (Map.Map Int64 VmFence)
+  }
+
+data VmStartAdmission
+  = VmStartAccepted (Maybe VmLiveState)
+  | VmStartAlreadyRunning VmLiveState
+  | VmStartRejected T.Text
+
 newVmLedger :: IO VmLedger
-newVmLedger = VmLedger <$> newTVarIO Map.empty
+newVmLedger = VmLedger <$> newTVarIO Map.empty <*> newTVarIO Map.empty
 
 readVms :: VmLedger -> STM (Map.Map Int64 VmLiveState)
 readVms = readTVar . vmVar
@@ -97,3 +116,81 @@ insertVm l vmId st = modifyTVar' (vmVar l) (Map.insert vmId st)
 removeVm :: VmLedger -> Int64 -> STM (Maybe VmLiveState)
 removeVm l vmId =
   stateTVar (vmVar l) (\m -> (Map.lookup vmId m, Map.delete vmId m))
+
+-- | Reserve a cold start under its daemon-owned fence. The reservation is
+-- created before helpers/QEMU spawn and is invalidated atomically by reset.
+admitVmStart :: VmLedger -> Int64 -> Int64 -> Int64 -> STM VmStartAdmission
+admitVmStart ledger vmId revision generation = do
+  live <- lookupVm ledger vmId
+  fences <- readTVar (vmFences ledger)
+  let fence = Map.findWithDefault (VmFence (-1) Nothing) vmId fences
+      reserveStart
+        | revision <= vfHighestRevision fence =
+            pure (VmStartRejected "stale lifecycle revision")
+        | otherwise = do
+            writeTVar
+              (vmFences ledger)
+              (Map.insert vmId (VmFence revision (Just generation)) fences)
+            pure (VmStartAccepted Nothing)
+  case live of
+    Just current -> do
+      mExit <- readTVar (vlsLastExitCode current)
+      case mExit of
+        Nothing
+          | VS.vsLifecycleRevision (vlsSpec current) == revision
+              && VS.vsRuntimeGeneration (vlsSpec current) == generation ->
+              pure (VmStartAlreadyRunning current)
+          | otherwise -> pure (VmStartRejected "a runtime is already live")
+        Just _ -> do
+          _ <- removeVm ledger vmId
+          admission <- reserveStart
+          pure $ case admission of
+            VmStartAccepted Nothing -> VmStartAccepted (Just current)
+            other -> other
+    Nothing -> reserveStart
+
+-- | Publish a spawned process only while the reservation remains current.
+-- A reset that raced any part of start changes the high-water mark or clears
+-- the reservation, making this return False; the caller must tear down the
+-- just-spawned process.
+publishVmStart :: VmLedger -> Int64 -> Int64 -> Int64 -> VmLiveState -> STM Bool
+publishVmStart ledger vmId revision generation live = do
+  fences <- readTVar (vmFences ledger)
+  let fence = Map.findWithDefault (VmFence (-1) Nothing) vmId fences
+      current = vfHighestRevision fence == revision
+      reserved = vfStartReservation fence == Just generation
+  existing <- lookupVm ledger vmId
+  let respawning = case existing of
+        Just old ->
+          VS.vsLifecycleRevision (vlsSpec old) == revision
+            && VS.vsRuntimeGeneration (vlsSpec old) == generation
+        Nothing -> False
+  if current && (reserved || respawning)
+    then do
+      modifyTVar' (vmVar ledger) (Map.insert vmId live)
+      writeTVar (vmFences ledger) (Map.insert vmId (VmFence revision Nothing) fences)
+      pure True
+    else pure False
+
+clearVmStartReservation :: VmLedger -> Int64 -> Int64 -> Int64 -> STM ()
+clearVmStartReservation ledger vmId revision generation = do
+  fences <- readTVar (vmFences ledger)
+  case Map.lookup vmId fences of
+    Just fence
+      | vfHighestRevision fence == revision
+          && vfStartReservation fence == Just generation ->
+          writeTVar (vmFences ledger) (Map.insert vmId (VmFence revision Nothing) fences)
+    _ -> pure ()
+
+-- | Advance the reset fence and detach the current runtime atomically. A
+-- revision lower than a previously accepted command is stale and cannot kill
+-- a newer runtime.
+fenceVmReset :: VmLedger -> Int64 -> Int64 -> STM (Either T.Text (Maybe VmLiveState))
+fenceVmReset ledger vmId revision = do
+  fences <- readTVar (vmFences ledger)
+  let fence = Map.findWithDefault (VmFence (-1) Nothing) vmId fences
+  if revision < vfHighestRevision fence
+    then pure (Left "stale lifecycle revision")
+    else do
+      writeTVar (vmFences ledger) (Map.insert vmId (VmFence revision Nothing) fences)
+      Right <$> removeVm ledger vmId

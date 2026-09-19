@@ -241,8 +241,9 @@ interface Session {
   # take only the vmId. PIDs stay agent-private.
   # -------------------------------------------------------------------
 
-  # Start a VM. Idempotent: if spec.vmId is already in the ledger,
-  # returns its current VmRuntimeInfo without re-spawning. When
+  # Start a VM. The daemon supplies its lifecycle fence and runtime
+  # generation in the spec. The agent rejects a stale fence before it can
+  # publish a process. When
   # spec.waitForGuestAgentMs is non-zero, the agent polls QGA
   # after spawn and only returns once a ping succeeds (or throws
   # on timeout).
@@ -256,8 +257,12 @@ interface Session {
     -> (result :VmStopResult);
 
   # Force-stop: SIGTERM-then-SIGKILL the QEMU process and every
-  # virtiofsd helper for this vmId. Drops the ledger entry.
-  vmStopHard @17 (vmId :Int64) -> (result :VmStopResult);
+  # virtiofsd helper for this vmId. A reset supplies a lifecycle revision;
+  # accepting it fences an older start even when it has not published its
+  # process yet. Ordinary hard stops leave hasLifecycleFence false.
+  vmStopHard @17 (vmId :Int64,
+                  lifecycleRevision :Int64,
+                  hasLifecycleFence :Bool) -> (result :VmStopResult);
 
   # QMP `stop` — freeze CPU execution. VM stays in memory; ledger
   # entry stays in place.
@@ -585,6 +590,9 @@ struct VmSpec {
   startPaused @18 :Bool;
   # Start swtpm and attach a TPM 2.0 CRB device to QEMU.
   tpm @19 :Bool;
+  # Daemon-owned fence for a cold-start command and the runtime it admits.
+  lifecycleRevision @20 :Int64;
+  runtimeGeneration @21 :Int64;
 }
 
 struct VmDriveSpec {
@@ -618,6 +626,8 @@ struct VmRuntimeInfo {
   virtiofsdPids @1 :List(Int32);
   spicePort     @2 :Int32;   # echoed back from spec; 0 if none
   swtpmPid      @3 :Int32;   # 0 when TPM is disabled
+  lifecycleRevision @4 :Int64;
+  runtimeGeneration @5 :Int64;
 }
 
 # Result of stop operations.
@@ -719,6 +729,8 @@ struct VmStatusEntry {
   # Resource-consumption sample (cumulative counters + instant
   # gauges). Zero-filled when the VM is not running.
   stats          @7 :Vm.VmStats;
+  lifecycleRevision @8 :Int64;
+  runtimeGeneration @9 :Int64;
 }
 
 struct GuestNetIf {

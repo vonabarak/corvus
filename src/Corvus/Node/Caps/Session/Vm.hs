@@ -167,6 +167,8 @@ decodeVmSpec :: CGNA.Parsed CGNA.VmSpec -> VS.VmSpec
 decodeVmSpec
   CGNA.VmSpec
     { CGNA.vmId = vid
+    , CGNA.lifecycleRevision = rev
+    , CGNA.runtimeGeneration = gen
     , CGNA.name = n
     , CGNA.cpuCount = c
     , CGNA.ramMb = r
@@ -189,6 +191,8 @@ decodeVmSpec
     } =
     VS.VmSpec
       { VS.vsVmId = vid
+      , VS.vsLifecycleRevision = rev
+      , VS.vsRuntimeGeneration = gen
       , VS.vsName = n
       , VS.vsCpuCount = c
       , VS.vsRamMb = r
@@ -289,6 +293,8 @@ encodeVmRuntimeInfo live =
     , CGNA.spicePort = L.vlsSpicePort live
     , CGNA.swtpmPid =
         maybe 0 (fromIntegral . fst) (L.vlsSwtpm live)
+    , CGNA.lifecycleRevision = VS.vsLifecycleRevision (L.vlsSpec live)
+    , CGNA.runtimeGeneration = VS.vsRuntimeGeneration (L.vlsSpec live)
     }
 
 encodeVmStopResult :: VS.VmStopKind -> Text -> CGNA.Parsed CGNA.VmStopResult
@@ -352,44 +358,22 @@ handleVmStart
 handleVmStart sc spec = do
   let vmId = VS.vsVmId spec
       ledger = scVmLedger sc
-  mExisting <- atomically $ L.lookupVm ledger vmId
-  case mExisting of
-    Just live -> do
-      -- Idempotent return only if QEMU is still alive — the
-      -- reaper writes 'vlsLastExitCode' the moment the process
-      -- exits. A stale entry (process gone, ledger row not yet
-      -- evicted) would otherwise short-circuit @vmStart@ to
-      -- "already running" and the caller would see "State:
-      -- stopped" with no new QEMU spawned. This happens after
-      -- the guest powers itself off ('sudo poweroff'): the
-      -- daemon's monitor records VmStopped in the DB but the
-      -- agent's ledger entry persists carrying the exit code
-      -- 0 — needed so the next status push reports
-      -- 'VmAgentStopped' rather than 'VmAgentUnknown'.
-      mExit <- readTVarIO (L.vlsLastExitCode live)
-      case mExit of
-        Nothing ->
-          pure
-            CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
-        Just _ -> do
-          runStderrLoggingT . logInfoN $
-            "[nodeagent] vm-"
-              <> tshow vmId
-              <> ": stale ledger entry (QEMU already exited); "
-              <> "discarding and starting fresh"
-          -- Best-effort cleanup of any virtiofsd helpers still
-          -- in the entry — they should already be dead (QEMU's
-          -- vhost-user socket close took them down), but
-          -- 'reapEntryGracefully' handles already-gone PIDs
-          -- without error.
-          reapVmHelpers live
-          _ <- atomically $ L.removeVm ledger vmId
-          -- Drop the cached QGA socket so the fresh QEMU's QGA
-          -- chardev gets a clean connect rather than an attempt
-          -- to talk to the closed-socket fd from the old run.
-          atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
-          doVmStart sc spec
-    Nothing -> doVmStart sc spec
+  admission <-
+    atomically $
+      L.admitVmStart
+        ledger
+        vmId
+        (VS.vsLifecycleRevision spec)
+        (VS.vsRuntimeGeneration spec)
+  case admission of
+    L.VmStartAccepted mExited -> do
+      forM_ mExited reapVmHelpers
+      when (isJust mExited) $ NGA.releaseConn (scQgaConns sc) vmId
+      doVmStart sc spec
+    L.VmStartAlreadyRunning live ->
+      pure CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+    L.VmStartRejected reason ->
+      throwFailed ("vmStart rejected for vmId " <> tshow vmId <> ": " <> reason)
 
 doVmStart
   :: SessionCap -> VS.VmSpec -> IO (CGNA.Parsed CGNA.Session'vmStart'results)
@@ -506,7 +490,29 @@ doVmStart sc spec = do
                   , L.vlsSpec = spec
                   , L.vlsStopRequested = stopRequestedVar
                   }
-          atomically $ L.insertVm (scVmLedger sc) vmId live
+          published <-
+            atomically $
+              L.publishVmStart
+                (scVmLedger sc)
+                vmId
+                (VS.vsLifecycleRevision spec)
+                (VS.vsRuntimeGeneration spec)
+                live
+          unless published $ do
+            -- Reset won after this start reserved the VM but before QEMU
+            -- could be published. Never leave the orphan running.
+            atomically $ writeTVar stopRequestedVar True
+            let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+            _ <-
+              runStderrLoggingT $
+                P.stopProcess
+                  qemuLabel
+                  (CPid (fromIntegral qemuPidW))
+                  Nothing
+                  0
+                  5
+            reapSpawnedHelpers virtiofsdEntries swtpmEntry
+            throwFailed ("vmStart rejected by a newer lifecycle fence for vmId " <> tshow vmId)
           -- Start agent-side chardev buffer threads. The threads
           -- wait ~1 s for QEMU to open the socket, connect, then
           -- ring-buffer output until QEMU exits (at which point
@@ -1119,9 +1125,14 @@ handleVmStopGraceful sc vmId timeoutSec = do
 -- | Hard stop: SIGTERM-then-SIGKILL QEMU + every virtiofsd
 -- helper. Drops the ledger entry.
 handleVmStopHard
-  :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmStopHard'results)
-handleVmStopHard sc vmId = do
-  mLive <- atomically $ L.removeVm (scVmLedger sc) vmId
+  :: SessionCap -> Int64 -> Maybe Int64 -> IO (CGNA.Parsed CGNA.Session'vmStopHard'results)
+handleVmStopHard sc vmId mRevision = do
+  fenced <- case mRevision of
+    Nothing -> Right <$> atomically (L.removeVm (scVmLedger sc) vmId)
+    Just revision -> atomically $ L.fenceVmReset (scVmLedger sc) vmId revision
+  mLive <- case fenced of
+    Left reason -> throwFailed ("vmStopHard rejected for vmId " <> tshow vmId <> ": " <> reason)
+    Right live -> pure live
   case mLive of
     Nothing -> do
       runStderrLoggingT . logDebugN $

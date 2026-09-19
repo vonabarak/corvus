@@ -66,8 +66,8 @@ data VmAction
 --     handler dispatches the appropriate cancel side-effect based
 --     on the from-state (kill QEMU, delete saved-state file,
 --     QMP @migrate_cancel@, abort migration orchestrator).
---   * From 'VmStopped': 'ActionStartCold' → 'VmRunning';
---     'ActionStartColdWithGA' → 'VmStarting'.
+--   * From 'VmStopped': every cold start enters 'VmStarting'. The daemon
+--     promotes it only after the start fence still matches.
 --   * From 'VmStarting': 'ActionStop' → 'VmStopping'.
 --   * From 'VmRunning': 'ActionStop' → 'VmStopping',
 --     'ActionPause' → 'VmPaused', 'ActionSave' → 'VmSaving'.

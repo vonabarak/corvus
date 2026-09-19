@@ -240,6 +240,7 @@ library
       Corvus.Client.Commands.Network
       Corvus.Database.Migrations
       Corvus.Database.Migrations.V003
+      Corvus.Database.Migrations.V004
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck

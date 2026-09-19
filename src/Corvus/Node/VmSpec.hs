@@ -40,6 +40,8 @@ import Data.Word (Word32)
 
 data VmSpec = VmSpec
   { vsVmId :: !Int64
+  , vsLifecycleRevision :: !Int64
+  , vsRuntimeGeneration :: !Int64
   , vsName :: !T.Text
   , vsCpuCount :: !Int32
   , vsRamMb :: !Int32
@@ -123,6 +125,8 @@ data VmRuntimeInfo = VmRuntimeInfo
   , vriVirtiofsdPids :: ![Int32]
   , vriSpicePort :: !Int32
   , vriSwtpmPid :: !Int32
+  , vriLifecycleRevision :: !Int64
+  , vriRuntimeGeneration :: !Int64
   }
   deriving (Eq, Show)
 
@@ -186,6 +190,8 @@ data VmStatusSnapshot = VmStatusSnapshot
 
 data VmStatusEntry = VmStatusEntry
   { vseVmId :: !Int64
+  , vseLifecycleRevision :: !Int64
+  , vseRuntimeGeneration :: !Int64
   , vseState :: !VmAgentState
   , vseQemuPid :: !Int32
   , vseLastExitCode :: !Int32

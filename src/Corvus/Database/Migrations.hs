@@ -4,6 +4,7 @@ module Corvus.Database.Migrations (migrations) where
 
 import Corvus.Database.Migration (Migration)
 import qualified Corvus.Database.Migrations.V003 as V003
+import qualified Corvus.Database.Migrations.V004 as V004
 
 migrations :: [Migration]
-migrations = [V003.migration]
+migrations = [V003.migration, V004.migration]

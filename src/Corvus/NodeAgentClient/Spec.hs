@@ -60,9 +60,11 @@ assembleVmSpec
   -> QemuConfig
   -> Maybe NA.NetAgentClient
   -> Int64
+  -> Int64
+  -> Int64
   -> Word32
   -> IO (Either T.Text VS.VmSpec)
-assembleVmSpec pool config mNetAgent vmId waitMs = do
+assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration waitMs = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- runSqlPool (get vmKey) pool
   case mVm of
@@ -102,6 +104,8 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
               spec =
                 VS.VmSpec
                   { VS.vsVmId = vmId
+                  , VS.vsLifecycleRevision = lifecycleRevision
+                  , VS.vsRuntimeGeneration = runtimeGeneration
                   , VS.vsName = vmName vm
                   , VS.vsCpuCount = fromIntegral (vmCpuCount vm) :: Int32
                   , VS.vsRamMb = fromIntegral (vmRamMb vm) :: Int32

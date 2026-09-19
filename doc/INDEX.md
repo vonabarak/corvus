@@ -37,6 +37,7 @@
 ## Development
 
 - [Architecture](architecture.md) -- Component ownership, source layout, runtime patterns, entities, and enums
+- [VM Lifecycle and Fencing](vm-lifecycle.md) -- VM states, daemon/nodeagent ownership, ordering tokens, and start/reset race handling
 - [Development Guide](development.md) -- Build dependencies, Make targets, test structure, implementation conventions, and verification
 - [Database Migrations](database-migrations.md) -- Versioned upgrades, authoring and retiring migration modules, and backend tests
 

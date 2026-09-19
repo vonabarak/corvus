@@ -101,6 +101,8 @@ processEntry :: ServerState -> C.Parsed CGNA.VmStatusEntry -> IO ()
 processEntry state entry = do
   let CGNA.VmStatusEntry
         { CGNA.vmId = vmId
+        , CGNA.lifecycleRevision = lifecycleRevision
+        , CGNA.runtimeGeneration = runtimeGeneration
         , CGNA.state = agentState
         , CGNA.guestAgentOk = ok
         , CGNA.lastPingMillis = pingMillis
@@ -124,8 +126,10 @@ processEntry state entry = do
   -- the network_interface table.
   when ok $ do
     let pingedAt = millisToUtc pingMillis
-    runSqlPool (updateHealthcheck vmId pingedAt) pool
-    runSqlPool (updateGuestNetworkData vmId ifs) pool
+    current <- runSqlPool (isCurrentRuntime vmId lifecycleRevision runtimeGeneration) pool
+    when current $ do
+      runSqlPool (updateHealthcheck vmId pingedAt) pool
+      runSqlPool (updateGuestNetworkData vmId ifs) pool
   -- Translate agent-side state into DB transitions for the
   -- subset of states the agent owns (start completion + crash
   -- detection). 'attachVmMonitor' still drives the running →
@@ -140,7 +144,7 @@ processEntry state entry = do
       | ok ->
           -- QGA pinged — definitively running. Promotes any
           -- 'VmStarting' or 'VmLoading' row to 'VmRunning'.
-          runSqlPool (promoteStartingToRunning vmId) pool
+          runSqlPool (promoteStartingToRunning vmId lifecycleRevision runtimeGeneration) pool
       | otherwise ->
           -- No QGA ping (either GA disabled, or first ping not
           -- yet). For 'VmStarting' the daemon waits for QGA before
@@ -151,9 +155,9 @@ processEntry state entry = do
           -- helper guards on the DB's from-status so a regular
           -- steady-state tick doesn't accidentally re-write the
           -- row.
-          runSqlPool (promoteLoadingToRunning vmId) pool
+          runSqlPool (promoteLoadingToRunning vmId lifecycleRevision runtimeGeneration) pool
     CGNA.VmAgentState'errored ->
-      runSqlPool (markErroredFromAgent vmId (fromIntegral exitCode)) pool
+      runSqlPool (markErroredFromAgent vmId lifecycleRevision runtimeGeneration (fromIntegral exitCode)) pool
     _ -> pure ()
   -- Fan out the per-VM GuestAgentStatus to anyone subscribed via
   -- @vm.subscribeGuestAgent@. Mirrors the old in-daemon poller's
@@ -169,15 +173,18 @@ processEntry state entry = do
 -- snapshot the moment QEMU is live. We guard on the from-status
 -- so a regular 10 s tick for a steady-state VM doesn't accidentally
 -- re-write its status.
-promoteStartingToRunning :: Int64 -> SqlPersistT IO ()
-promoteStartingToRunning vmId = do
+promoteStartingToRunning :: Int64 -> Int64 -> Int64 -> SqlPersistT IO ()
+promoteStartingToRunning vmId lifecycleRevision runtimeGeneration = do
   let key = M.toSqlKey vmId :: M.VmId
   mVm <- get key
   case mVm of
     Just vm
       | M.vmStatus vm `elem` [M.VmStarting, M.VmLoading] ->
-          update
-            key
+          updateWhere
+            [ M.VmId ==. key
+            , M.VmLifecycleRevision ==. lifecycleRevision
+            , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            ]
             [ M.VmStatus =. M.VmRunning
             , M.VmErrorMessage =. Nothing
             , M.VmLastErrorAt =. Nothing
@@ -195,15 +202,18 @@ promoteStartingToRunning vmId = do
 -- on a steady-state GA-disabled running VM has @ok=false@ too,
 -- but the daemon already wrote @VmRunning@ synchronously on
 -- cold-no-GA start so this code path is a no-op for them.
-promoteLoadingToRunning :: Int64 -> SqlPersistT IO ()
-promoteLoadingToRunning vmId = do
+promoteLoadingToRunning :: Int64 -> Int64 -> Int64 -> SqlPersistT IO ()
+promoteLoadingToRunning vmId lifecycleRevision runtimeGeneration = do
   let key = M.toSqlKey vmId :: M.VmId
   mVm <- get key
   case mVm of
     Just vm
       | M.vmStatus vm == M.VmLoading ->
-          update
-            key
+          updateWhere
+            [ M.VmId ==. key
+            , M.VmLifecycleRevision ==. lifecycleRevision
+            , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            ]
             [ M.VmStatus =. M.VmRunning
             , M.VmErrorMessage =. Nothing
             , M.VmLastErrorAt =. Nothing
@@ -218,8 +228,8 @@ promoteLoadingToRunning vmId = do
 --     migration orchestrator each own their own terminal flips.
 --     A QEMU exit observed mid-save is expected (QMP @quit@) and
 --     mustn't be reflected here.
-markErroredFromAgent :: Int64 -> Int -> SqlPersistT IO ()
-markErroredFromAgent vmId exitCode = do
+markErroredFromAgent :: Int64 -> Int64 -> Int64 -> Int -> SqlPersistT IO ()
+markErroredFromAgent vmId lifecycleRevision runtimeGeneration exitCode = do
   let key = M.toSqlKey vmId :: M.VmId
   mVm <- get key
   case mVm of
@@ -232,8 +242,11 @@ markErroredFromAgent vmId exitCode = do
                     ] -> do
           now <- liftIO getCurrentTime
           let msg = "QEMU exited with code " <> T.pack (show exitCode)
-          update
-            key
+          updateWhere
+            [ M.VmId ==. key
+            , M.VmLifecycleRevision ==. lifecycleRevision
+            , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            ]
             [ M.VmStatus =. M.VmError
             , M.VmHealthcheck =. Nothing
             , M.VmSpicePort =. Nothing
@@ -243,6 +256,15 @@ markErroredFromAgent vmId exitCode = do
     _ -> pure ()
 
 -- | Update the healthcheck timestamp on the VM.
+isCurrentRuntime :: Int64 -> Int64 -> Int64 -> SqlPersistT IO Bool
+isCurrentRuntime vmId lifecycleRevision runtimeGeneration = do
+  mVm <- get (M.toSqlKey vmId :: M.VmId)
+  pure $ case mVm of
+    Just vm ->
+      M.vmLifecycleRevision vm == lifecycleRevision
+        && M.vmRuntimeGeneration vm == Just runtimeGeneration
+    Nothing -> False
+
 updateHealthcheck :: Int64 -> UTCTime -> SqlPersistT IO ()
 updateHealthcheck vmId now =
   update (M.toSqlKey vmId :: M.VmId) [M.VmHealthcheck =. Just now]

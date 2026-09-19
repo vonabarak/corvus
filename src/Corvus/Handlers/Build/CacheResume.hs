@@ -37,9 +37,8 @@ import Corvus.Handlers.Vm
   ( VmStart (..)
   , VmStop (..)
   , hasNetdMediatedNetIf
-  , setVmError
-  , setVmStatus
   )
+import Corvus.Handlers.Vm.Db (claimVmStart, setVmErrorIfCurrent, setVmStartedIfCurrent)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageResult (..))
@@ -54,7 +53,7 @@ import Corvus.Schema.Build (Build (..), BuildCacheMode (..), BuildStrategy (..),
 import Corvus.Types (BuildOptions (..), ServerState (..), lookupNetAgentMaybe)
 import Data.Int (Int64)
 import qualified Data.List
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime)
@@ -279,8 +278,6 @@ resumeMemoryCacheBakeVm
   -> LoggingT IO (Either Text ())
 resumeMemoryCacheBakeVm state cachedVmId disks chain = do
   let pool = ssDbPool state
-      cfg = ssQemuConfig state
-      snapName = H.cacheSnapshotName chain
   case Data.List.find (\d -> cdRole d == "artifact") disks of
     Nothing ->
       pure $
@@ -289,104 +286,124 @@ resumeMemoryCacheBakeVm state cachedVmId disks chain = do
       mVm <- liftIO $ runSqlPool (get (toSqlKey cachedVmId :: VmId)) pool
       case mVm of
         Nothing -> pure $ Left "cached bake VM disappeared mid-resume"
-        Just vm -> do
-          needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf cachedVmId) pool
-          mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
-          when (needsNetd && isNothing mNetAgent) $
-            logWarnN $
-              "memory-mode resume: VM "
-                <> T.pack (show cachedVmId)
-                <> " has a managed NIC but netd is unavailable; the lifecycle will probably fail"
-          let netAgentForSpec = if needsNetd then mNetAgent else Nothing
-              -- Cache resume re-uses the bake VM. The QGA wait
-              -- happens AFTER our snapshot-load + cont, so we
-              -- inherit the 90-second steady-state budget the
-              -- non-cloud-init path uses. The bake VM has QGA on
-              -- by construction (overlay + from-scratch strategies
-              -- both require it).
-              waitMs = if vmGuestAgent vm then 90000 else 0
-          mSpec <-
+        Just _ -> do
+          mClaimed <-
             liftIO $
-              assembleVmSpec pool cfg netAgentForSpec cachedVmId waitMs
-          case mSpec of
-            Left err -> pure $ Left $ "memory-mode resume: assembleVmSpec: " <> err
-            Right baseSpec -> do
-              let spec = baseSpec {VS.vsStartPaused = True}
-                  nodeId = M.vmNodeId vm
-                  paths = map cdFilePath disks
-                  carrierPath = cdFilePath carrier
-              -- Pre-commit VmStarting so external observers see
-              -- the row leave VmStopped while we drive the
-              -- multi-step lifecycle. We flip to VmRunning at the
-              -- end.
-              liftIO $ runSqlPool (setVmStatus cachedVmId VmStarting) pool
-              logInfoN $
-                "memory-mode resume: starting bake VM "
-                  <> T.pack (show cachedVmId)
-                  <> " paused for snapshot-load tag="
-                  <> snapName
-              startR <-
-                liftIO $ withVmNodeAgent state cachedVmId $ \nac -> NOA.vmStart nac spec
-              case startR of
-                Left err -> do
-                  liftIO $ runSqlPool (setVmError cachedVmId err) pool
-                  pure $ Left ("memory-mode resume: vmStart paused: " <> err)
+              runSqlPool
+                (claimVmStart cachedVmId VmStopped VmStarting)
+                pool
+          case mClaimed of
+            Nothing ->
+              pure $ Left "memory-mode resume: cached bake VM lifecycle was superseded"
+            Just claimedVm ->
+              resumeMemoryCacheBakeVmClaimed state cachedVmId disks chain carrier claimedVm
+
+resumeMemoryCacheBakeVmClaimed
+  :: ServerState
+  -> Int64
+  -> [CacheDisk]
+  -> Text
+  -> CacheDisk
+  -> Vm
+  -> LoggingT IO (Either Text ())
+resumeMemoryCacheBakeVmClaimed state cachedVmId disks chain carrier vm = do
+  let pool = ssDbPool state
+      cfg = ssQemuConfig state
+      snapName = H.cacheSnapshotName chain
+  needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf cachedVmId) pool
+  mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
+  when (needsNetd && isNothing mNetAgent) $
+    logWarnN $
+      "memory-mode resume: VM "
+        <> T.pack (show cachedVmId)
+        <> " has a managed NIC but netd is unavailable; the lifecycle will probably fail"
+  let netAgentForSpec = if needsNetd then mNetAgent else Nothing
+      -- Cache resume re-uses the bake VM. The QGA wait happens AFTER our
+      -- snapshot-load + cont, so we inherit the 90-second steady-state
+      -- budget the non-cloud-init path uses. The bake VM has QGA on by
+      -- construction (overlay + from-scratch strategies both require it).
+      waitMs = if vmGuestAgent vm then 90000 else 0
+  mSpec <-
+    liftIO $
+      assembleVmSpec pool cfg netAgentForSpec cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) waitMs
+  case mSpec of
+    Left err -> pure $ Left $ "memory-mode resume: assembleVmSpec: " <> err
+    Right baseSpec -> do
+      let spec = baseSpec {VS.vsStartPaused = True}
+          nodeId = M.vmNodeId vm
+          paths = map cdFilePath disks
+          carrierPath = cdFilePath carrier
+      logInfoN $
+        "memory-mode resume: starting bake VM "
+          <> T.pack (show cachedVmId)
+          <> " paused for snapshot-load tag="
+          <> snapName
+      startR <-
+        liftIO $ withVmNodeAgent state cachedVmId $ \nac -> NOA.vmStart nac spec
+      case startR of
+        Left err -> do
+          _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) err) pool
+          pure $ Left ("memory-mode resume: vmStart paused: " <> err)
+        Right (Left e) -> do
+          let msg = "vmStart paused: " <> T.pack (show e)
+          _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) msg) pool
+          pure $ Left ("memory-mode resume: " <> msg)
+        Right (Right _runtime) -> do
+          -- QEMU is up and paused. Drive snapshot-load.
+          logInfoN $
+            "memory-mode resume: loading vmstate tag="
+              <> snapName
+              <> " into VM "
+              <> T.pack (show cachedVmId)
+          loadRes <-
+            liftIO $
+              loadSnapshotViaAgentWithVmstate
+                state
+                nodeId
+                carrierPath
+                paths
+                snapName
+                cachedVmId
+          case loadRes of
+            ImageSuccess -> do
+              logInfoN "memory-mode resume: snapshot-load OK, issuing cont"
+              resumeR <-
+                liftIO $ withVmNodeAgent state cachedVmId $ \nac ->
+                  NOA.vmResume nac cachedVmId
+              case resumeR of
+                Left e -> do
+                  let msg = "memory-mode resume: cont (outer): " <> e
+                  _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) msg) pool
+                  pure $ Left msg
                 Right (Left e) -> do
-                  let msg = "vmStart paused: " <> T.pack (show e)
-                  liftIO $ runSqlPool (setVmError cachedVmId msg) pool
-                  pure $ Left ("memory-mode resume: " <> msg)
-                Right (Right _runtime) -> do
-                  -- QEMU is up and paused. Drive snapshot-load.
-                  logInfoN $
-                    "memory-mode resume: loading vmstate tag="
-                      <> snapName
-                      <> " into VM "
-                      <> T.pack (show cachedVmId)
-                  loadRes <-
+                  let msg =
+                        "memory-mode resume: cont: " <> T.pack (show e)
+                  _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) msg) pool
+                  pure $ Left msg
+                Right (Right ()) -> do
+                  -- Best-effort clock resync.
+                  _ <-
+                    liftIO $ guestSetTimeViaAgent state nodeId cachedVmId
+                  completed <-
                     liftIO $
-                      loadSnapshotViaAgentWithVmstate
-                        state
-                        nodeId
-                        carrierPath
-                        paths
-                        snapName
-                        cachedVmId
-                  case loadRes of
-                    ImageSuccess -> do
-                      logInfoN "memory-mode resume: snapshot-load OK, issuing cont"
-                      resumeR <-
-                        liftIO $ withVmNodeAgent state cachedVmId $ \nac ->
-                          NOA.vmResume nac cachedVmId
-                      case resumeR of
-                        Left e -> do
-                          let msg = "memory-mode resume: cont (outer): " <> e
-                          liftIO $ runSqlPool (setVmError cachedVmId msg) pool
-                          pure $ Left msg
-                        Right (Left e) -> do
-                          let msg =
-                                "memory-mode resume: cont: " <> T.pack (show e)
-                          liftIO $ runSqlPool (setVmError cachedVmId msg) pool
-                          pure $ Left msg
-                        Right (Right ()) -> do
-                          -- Best-effort clock resync.
-                          _ <-
-                            liftIO $ guestSetTimeViaAgent state nodeId cachedVmId
-                          liftIO $
-                            runSqlPool (setVmStatus cachedVmId VmRunning) pool
-                          logInfoN $
-                            "memory-mode resume: VM "
-                              <> T.pack (show cachedVmId)
-                              <> " resumed at snapshot state"
-                          pure (Right ())
-                    ImageFormatNotSupported msg ->
-                      finishWithError pool ("snapshot-load: " <> msg)
-                    ImageError err ->
-                      finishWithError pool ("snapshot-load: " <> err)
-                    ImageNotFound ->
-                      finishWithError pool "snapshot-load: snapshot not found"
+                      runSqlPool (setVmStartedIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) VmRunning) pool
+                  if completed
+                    then do
+                      logInfoN $
+                        "memory-mode resume: VM "
+                          <> T.pack (show cachedVmId)
+                          <> " resumed at snapshot state"
+                      pure (Right ())
+                    else pure $ Left "memory-mode resume: cached bake VM lifecycle was superseded"
+            ImageFormatNotSupported msg ->
+              finishWithError pool ("snapshot-load: " <> msg)
+            ImageError err ->
+              finishWithError pool ("snapshot-load: " <> err)
+            ImageNotFound ->
+              finishWithError pool "snapshot-load: snapshot not found"
   where
     finishWithError pool msg = do
-      liftIO $ runSqlPool (setVmError cachedVmId msg) pool
+      _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) msg) pool
       pure $ Left ("memory-mode resume: " <> msg)
 
 -- | Classify a VmStop response as success or failure.

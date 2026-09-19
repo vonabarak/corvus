@@ -42,7 +42,8 @@ import Corvus.Handlers.Disk.Snapshot
   , handleVmstateRollback
   , listVmstateSiblingDrives
   )
-import Corvus.Handlers.Vm (hasNetdMediatedNetIf, setVmError, setVmStatus)
+import Corvus.Handlers.Vm (hasNetdMediatedNetIf)
+import Corvus.Handlers.Vm.Db (claimVmStart, setVmErrorIfCurrent, setVmStartedIfCurrent)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageResult (..))
@@ -262,6 +263,26 @@ rollbackFromStopped
   -> Snapshot
   -> LoggingT IO Response
 rollbackFromStopped state vmId vm carrierDiskId carrierSnap = do
+  mClaimed <-
+    liftIO $
+      runSqlPool
+        (claimVmStart vmId VmStopped VmStarting)
+        (ssDbPool state)
+  case mClaimed of
+    Nothing ->
+      pure $
+        RespInvalidTransition VmStopped "VM lifecycle operation was superseded"
+    Just claimedVm ->
+      rollbackFromStoppedClaimed state vmId claimedVm carrierDiskId carrierSnap
+
+rollbackFromStoppedClaimed
+  :: ServerState
+  -> Int64
+  -> Vm
+  -> DiskImageId
+  -> Snapshot
+  -> LoggingT IO Response
+rollbackFromStoppedClaimed state vmId vm carrierDiskId carrierSnap = do
   let pool = ssDbPool state
       cfg = ssQemuConfig state
       tag = snapshotName carrierSnap
@@ -278,18 +299,17 @@ rollbackFromStopped state vmId vm carrierDiskId carrierSnap = do
         liftIO $ mapM (\d -> resolveDiskPath pool cfg d nodeId) diskIds
       carrierPath <-
         liftIO $ resolveDiskPath pool cfg carrierDiskId nodeId
-      liftIO $ runSqlPool (setVmStatus vmId VmStarting) pool
       needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
       mNetAgent <- liftIO $ lookupNetAgentMaybe state nodeId
       let netAgentForSpec = if needsNetd then mNetAgent else Nothing
           waitMs = if vmGuestAgent vm then 90000 else 0
       mSpec <-
         liftIO $
-          NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
+          NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) waitMs
       case mSpec of
         Left err -> do
           let msg = "vm-snapshot-rollback (stopped): assembleVmSpec: " <> err
-          liftIO $ runSqlPool (setVmError vmId msg) pool
+          _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) msg) pool
           pure $ RespError msg
         Right baseSpec -> do
           let spec = baseSpec {VS.vsStartPaused = True}
@@ -301,11 +321,12 @@ rollbackFromStopped state vmId vm carrierDiskId carrierSnap = do
           startR <-
             liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStart nac spec
           case startR of
-            Left err -> finishStartFailure pool vmId ("vmStart paused: " <> err)
+            Left err -> finishStartFailure pool vmId vm ("vmStart paused: " <> err)
             Right (Left e) ->
               finishStartFailure
                 pool
                 vmId
+                vm
                 ("vmStart paused: " <> T.pack (show e))
             Right (Right _runtime) -> do
               logInfoN $
@@ -325,38 +346,40 @@ rollbackFromStopped state vmId vm carrierDiskId carrierSnap = do
                     liftIO $ withVmNodeAgent state vmId $ \nac ->
                       NOA.vmResume nac vmId
                   case resumeR of
-                    Left e -> finishStartFailure pool vmId ("cont: " <> e)
+                    Left e -> finishStartFailure pool vmId vm ("cont: " <> e)
                     Right (Left e) ->
                       finishStartFailure
                         pool
                         vmId
+                        vm
                         ("cont: " <> T.pack (show e))
                     Right (Right ()) -> do
                       _ <- liftIO $ guestSetTimeViaAgent state nodeId vmId
-                      liftIO $ runSqlPool (setVmStatus vmId VmRunning) pool
+                      updated <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) VmRunning) pool
                       logInfoN $
                         "vm-snapshot-rollback (stopped): VM "
                           <> vmName vm
                           <> " resumed at snapshot state"
-                      pure RespSnapshotOk
+                      pure $ if updated then RespSnapshotOk else RespInvalidTransition VmStarting "VM lifecycle operation was superseded"
                 ImageFormatNotSupported msg ->
-                  finishStartFailure pool vmId ("snapshot-load: " <> msg)
+                  finishStartFailure pool vmId vm ("snapshot-load: " <> msg)
                 ImageError e ->
-                  finishStartFailure pool vmId ("snapshot-load: " <> e)
+                  finishStartFailure pool vmId vm ("snapshot-load: " <> e)
                 ImageNotFound ->
                   finishStartFailure
                     pool
                     vmId
+                    vm
                     "snapshot-load: snapshot not found on agent"
 
 -- | Record an error on the VM row and surface it. The QEMU process
 -- may be left running paused if the failure was post-vmStart; the
 -- operator can clean it up via @crv vm stop@.
 finishStartFailure
-  :: Pool SqlBackend -> Int64 -> Text -> LoggingT IO Response
-finishStartFailure pool vmId msg = do
+  :: Pool SqlBackend -> Int64 -> Vm -> Text -> LoggingT IO Response
+finishStartFailure pool vmId vm msg = do
   logWarnN msg
-  liftIO $ runSqlPool (setVmError vmId msg) pool
+  _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) msg) pool
   pure $ RespError msg
 
 --------------------------------------------------------------------------------

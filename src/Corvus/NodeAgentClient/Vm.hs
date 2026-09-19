@@ -59,6 +59,8 @@ encodeVmSpec :: VmSpec -> CGNA.Parsed CGNA.VmSpec
 encodeVmSpec s =
   CGNA.VmSpec
     { CGNA.vmId = vsVmId s
+    , CGNA.lifecycleRevision = vsLifecycleRevision s
+    , CGNA.runtimeGeneration = vsRuntimeGeneration s
     , CGNA.name = vsName s
     , CGNA.cpuCount = vsCpuCount s
     , CGNA.ramMb = vsRamMb s
@@ -119,12 +121,16 @@ decodeVmRuntimeInfo
     , CGNA.virtiofsdPids = vs
     , CGNA.spicePort = sp
     , CGNA.swtpmPid = tp
+    , CGNA.lifecycleRevision = rev
+    , CGNA.runtimeGeneration = gen
     } =
     VmRuntimeInfo
       { vriQemuPid = q
       , vriVirtiofsdPids = vs
       , vriSpicePort = sp
       , vriSwtpmPid = tp
+      , vriLifecycleRevision = rev
+      , vriRuntimeGeneration = gen
       }
 
 decodeVmStopResult :: CGNA.Parsed CGNA.VmStopResult -> VmStopResult
@@ -213,12 +219,20 @@ vmStopGraceful nac vmId timeoutSec = remoteWithin (fromIntegral timeoutSec + 30)
       (nacSession nac)
   pure (decodeVmStopResult r)
 
-vmStopHard :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError VmStopResult)
-vmStopHard nac vmId = remote $ do
+vmStopHard
+  :: NodeAgentClient
+  -> Int64
+  -> Maybe Int64
+  -> IO (Either NodeAgentError VmStopResult)
+vmStopHard nac vmId mFence = remote $ do
   CGNA.Session'vmStopHard'results {CGNA.result = r} <-
     callOn
       #vmStopHard
-      CGNA.Session'vmStopHard'params {CGNA.vmId = vmId}
+      CGNA.Session'vmStopHard'params
+        { CGNA.vmId = vmId
+        , CGNA.lifecycleRevision = fromMaybe 0 mFence
+        , CGNA.hasLifecycleFence = isJust mFence
+        }
       (nacSession nac)
   pure (decodeVmStopResult r)
 

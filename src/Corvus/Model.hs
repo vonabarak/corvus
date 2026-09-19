@@ -103,6 +103,7 @@ where
 
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
 import qualified Data.Aeson.Types as AT
+import Data.Int (Int64)
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -609,6 +610,13 @@ Vm
     nodeId NodeId
     createdAt UTCTime
     status VmStatus
+    -- Monotonically increasing daemon-owned fence for start/reset.
+    -- It invalidates asynchronous work admitted by an older lifecycle
+    -- operation without storing durable composite-operation context.
+    lifecycleRevision Int64 default=0
+    -- Identifies the runtime admitted by the current cold start. Cleared
+    -- only after the matching reset/termination has been confirmed.
+    runtimeGeneration Int64 Maybe default=NULL
     cpuCount Int
     ramMb Int
     description Text Maybe

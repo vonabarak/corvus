@@ -41,7 +41,7 @@ import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNetAgent, withVmNodeAgent)
 import Corvus.Types (ServerState, lookupNetAgentMaybe, runServerLogging, ssDbPool, ssQemuConfig)
 import Data.Int (Int64)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), entityVal, selectList, (<-.), (==.))
 import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
@@ -280,7 +280,7 @@ reapplyVm state nac vmId vm = do
   let netAgentForSpec = if needsNetd then mNetAgent else Nothing
       waitMs =
         if vmGuestAgent vm then 300000 else 0
-  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
+  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) waitMs
   case mSpec of
     Left err
       | "disappeared from DB" `T.isInfixOf` err -> do

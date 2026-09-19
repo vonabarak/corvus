@@ -134,13 +134,23 @@ VMs follow a strict state machine:
 
 VMs with `guestAgent: true` transition through a `starting` state and become `running` once the first guest agent health check succeeds. VMs without the guest agent go directly to `running`.
 
+For the internal meaning of these states, daemon/nodeagent ownership, and the
+start/reset race fence, see [VM Lifecycle and the Start/Reset Fence](vm-lifecycle.md).
+
 The three transient states — **`saving`**, **`loading`**, **`migrating`** — are write-locks owned by the daemon's background workers. While a VM is in one of these states:
 
 * Operator actions other than `reset` are rejected with a message naming the in-flight operation. This is what protects `vm start` on a half-saved VM (the bug that motivated the transient states).
 * Serial console / SPICE / monitor sessions cannot be opened against the VM — QEMU is either mid-save (will exit shortly), still loading the migration stream, or owned by the migration orchestrator on another node.
 * The state automatically transitions on completion: `saving → saved` (or `error`), `loading → running` (or `error`), `migrating → saved` (or rolled back to `saved` / `stopped` on failure).
 
-`reset` always returns the VM to `stopped` regardless of current state. From the transient states, reset doubles as a cancel verb: it aborts the in-flight operation (kills QEMU mid-save, kills QEMU mid-load, aborts the migration orchestrator) and lands the row in `stopped`. From `saved`, reset additionally unlinks the state file.
+`reset` is accepted from every state and acts as a forced-termination barrier.
+It advances the VM's lifecycle fence, kills QEMU and its helpers if present,
+and records `stopped` only after the nodeagent confirms termination. If the
+nodeagent is unavailable, the VM remains `stopping` rather than falsely
+claiming that it is stopped. From transient states, reset force-stops the
+runtime; durable cancellation and recovery of the surrounding composite
+operation are outside the start/reset fence. From `saved`, reset additionally
+unlinks the state file.
 
 ### Save / Resume
 

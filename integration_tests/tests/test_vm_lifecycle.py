@@ -514,6 +514,36 @@ class TestVmBootBasics(_VmLifecycleBase):
         with _AsyncStartNoQga(self) as vm:
             self._wait_status(vm.cap, "running", timeout_sec=30)
 
+    def test_reset_fences_late_no_qga_start_completion(self):
+        """A reset immediately after optimistic no-QGA ``running`` must
+        remain stopped when the delayed start RPC finishes.
+
+        This deliberately races the daemon's synchronous no-agent completion
+        against reset.  In particular, a late completion must not restore a
+        SPICE port or an error message after reset cleared runtime data.
+        """
+
+        class _NoQga(Vm):
+            guest_agent = False
+            wait_for_qga = False
+
+        with _NoQga(self) as vm:
+            self._wait_status(vm.cap, "running", timeout_sec=30)
+            vm.cap.reset()
+            self._wait_status(vm.cap, "stopped", timeout_sec=30)
+
+            vm.cap.start(wait=False)
+            self._wait_status(vm.cap, "running", timeout_sec=15)
+            vm.cap.reset()
+            self._wait_status(vm.cap, "stopped", timeout_sec=30)
+
+            # Leave ample time for the stale start continuation to return.
+            time.sleep(3.0)
+            details = vm.cap.show()
+            assert details.status == "stopped", details
+            assert details.error_message is None, details
+            assert details.spice_port is None, details
+
     def test_uefi_vm_lists_efi_boot_entries(self):
         """UEFI-booted Alpine guest exposes EFI variables and at
         least one BootXXXX entry."""

@@ -46,6 +46,13 @@ module Corvus.Handlers.Vm
   , setVmError
   , setVmStarted
   , setVmStopped
+  , claimVmReset
+  , claimVmStart
+  , completeVmReset
+  , setVmErrorIfCurrent
+  , setVmSpicePortIfCurrent
+  , setVmStartedIfCurrent
+  , setVmVsockCidIfCurrent
   , hasNetdMediatedNetIf
   )
 where
@@ -71,13 +78,20 @@ import Corvus.Handlers.Vm.Console
   , handleVmViewGrant
   )
 import Corvus.Handlers.Vm.Db
-  ( getVmStatusOnly
+  ( claimVmReset
+  , claimVmStart
+  , completeVmReset
+  , getVmStatusOnly
   , getVmWithStatus
   , hasNetdMediatedNetIf
   , setVmError
+  , setVmErrorIfCurrent
+  , setVmSpicePortIfCurrent
   , setVmStarted
+  , setVmStartedIfCurrent
   , setVmStatus
   , setVmStopped
+  , setVmVsockCidIfCurrent
   )
 import Corvus.Handlers.Vm.Monitor
   ( attachVmMonitor
@@ -345,7 +359,9 @@ handleVmStartExecute ctx vmId = do
     Left errResp -> pure errResp
     Right (vm, currentStatus, nextStatus) ->
       case currentStatus of
-        VmPaused -> runServerLogging state $ resumeFromPaused state vmId
+        VmPaused -> runServerLogging state $ resumeFromPaused state vmId vm
+        VmStopped -> startFreshRuntime state nextStatus VmStopped
+        VmSaved -> startFreshRuntime state nextStatus VmSaved
         _ -> runServerLogging state $ do
           -- Commit the intermediate status NOW, before the slow
           -- pre-launch dance (vsock probe, spec assembly, agent
@@ -374,6 +390,26 @@ handleVmStartExecute ctx vmId = do
                   -- first @vm.exec@.
                   liftIO $ waitForStartCompletion state vmId
               | otherwise -> pure resp
+            _ -> pure resp
+  where
+    -- A stopped cold boot and a saved-state load each create a new QEMU
+    -- incarnation. Claim them before slow work so the nodeagent can reject a
+    -- delayed command from either prior incarnation.
+    startFreshRuntime state nextStatus expectedStatus = do
+      mClaimed <- runSqlPool (claimVmStart vmId expectedStatus nextStatus) (ssDbPool state)
+      case mClaimed of
+        Nothing -> do
+          mCurrent <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+          pure $ case mCurrent of
+            Nothing -> RespVmNotFound
+            Just (_, status) -> RespInvalidTransition status "VM lifecycle operation was superseded"
+        Just claimedVm -> runServerLogging state $ do
+          resp <- startQemuAndMonitor ctx vmId claimedVm nextStatus
+          case resp of
+            RespVmStateChanged VmStarting ->
+              liftIO $ waitForStartCompletion state vmId
+            RespVmStateChanged VmLoading ->
+              liftIO $ waitForStartCompletion state vmId
             _ -> pure resp
 
 -- | Block until the DB row for @vmId@ leaves 'VmStarting'.
@@ -418,8 +454,8 @@ waitForStartCompletion state vmId = go (10 * 60 * 10)
             Just s -> pure $ RespVmStateChanged s
 
 -- | Resume a paused VM via @vmResume@ (agent issues QMP @cont@).
-resumeFromPaused :: ServerState -> Int64 -> LoggingT IO Response
-resumeFromPaused state vmId = do
+resumeFromPaused :: ServerState -> Int64 -> Vm -> LoggingT IO Response
+resumeFromPaused state vmId vm = do
   outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmResume nac vmId
   case outer of
     Left err -> do
@@ -431,8 +467,10 @@ resumeFromPaused state vmId = do
         pure $ RespInvalidTransition VmPaused ("vmResume: " <> T.pack (show e))
       Right () -> do
         logInfoN $ "VM " <> T.pack (show vmId) <> " resumed"
-        liftIO $ runSqlPool (setVmStatus vmId VmRunning) (ssDbPool state)
-        pure $ RespVmStateChanged VmRunning
+        updated <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) VmRunning) (ssDbPool state)
+        if updated
+          then pure $ RespVmStateChanged VmRunning
+          else pure $ RespInvalidTransition VmPaused "VM lifecycle operation was superseded"
 
 -- | Start QEMU + virtiofsd via the agent, set status, fork the
 -- monitor thread, hook up the chardev ring buffers.
@@ -468,12 +506,12 @@ startQemuAndMonitor ctx vmId vm nextStatus = do
   ensureCloudInitIso ctx vmId vm
   spiceResult <- allocateSpicePortIfNeeded state vmId vm
   case spiceResult of
-    Left err -> recordPreStartFailure state vmId pool "Failed to allocate SPICE port" err
+    Left err -> recordPreStartFailure state vmId vm pool "Failed to allocate SPICE port" err
     Right _ -> do
       cidResult <- liftIO $ ensureFreeVsockCid state vmId vm
       case cidResult of
         Left err ->
-          recordPreStartFailure state vmId pool "Failed to secure a free vsock CID" err
+          recordPreStartFailure state vmId vm pool "Failed to secure a free vsock CID" err
         Right _ -> launchVmViaAgent state vmId vm pool nextStatus
 
 -- | When the VM is not headless, allocate a SPICE port and persist
@@ -487,10 +525,11 @@ allocateSpicePortIfNeeded state vmId vm
   | vmHeadless vm = pure (Right Nothing)
   | otherwise = liftIO $ do
       alloc <- withAllocatedSpicePort state $ \port -> do
-        runSqlPool (update (toSqlKey vmId :: VmId) [M.VmSpicePort =. Just port]) (ssDbPool state)
-        pure port
+        updated <- runSqlPool (setVmSpicePortIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) port) (ssDbPool state)
+        pure $ if updated then port else -1
       pure $ case alloc of
         Left err -> Left err
+        Right (-1) -> Left "VM lifecycle operation was superseded"
         Right port -> Right (Just port)
 
 -- | A pre-launch step failed: log, persist the error on the VM row,
@@ -498,22 +537,23 @@ allocateSpicePortIfNeeded state vmId vm
 recordPreStartFailure
   :: ServerState
   -> Int64
+  -> Vm
   -> Pool SqlBackend
   -> Text
   -- ^ message prefix (\"Failed to …\")
   -> Text
   -- ^ underlying error
   -> LoggingT IO Response
-recordPreStartFailure _state vmId pool prefix err = do
+recordPreStartFailure _state vmId vm pool prefix err = do
   let msg = prefix <> ": " <> err
   logWarnN msg
-  liftIO $ runSqlPool (setVmError vmId msg) pool
+  _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) msg) pool
   pure $ RespError msg
 
 -- | Assemble 'VmSpec' from DB rows and call 'NOA.vmStart'.
 -- The @nextStatus@ is the intermediate status the validator picked
--- (one of 'VmStarting', 'VmRunning', 'VmLoading'); the executor
--- commits it before invoking the agent so 'crv vm show' can
+-- (one of 'VmStarting', 'VmRunning', 'VmLoading'); a fresh-runtime
+-- claim has already committed it before invoking the agent so 'crv vm show' can
 -- distinguish "still spawning" from "fully up" and "loading saved
 -- state" from "cold booting".
 launchVmViaAgent
@@ -560,7 +600,7 @@ launchVmViaAgent state vmId vm pool nextStatus = do
         | cloudInitBootstrap = 300000
         | otherwise = 90000
 
-  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
+  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) waitMs
   case mSpec of
     Left err
       | "disappeared from DB" `T.isInfixOf` err -> do
@@ -568,36 +608,23 @@ launchVmViaAgent state vmId vm pool nextStatus = do
           pure RespVmNotFound
       | otherwise -> do
           logWarnN $ "VM " <> T.pack (show vmId) <> ": assembleVmSpec: " <> err
-          liftIO $ runSqlPool (setVmError vmId err) pool
+          _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) err) pool
           pure $ RespError err
     Right spec -> do
-      -- Commit the validator-picked intermediate status before
-      -- invoking the agent. For cold starts with GA enabled
-      -- nextStatus = VmStarting, for resume-from-saved
-      -- nextStatus = VmLoading, for cold-no-GA nextStatus = VmRunning
-      -- (overwritten with the same value below on success). The agent's
-      -- 'vmStart' RPC blocks for QEMU spawn and (when guestAgent is
-      -- set) the first QGA ping — that window can run from ~1 s up to
-      -- the cloud-init bootstrap budget. Without this pre-call write,
-      -- the DB would stay at 'VmStopped' / 'VmSaved' for the entire
-      -- wait and then jump straight to 'VmRunning' — so 'crv vm show'
-      -- couldn't distinguish "still spawning" from "fully up" or
-      -- "loading saved state" from "cold booting".
-      liftIO $ runSqlPool (setVmStatus vmId nextStatus) pool
       outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStart nac spec
       case outer of
         Left err -> do
           logWarnN $ "nodeagent unavailable; cannot start VM: " <> err
-          liftIO $ runSqlPool (setVmError vmId err) pool
+          _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) err) pool
           pure $ RespError err
         Right r -> case r of
           Left e -> do
             let msg = "vmStart: " <> T.pack (show e)
             logWarnN $ "vmStart failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
-            liftIO $ runSqlPool (setVmError vmId msg) pool
+            _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) msg) pool
             pure $ RespError msg
           Right info -> do
-            let pid = fromIntegral (NOA.vriQemuPid info) :: Int
+            let _pid = fromIntegral (NOA.vriQemuPid info) :: Int
             -- Post-split semantics: the agent's 'vmStart' returns
             -- once QEMU is spawned, *not* once QGA is reachable.
             -- The first-QGA-ping wait was moved into a forked
@@ -618,8 +645,8 @@ launchVmViaAgent state vmId vm pool nextStatus = do
               VmStarting -> pure $ RespVmStateChanged VmStarting
               VmLoading -> pure $ RespVmStateChanged VmLoading
               _ -> do
-                liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
-                pure $ RespVmStateChanged VmRunning
+                updated <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) VmRunning) (ssDbPool state)
+                pure $ if updated then RespVmStateChanged VmRunning else RespInvalidTransition nextStatus "VM lifecycle operation was superseded"
 
 -- | Re-validate the VM's stored vsock CID against the live host
 -- kernel before launching QEMU, and reallocate if necessary.
@@ -658,9 +685,13 @@ ensureFreeVsockCid state vmId vm = do
             Right b -> b
             Left _ -> False
     reallocate pool nid =
-      withAllocatedVsockCid state nid $ \newCid -> do
-        runSqlPool (update (toSqlKey vmId :: VmId) [M.VmVsockCid =. Just newCid]) pool
-        pure newCid
+      do
+        alloc <- withAllocatedVsockCid state nid pure
+        case alloc of
+          Left err -> pure (Left err)
+          Right newCid -> do
+            updated <- runSqlPool (setVmVsockCidIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) newCid) pool
+            pure $ if updated then Right newCid else Left "VM lifecycle operation was superseded"
 
 -- | Validate that a VM can be stopped.
 handleVmStopValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
@@ -697,7 +728,7 @@ handleVmStopExecute ctx vmId timeoutSec = do
           -- and lock-free on the agent, so it can interrupt a stuck
           -- graceful stop already in flight for the same VM.
           forceStop = do
-            outerHard <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId
+            outerHard <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId Nothing
             case outerHard of
               Left err ->
                 pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> err)
@@ -884,70 +915,36 @@ handleVmReset state vmId = runServerLogging state $ do
   case mVm of
     Nothing -> pure RespVmNotFound
     Just vm -> case validateTransition (vmStatus vm) ActionReset of
-      Left errMsg ->
-        -- Unreachable: the FSM's universal Reset arm always
-        -- accepts. Defensive guard so a future FSM tweak that
-        -- adds a reject can't silently break this handler.
-        pure $ RespInvalidTransition (vmStatus vm) errMsg
-      Right nextStatus -> do
-        let fromStatus = vmStatus vm
-        -- Saved VMs (and Migrating with a state file): drop the
-        -- state file. The call is idempotent on the agent.
-        when (fromStatus `elem` [VmSaved, VmMigrating]) $ do
-          outerDel <-
-            liftIO $
-              withVmNodeAgent state vmId $ \nac ->
-                NOA.deleteSavedState nac (vmName vm)
-          case outerDel of
-            Left err ->
-              logWarnN $
-                "nodeagent unavailable; saved-state file may persist for VM "
-                  <> T.pack (show vmId)
-                  <> ": "
-                  <> err
-            Right (Left e) ->
-              logWarnN $
-                "deleteSavedState failed for VM "
-                  <> T.pack (show vmId)
-                  <> ": "
-                  <> T.pack (show e)
-            Right (Right ()) ->
-              logInfoN $ "Saved state for VM " <> T.pack (show vmId) <> " discarded"
-
-        -- Commit the terminal status first; the monitor checks
-        -- status before reconciling and will back off when it sees
-        -- the row is already stopped.
-        liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-
-        -- Kill QEMU when it might still be alive: any non-terminal
-        -- state. VmStopped is already stopped (no-op); VmError /
-        -- VmSaved have no live QEMU process to kill.
-        unless (fromStatus `elem` [VmStopped, VmError, VmSaved]) $ do
-          outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId
-          case outer of
-            Left err ->
-              logWarnN $
-                "nodeagent unavailable; reset only updates DB state for VM "
-                  <> T.pack (show vmId)
-                  <> ": "
-                  <> err
-            Right r -> case r of
-              Left e ->
-                logWarnN $ "vmStopHard failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
-              Right res -> case NOA.vsrKind res of
-                NOA.VmStopStopped ->
-                  logInfoN $ "VM " <> T.pack (show vmId) <> " process killed"
-                NOA.VmStopAlreadyStopped ->
-                  logDebugN $ "VM " <> T.pack (show vmId) <> " was not in the agent's ledger"
-                _ ->
-                  logWarnN $ "vmStopHard returned: " <> NOA.vsrMessage res
-
-        -- Drop netd-allocated TAPs synchronously *before* returning,
-        -- so a follow-up @vmDelete@ that wipes the NIC rows doesn't
-        -- race the background monitor's own (now no-op) cleanup pass.
-        liftIO $ releaseManagedTaps state vmId
-
-        pure $ RespVmStateChanged nextStatus
+      Left errMsg -> pure $ RespInvalidTransition (vmStatus vm) errMsg
+      Right _ -> do
+        mClaim <- liftIO $ runSqlPool (claimVmReset vmId) (ssDbPool state)
+        case mClaim of
+          Nothing -> pure $ RespInvalidTransition (vmStatus vm) "VM lifecycle changed while reset was being admitted"
+          Just (revision, _) -> do
+            let fromStatus = vmStatus vm
+            -- First fence the nodeagent, including the no-live-process case:
+            -- this is what invalidates a start still between helper spawn and
+            -- ledger publication. Do not claim stopped on transport failure.
+            outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId (Just revision)
+            case outer of
+              Left err -> pure $ RespError ("nodeagent unavailable; reset remains stopping: " <> err)
+              Right (Left e) -> pure $ RespError ("vmStopHard: " <> T.pack (show e))
+              Right (Right res)
+                | NOA.vsrKind res `elem` [NOA.VmStopStopped, NOA.VmStopAlreadyStopped] -> do
+                    when (fromStatus `elem` [VmSaved, VmMigrating]) $ do
+                      _ <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.deleteSavedState nac (vmName vm)
+                      pure ()
+                    completed <- liftIO $ runSqlPool (completeVmReset vmId revision) (ssDbPool state)
+                    if completed
+                      then do
+                        liftIO $ releaseManagedTaps state vmId
+                        pure $ RespVmStateChanged VmStopped
+                      else do
+                        mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+                        pure $ case mCurrent of
+                          Nothing -> RespVmNotFound
+                          Just (_, status) -> RespInvalidTransition status "VM lifecycle operation was superseded"
+                | otherwise -> pure $ RespError ("vmStopHard: " <> NOA.vsrMessage res)
 
 -- | Handle VM edit command
 -- Only allowed when VM is stopped. Updates only the provided fields.
@@ -1047,6 +1044,8 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudIn
           , vmNodeId = nodeKey
           , vmCreatedAt = now
           , vmStatus = VmStopped
+          , vmLifecycleRevision = 0
+          , vmRuntimeGeneration = Nothing
           , vmCpuCount = cpuCount
           , vmRamMb = ramMb
           , vmDescription = description

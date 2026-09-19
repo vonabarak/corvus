@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Shared result types for QMP commands.
 module Corvus.Node.Qmp.Types
   ( QmpResult (..)

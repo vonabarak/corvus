@@ -63,8 +63,9 @@ currentSchemaVersion :: Int
 -- Bump whenever 'migrateAll' gains a persistent-schema change. Version 2
 -- adds the VM and template-VM TPM flags. Version 3 makes
 -- drive.disk_image_id nullable to represent a CD-ROM drive with no
--- media (ejected tray).
-currentSchemaVersion = 3
+-- media (ejected tray). Version 4 adds daemon-owned VM lifecycle fence
+-- tokens for cold-start/reset races.
+currentSchemaVersion = 4
 
 data DatabaseConfig = DatabaseConfig
   { dcEngine :: !DatabaseEngine

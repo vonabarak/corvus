@@ -11,6 +11,8 @@ baseSpec :: VmSpec
 baseSpec =
   VmSpec
     { vsVmId = 7
+    , vsLifecycleRevision = 1
+    , vsRuntimeGeneration = 1
     , vsName = "tpm-test"
     , vsCpuCount = 2
     , vsRamMb = 2048

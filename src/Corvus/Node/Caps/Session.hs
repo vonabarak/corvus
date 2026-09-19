@@ -458,8 +458,13 @@ instance CGNA.Session'server_ SessionCap where
           withVmOpLock sc vid (handleVmStopGraceful sc vid tmo)
 
   session'vmStopHard sc =
-    handleParsed $ \CGNA.Session'vmStopHard'params {CGNA.vmId = vid} ->
-      handleVmStopHard sc vid
+    handleParsed $
+      \CGNA.Session'vmStopHard'params
+        { CGNA.vmId = vid
+        , CGNA.lifecycleRevision = revision
+        , CGNA.hasLifecycleFence = hasFence
+        } ->
+          handleVmStopHard sc vid (if hasFence then Just revision else Nothing)
 
   session'vmPause sc =
     handleParsed $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->

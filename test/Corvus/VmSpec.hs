@@ -15,8 +15,73 @@ module Corvus.VmSpec (spec) where
 
 import Test.Prelude
 
+import Corvus.Handlers.Vm.Db
+  ( claimVmReset
+  , claimVmStart
+  , completeVmReset
+  , setVmErrorIfCurrent
+  , setVmStartedIfCurrent
+  )
+import qualified Corvus.Model as M
+import Database.Persist (update, (=.))
+import Database.Persist.Sql (toSqlKey)
+import Test.DSL.Core (runDb)
+
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "guarded runtime completions" $ do
+    testCase "completes a matching start claim" $ do
+      given $ do
+        _ <- insertVm "claimed" VmStopped
+        pure ()
+      claimed <- runDb $ claimVmStart 1 VmStopped VmStarting
+      case claimed of
+        Nothing -> liftIO $ expectationFailure "start claim was not acquired"
+        Just vm -> do
+          updated <-
+            runDb $
+              setVmStartedIfCurrent
+                1
+                (M.vmLifecycleRevision vm)
+                (maybe (M.vmLifecycleRevision vm) id (M.vmRuntimeGeneration vm))
+                VmRunning
+          liftIO $ updated `shouldBe` True
+          then_ $ vmHasStatus 1 VmRunning
+
+    testCase "rejects stale start completion without overwriting reset state" $ do
+      given $ do
+        _ <- insertVm "stale" VmStopped
+        pure ()
+      _ <- runDb $ claimVmStart 1 VmStopped VmStarting
+      runDb $
+        update
+          (toSqlKey 1 :: M.VmId)
+          [ M.VmStatus =. VmStopping
+          , M.VmLifecycleRevision =. 2
+          , M.VmRuntimeGeneration =. Just 1
+          ]
+      staleRevision <- runDb $ setVmErrorIfCurrent 1 1 1 "late start failure"
+      staleGeneration <- runDb $ setVmErrorIfCurrent 1 2 2 "late start failure"
+      liftIO $ do
+        staleRevision `shouldBe` False
+        staleGeneration `shouldBe` False
+      then_ $ vmHasStatus 1 VmStopping
+
+    testCase "reports whether reset completion committed" $ do
+      given $ do
+        _ <- insertVm "reset" VmStopped
+        pure ()
+      claimed <- runDb $ claimVmReset 1
+      case claimed of
+        Nothing -> liftIO $ expectationFailure "reset claim was not acquired"
+        Just (revision, _) -> do
+          first <- runDb $ completeVmReset 1 revision
+          second <- runDb $ completeVmReset 1 revision
+          liftIO $ do
+            first `shouldBe` True
+            second `shouldBe` False
+          then_ $ vmHasStatus 1 VmStopped
+
   ------------------------------------------------------------------
   -- list
 

@@ -181,11 +181,12 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
   mExit <- readTVarIO (L.vlsLastExitCode live)
   let qpid = fromIntegral (L.vlsQemuPid live) :: Int32
   case mExit of
-    Just 0 -> pure $ baseEntry vmId CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk)
+    Just 0 -> pure $ baseEntry vmId live CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk)
     Just code ->
       pure $
         baseEntry
           vmId
+          live
           CGNA.VmAgentState'errored
           qpid
           (fromIntegral code)
@@ -211,10 +212,11 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
       let wireIfs = map encodeIf ifs
       stats <- sampleVmStats cfg subs clk vmId live
       pure $
-        baseEntry vmId CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats
+        baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats
 
 baseEntry
   :: Int64
+  -> L.VmLiveState
   -> CGNA.VmAgentState
   -> Int32
   -> Int32
@@ -223,7 +225,7 @@ baseEntry
   -> [C.Parsed CGNA.GuestNetIf]
   -> C.Parsed CGVM.VmStats
   -> C.Parsed CGNA.VmStatusEntry
-baseEntry vid st qpid code ok pingedAt ifs stats =
+baseEntry vid live st qpid code ok pingedAt ifs stats =
   CGNA.VmStatusEntry
     { CGNA.vmId = vid
     , CGNA.state = st
@@ -233,6 +235,8 @@ baseEntry vid st qpid code ok pingedAt ifs stats =
     , CGNA.lastPingMillis = pingedAt
     , CGNA.netIfs = ifs
     , CGNA.stats = stats
+    , CGNA.lifecycleRevision = VS.vsLifecycleRevision (L.vlsSpec live)
+    , CGNA.runtimeGeneration = VS.vsRuntimeGeneration (L.vlsSpec live)
     }
 
 -- ---------------------------------------------------------------------------
