@@ -28,6 +28,7 @@ import Capnp.Rpc
   )
 import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent.Async (withAsync)
+import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (newTVarIO)
 import Control.Exception (catch)
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
@@ -88,6 +89,9 @@ runNodeAgentServer host port mTlsCfg = do
   -- agent's @attachReader@ call lands on the same map the source
   -- agent's @diskOpenRead@ populated).
   transferTokens <- NTr.newTokenRegistry
+  -- Every session on this nodeagent shares one host kernel VSOCK CID
+  -- namespace. Keep the launch gate here rather than in a session cap.
+  vsockLaunchLock <- newMVar ()
   -- Run the status-push ticker for the lifetime of the listener.
   withAsync (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000) $ \_ ->
     TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
@@ -102,6 +106,7 @@ runNodeAgentServer host port mTlsCfg = do
             monitorBufs
             transferTokens
             mTlsCfg
+            vsockLaunchLock
         bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
         -- See the matching note in 'Corvus.NodeAgentClient' for
         -- the rationale on the inflated limits. The agent

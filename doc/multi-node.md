@@ -181,7 +181,9 @@ unaffected.
     on that node's kernel; the daemon doesn't open
     `/dev/vhost-vsock` itself. CIDs are unique per kernel, not
     cluster-wide, so two VMs on different nodes may legally
-    share a CID.
+    share a CID. The probe is a preflight, not a reservation: a
+    nodeagent serializes VSOCK-bearing QEMU launches on its host and
+    waits until QEMU owns the CID before accepting the next launch.
   * **SPICE port**. Per-node SPICE allocation against a per-node
     free-port range. Two VMs on different nodes can listen on
     the same port; clients route through the per-node

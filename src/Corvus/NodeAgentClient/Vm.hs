@@ -6,6 +6,7 @@
 -- | VM lifecycle, console, and QMP-mediated runtime RPCs.
 module Corvus.NodeAgentClient.Vm
   ( vmStart
+  , VmStartOutcome (..)
   , vmStopGraceful
   , vmStopHard
   , vmPause
@@ -51,6 +52,11 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
 import Data.Word (Word32)
+
+data VmStartOutcome
+  = VmStartStarted VmRuntimeInfo
+  | VmStartVsockCidBusy
+  deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
 -- Encoders / decoders for VM abstraction wire types.
@@ -194,14 +200,17 @@ decodeVmGuestExecInfo
 -- ---------------------------------------------------------------------------
 -- VM abstraction — client wrappers.
 
-vmStart :: NodeAgentClient -> VmSpec -> IO (Either NodeAgentError VmRuntimeInfo)
+vmStart :: NodeAgentClient -> VmSpec -> IO (Either NodeAgentError VmStartOutcome)
 vmStart nac spec = remoteWithin 120 $ do
-  CGNA.Session'vmStart'results {CGNA.info = i} <-
+  CGNA.Session'vmStart'results {CGNA.result = result} <-
     callOn
       #vmStart
       CGNA.Session'vmStart'params {CGNA.spec = encodeVmSpec spec}
       (nacSession nac)
-  pure (decodeVmRuntimeInfo i)
+  pure $ case CGNA.union' result of
+    CGNA.VmStartResult'started i -> VmStartStarted (decodeVmRuntimeInfo i)
+    CGNA.VmStartResult'vsockCidBusy -> VmStartVsockCidBusy
+    CGNA.VmStartResult'unknown' tag -> error ("unknown VmStartResult tag: " <> show tag)
 
 vmStopGraceful
   :: NodeAgentClient

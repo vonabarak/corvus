@@ -10,8 +10,8 @@
  * already owns the requested guest_cid. The driver's hash-table check
  * runs inside VHOST_VSOCK_SET_GUEST_CID. We replicate that check by
  * opening /dev/vhost-vsock, attempting the same ioctl, and closing
- * immediately — closing releases the CID, so the brief claim is
- * race-safe enough for the allocator.
+ * immediately. Closing releases the CID, so this is only a point-in-time
+ * probe; nodeagent launch admission serializes the probe with QEMU startup.
  *
  * Returns:
  *    1  - CID is available (briefly held and released).

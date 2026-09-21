@@ -11,7 +11,10 @@
 --     which ioctls @VHOST_VSOCK_SET_GUEST_CID@ against
 --     @/dev/vhost-vsock@).
 --
--- The first CID that passes both checks wins.
+-- The first CID that passes both checks wins. The probe's temporary kernel
+-- claim is released when its file descriptor closes, so it is deliberately
+-- only a preflight. The nodeagent serializes VSOCK-bearing QEMU launches and
+-- confirms ownership before it admits the next launch.
 --
 -- Phase 6 made this per-node: the daemon doesn't probe its own
 -- kernel (the agent may be on a different host), and the DB

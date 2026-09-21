@@ -431,6 +431,8 @@ data SessionCap = SessionCap
   -- or read-only calls. 'vmStopHard' deliberately does NOT take
   -- this lock — it must be able to interrupt a stuck graceful
   -- stop. See 'withVmOpLock'.
+  , scVsockLaunchLock :: !(MVar ())
+  -- ^ Process-wide gate for the host's vhost-vsock CID namespace.
   }
 
 newSessionCap
@@ -443,8 +445,9 @@ newSessionCap
   -> TVar (Map.Map Int64 SocketBufferHandle)
   -> NTr.TokenRegistry
   -> Maybe Tls.TlsConfig
+  -> MVar ()
   -> IO SessionCap
-newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg = do
+newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg vsockLaunchLock = do
   vmOpLocks <- newTVarIO Map.empty
   pure
     SessionCap
@@ -458,6 +461,7 @@ newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tls
       , scTransferTokens = tokens
       , scTlsConfig = tlsCfg
       , scVmOpLocks = vmOpLocks
+      , scVsockLaunchLock = vsockLaunchLock
       }
 
 -- | Run @act@ holding the per-VM lifecycle lock, lazily creating

@@ -296,11 +296,15 @@ reapplyVm state nac vmId vm = do
     Right spec -> do
       r <- liftIO $ NOA.vmStart nac spec
       case r of
-        Right info -> do
+        Right (NOA.VmStartStarted info) -> do
           logInfoN $ "VM " <> vmName vm <> " re-applied via vmStart"
           let pid = fromIntegral (NOA.vriQemuPid info) :: Int
           liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) pool
           liftIO $ attachVmMonitor state vmId
+        Right NOA.VmStartVsockCidBusy -> do
+          let msg = "vmStart reapply: nodeagent reported a VSOCK CID collision"
+          logWarnN $ "vmStart reapply failed for VM " <> vmName vm <> ": " <> msg
+          liftIO $ runSqlPool (setVmError vmId msg) pool
         Left e -> do
           let msg = "vmStart reapply: " <> T.pack (show e)
           logWarnN $

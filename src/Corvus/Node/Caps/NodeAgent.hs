@@ -21,6 +21,7 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc.Server (SomeServer)
+import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (TVar)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Node.Caps.Session (newSessionCap)
@@ -51,6 +52,7 @@ data NodeAgentCap = NodeAgentCap
   , nacSerialBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
   , nacMonitorBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
   , nacTransferTokens :: !NTr.TokenRegistry
+  , nacVsockLaunchLock :: !(MVar ())
   -- ^ Process-wide token → DiskReader cap map for the inter-agent
   -- transfer flow. Populated by @diskOpenRead@; consumed by
   -- @attachReader@ (typically called by another agent's
@@ -71,8 +73,9 @@ newNodeAgentCap
   -> TVar (Map.Map Int64 SocketBufferHandle)
   -> NTr.TokenRegistry
   -> Maybe Tls.TlsConfig
+  -> MVar ()
   -> IO NodeAgentCap
-newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg =
+newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg vsockLaunchLock =
   pure
     NodeAgentCap
       { nacSup = sup
@@ -82,6 +85,7 @@ newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg 
       , nacSerialBuffers = serialBufs
       , nacMonitorBuffers = monitorBufs
       , nacTransferTokens = tokens
+      , nacVsockLaunchLock = vsockLaunchLock
       , nacTlsConfig = tlsCfg
       }
 
@@ -115,6 +119,7 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
           (nacMonitorBuffers nac)
           (nacTransferTokens nac)
           (nacTlsConfig nac)
+          (nacVsockLaunchLock nac)
       client <- export @CGNA.Session (nacSup nac) impl
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
 

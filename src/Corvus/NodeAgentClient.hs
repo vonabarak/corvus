@@ -12,6 +12,7 @@ module Corvus.NodeAgentClient
   , VmNetIfSpec (..)
   , VmSharedDirSpec (..)
   , VmRuntimeInfo (..)
+  , VmStartOutcome (..)
   , VmStopResult (..)
   , VmStopKind (..)
   , VmAgentStatus (..)

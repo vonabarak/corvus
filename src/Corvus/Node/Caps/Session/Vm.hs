@@ -84,6 +84,7 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (withMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
@@ -129,6 +130,7 @@ import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
 import Corvus.Node.VmSpec (VmAgentState (..), VmGuestExecReq (..), VmSpec (..), VmStopKind (..))
 import qualified Corvus.Node.VmSpec as VS
+import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Rpc.Streams (callSink)
@@ -139,7 +141,7 @@ import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -156,6 +158,7 @@ import System.Process
   , StdStream (..)
   , createProcess
   , getPid
+  , getProcessExitCode
   , proc
   , std_err
   , std_out
@@ -355,25 +358,55 @@ encodeVmGuestExecInfo r = case r of
 
 handleVmStart
   :: SessionCap -> VS.VmSpec -> IO (CGNA.Parsed CGNA.Session'vmStart'results)
-handleVmStart sc spec = do
-  let vmId = VS.vsVmId spec
-      ledger = scVmLedger sc
-  admission <-
-    atomically $
-      L.admitVmStart
-        ledger
-        vmId
-        (VS.vsLifecycleRevision spec)
-        (VS.vsRuntimeGeneration spec)
-  case admission of
-    L.VmStartAccepted mExited -> do
-      forM_ mExited reapVmHelpers
-      when (isJust mExited) $ NGA.releaseConn (scQgaConns sc) vmId
-      doVmStart sc spec
-    L.VmStartAlreadyRunning live ->
-      pure CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
-    L.VmStartRejected reason ->
-      throwFailed ("vmStart rejected for vmId " <> tshow vmId <> ": " <> reason)
+handleVmStart sc spec =
+  case VS.vsVsockCid spec of
+    Nothing -> admitAndStart Nothing
+    Just cid -> withMVar (scVsockLaunchLock sc) $ \_ -> admitAndStart (Just (fromIntegral cid))
+  where
+    vmId = VS.vsVmId spec
+    ledger = scVmLedger sc
+    admitAndStart mCid = do
+      admission <-
+        atomically $
+          L.admitVmStart
+            ledger
+            vmId
+            (VS.vsLifecycleRevision spec)
+            (VS.vsRuntimeGeneration spec)
+      case admission of
+        L.VmStartAccepted mExited -> do
+          free <- maybe (pure True) VC.isHostFree mCid
+          if not free
+            then do
+              atomically $
+                L.clearVmStartReservation
+                  ledger
+                  vmId
+                  (VS.vsLifecycleRevision spec)
+                  (VS.vsRuntimeGeneration spec)
+              pure vsockCidBusyResult
+            else do
+              forM_ mExited reapVmHelpers
+              when (isJust mExited) $ NGA.releaseConn (scQgaConns sc) vmId
+              doVmStart sc spec
+        L.VmStartAlreadyRunning live -> pure $ startedResult live
+        L.VmStartRejected reason ->
+          throwFailed ("vmStart rejected for vmId " <> tshow vmId <> ": " <> reason)
+
+startedResult :: L.VmLiveState -> CGNA.Parsed CGNA.Session'vmStart'results
+startedResult live =
+  CGNA.Session'vmStart'results
+    { CGNA.result =
+        CGNA.VmStartResult
+          { CGNA.union' = CGNA.VmStartResult'started (encodeVmRuntimeInfo live)
+          }
+    }
+
+vsockCidBusyResult :: CGNA.Parsed CGNA.Session'vmStart'results
+vsockCidBusyResult =
+  CGNA.Session'vmStart'results
+    { CGNA.result = CGNA.VmStartResult {CGNA.union' = CGNA.VmStartResult'vsockCidBusy}
+    }
 
 doVmStart
   :: SessionCap -> VS.VmSpec -> IO (CGNA.Parsed CGNA.Session'vmStart'results)
@@ -513,6 +546,27 @@ doVmStart sc spec = do
                   5
             reapSpawnedHelpers virtiofsdEntries swtpmEntry
             throwFailed ("vmStart rejected by a newer lifecycle fence for vmId " <> tshow vmId)
+          case VS.vsVsockCid spec of
+            Nothing -> pure ()
+            Just cid -> do
+              ready <- waitForVsockOwnership cfg vmId cid qemuPh
+              case ready of
+                Right () -> pure ()
+                Left reason -> do
+                  atomically $ writeTVar stopRequestedVar True
+                  let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+                  _ <-
+                    runStderrLoggingT $
+                      P.stopProcess qemuLabel (CPid (fromIntegral qemuPidW)) Nothing 0 5
+                  reapSpawnedHelpers virtiofsdEntries swtpmEntry
+                  _ <-
+                    atomically $
+                      L.removeVmIfCurrent
+                        (scVmLedger sc)
+                        vmId
+                        (VS.vsLifecycleRevision spec)
+                        (VS.vsRuntimeGeneration spec)
+                  throwFailed ("vmStart failed to claim vsock CID " <> tshow cid <> ": " <> reason)
           -- Start agent-side chardev buffer threads. The threads
           -- wait ~1 s for QEMU to open the socket, connect, then
           -- ring-buffer output until QEMU exits (at which point
@@ -759,25 +813,36 @@ doVmStart sc spec = do
                   incomingOk <-
                     if needIncoming then runIncomingStep else pure True
                   when (incomingOk && needGaWait) runGaStep
-          -- When 'vsStartPaused' is set we skip the GA-wait fork
-          -- (CPUs are frozen; QGA won't respond). The daemon-side
-          -- caller is going to drive QMP @snapshot-load@ as its
-          -- next step, and that needs QMP itself to be up. QEMU
-          -- binds the QMP listen socket during init, but there's
-          -- a window of ~100–500 ms between the daemon's
-          -- @forkProcess@ returning and QMP being ready to accept
-          -- connections; without a synchronous wait the daemon's
-          -- first QMP call hits "does not exist (ENOENT)" on the
-          -- socket path. Block here until QMP responds, with a
-          -- short timeout — long enough for nested-KVM bake VMs
-          -- under heavy load, short enough to fail clearly if
-          -- QEMU crashed at spawn.
-
-          when (VS.vsStartPaused spec) $
+          -- A VSOCK start already waited for QMP while confirming CID
+          -- ownership. Paused non-VSOCK starts still need the same
+          -- synchronous readiness guarantee before their caller sends
+          -- @snapshot-load@.
+          when (VS.vsStartPaused spec && isNothing (VS.vsVsockCid spec)) $
             liftIO $
               NQ.waitForQmpReady agentQemuConfig vmId
-          pure
-            CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+          pure $ startedResult live
+
+-- | QEMU must answer QMP and retain the VSOCK CID before another start is
+-- allowed to probe the host. The probe itself cannot reserve the CID because
+-- closing its vhost fd releases it.
+waitForVsockOwnership :: QemuConfig -> Int64 -> Word32 -> ProcessHandle -> IO (Either Text ())
+waitForVsockOwnership cfg vmId cid qemuPh = go (40 :: Int) Nothing
+  where
+    intervalUs = 250000
+    go 0 mQmp =
+      pure $ Left $ "timed out waiting for QMP and kernel CID ownership" <> maybe "" (": " <>) mQmp
+    go remaining mQmp = do
+      exited <- getProcessExitCode qemuPh
+      case exited of
+        Just ExitSuccess -> pure $ Left "QEMU exited before startup completed"
+        Just (ExitFailure n) -> pure $ Left ("QEMU exited with status " <> tshow n)
+        Nothing -> do
+          qmp <- NQ.qmpQueryCommands cfg vmId
+          free <- VC.isHostFree (fromIntegral cid)
+          case (qmp, free) of
+            (Right _, False) -> pure (Right ())
+            (Left err, _) -> threadDelay intervalUs >> go (remaining - 1) (Just err)
+            (_, True) -> threadDelay intervalUs >> go (remaining - 1) mQmp
 
 -- | Reboot-quirk re-spawn: after the agent's reaper observed
 -- QEMU exit AND the stop wasn't daemon-initiated, reap the
@@ -830,7 +895,14 @@ respawnAfterExit sc spec = do
   -- (no caller is waiting on it — the daemon's original
   -- vmStart already returned long ago). doVmStart's
   -- 'insertVm' atomically replaces the stale entry.
-  r <- E.try @E.SomeException (doVmStart sc spec)
+  r <- E.try @E.SomeException $
+    case VS.vsVsockCid spec of
+      Nothing -> doVmStart sc spec
+      Just cid -> withMVar (scVsockLaunchLock sc) $ \_ -> do
+        free <- VC.isHostFree (fromIntegral cid)
+        unless free $
+          throwFailed ("reboot-quirk VSOCK CID is busy: " <> tshow cid)
+        doVmStart sc spec
   case r of
     Right _ ->
       runStderrLoggingT . logInfoN $

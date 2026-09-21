@@ -1615,18 +1615,18 @@ instance (C.AllocateList Session'vmStart'results) where
 instance (C.EstimateListAlloc Session'vmStart'results (C.Parsed Session'vmStart'results))
 data instance C.Parsed Session'vmStart'results
     = Session'vmStart'results 
-        {info :: (RP.Parsed VmRuntimeInfo)}
+        {result :: (RP.Parsed VmStartResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStart'results))
 deriving instance (Std_.Eq (C.Parsed Session'vmStart'results))
 instance (C.Parse Session'vmStart'results (C.Parsed Session'vmStart'results)) where
-    parse raw_ = (Session'vmStart'results <$> (GH.parseField #info raw_))
+    parse raw_ = (Session'vmStart'results <$> (GH.parseField #result raw_))
 instance (C.Marshal Session'vmStart'results (C.Parsed Session'vmStart'results)) where
     marshalInto raw_ Session'vmStart'results{..} = (do
-        (GH.encodeField #info info raw_)
+        (GH.encodeField #result result raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "info" GH.Slot Session'vmStart'results VmRuntimeInfo) where
+instance (GH.HasField "result" GH.Slot Session'vmStart'results VmStartResult) where
     fieldByLabel  = (GH.ptrField 0)
 data Session'vmStopGraceful'params 
 type instance (R.ReprFor Session'vmStopGraceful'params) = (R.Ptr (Std_.Just R.Struct))
@@ -4394,6 +4394,77 @@ instance (GH.HasField "lifecycleRevision" GH.Slot VmRuntimeInfo Std_.Int64) wher
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "runtimeGeneration" GH.Slot VmRuntimeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
+data VmStartResult
+type instance (R.ReprFor VmStartResult) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmStartResult) where
+    typeId  = 15761967887000627501
+instance (C.TypedStruct VmStartResult) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate VmStartResult) where
+    type AllocHint VmStartResult = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmStartResult (C.Parsed VmStartResult))
+instance (C.AllocateList VmStartResult) where
+    type ListAllocHint VmStartResult = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmStartResult (C.Parsed VmStartResult))
+data instance C.Parsed VmStartResult
+    = VmStartResult
+        {union' :: (C.Parsed (GH.Which VmStartResult))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmStartResult))
+deriving instance (Std_.Eq (C.Parsed VmStartResult))
+instance (C.Parse VmStartResult (C.Parsed VmStartResult)) where
+    parse raw_ = (VmStartResult <$> (C.parse (GH.structUnion raw_)))
+instance (C.Marshal VmStartResult (C.Parsed VmStartResult)) where
+    marshalInto raw_ VmStartResult{..} = (do
+        (C.marshalInto (GH.structUnion raw_) union')
+        )
+instance (GH.HasUnion VmStartResult) where
+    unionField  = (GH.dataField 0 0 16 0)
+    data RawWhich VmStartResult mut_
+        = RW_VmStartResult'started (R.Raw VmRuntimeInfo mut_)
+        | RW_VmStartResult'vsockCidBusy (R.Raw () mut_)
+        | RW_VmStartResult'unknown' Std_.Word16
+    internalWhich tag_ struct_ = case tag_ of
+        0 ->
+            (RW_VmStartResult'started <$> (GH.readVariant #started struct_))
+        1 ->
+            (RW_VmStartResult'vsockCidBusy <$> (GH.readVariant #vsockCidBusy struct_))
+        _ ->
+            (Std_.pure (RW_VmStartResult'unknown' tag_))
+    data Which VmStartResult
+instance (GH.HasVariant "started" GH.Slot VmStartResult VmRuntimeInfo) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 0)
+instance (GH.HasVariant "vsockCidBusy" GH.Slot VmStartResult ()) where
+    variantByLabel  = (GH.Variant GH.voidField 1)
+data instance C.Parsed (GH.Which VmStartResult)
+    = VmStartResult'started (RP.Parsed VmRuntimeInfo)
+    | VmStartResult'vsockCidBusy
+    | VmStartResult'unknown' Std_.Word16
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed (GH.Which VmStartResult)))
+deriving instance (Std_.Eq (C.Parsed (GH.Which VmStartResult)))
+instance (C.Parse (GH.Which VmStartResult) (C.Parsed (GH.Which VmStartResult))) where
+    parse raw_ = (do
+        rawWhich_ <- (GH.unionWhich raw_)
+        case rawWhich_ of
+            (RW_VmStartResult'started rawArg_) ->
+                (VmStartResult'started <$> (C.parse rawArg_))
+            (RW_VmStartResult'vsockCidBusy _) ->
+                (Std_.pure VmStartResult'vsockCidBusy)
+            (RW_VmStartResult'unknown' tag_) ->
+                (Std_.pure (VmStartResult'unknown' tag_))
+        )
+instance (C.Marshal (GH.Which VmStartResult) (C.Parsed (GH.Which VmStartResult))) where
+    marshalInto raw_ parsed_ = case parsed_ of
+        (VmStartResult'started arg_) ->
+            (GH.encodeVariant #started arg_ (GH.unionStruct raw_))
+        (VmStartResult'vsockCidBusy) ->
+            (GH.encodeVariant #vsockCidBusy () (GH.unionStruct raw_))
+        (VmStartResult'unknown' tag_) ->
+            (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
 data VmStopResult 
 type instance (R.ReprFor VmStopResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStopResult) where

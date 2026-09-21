@@ -328,7 +328,13 @@ rollbackFromStoppedClaimed state vmId vm carrierDiskId carrierSnap = do
                 vmId
                 vm
                 ("vmStart paused: " <> T.pack (show e))
-            Right (Right _runtime) -> do
+            Right (Right NOA.VmStartVsockCidBusy) ->
+              finishStartFailure
+                pool
+                vmId
+                vm
+                "vmStart paused: nodeagent reported a VSOCK CID collision"
+            Right (Right (NOA.VmStartStarted _runtime)) -> do
               logInfoN $
                 "vm-snapshot-rollback (stopped): loading vmstate tag=" <> tag
               loadRes <-

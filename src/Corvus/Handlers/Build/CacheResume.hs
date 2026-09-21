@@ -348,7 +348,11 @@ resumeMemoryCacheBakeVmClaimed state cachedVmId disks chain carrier vm = do
           let msg = "vmStart paused: " <> T.pack (show e)
           _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) msg) pool
           pure $ Left ("memory-mode resume: " <> msg)
-        Right (Right _runtime) -> do
+        Right (Right NOA.VmStartVsockCidBusy) -> do
+          let msg = "vmStart paused: nodeagent reported a VSOCK CID collision"
+          _ <- liftIO $ runSqlPool (setVmErrorIfCurrent cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) msg) pool
+          pure $ Left ("memory-mode resume: " <> msg)
+        Right (Right (NOA.VmStartStarted _runtime)) -> do
           -- QEMU is up and paused. Drive snapshot-load.
           logInfoN $
             "memory-mode resume: loading vmstate tag="

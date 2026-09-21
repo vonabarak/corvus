@@ -23,6 +23,7 @@ import Corvus.Handlers.Vm.Db
   , setVmStartedIfCurrent
   )
 import qualified Corvus.Model as M
+import Data.Maybe (fromMaybe)
 import Database.Persist (update, (=.))
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (runDb)
@@ -43,7 +44,7 @@ spec = sequential $ withTestDb $ do
               setVmStartedIfCurrent
                 1
                 (M.vmLifecycleRevision vm)
-                (maybe (M.vmLifecycleRevision vm) id (M.vmRuntimeGeneration vm))
+                (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm))
                 VmRunning
           liftIO $ updated `shouldBe` True
           then_ $ vmHasStatus 1 VmRunning

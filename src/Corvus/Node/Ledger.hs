@@ -14,6 +14,7 @@ module Corvus.Node.Ledger
   , lookupVm
   , insertVm
   , removeVm
+  , removeVmIfCurrent
   , VmStartAdmission (..)
   , admitVmStart
   , publishVmStart
@@ -116,6 +117,18 @@ insertVm l vmId st = modifyTVar' (vmVar l) (Map.insert vmId st)
 removeVm :: VmLedger -> Int64 -> STM (Maybe VmLiveState)
 removeVm l vmId =
   stateTVar (vmVar l) (\m -> (Map.lookup vmId m, Map.delete vmId m))
+
+-- | Remove a live entry only when it still belongs to the start operation
+-- performing cleanup. A reset or newer start may have replaced it meanwhile.
+removeVmIfCurrent :: VmLedger -> Int64 -> Int64 -> Int64 -> STM (Maybe VmLiveState)
+removeVmIfCurrent ledger vmId revision generation = do
+  mLive <- lookupVm ledger vmId
+  case mLive of
+    Just live
+      | VS.vsLifecycleRevision (vlsSpec live) == revision
+          && VS.vsRuntimeGeneration (vlsSpec live) == generation ->
+          removeVm ledger vmId
+    _ -> pure Nothing
 
 -- | Reserve a cold start under its daemon-owned fence. The reservation is
 -- created before helpers/QEMU spawn and is invalidated atomically by reset.

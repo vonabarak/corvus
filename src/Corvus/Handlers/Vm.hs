@@ -563,7 +563,24 @@ launchVmViaAgent
   -> Pool SqlBackend
   -> VmStatus
   -> LoggingT IO Response
-launchVmViaAgent state vmId vm pool nextStatus = do
+launchVmViaAgent state vmId vm pool nextStatus =
+  launchVmViaAgentAttempt state vmId vm pool nextStatus 0
+
+-- | A VSOCK probe only observes whether the CID is free at one instant: its
+-- kernel claim is released before QEMU can acquire it. The nodeagent
+-- serializes that final admission window and returns 'VmStartVsockCidBusy'
+-- when another VM won it. Reallocate once under the original lifecycle claim;
+-- a second collision is reported as a normal start failure rather than
+-- spinning forever.
+launchVmViaAgentAttempt
+  :: ServerState
+  -> Int64
+  -> Vm
+  -> Pool SqlBackend
+  -> VmStatus
+  -> Int
+  -> LoggingT IO Response
+launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
   -- Managed and bridge NICs need the netd cap so
   -- 'assembleVmSpec' can pre-allocate persistent TAPs. If the VM
   -- has none, we don't care whether netd is up.
@@ -623,7 +640,7 @@ launchVmViaAgent state vmId vm pool nextStatus = do
             logWarnN $ "vmStart failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
             _ <- liftIO $ runSqlPool (setVmErrorIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) msg) pool
             pure $ RespError msg
-          Right info -> do
+          Right (NOA.VmStartStarted info) -> do
             let _pid = fromIntegral (NOA.vriQemuPid info) :: Int
             -- Post-split semantics: the agent's 'vmStart' returns
             -- once QEMU is spawned, *not* once QGA is reachable.
@@ -647,6 +664,32 @@ launchVmViaAgent state vmId vm pool nextStatus = do
               _ -> do
                 updated <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) VmRunning) (ssDbPool state)
                 pure $ if updated then RespVmStateChanged VmRunning else RespInvalidTransition nextStatus "VM lifecycle operation was superseded"
+          Right NOA.VmStartVsockCidBusy
+            | attempt == 0 -> retryWithFreshVsockCid
+            | otherwise ->
+                recordPreStartFailure
+                  state
+                  vmId
+                  vm
+                  pool
+                  "Failed to secure a free vsock CID"
+                  "the nodeagent reported a VSOCK CID collision after retrying"
+  where
+    retryWithFreshVsockCid = do
+      mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) pool
+      case mCurrent of
+        Nothing -> pure RespVmNotFound
+        Just (current, currentStatus)
+          | vmLifecycleRevision current /= vmLifecycleRevision vm
+              || vmRuntimeGeneration current /= vmRuntimeGeneration vm ->
+              pure $ RespInvalidTransition currentStatus "VM lifecycle operation was superseded"
+          | otherwise -> do
+              cidResult <- liftIO $ ensureFreeVsockCid state vmId current
+              case cidResult of
+                Left err ->
+                  recordPreStartFailure state vmId current pool "Failed to secure a free vsock CID" err
+                Right _ ->
+                  launchVmViaAgentAttempt state vmId current pool nextStatus 1
 
 -- | Re-validate the VM's stored vsock CID against the live host
 -- kernel before launching QEMU, and reallocate if necessary.
@@ -656,9 +699,9 @@ launchVmViaAgent state vmId vm pool nextStatus = do
 -- because the host probe at create time isn't atomic with persisting
 -- the value. The kernel enforces uniqueness when QEMU opens
 -- @/dev/vhost-vsock@; the loser gets EADDRINUSE and the VM lands in
--- 'VmError'. Re-probing here closes that race in the common case
--- (the only way to fail now is for two daemons to call this function
--- in lockstep, which is rare in practice).
+-- 'VmError'. The nodeagent owns the final host-local admission gate; this
+-- preflight merely avoids asking QEMU to start with a CID already occupied by
+-- a live runtime.
 ensureFreeVsockCid :: ServerState -> Int64 -> Vm -> IO (Either Text Int)
 ensureFreeVsockCid state vmId vm = do
   let pool = ssDbPool state

@@ -247,7 +247,7 @@ interface Session {
   # spec.waitForGuestAgentMs is non-zero, the agent polls QGA
   # after spawn and only returns once a ping succeeds (or throws
   # on timeout).
-  vmStart @15 (spec :VmSpec) -> (info :VmRuntimeInfo);
+  vmStart @15 (spec :VmSpec) -> (result :VmStartResult);
 
   # Graceful shutdown: QMP system_powerdown (ACPI), wait up to
   # timeoutSec for QEMU to exit, then drop the ledger entry.
@@ -375,8 +375,9 @@ interface Session {
   # agent's host kernel (VHOST_VSOCK_SET_GUEST_CID ioctl against
   # /dev/vhost-vsock). The daemon owns the per-node DB filter
   # for already-recorded CIDs; this RPC just answers the kernel
-  # uniqueness question, which is what stops two daemons sharing
-  # a host from independently picking the same CID. Returns
+  # uniqueness question. It is only a point-in-time preflight:
+  # vmStart serializes VSOCK-bearing QEMU launches and confirms
+  # ownership before admitting the next one. Returns
   # `false` only when the kernel reports the CID is in use; a
   # missing /dev/vhost-vsock surfaces as `true` (the agent's
   # host has no vhost-vsock support, so there's no conflict to
@@ -628,6 +629,16 @@ struct VmRuntimeInfo {
   swtpmPid      @3 :Int32;   # 0 when TPM is disabled
   lifecycleRevision @4 :Int64;
   runtimeGeneration @5 :Int64;
+}
+
+# Outcome of a VM-start request. A busy VSOCK CID is a normal, retryable
+# admission result: the daemon can allocate a replacement CID without
+# treating the VM as errored.
+struct VmStartResult {
+  union {
+    started @0 :VmRuntimeInfo;
+    vsockCidBusy @1 :Void;
+  }
 }
 
 # Result of stop operations.
