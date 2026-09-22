@@ -187,6 +187,49 @@ the device — it only opens the tray.
 VMs already running when this support is deployed must be restarted once so
 QEMU is launched with the named-device layout required for live detach.
 
+### QEMU device hierarchy for live detach
+
+Corvus gives each live-detachable drive three stable QEMU names: the block
+backend (`drive-<id>`), the guest-visible device (`device-<id>`), and the bus
+to which that device is attached. The backend is storage plumbing rather than
+a PCI child; the guest device refers to it through its `drive` property.
+
+For a VirtIO disk present when the VM boots, Corvus creates a native PCIe root
+port for that disk:
+
+```text
+Q35 PCIe root complex
+└── pcie-root-port: virtio-rp-<id>
+    └── virtio-blk-pci: device-<id>  ──uses──>  block node: drive-<id>
+```
+
+The root port supplies the hot-pluggable PCIe slot. On detach, Corvus removes
+the `virtio-blk-pci` child first and then releases `drive-<id>`; the root port
+remains in the VM's hardware layout.
+
+SCSI drives use one stable controller and its SCSI child bus:
+
+```text
+Q35 PCIe root complex
+└── pcie-root-port: scsi-rp
+    └── virtio-scsi-pci: scsi0
+        └── SCSI child device: device-<id>  ──uses──>  block node: drive-<id>
+```
+
+A VirtIO disk attached while a VM is already running is placed on the
+pre-created hot-plug branch instead:
+
+```text
+Q35 PCIe root complex
+└── pcie-root-port: hotplug-rp
+    └── pcie-pci-bridge: hotplug
+        └── virtio-blk-pci: device-<id>  ──uses──>  block node: drive-<id>
+```
+
+This hierarchy applies to drive attach and detach. CD-ROM media eject is
+different: it keeps the guest device in place and changes only the medium in
+its tray.
+
 ## Ejecting and Changing CD-ROM Media
 
 A drive attached with `--media cdrom` behaves like a physical tray: the
