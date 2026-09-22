@@ -64,6 +64,23 @@ spec = sequential $ withTestDb $ do
           taskResult t `shouldBe` TaskError
         Nothing -> fail "expected one Task row, found none"
 
+    testCase "a refused VM delete is recorded as an error" $ do
+      given $ do
+        _ <- insertVm "running-delete" VmRunning
+        pure ()
+      when_ $ whenVmDelete 1
+      then_ $ do
+        responseIs (== RespVmMustBeStopped)
+        vmExists 1
+      mTask <- getLastTask
+      liftIO $ case mTask of
+        Just (Entity _ t) -> do
+          taskSubsystem t `shouldBe` SubVm
+          taskCommand t `shouldBe` "delete"
+          taskResult t `shouldBe` TaskError
+          taskMessage t `shouldBe` Just "VM must be stopped"
+        Nothing -> fail "expected one Task row, found none"
+
     testCase "whenSshKeyCreate records under the ssh-key subsystem" $ do
       when_ $ whenSshKeyCreate "k" "ssh-ed25519 AAAA-k"
       then_ $ responseIs $ \case

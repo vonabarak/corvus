@@ -124,6 +124,10 @@ vmDeleteCommand =
       ( long "keep-disks"
           <> help "Do not delete ephemeral disks (cloud-init ISOs, template-instantiated disks) attached to this VM"
       )
+    <*> switch
+      ( long "force"
+          <> help "Hard-reset the VM before deleting it; discards unsaved guest state"
+      )
 
 -- | Parser for vm show
 vmShowCommand :: Parser Command

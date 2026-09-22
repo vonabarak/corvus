@@ -463,7 +463,6 @@ classifyResponse = \case
   RespVmDeleted -> (TaskSuccess, Just "Deleted")
   RespVmEdited -> (TaskSuccess, Just "Edited")
   RespVmStateChanged s -> (TaskSuccess, Just $ "State: " <> enumToText s)
-  RespVmRunning -> (TaskSuccess, Just "Already running")
   RespDiskCreated did -> (TaskSuccess, Just $ "Created with ID " <> T.pack (show did))
   RespDiskOk -> (TaskSuccess, Nothing)
   RespDiskAttached did -> (TaskSuccess, Just $ "Drive ID " <> T.pack (show did))

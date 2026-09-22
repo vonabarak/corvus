@@ -48,5 +48,5 @@ cleanupBakeVm state parentTaskId vmIdLong = do
   if hasCache
     then pure ()
     else do
-      _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False)
+      _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False False)
       pure ()

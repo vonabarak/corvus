@@ -674,7 +674,7 @@ executeApply ctx config ifExists = do
                   -- keepDisks = False: drop ephemeral attached disks
                   -- (cloud-init ISO, template clones) along with the
                   -- VM, since the apply will recreate them.
-                  (runActionAsSubtask ctx (VmDelete eid False))
+                  (runActionAsSubtask ctx (VmDelete eid False False))
           result <- dispatchEntity "vms" "vm-create" name mExisting create mkOverwrite
           case result of
             Left err -> pure $ Left err

@@ -207,7 +207,7 @@ spec = sequential $ withTestDb $ do
         pure ()
       when_ $ whenVmDelete 1
       then_ $ do
-        responseIs (== RespVmRunning)
+        responseIs (== RespVmMustBeStopped)
         vmExists 1
 
     testCase "keeps a TPM-enabled VM when TPM state deletion fails" $ do

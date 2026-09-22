@@ -244,10 +244,10 @@ rpcVmSave conn ref wait = do
   _ <- callOn #save CGVm.Vm'save'params {CGVm.wait = wait} vmClient
   pure ()
 
-rpcVmDelete :: CapnpConnection -> EntityRef -> Bool -> IO ()
-rpcVmDelete conn ref keepDisks = do
+rpcVmDelete :: CapnpConnection -> EntityRef -> Bool -> Bool -> IO ()
+rpcVmDelete conn ref keepDisks force = do
   vmClient <- getVmClient conn ref
-  _ <- callOn #delete CGVm.Vm'delete'params {CGVm.keepDisks = keepDisks} vmClient
+  _ <- callOn #delete CGVm.Vm'delete'params {CGVm.keepDisks = keepDisks, CGVm.force = force} vmClient
   pure ()
 
 rpcVmMigrate :: CapnpConnection -> EntityRef -> EntityRef -> IO Int64

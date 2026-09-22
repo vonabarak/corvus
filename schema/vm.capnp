@@ -280,7 +280,8 @@ interface Vm {
   # Inline-param defaults mirror the CLI: start/stop return
   # immediately by default; `delete` reaps attached ephemeral disks
   # (cloud-init ISOs, template-instantiated disks) unless
-  # `keepDisks` is set.
+  # `keepDisks` is set. With `force`, the daemon hard-resets the VM
+  # before deletion and only proceeds after the nodeagent confirms it stopped.
   start          @1  (wait :Bool = false) -> (status :Enums.VmStatus);
   # `timeoutSec` is the graceful-shutdown window: the daemon asks the
   # agent to ACPI-powerdown and wait this many seconds for QEMU to
@@ -290,7 +291,7 @@ interface Vm {
   pause          @3  () -> (status :Enums.VmStatus);
   reset          @4  () -> (status :Enums.VmStatus);
   edit           @5  (params :VmEditParams) -> ();
-  delete         @6  (keepDisks :Bool = false) -> ();
+  delete         @6  (keepDisks :Bool = false, force :Bool = false) -> ();
   cloudInit      @7  () -> (config :CloudInit.CloudInitInfo);
   viewGrant      @8  () -> (grant :Common.ViewGrant);
   guestExec      @9  (command :Text) -> (result :GuestExecResult);

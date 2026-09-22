@@ -236,7 +236,7 @@ instance CGVm.Vm'server_ VmCap where
         _ -> throwError resp
 
   vm'delete (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'delete'params {..} -> do
-    resp <- runAction st cn (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks})
+    resp <- runAction st cn (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks, vdelForce = force})
     case resp of
       RespVmDeleted -> pure CGVm.Vm'delete'results
       _ -> throwError resp
@@ -622,7 +622,6 @@ instance CGVm.Vm'server_ VmCap where
 statusOrThrow :: Response -> IO CGE.VmStatus
 statusOrThrow resp = case resp of
   RespVmStateChanged s -> pure (toCapnpVmStatus s)
-  RespVmRunning -> pure (toCapnpVmStatus M.VmRunning)
   _ -> throwError resp
 
 enumOrThrow :: Either e a -> IO a

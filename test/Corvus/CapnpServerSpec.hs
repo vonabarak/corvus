@@ -141,9 +141,28 @@ spec = withTestDb $ sequential $ do
         vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False False False "host"
         vms <- CR.rpcVmList conn
         length vms `shouldBe` 1
-        CR.rpcVmDelete conn (WC.RefById vid) False
+        CR.rpcVmDelete conn (WC.RefById vid) False False
         vmsAfter <- CR.rpcVmList conn
         vmsAfter `shouldBe` []
+
+    it "vm delete reports vm_must_be_stopped unless forced, and force resets first" $ \env -> do
+      withCapnpDaemon env $ \conn -> do
+        vid <- CR.rpcVmCreate conn "running-delete" "" 1 1024 Nothing True False False False False False "host"
+        -- The in-process nodeagent has no QEMU for this VM, so reset's
+        -- idempotent "already stopped" response is enough to exercise the
+        -- force path without launching a guest.
+        runSqlPool
+          (update (toSqlKey vid :: M.VmId) [M.VmStatus =. M.VmRunning])
+          (tePool env)
+        normal <- try @SomeException $ CR.rpcVmDelete conn (WC.RefById vid) False False
+        case normal of
+          Right () -> expectationFailure "non-forced delete of a running VM returned OK"
+          Left e -> do
+            show e `shouldContain` "vm_must_be_stopped"
+            show e `shouldContain` "VM must be stopped"
+        CR.rpcVmDelete conn (WC.RefById vid) False True
+        vms <- CR.rpcVmList conn
+        vms `shouldBe` []
 
     it "vm start surfaces RespInvalidTransition as a typed RPC exception" $ \env -> do
       -- Regression for the silent-OK bug: when validation rejects a

@@ -131,8 +131,6 @@ data Response
     RespVmCreated {id :: !Int64}
   | -- | VM deleted successfully
     RespVmDeleted
-  | -- | VM is running and cannot be deleted
-    RespVmRunning
   | -- | New status after successful transition
     RespVmStateChanged {status :: !VmStatus}
   | -- | Current status and reason for rejection

@@ -198,7 +198,6 @@ classifyStartResp :: Response -> Either Text ()
 classifyStartResp r = case r of
   RespVmStateChanged _ -> Right ()
   RespError err -> Left err
-  RespVmRunning -> Right ()
   RespInvalidTransition _ msg -> Left msg
   _ -> Left $ "unexpected response: " <> T.pack (show r)
 

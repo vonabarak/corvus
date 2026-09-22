@@ -221,10 +221,22 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
 
 -- | Handle VM delete command. Reaps ephemeral disks attached to the
 -- VM (cloud-init ISOs, template-instantiated disks) unless 'keepDisks'
--- is set. Non-ephemeral disks are never auto-deleted — the operator
--- removes those manually with @crv disk delete@.
-handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response
-handleVmDelete ctx vmId keepDisks = do
+-- is set. With 'force', hard-reset first and delete only after reset
+-- confirms the VM stopped. Non-ephemeral disks are never auto-deleted.
+handleVmDelete :: ActionContext -> Int64 -> Bool -> Bool -> IO Response
+handleVmDelete ctx vmId keepDisks force = do
+  resetResponse <-
+    if force
+      then runActionAsSubtask ctx (VmReset vmId)
+      else pure (RespVmStateChanged VmStopped)
+  case resetResponse of
+    RespVmStateChanged VmStopped -> deleteStoppedVm ctx vmId keepDisks
+    _ -> pure resetResponse
+
+-- | Delete a VM that is known to be stopped. Re-fetching after a forced
+-- reset also prevents a concurrent start from deleting a live VM.
+deleteStoppedVm :: ActionContext -> Int64 -> Bool -> IO Response
+deleteStoppedVm ctx vmId keepDisks = do
   let state = acState ctx
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
@@ -239,7 +251,7 @@ handleVmDelete ctx vmId keepDisks = do
                , VmLoading
                , VmMigrating
                ]
-        then pure RespVmRunning
+        then pure RespVmMustBeStopped
         else do
           -- TPM state belongs to an enabled TPM VM. Its deletion is
           -- strict: if the nodeagent cannot remove it, leave the VM
@@ -1514,13 +1526,16 @@ data VmDelete = VmDelete
   -- to the VM (cloud-init ISOs, template-instantiated disks). When
   -- 'True', leave all attached disks in place — including ephemeral
   -- ones — so the operator can debug or re-use them.
+  , vdelForce :: Bool
+  -- ^ Hard-reset the VM before deleting it. This discards unsaved guest
+  -- state and deletion proceeds only when the reset reports 'VmStopped'.
   }
 
 instance Action VmDelete where
   actionSubsystem _ = SubVm
   actionCommand _ = "delete"
   actionEntityId = Just . fromIntegral . vdelVmId
-  actionExecute ctx a = handleVmDelete ctx (vdelVmId a) (vdelKeepDisks a)
+  actionExecute ctx a = handleVmDelete ctx (vdelVmId a) (vdelKeepDisks a) (vdelForce a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64

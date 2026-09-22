@@ -481,7 +481,7 @@ whenVmCreate name cpuCount ramMb description =
 
 whenVmDelete :: Int64 -> TestM Response
 whenVmDelete vmId =
-  withState (\st -> runAction st "alice" (VmDelete vmId False))
+  withState (\st -> runAction st "alice" (VmDelete vmId False False))
 
 --------------------------------------------------------------------------------
 -- Core Commands

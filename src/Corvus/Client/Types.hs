@@ -102,8 +102,8 @@ data Command
   | VmShow !Text
   | -- | Create a new VM (name, nodeRef, cpuCount, ramMb, description, headless, guestAgent, tpm, cloudInit, autostart, rebootQuirk, cpuModel)
     VmCreate !Text !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool !Bool !Bool !Text
-  | -- | Delete a VM (vmRef, keepDisks)
-    VmDelete !Text !Bool
+  | -- | Delete a VM (vmRef, keepDisks, force)
+    VmDelete !Text !Bool !Bool
   | VmStart !Text !WaitOptions
   | VmStop !Text !WaitOptions
   | VmPause !Text

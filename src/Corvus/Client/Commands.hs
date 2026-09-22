@@ -157,7 +157,7 @@ runCommand opts = do
             pure False
       VmCreate name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm ->
         handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm
-      VmDelete vmRef keepDisks -> handleVmDelete fmt conn vmRef keepDisks
+      VmDelete vmRef keepDisks force -> handleVmDelete fmt conn vmRef keepDisks force
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
       VmPause vmRef ->

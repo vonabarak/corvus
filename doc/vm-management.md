@@ -7,7 +7,7 @@ crv vm list                       # List all VMs
 crv vm show <vm>                  # Show VM details (drives, network, sockets)
 crv vm create <name> [--cpus COUNT] [--ram MB] # Create a VM
 crv vm edit <vm>                  # Edit VM settings
-crv vm delete <vm>                # Delete a VM
+crv vm delete <vm> [--force]      # Delete a VM
 crv vm start <vm>                 # Start a stopped/paused VM
 crv vm stop <vm>                  # Graceful shutdown
 crv vm pause <vm>                 # Pause execution (in-RAM, not persistent)
@@ -270,9 +270,13 @@ received a sample for (e.g. just-started VMs in the first 10s).
 ```bash
 crv vm delete my-vm              # Delete VM record + reap attached ephemeral disks
 crv vm delete my-vm --keep-disks # Delete VM record only; leave every disk in place
+crv vm delete my-vm --force      # Hard-reset, then delete
 ```
 
-The VM must be stopped before deletion. By default, `vm delete` also
+The VM must be stopped before deletion. If it is running or in a transition,
+the command reports `vm_must_be_stopped` and leaves it untouched. Pass
+`--force` to hard-reset the VM first; this discards unsaved guest state and
+deletion proceeds only after the nodeagent confirms it stopped. By default, `vm delete` also
 removes every **ephemeral** disk attached to the VM — that's cloud-init
 ISOs, disks created during template instantiation (clone / overlay /
 create strategies), and anything else created with `ephemeral=true`.

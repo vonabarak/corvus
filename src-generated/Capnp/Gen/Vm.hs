@@ -1852,19 +1852,24 @@ instance (C.AllocateList Vm'delete'params) where
 instance (C.EstimateListAlloc Vm'delete'params (C.Parsed Vm'delete'params))
 data instance C.Parsed Vm'delete'params
     = Vm'delete'params 
-        {keepDisks :: (RP.Parsed Std_.Bool)}
+        {keepDisks :: (RP.Parsed Std_.Bool)
+        ,force :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'delete'params))
 deriving instance (Std_.Eq (C.Parsed Vm'delete'params))
 instance (C.Parse Vm'delete'params (C.Parsed Vm'delete'params)) where
-    parse raw_ = (Vm'delete'params <$> (GH.parseField #keepDisks raw_))
+    parse raw_ = (Vm'delete'params <$> (GH.parseField #keepDisks raw_)
+                                   <*> (GH.parseField #force raw_))
 instance (C.Marshal Vm'delete'params (C.Parsed Vm'delete'params)) where
     marshalInto raw_ Vm'delete'params{..} = (do
         (GH.encodeField #keepDisks keepDisks raw_)
+        (GH.encodeField #force force raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "keepDisks" GH.Slot Vm'delete'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
+instance (GH.HasField "force" GH.Slot Vm'delete'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 1 0 1 0)
 data Vm'delete'results 
 type instance (R.ReprFor Vm'delete'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'delete'results) where
