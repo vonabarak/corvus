@@ -593,43 +593,8 @@ launchVmViaAgentAttempt
   -> Int
   -> LoggingT IO Response
 launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
-  -- Managed and bridge NICs need the netd cap so
-  -- 'assembleVmSpec' can pre-allocate persistent TAPs. If the VM
-  -- has none, we don't care whether netd is up.
-  needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
-  mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
-  when (needsNetd && isNothing mNetAgent) $
-    logWarnN $
-      "VM "
-        <> T.pack (show vmId)
-        <> " has a managed or bridge NIC but netd is unavailable"
-  let netAgentForSpec = if needsNetd then mNetAgent else Nothing
-  -- Wait-for-first-ping budget for the agent's vmStart. Covers
-  -- cold boot through QGA's first response.
-  --
-  --  * 'guestAgent' off → no wait.
-  --  * 'guestAgent' on, has previously checked in (steady-state
-  --    reboot) → 90 s. Handles Alpine + Debian + UEFI Alpine
-  --    boots under nested KVM on a moderately loaded host.
-  --  * 'guestAgent' on, never checked in AND 'cloudInit' on →
-  --    300 s. First-boot cloud images do 'apt install
-  --    qemu-guest-agent' from cloud-init's package list, which
-  --    runs apt-get update + install over the network and only
-  --    *then* starts the agent. Under parallel integration-test
-  --    load this routinely needs > 90 s; the 5-min budget
-  --    matches 'reapplyVm' below.
-  --  * 'guestAgent' on, never checked in, no cloud-init → 90 s
-  --    (image presumably has the agent baked in and started by
-  --    systemd at boot).
-  let cfg = ssQemuConfig state
-      firstBoot = isNothing (vmHealthcheck vm)
-      cloudInitBootstrap = firstBoot && vmCloudInit vm
-      waitMs
-        | not (vmGuestAgent vm) = 0
-        | cloudInitBootstrap = 300000
-        | otherwise = 90000
-
-  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) waitMs
+  netAgentForSpec <- resolveStartNetAgent
+  mSpec <- assembleStartSpec netAgentForSpec
   case mSpec of
     Left err
       | "disappeared from DB" `T.isInfixOf` err -> do
@@ -687,6 +652,38 @@ launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
                   "Failed to secure a free vsock CID"
                   "the nodeagent reported a VSOCK CID collision after retrying"
   where
+    -- Managed and bridge NICs need netd while assembling the spec. A VM
+    -- without either kind of NIC can still start while netd is unavailable.
+    resolveStartNetAgent = do
+      needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
+      mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
+      when (needsNetd && isNothing mNetAgent) $
+        logWarnN $
+          "VM "
+            <> T.pack (show vmId)
+            <> " has a managed or bridge NIC but netd is unavailable"
+      pure $ if needsNetd then mNetAgent else Nothing
+
+    -- The nodeagent wait budget covers cold boot through the first QGA
+    -- response. Cloud-init's first installation of qemu-guest-agent gets a
+    -- longer budget; steady-state and pre-installed-agent boots use 90 s.
+    assembleStartSpec netAgentForSpec = do
+      let firstBoot = isNothing (vmHealthcheck vm)
+          cloudInitBootstrap = firstBoot && vmCloudInit vm
+          waitMs
+            | not (vmGuestAgent vm) = 0
+            | cloudInitBootstrap = 300000
+            | otherwise = 90000
+      liftIO $
+        NSpec.assembleVmSpec
+          pool
+          (ssQemuConfig state)
+          netAgentForSpec
+          vmId
+          (vmLifecycleRevision vm)
+          (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm))
+          waitMs
+
     retryWithFreshVsockCid = do
       mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) pool
       case mCurrent of

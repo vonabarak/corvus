@@ -388,81 +388,23 @@ vmsAttachedToNetwork nid = do
 -- @kind = \"overwrite\"@).
 executeApply :: ActionContext -> ApplyConfig -> IfExists -> IO (Either Text ApplyResult)
 executeApply ctx config ifExists = do
-  -- Phase 1: SSH keys
-  keyResult <- runPhase "sshKeys" (acSshKeys config) Map.empty $ \k _keyMap -> do
-    let name = askName k
-        create = runActionAsSubtask ctx (SshKeyCreate name (askPublicKey k))
-    mExisting <- resolveExisting (resolveByName state UniqueSshKeyName Map.empty name)
-    dispatchEntity "sshKeys" "ssh-key-create" name mExisting create $ \eid ->
-      Overwrite
-        (preflightSshKeyOverwrite state eid)
-        (runActionAsSubtask ctx (SshKeyDelete eid))
+  keyResult <- applySshKeys
   case keyResult of
     Left err -> pure $ Left err
     Right (keyMap, keyCreated) -> do
-      -- Phase 2: Disks (need accumulating map for overlay/clone references)
-      diskResult <- runPhase "disks" (acDisks config) Map.empty $ \d diskMap -> do
-        let name = adName d
-            create = runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
-        mExisting <- resolveExisting (resolveByName state UniqueDiskImageName diskMap name)
-        dispatchEntity "disks" (diskKindTag d) name mExisting create $ \eid ->
-          Overwrite
-            (preflightDiskOverwrite state name eid)
-            (runActionAsSubtask ctx (DiskDelete eid))
+      diskResult <- applyDisks
       case diskResult of
         Left err -> pure $ Left err
         Right (diskMap, diskCreated) -> do
-          -- Phase 3: Networks
-          nwResult <- runPhase "networks" (acNetworks config) Map.empty $ \n _nwMap -> do
-            let name = anName n
-                create =
-                  runActionAsSubtask
-                    ctx
-                    ( NetworkCreate
-                        name
-                        (anNode n)
-                        (anSubnet n)
-                        (anDhcp n)
-                        (anNat n)
-                        (anAutostart n)
-                        (anDnsServers n)
-                        (anDomain n)
-                        (anHostDns n)
-                    )
-            mExisting <-
-              resolveExisting $
-                resolveByNameFilter
-                  state
-                  (\nm -> [NetworkName ==. nm])
-                  (\nid -> [NetworkNodeId ==. nid])
-                  Map.empty
-                  name
-                  (anNode n)
-            dispatchEntity "networks" "network-create" name mExisting create $ \eid ->
-              Overwrite
-                (preflightNetworkOverwrite state name eid)
-                (runActionAsSubtask ctx (NetworkDelete eid))
+          nwResult <- applyNetworks
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do
-              -- Phase 4: VMs
-              vmResult <- runSequentialVms (acVms config) keyMap diskMap nwMap
+              vmResult <- applyVms keyMap diskMap nwMap
               case vmResult of
                 Left err -> pure $ Left err
                 Right vmCreated -> do
-                  -- Phase 5: Templates
-                  tmplResult <- runPhase "templates" (acTemplates config) Map.empty $ \ty _ -> do
-                    let name = tyName ty
-                        create = runActionAsSubtask ctx (ApplyTemplateCreate ty)
-                    mExisting <- resolveExisting (resolveByName state UniqueTemplateVmName Map.empty name)
-                    dispatchEntity "templates" "template-create" name mExisting create $ \eid ->
-                      Overwrite
-                        (pure (Right ()))
-                        -- Templates have no incoming FK from other
-                        -- entities (template_drive is owned by the
-                        -- template itself and cascades). No
-                        -- pre-flight refusal needed.
-                        (runActionAsSubtask ctx (TemplateDelete eid))
+                  tmplResult <- applyTemplates
                   case tmplResult of
                     Left err -> pure $ Left err
                     Right (_tmplMap, tmplCreated) ->
@@ -478,6 +420,72 @@ executeApply ctx config ifExists = do
   where
     state = acState ctx
     sink = acApplySink ctx
+
+    applySshKeys =
+      runPhase "sshKeys" (acSshKeys config) Map.empty $ \k _keyMap -> do
+        let name = askName k
+            create = runActionAsSubtask ctx (SshKeyCreate name (askPublicKey k))
+        mExisting <- resolveExisting (resolveByName state UniqueSshKeyName Map.empty name)
+        dispatchEntity "sshKeys" "ssh-key-create" name mExisting create $ \eid ->
+          Overwrite
+            (preflightSshKeyOverwrite state eid)
+            (runActionAsSubtask ctx (SshKeyDelete eid))
+
+    -- Disks carry the accumulated map so overlays and clones can refer to
+    -- earlier declarations in this phase.
+    applyDisks =
+      runPhase "disks" (acDisks config) Map.empty $ \d diskMap -> do
+        let name = adName d
+            create = runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
+        mExisting <- resolveExisting (resolveByName state UniqueDiskImageName diskMap name)
+        dispatchEntity "disks" (diskKindTag d) name mExisting create $ \eid ->
+          Overwrite
+            (preflightDiskOverwrite state name eid)
+            (runActionAsSubtask ctx (DiskDelete eid))
+
+    applyNetworks =
+      runPhase "networks" (acNetworks config) Map.empty $ \n _nwMap -> do
+        let name = anName n
+            create =
+              runActionAsSubtask
+                ctx
+                ( NetworkCreate
+                    name
+                    (anNode n)
+                    (anSubnet n)
+                    (anDhcp n)
+                    (anNat n)
+                    (anAutostart n)
+                    (anDnsServers n)
+                    (anDomain n)
+                    (anHostDns n)
+                )
+        mExisting <-
+          resolveExisting $
+            resolveByNameFilter
+              state
+              (\nm -> [NetworkName ==. nm])
+              (\nid -> [NetworkNodeId ==. nid])
+              Map.empty
+              name
+              (anNode n)
+        dispatchEntity "networks" "network-create" name mExisting create $ \eid ->
+          Overwrite
+            (preflightNetworkOverwrite state name eid)
+            (runActionAsSubtask ctx (NetworkDelete eid))
+
+    applyVms = runSequentialVms (acVms config)
+
+    applyTemplates =
+      runPhase "templates" (acTemplates config) Map.empty $ \ty _ -> do
+        let name = tyName ty
+            create = runActionAsSubtask ctx (ApplyTemplateCreate ty)
+        mExisting <- resolveExisting (resolveByName state UniqueTemplateVmName Map.empty name)
+        dispatchEntity "templates" "template-create" name mExisting create $ \eid ->
+          Overwrite
+            (pure (Right ()))
+            -- Templates have no incoming FK from other entities.
+            (runActionAsSubtask ctx (TemplateDelete eid))
 
     -- Resolve "does this name already exist" iff the policy
     -- needs to know — error policy passes through and lets the

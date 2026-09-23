@@ -413,41 +413,9 @@ doVmStart
 doVmStart sc spec = do
   let vmId = VS.vsVmId spec
       cfg = agentQemuConfig
-  _ <- NR.createVmRuntimeDir cfg vmId
-  vmRuntimeDir <- NR.getVmRuntimeDir cfg vmId
-  monitorSock <- NR.getMonitorSocket cfg vmId
-  qmpSock <- NR.getQmpSocket cfg vmId
-  serialSock <- NR.getSerialSocket cfg vmId
-  guestAgentSock <- NR.getGuestAgentSocket cfg vmId
-  -- Conventional saved-state file path; the value is only inserted
-  -- into the QEMU argv (@-incoming file:…@) when the spec requests
-  -- a load. For a cold boot the builder ignores it.
-  savedStateFile <- NR.getSavedStateFile cfg (VS.vsName spec)
-
-  -- 1. Spawn virtiofsd per shared dir
-  virtiofsdResults <-
-    mapM (spawnVirtiofsdHelper cfg vmRuntimeDir) (VS.vsSharedDirs spec)
-  let virtiofsdEntries = rights virtiofsdResults
-      virtiofsdErrs = lefts virtiofsdResults
-  unless (null virtiofsdErrs) $ do
-    forM_ virtiofsdEntries reapEntryGracefully
-    throwFailed
-      ( "virtiofsd spawn failed for vmId "
-          <> tshow vmId
-          <> ": "
-          <> T.intercalate "; " virtiofsdErrs
-      )
-
-  -- 2. Spawn one foreground swtpm helper when TPM 2.0 is enabled.
-  swtpmResult <-
-    if VS.vsTpm spec
-      then fmap Just <$> spawnSwtpmHelper cfg vmId (VS.vsName spec)
-      else pure (Right Nothing)
-  swtpmEntry <- case swtpmResult of
-    Left err -> do
-      forM_ virtiofsdEntries reapEntryGracefully
-      throwFailed ("swtpm spawn failed for vmId " <> tshow vmId <> ": " <> err)
-    Right entry -> pure entry
+  (vmRuntimeDir, monitorSock, qmpSock, serialSock, guestAgentSock, savedStateFile) <-
+    prepareVmRuntime cfg spec
+  (virtiofsdEntries, swtpmEntry) <- spawnVmHelpers cfg spec vmRuntimeDir
 
   -- 3. Build QEMU argv and spawn
   let (binary, args) =
@@ -599,41 +567,7 @@ doVmStart sc spec = do
           -- buffer threads, first-ping watcher, fresh reaper —
           -- runs end-to-end as if the daemon had asked for a
           -- new start.
-          void $ forkIO $ do
-            r <- E.try @E.SomeException (waitForProcess qemuPh)
-            let code = case r of
-                  Right ExitSuccess -> 0
-                  Right (ExitFailure n) -> n
-                  Left _ -> 1
-            stopReq <- readTVarIO stopRequestedVar
-            if VS.vsRebootQuirk spec && not stopReq
-              then do
-                runStderrLoggingT . logInfoN $
-                  "[nodeagent] vm-"
-                    <> tshow vmId
-                    <> ": QEMU exited pid="
-                    <> tshow qemuPidW
-                    <> " code="
-                    <> tshow code
-                    <> "; reboot-quirk → re-spawning"
-                respawnAfterExit sc spec
-              else do
-                atomically $ writeTVar lastExitVar (Just code)
-                runStderrLoggingT . logInfoN $
-                  "[nodeagent] vm-"
-                    <> tshow vmId
-                    <> ": QEMU exited pid="
-                    <> tshow qemuPidW
-                    <> " code="
-                    <> tshow code
-                -- QEMU's gone, so its QGA chardev is gone too;
-                -- the persistent socket the agent kept in
-                -- 'scQgaConns' for this VM points at nothing.
-                -- Drop it here so we don't accumulate fds for
-                -- VMs whose subsequent 'vmStopGraceful' never
-                -- arrives (e.g. operator forgets, or the daemon
-                -- crashes before observing the exit).
-                NGA.releaseConn (scQgaConns sc) vmId
+          forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar
           -- First-QGA-ping watcher: fork it off so the RPC can
           -- return as soon as QEMU is alive. The watcher races
           -- the QGA socket against the reaper's exit-code TVar,
@@ -692,23 +626,15 @@ doVmStart sc spec = do
                 -- push an errored status snapshot, then remove
                 -- the ledger entry. The state file is
                 -- intentionally NOT unlinked — operator can retry.
-                liftIO $ atomically $ writeTVar stopRequestedVar True
-                let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
-                stopRes <-
-                  P.stopProcess
-                    qemuLabel
-                    (CPid (fromIntegral qemuPidW))
-                    Nothing
-                    0
-                    5
-                case stopRes of
-                  P.NotRunning -> pure ()
-                  _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
-                liftIO $
-                  SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
-                _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
-                liftIO $ reapSpawnedHelpers virtiofsdEntries swtpmEntry
-                liftIO $ NGA.releaseConn (scQgaConns sc) vmId
+                stopVmAfterStartFailure
+                  sc
+                  cfg
+                  vmId
+                  qemuPidW
+                  qemuPh
+                  stopRequestedVar
+                  virtiofsdEntries
+                  swtpmEntry
               runIncomingStep = do
                 pollRes <- liftIO $ pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
                 case pollRes of
@@ -780,32 +706,24 @@ doVmStart sc spec = do
                     -- looping forever while the daemon's
                     -- watcher fires the same timeout each
                     -- pass.
-                    liftIO $ atomically $ writeTVar stopRequestedVar True
-                    let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
-                    stopRes <-
-                      P.stopProcess
-                        qemuLabel
-                        (CPid (fromIntegral qemuPidW))
-                        Nothing
-                        0
-                        5
-                    case stopRes of
-                      P.NotRunning -> pure ()
-                      _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
-                    -- Push the errored snapshot BEFORE removing
-                    -- the entry: 'buildEntry' reads
-                    -- 'vlsLastExitCode' (now set by the reaper)
-                    -- and emits VmAgentState'errored, which the
-                    -- sink translates to setVmError. After
-                    -- removal the next 10 s tick reports
-                    -- nothing for this VM (the entry list just
-                    -- doesn't contain it) — fine for steady
-                    -- state.
-                    liftIO $
-                      SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
-                    _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
-                    liftIO $ reapSpawnedHelpers virtiofsdEntries swtpmEntry
-                    liftIO $ NGA.releaseConn (scQgaConns sc) vmId
+                    stopVmAfterStartFailure
+                      sc
+                      cfg
+                      vmId
+                      qemuPidW
+                      qemuPh
+                      stopRequestedVar
+                      virtiofsdEntries
+                      swtpmEntry
+          -- Push the errored snapshot BEFORE removing
+          -- the entry: 'buildEntry' reads
+          -- 'vlsLastExitCode' (now set by the reaper)
+          -- and emits VmAgentState'errored, which the
+          -- sink translates to setVmError. After
+          -- removal the next 10 s tick reports
+          -- nothing for this VM (the entry list just
+          -- doesn't contain it) — fine for steady
+          -- state.
           when (needIncoming || needGaWait) $
             void $
               forkIO $
@@ -821,6 +739,98 @@ doVmStart sc spec = do
             liftIO $
               NQ.waitForQmpReady agentQemuConfig vmId
           pure $ startedResult live
+
+-- | Create the runtime directory and derive every per-VM socket/state path
+-- before starting any child process. This keeps path setup separate from the
+-- later rollback-sensitive helper and QEMU spawning stages.
+prepareVmRuntime cfg spec = do
+  let vmId = VS.vsVmId spec
+  _ <- NR.createVmRuntimeDir cfg vmId
+  vmRuntimeDir <- NR.getVmRuntimeDir cfg vmId
+  monitorSock <- NR.getMonitorSocket cfg vmId
+  qmpSock <- NR.getQmpSocket cfg vmId
+  serialSock <- NR.getSerialSocket cfg vmId
+  guestAgentSock <- NR.getGuestAgentSocket cfg vmId
+  savedStateFile <- NR.getSavedStateFile cfg (VS.vsName spec)
+  pure (vmRuntimeDir, monitorSock, qmpSock, serialSock, guestAgentSock, savedStateFile)
+
+-- | Start the auxiliary processes required by a VM. Each failure reaps every
+-- helper already started by this stage, before QEMU has been launched.
+spawnVmHelpers cfg spec vmRuntimeDir = do
+  let vmId = VS.vsVmId spec
+  virtiofsdResults <-
+    mapM (spawnVirtiofsdHelper cfg vmRuntimeDir) (VS.vsSharedDirs spec)
+  let virtiofsdEntries = rights virtiofsdResults
+      virtiofsdErrs = lefts virtiofsdResults
+  unless (null virtiofsdErrs) $ do
+    forM_ virtiofsdEntries reapEntryGracefully
+    throwFailed
+      ( "virtiofsd spawn failed for vmId "
+          <> tshow vmId
+          <> ": "
+          <> T.intercalate "; " virtiofsdErrs
+      )
+  swtpmResult <-
+    if VS.vsTpm spec
+      then fmap Just <$> spawnSwtpmHelper cfg vmId (VS.vsName spec)
+      else pure (Right Nothing)
+  swtpmEntry <- case swtpmResult of
+    Left err -> do
+      forM_ virtiofsdEntries reapEntryGracefully
+      throwFailed ("swtpm spawn failed for vmId " <> tshow vmId <> ": " <> err)
+    Right entry -> pure entry
+  pure (virtiofsdEntries, swtpmEntry)
+
+-- | Stop a VM after a post-spawn prerequisite failed. The ordering matters:
+-- suppress reboot-quirk respawn, stop/reap QEMU, publish the errored status
+-- while the ledger entry is still visible, then remove local resources.
+stopVmAfterStartFailure sc cfg vmId qemuPidW qemuPh stopRequestedVar virtiofsdEntries swtpmEntry = do
+  liftIO $ atomically $ writeTVar stopRequestedVar True
+  let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+  stopRes <-
+    P.stopProcess qemuLabel (CPid (fromIntegral qemuPidW)) Nothing 0 5
+  case stopRes of
+    P.NotRunning -> pure ()
+    _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
+  liftIO $
+    SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+  _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
+  liftIO $ reapSpawnedHelpers virtiofsdEntries swtpmEntry
+  liftIO $ NGA.releaseConn (scQgaConns sc) vmId
+
+-- | Watch QEMU independently of the start RPC. Guest-initiated exits use the
+-- reboot-quirk path; all other exits become visible to status polling and
+-- release the persistent QGA connection.
+forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar =
+  void $ forkIO $ do
+    r <- E.try @E.SomeException (waitForProcess qemuPh)
+    let vmId = VS.vsVmId spec
+        code = case r of
+          Right ExitSuccess -> 0
+          Right (ExitFailure n) -> n
+          Left _ -> 1
+    stopReq <- readTVarIO stopRequestedVar
+    if VS.vsRebootQuirk spec && not stopReq
+      then do
+        runStderrLoggingT . logInfoN $
+          "[nodeagent] vm-"
+            <> tshow vmId
+            <> ": QEMU exited pid="
+            <> tshow qemuPidW
+            <> " code="
+            <> tshow code
+            <> "; reboot-quirk → re-spawning"
+        respawnAfterExit sc spec
+      else do
+        atomically $ writeTVar lastExitVar (Just code)
+        runStderrLoggingT . logInfoN $
+          "[nodeagent] vm-"
+            <> tshow vmId
+            <> ": QEMU exited pid="
+            <> tshow qemuPidW
+            <> " code="
+            <> tshow code
+        NGA.releaseConn (scQgaConns sc) vmId
 
 -- | QEMU must answer QMP and retain the VSOCK CID before another start is
 -- allowed to probe the host. The probe itself cannot reserve the CID because
