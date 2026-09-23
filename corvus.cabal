@@ -248,6 +248,9 @@ library
       Corvus.Node.Caps.Session.Utils
       Corvus.Node.Caps.Session.Vm
       Corvus.Node.ProcStats
+      Corvus.Node.Qmp.Block
+      Corvus.Node.Qmp.Runtime
+      Corvus.Node.Qmp.Snapshot
       Corvus.Node.QmpQQ
       Corvus.Node.Transfer
       Corvus.Protocol.NamedRef
