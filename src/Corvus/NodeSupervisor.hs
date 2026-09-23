@@ -324,77 +324,80 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
 reapplyRunningNetworks
   :: ServerState -> M.NodeId -> T.Text -> NA.NetAgentClient -> IO ()
 reapplyRunningNetworks state nodeKey nodeLabel nac = do
-  let pool = ssDbPool state
-  -- Networks where this node is the owner.
-  ownedRows <-
-    runSqlPool
-      ( selectList
-          [M.NetworkRunning ==. True, M.NetworkNodeId ==. nodeKey]
-          []
-      )
-      pool
-  -- Networks where this node is a peer (lookup via NetworkPeer).
-  peerRows <- runSqlPool peerNetworksFor pool
-  -- Build a map from primary key → value so we can handle the
-  -- race where a peer row references a network that was deleted
-  -- between the 'selectList' and the 'get' without crashing the
-  -- daemon with 'error'.
-  let nwMap = Map.fromList [(enw, nw) | Entity enw nw <- ownedRows]
-  let owned = [(PS.RoleOwner, e) | e <- ownedRows]
-      peered =
-        [ (PS.RolePeer, Entity (M.networkPeerNetworkId (entityVal e)) nw)
-        | e <- peerRows
-        , let k = M.networkPeerNetworkId (entityVal e)
-        , Just nw <- [Map.lookup k nwMap]
-        ]
-  -- If any peer rows referenced networks that no longer exist,
-  -- warn but continue with what we have. The supervisor will
-  -- re-apply on next connect.
-  when (length peered < length peerRows) $
+  (targets, skippedPeerRows) <- loadReapplyTargets
+  -- If any peer rows referenced networks that no longer exist, warn but
+  -- continue with what we have. The supervisor will re-apply on next connect.
+  when skippedPeerRows $
     runFilteredLogging (ssLogLevel state) $
       logWarnN $
         "node " <> nodeLabel <> " peer network row(s) disappeared from DB; skipping"
-  forM_ (owned <> peered) $ \(role, Entity nwKey nw) -> reapplyOne role nwKey nw
+  forM_ targets $ \(role, Entity nwKey nw) -> reapplyOne role nwKey nw
   where
+    -- Load owner and peer targets together, preserving the existing
+    -- best-effort treatment of peer rows whose network vanished mid-read.
+    loadReapplyTargets = do
+      let pool = ssDbPool state
+      ownedRows <-
+        runSqlPool
+          ( selectList
+              [M.NetworkRunning ==. True, M.NetworkNodeId ==. nodeKey]
+              []
+          )
+          pool
+      peerRows <- runSqlPool peerNetworksFor pool
+      let nwMap = Map.fromList [(enw, nw) | Entity enw nw <- ownedRows]
+          owned = [(PS.RoleOwner, e) | e <- ownedRows]
+          peered =
+            [ (PS.RolePeer, Entity (M.networkPeerNetworkId (entityVal e)) nw)
+            | e <- peerRows
+            , let k = M.networkPeerNetworkId (entityVal e)
+            , Just nw <- [Map.lookup k nwMap]
+            ]
+      pure (owned <> peered, length peered < length peerRows)
+
     peerNetworksFor :: SqlPersistT IO [Entity M.NetworkPeer]
     peerNetworksFor = do
       selectList [M.NetworkPeerNodeId ==. nodeKey] []
 
     reapplyOne :: PS.PeerRole -> M.NetworkId -> M.Network -> IO ()
     reapplyOne role nwKey nw = do
-      let nwIdInt = fromSqlKey nwKey
       collected <-
         runSqlPool (PS.collectNetworkMembers nw nwKey) (ssDbPool state)
       case collected of
         Left err -> warn ("collect members: " <> err) nw nwKey
         Right (owner, peers) -> do
-          reservations <- case role of
-            PS.RoleOwner ->
-              runSqlPool (PS.collectHostReservations nwKey) (ssDbPool state)
-            PS.RolePeer -> pure []
-          -- The Node row passed to buildPeerSpec needs to be THIS
-          -- node's row, not the owner's. Find it in members.
-          let thisMember =
-                case role of
-                  PS.RoleOwner -> Just owner
-                  PS.RolePeer -> case filter ((== nodeKey) . fst) peers of
-                    (m : _) -> Just m
-                    [] -> Nothing
-          case thisMember of
-            Nothing -> warn "this node has no NetworkPeer row" nw nwKey
-            Just m ->
-              case PS.buildPeerSpec nw nwIdInt role m (owner : peers) reservations of
-                Left err -> warn ("build spec: " <> err) nw nwKey
-                Right spec -> do
-                  result <- NA.applyNetwork nac spec
-                  case result of
-                    Right _ ->
-                      info ("re-applied network " <> M.networkName nw)
-                    Left e ->
-                      warn
-                        ("applyNetwork failed: " <> T.pack (show e))
-                        nw
-                        nwKey
+          specResult <- buildReapplySpec role nwKey nw owner peers
+          case specResult of
+            Left err -> warn err nw nwKey
+            Right spec -> do
+              result <- NA.applyNetwork nac spec
+              case result of
+                Right _ -> info ("re-applied network " <> M.networkName nw)
+                Left e ->
+                  warn
+                    ("applyNetwork failed: " <> T.pack (show e))
+                    nw
+                    nwKey
+
+    buildReapplySpec role nwKey nw owner peers = do
+      reservations <- case role of
+        PS.RoleOwner ->
+          runSqlPool (PS.collectHostReservations nwKey) (ssDbPool state)
+        PS.RolePeer -> pure []
+      -- The Node row passed to buildPeerSpec needs to be THIS node's row,
+      -- not the owner's. Find it in members.
+      let thisMember =
+            case role of
+              PS.RoleOwner -> Just owner
+              PS.RolePeer -> case filter ((== nodeKey) . fst) peers of
+                (m : _) -> Just m
+                [] -> Nothing
+      pure $ case thisMember of
+        Nothing -> Left "this node has no NetworkPeer row"
+        Just member ->
+          case PS.buildPeerSpec nw (fromSqlKey nwKey) role member (owner : peers) reservations of
+            Left err -> Left ("build spec: " <> err)
+            Right spec -> Right spec
 
     warn msg _nw nwKey =
       runFilteredLogging (ssLogLevel state) $

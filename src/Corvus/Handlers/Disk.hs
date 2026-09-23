@@ -64,7 +64,7 @@ import Corvus.Action
 import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logInfoN, logWarnN)
+import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
   , createImageViaAgent
@@ -110,6 +110,27 @@ nodeBasePathFor state nid = do
   case mNode of
     Just node -> pure $ T.unpack (M.nodeBasePath node)
     Nothing -> getEffectiveBasePath (ssQemuConfig state)
+
+-- | Resolve an explicit disk-placement reference, or let the scheduler choose
+-- when the request omitted it. Both disk creation and registration use the
+-- same convention for Cap'n Proto's unset @byId 0@ reference.
+withSelectedDiskNode
+  :: ServerState
+  -> Text
+  -> (M.NodeId -> LoggingT IO Response)
+  -> LoggingT IO Response
+withSelectedDiskNode state nodeRefText action
+  | T.null nodeRefText || nodeRefText == "0" = do
+      eNid <- liftIO $ pickNodeForDisk state
+      case eNid of
+        Left err -> pure $ RespError err
+        Right nid -> action nid
+  | otherwise = do
+      result <- liftIO $ resolveNode (Ref nodeRefText) (ssDbPool state)
+      case result of
+        Left (RefNotFound _ _) -> pure RespNodeNotFound
+        Left resolveErr -> pure $ RespAmbiguousRef (resolveErrorMessage resolveErr)
+        Right nidRaw -> action (M.toSqlKey nidRaw)
 
 -- | Resolved destination for a client-upload stream. Planning only reads
 -- state; the Action below publishes the completed node-side file.
@@ -214,65 +235,48 @@ handleDiskUploadFinalize state plan = runServerLogging state $ do
 handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Response
 handleDiskCreate state name format sizeMb mPath ephemeral nodeRefText = runServerLogging state $ do
   logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show sizeMb) <> " MB)"
-
-  -- Sanitize the name to prevent path traversal attacks
   case sanitizeDiskName name of
     Left err -> do
       logWarnN $ "Invalid disk name: " <> err
       pure $ RespError err
-    Right safeName -> do
-      let placeOn nid = do
-            -- Generate file path using sanitized name
-            basePath <- liftIO $ nodeBasePathFor state nid
-            let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
-            filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
+    Right safeName ->
+      withSelectedDiskNode state nodeRefText $
+        createDiskOnNode state safeName format sizeMb mPath ephemeral
 
-            -- Create the actual image file
-            result <- liftIO $ createImageViaAgent state nid filePath format sizeMb
-            case result of
-              ImageError err -> do
-                logWarnN $ "Failed to create image: " <> err
-                pure $ RespError err
-              ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
-              ImageNotFound -> pure $ RespError "Unexpected error during creation"
-              ImageSuccess -> do
-                -- Store in database with original name for display, but sanitized path
-                now <- liftIO getCurrentTime
-                let storedPath = makeRelativeToBase basePath filePath
-                diskId <-
-                  liftIO $
-                    runSqlPool
-                      ( do
-                          dkey <-
-                            insert
-                              DiskImage
-                                { diskImageName = safeName
-                                , diskImageFormat = format
-                                , diskImageSizeMb = Just (fromIntegral sizeMb)
-                                , diskImageCreatedAt = now
-                                , diskImageBackingImageId = Nothing
-                                , diskImageEphemeral = ephemeral
-                                }
-                          recordDiskImageNode dkey nid storedPath
-                          pure dkey
-                      )
-                      (ssDbPool state)
-                logInfoN $ "Created disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-                pure $ RespDiskCreated $ fromSqlKey diskId
-      -- Empty text or capnp's unset-EntityRef default ('byId 0')
-      -- both mean "no explicit placement" — defer to the scheduler.
-      if T.null nodeRefText || nodeRefText == "0"
-        then do
-          eNid <- pickNodeForDisk state
-          case eNid of
-            Left err -> pure $ RespError err
-            Right nid -> placeOn nid
-        else do
-          r <- liftIO $ resolveNode (Ref nodeRefText) (ssDbPool state)
-          case r of
-            Left (RefNotFound _ _) -> pure RespNodeNotFound
-            Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
-            Right nidRaw -> placeOn (M.toSqlKey nidRaw)
+createDiskOnNode state safeName format sizeMb mPath ephemeral nid = do
+  basePath <- liftIO $ nodeBasePathFor state nid
+  let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
+  filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
+  result <- liftIO $ createImageViaAgent state nid filePath format sizeMb
+  case result of
+    ImageError err -> do
+      logWarnN $ "Failed to create image: " <> err
+      pure $ RespError err
+    ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+    ImageNotFound -> pure $ RespError "Unexpected error during creation"
+    ImageSuccess -> do
+      now <- liftIO getCurrentTime
+      let storedPath = makeRelativeToBase basePath filePath
+      diskId <-
+        liftIO $
+          runSqlPool
+            ( do
+                dkey <-
+                  insert
+                    DiskImage
+                      { diskImageName = safeName
+                      , diskImageFormat = format
+                      , diskImageSizeMb = Just (fromIntegral sizeMb)
+                      , diskImageCreatedAt = now
+                      , diskImageBackingImageId = Nothing
+                      , diskImageEphemeral = ephemeral
+                      }
+                recordDiskImageNode dkey nid storedPath
+                pure dkey
+            )
+            (ssDbPool state)
+      logInfoN $ "Created disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+      pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Register an existing disk image file.
 -- Format and size are auto-detected via qemu-img info.
@@ -292,110 +296,88 @@ handleDiskRegister state name filePath mFormat mBackingDiskId ephemeral nodeRefT
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
       logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
+      withSelectedDiskNode state nodeRefText $
+        registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral
 
-      let placeOn nid = do
-            -- Normalize path: strip base directory prefix if applicable
-            basePath <- liftIO $ nodeBasePathFor state nid
-            let storedPath = makeRelativeToBase basePath (T.unpack filePath)
-                resolvedPath =
-                  if "/" `isPrefixOf` T.unpack storedPath
-                    then T.unpack storedPath
-                    else basePath </> T.unpack storedPath
+-- | Register a file on one selected node. The caller has already validated
+-- the public name and resolved placement; this routine owns only image
+-- inspection and persistence, including the concurrent-register recovery.
+registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
+  basePath <- liftIO $ nodeBasePathFor state nid
+  let storedPath = makeRelativeToBase basePath (T.unpack filePath)
+      resolvedPath =
+        if "/" `isPrefixOf` T.unpack storedPath
+          then T.unpack storedPath
+          else basePath </> T.unpack storedPath
+  format <- resolveRegisteredFormat state nid resolvedPath mFormat
+  sizeMb <- liftIO $ getImageSizeMbViaAgent state nid resolvedPath
+  now <- liftIO getCurrentTime
+  mExisting <-
+    liftIO $
+      runSqlPool
+        (getBy (UniqueDiskImageName name))
+        (ssDbPool state)
+  case mExisting of
+    Just (Entity diskKey _) -> do
+      -- A logical image can have placements on several nodes. Record the new
+      -- placement without attempting a duplicate image insert.
+      recordRegisteredPlacement state diskKey nid storedPath "Disk image already registered with ID: "
+    Nothing -> do
+      result <-
+        liftIO $
+          try $
+            runSqlPool
+              ( do
+                  dkey <-
+                    insert
+                      DiskImage
+                        { diskImageName = name
+                        , diskImageFormat = format
+                        , diskImageSizeMb = sizeMb
+                        , diskImageCreatedAt = now
+                        , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
+                        , diskImageEphemeral = ephemeral
+                        }
+                  recordDiskImageNode dkey nid storedPath
+                  pure dkey
+              )
+              (ssDbPool state)
+      case result of
+        Right diskId -> do
+          logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+          pure $ RespDiskCreated $ fromSqlKey diskId
+        Left (_err :: SomeException) -> recoverConcurrentRegistration storedPath
+  where
+    recoverConcurrentRegistration storedPath = do
+      -- Race: another thread inserted first. Re-read its key and record this
+      -- node's placement against that logical image.
+      mRetry <-
+        liftIO $
+          runSqlPool (getBy (UniqueDiskImageName name)) (ssDbPool state)
+      case mRetry of
+        Just (Entity diskKey _) ->
+          recordRegisteredPlacement state diskKey nid storedPath "Disk image registered concurrently with ID: "
+        Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
 
-            -- Detect format if not provided
-            format <- case mFormat of
-              Just f -> pure f
-              Nothing -> do
-                mInfo <- liftIO $ getImageInfoViaAgent state nid resolvedPath
-                case mInfo of
-                  Right info -> pure $ iiFormat info
-                  Left err -> do
-                    -- Fall back to extension-based detection
-                    case detectFormatFromPath (T.pack resolvedPath) of
-                      Just f -> pure f
-                      Nothing -> do
-                        logWarnN $ "Could not detect format for " <> T.pack resolvedPath <> ": " <> err
-                        pure FormatRaw -- safe default
+resolveRegisteredFormat state nid resolvedPath = \case
+  Just format -> pure format
+  Nothing -> do
+    mInfo <- liftIO $ getImageInfoViaAgent state nid resolvedPath
+    case mInfo of
+      Right info -> pure $ iiFormat info
+      Left err -> case detectFormatFromPath (T.pack resolvedPath) of
+        Just format -> pure format
+        Nothing -> do
+          logWarnN $ "Could not detect format for " <> T.pack resolvedPath <> ": " <> err
+          pure FormatRaw
 
-            -- Auto-detect size
-            sizeMb <- liftIO $ getImageSizeMbViaAgent state nid resolvedPath
-
-            -- Store in database
-            now <- liftIO getCurrentTime
-            mExisting <-
-              liftIO $
-                runSqlPool
-                  ( getBy (UniqueDiskImageName name)
-                  )
-                  (ssDbPool state)
-
-            case mExisting of
-              Just (Entity diskKey _) -> do
-                -- Image already exists under this logical name —
-                -- record its placement on this node so an operator
-                -- replicating a file via rsync + `crv disk register
-                -- --node N` ends up with a 'DiskImageNode' row for
-                -- the new node without inserting a duplicate image.
-                liftIO $
-                  runSqlPool
-                    (recordDiskImageNode diskKey nid storedPath)
-                    (ssDbPool state)
-                logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskKey)
-                pure $ RespDiskCreated $ fromSqlKey diskKey
-              Nothing -> do
-                result <-
-                  liftIO $
-                    try $
-                      runSqlPool
-                        ( do
-                            dkey <-
-                              insert
-                                DiskImage
-                                  { diskImageName = name
-                                  , diskImageFormat = format
-                                  , diskImageSizeMb = sizeMb
-                                  , diskImageCreatedAt = now
-                                  , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
-                                  , diskImageEphemeral = ephemeral
-                                  }
-                            recordDiskImageNode dkey nid storedPath
-                            pure dkey
-                        )
-                        (ssDbPool state)
-                case result of
-                  Right diskId -> do
-                    logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-                    pure $ RespDiskCreated $ fromSqlKey diskId
-                  Left (_err :: SomeException) -> do
-                    -- Race: another thread inserted first. Recover
-                    -- by reading the new row's key and recording
-                    -- our placement against it.
-                    mRetry <-
-                      liftIO $
-                        runSqlPool (getBy (UniqueDiskImageName name)) (ssDbPool state)
-                    case mRetry of
-                      Just (Entity diskKey _) -> do
-                        liftIO $
-                          runSqlPool
-                            (recordDiskImageNode diskKey nid storedPath)
-                            (ssDbPool state)
-                        logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskKey)
-                        pure $ RespDiskCreated $ fromSqlKey diskKey
-                      Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
-      -- Empty text or capnp's unset-EntityRef default ('byId 0')
-      -- both mean "no explicit placement" — defer to the scheduler.
-      if T.null nodeRefText || nodeRefText == "0"
-        then do
-          eNid <- pickNodeForDisk state
-          case eNid of
-            Left err -> pure $ RespError err
-            Right nid -> placeOn nid
-        else do
-          r <- liftIO $ resolveNode (Ref nodeRefText) (ssDbPool state)
-          case r of
-            Left (RefNotFound _ _) -> pure RespNodeNotFound
-            Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
-            Right nidRaw -> placeOn (M.toSqlKey nidRaw)
+recordRegisteredPlacement state diskKey nid storedPath message = do
+  liftIO $
+    runSqlPool
+      (recordDiskImageNode diskKey nid storedPath)
+      (ssDbPool state)
+  logInfoN $ message <> T.pack (show $ fromSqlKey diskKey)
+  pure $ RespDiskCreated $ fromSqlKey diskKey
 
 -- | Create a qcow2 overlay backed by an existing disk image
 handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int -> Maybe T.Text -> Bool -> IO Response
