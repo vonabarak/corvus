@@ -203,6 +203,12 @@ library:
     - Corvus.Handlers.GuestExec
     - Corvus.Handlers.VmStatusSink
     - Corvus.Handlers.Apply
+    - Corvus.Handlers.Apply.Validation
+    - Corvus.Handlers.Apply.Resolve
+    - Corvus.Handlers.Apply.Overwrite
+    - Corvus.Handlers.Apply.Disk
+    - Corvus.Handlers.Apply.Vm
+    - Corvus.Handlers.Apply.Execute
     - Corvus.Handlers.Build
     - Corvus.Handlers.Build.Cache
     - Corvus.Handlers.Build.Cleanup

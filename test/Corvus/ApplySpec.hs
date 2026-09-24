@@ -13,7 +13,8 @@ module Corvus.ApplySpec (spec) where
 
 import Corvus.Action (mkActionContext)
 import qualified Corvus.Action as Action
-import Corvus.Handlers.Apply (executeApply, handleApplyValidate)
+import Corvus.Handlers.Apply.Execute (executeApply)
+import Corvus.Handlers.Apply.Validation (handleApplyValidate)
 import Corvus.Model
   ( EntityField (..)
   , SshKey (..)

@@ -42,7 +42,7 @@ import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action
 import qualified Corvus.Build.Cache.Hash as H
 import qualified Corvus.Build.Cache.Store as CStore
-import Corvus.Handlers.Apply (ApplyAction (..))
+import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Build.Artifact
   ( checkIfExistsPreBake
   , compactDisk
