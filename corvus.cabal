@@ -247,6 +247,11 @@ library
       Corvus.Node.Caps.Session.Disk
       Corvus.Node.Caps.Session.Utils
       Corvus.Node.Caps.Session.Vm
+      Corvus.Node.Caps.Session.Vm.Access
+      Corvus.Node.Caps.Session.Vm.Lifecycle
+      Corvus.Node.Caps.Session.Vm.Process
+      Corvus.Node.Caps.Session.Vm.Start
+      Corvus.Node.Caps.Session.Vm.Startup
       Corvus.Node.ProcStats
       Corvus.Node.Qmp.Block
       Corvus.Node.Qmp.Runtime
