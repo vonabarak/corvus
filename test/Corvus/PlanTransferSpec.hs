@@ -29,7 +29,7 @@
 -- compute from it.
 module Corvus.PlanTransferSpec (spec) where
 
-import Corvus.Handlers.Disk (computeDestPaths)
+import Corvus.Handlers.Disk.Placement (computeDestPaths)
 import qualified Data.Text as T
 import Test.Hspec
 

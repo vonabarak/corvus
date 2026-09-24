@@ -28,7 +28,9 @@ import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
-import Corvus.Handlers.Disk (DiskAttach (..), DiskClone (..), DiskCreate (..), DiskCreateOverlay (..))
+import Corvus.Handlers.Disk.Attach (DiskAttach (..))
+import Corvus.Handlers.Disk.Create (DiskCreate (..))
+import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import Corvus.Protocol

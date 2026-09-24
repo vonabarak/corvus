@@ -23,25 +23,14 @@ import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction, runActionAsyncWithId)
-import Corvus.Handlers.Disk
-  ( DiskClone (..)
-  , DiskCopy (..)
-  , DiskCreate (..)
-  , DiskCreateOverlay (..)
-  , DiskDelete (..)
-  , DiskImportAction (..)
-  , DiskMove (..)
-  , DiskRebase (..)
-  , DiskRefresh (..)
-  , DiskRegister (..)
-  , DiskResize (..)
-  , DiskUploadFinalize (..)
-  , DiskUploadPlan (..)
-  , handleDiskList
-  , handleDiskShow
-  , prepareDiskUpload
-  )
+import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
+import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
+import Corvus.Handlers.Disk.Import (DiskImportAction (..))
+import Corvus.Handlers.Disk.Maintenance (DiskDelete (..), DiskRefresh (..), DiskResize (..))
 import Corvus.Handlers.Disk.Media (MediaChange (..), MediaEject (..))
+import Corvus.Handlers.Disk.Placement (DiskCopy (..), DiskMove (..))
+import Corvus.Handlers.Disk.Query (handleDiskList, handleDiskShow)
+import Corvus.Handlers.Disk.Rebase (DiskRebase (..))
 import Corvus.Handlers.Disk.Snapshot
   ( SnapshotCreate (..)
   , SnapshotDelete (..)
@@ -50,6 +39,7 @@ import Corvus.Handlers.Disk.Snapshot
   , handleSnapshotList
   )
 import Corvus.Handlers.Disk.SnapshotAutoStop (SnapshotRollbackAutoStop (..))
+import Corvus.Handlers.Disk.Upload (DiskUploadFinalize (..), DiskUploadPlan (..), prepareDiskUpload)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNode, resolveSnapshot)
 import Corvus.Model (EnumText (enumToText))
 import qualified Corvus.NodeAgentClient as NOA

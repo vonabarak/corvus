@@ -61,6 +61,12 @@ library
       Corvus.Handlers.Vm.Db
       Corvus.Handlers.Vm.Monitor
       Corvus.Handlers.Disk
+      Corvus.Handlers.Disk.Query
+      Corvus.Handlers.Disk.Upload
+      Corvus.Handlers.Disk.Create
+      Corvus.Handlers.Disk.Derive
+      Corvus.Handlers.Disk.Maintenance
+      Corvus.Handlers.Disk.Placement
       Corvus.Handlers.Disk.Path
       Corvus.Handlers.Disk.Db
       Corvus.Handlers.Disk.Agent

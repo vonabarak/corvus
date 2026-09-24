@@ -89,7 +89,6 @@ import Corvus.Handlers.Build.Template
   , sanitizeNameFragment
   , setupTargetDisk
   )
-import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
   , getImageSizeMbViaAgent
@@ -98,8 +97,11 @@ import Corvus.Handlers.Disk.Agent
   , rebaseImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
+import Corvus.Handlers.Disk.Create (DiskCreate (..))
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
+import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
+import Corvus.Handlers.Disk.Rebase (DiskRebase (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Handlers.Template (TemplateInstantiate (..))

@@ -11,7 +11,6 @@ import Control.Monad (filterM, forM_, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Disk (DiskDelete (..))
 import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForVm)
