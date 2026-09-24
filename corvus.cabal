@@ -50,6 +50,11 @@ library
       Corvus.Handlers
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
+      Corvus.Handlers.Vm.Query
+      Corvus.Handlers.Vm.Configure
+      Corvus.Handlers.Vm.Delete
+      Corvus.Handlers.Vm.Start
+      Corvus.Handlers.Vm.Lifecycle
       Corvus.Handlers.Vm.Snapshot
       Corvus.Handlers.Vm.CloudInit
       Corvus.Handlers.Vm.Console

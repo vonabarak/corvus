@@ -33,12 +33,9 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Db (listDiskImageNodes)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
-import Corvus.Handlers.Vm
-  ( VmStart (..)
-  , VmStop (..)
-  , hasNetdMediatedNetIf
-  )
-import Corvus.Handlers.Vm.Db (claimVmStart, setVmErrorIfCurrent, setVmStartedIfCurrent)
+import Corvus.Handlers.Vm.Db (claimVmStart, hasNetdMediatedNetIf, setVmErrorIfCurrent, setVmStartedIfCurrent)
+import Corvus.Handlers.Vm.Lifecycle (VmStop (..))
+import Corvus.Handlers.Vm.Start (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageResult (..))

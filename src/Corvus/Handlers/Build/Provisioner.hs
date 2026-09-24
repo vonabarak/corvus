@@ -31,7 +31,7 @@ import Corvus.Handlers.Build.Qga
   , agentGuestExecWithTail
   , agentGuestPing
   )
-import Corvus.Handlers.Vm (getVmDetails)
+import Corvus.Handlers.Vm.Query (getVmDetails)
 import Corvus.Model
 import Corvus.Node.GuestAgent (GuestExecResult (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildSink)

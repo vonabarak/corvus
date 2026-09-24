@@ -103,15 +103,11 @@ import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, r
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
-import Corvus.Handlers.Vm
-  ( VmDelete (..)
-  , VmStart (..)
-  , VmStop (..)
-  , getVmDetails
-  , hasNetdMediatedNetIf
-  , setVmError
-  , setVmStatus
-  )
+import Corvus.Handlers.Vm.Db (hasNetdMediatedNetIf, setVmError, setVmStatus)
+import Corvus.Handlers.Vm.Delete (VmDelete (..))
+import Corvus.Handlers.Vm.Lifecycle (VmStop (..))
+import Corvus.Handlers.Vm.Query (getVmDetails)
+import Corvus.Handlers.Vm.Start (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.GuestAgent (GuestExecResult (..))

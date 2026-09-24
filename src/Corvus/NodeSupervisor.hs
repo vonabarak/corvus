@@ -32,7 +32,8 @@ import Control.Monad (filterM, forM_, unless, when)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Network (autostartNetworksOnNode)
 import qualified Corvus.Handlers.Network.PeerSpec as PS
-import Corvus.Handlers.Vm (autostartVmsOnNode, reattachVmMonitors)
+import Corvus.Handlers.Vm.Monitor (reattachVmMonitors)
+import Corvus.Handlers.Vm.Start (autostartVmsOnNode)
 import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
