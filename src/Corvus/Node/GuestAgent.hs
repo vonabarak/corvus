@@ -50,6 +50,10 @@ import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import Control.Exception (SomeException, catch, mask, mask_, onException, try)
 import Control.Monad (unless)
+import qualified Corvus.Node.GuestAgent.Control as Control
+import qualified Corvus.Node.GuestAgent.Network as Network
+import Corvus.Node.GuestAgent.Transport (parseQgaFrame)
+import Corvus.Node.GuestAgent.Types
 import Corvus.Node.Runtime (getGuestAgentSocket)
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value (..), (.:), (.:?), (.=))
@@ -62,7 +66,6 @@ import qualified Data.ByteString.Lazy as BL
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, decodeUtf8With, encodeUtf8)
@@ -102,36 +105,6 @@ type GuestAgentConns = TVar (Map.Map Int64 (MVar (Maybe Socket)))
 -- nested KVM — respond to status queries inside a few hundred ms).
 pollRecvTimeoutMicros :: Int
 pollRecvTimeoutMicros = 5000000
-
--- | Result of a guest-exec command
-data GuestExecResult
-  = -- | Command completed (exitcode, stdout, stderr)
-    GuestExecSuccess !Int !Text !Text
-  | -- | Error communicating with guest agent
-    GuestExecError !Text
-  | -- | Could not connect to guest agent socket
-    GuestExecConnectionFailed !Text
-  deriving (Eq, Show)
-
--- | A single IP address reported by the guest agent
-data GuestIpAddress = GuestIpAddress
-  { giaType :: !Text
-  -- ^ "ipv4" or "ipv6"
-  , giaAddress :: !Text
-  -- ^ e.g. "10.0.0.5"
-  , giaPrefix :: !Int
-  -- ^ e.g. 24
-  }
-  deriving (Eq, Show)
-
--- | A network interface reported by the guest agent
-data GuestNetIf = GuestNetIf
-  { gniHardwareAddress :: !Text
-  -- ^ MAC address, e.g. "52:54:00:xx:xx:xx"
-  , gniIpAddresses :: ![GuestIpAddress]
-  -- ^ All IP addresses on this interface
-  }
-  deriving (Eq, Show)
 
 --------------------------------------------------------------------------------
 -- Persistent connection core
@@ -351,13 +324,6 @@ splitLines bs =
    in case reverse pieces of
         [] -> ([], BS.empty)
         (lastPiece : rest) -> (reverse rest, lastPiece)
-
--- | Callback fed each non-empty stdout / stderr chunk that QGA's
--- @guest-exec-status@ returns. The chunk is the raw bytes QGA
--- buffered since the previous status call. Returning quickly is
--- important: the poll loop runs synchronously on the QGA socket,
--- so a slow callback delays the next status fetch.
-type ChunkSink = BS.ByteString -> IO ()
 
 -- | Drop-on-the-floor sink. Used by the non-streaming wrappers
 -- when they accumulate the full output into 'GuestExecSuccess'
@@ -788,158 +754,20 @@ runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
         Left err -> pure $ GuestExecConnectionFailed err
         Right r -> pure r
 
--- | Ping the guest agent to check if it's available.
--- Single attempt: the caller (usually a polling loop) retries on its own
--- cadence, so there's no point multiplying the per-call cost with inner
--- retries. The 15 s per-attempt budget matches the other commands and is
--- enough to accommodate the first @guest-sync@ handshake on slow guests
--- (FreeBSD/Gentoo qemu-ga startup can take several seconds) — a shorter
--- budget risks timing out mid-sync, closing the socket, and losing the
--- reply that was about to arrive.
 guestPing :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
-guestPing conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 1 15000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
-    -- Per-recv timeout: ping is the healthcheck poller's signal of
-    -- "agent reachable", so we want a snappy "no" when QGA has
-    -- vanished — bounded by 'pollRecvTimeoutMicros' instead of the
-    -- outer 15 s connection timeout. 'recvJsonWithin' THROWS on
-    -- timeout so 'withPersistentConn' closes the socket; the
-    -- alternative ("return Nothing, put socket back") would leak
-    -- whatever response eventually arrives into the NEXT QGA call
-    -- and produce a shape mismatch there.
-    mResp <- recvJsonWithin pollRecvTimeoutMicros sock "guest-ping"
-    case mResp of
-      Just (Object obj) -> pure $ KM.member "return" obj
-      _ -> pure False
-  case mResult of
-    Left _ -> pure False
-    Right r -> pure r
+guestPing = Control.guestPing
 
--- | Request a graceful shutdown via the guest agent.
--- This triggers a clean shutdown from inside the guest (like running "poweroff").
--- Returns True if the command was accepted, False on error.
 guestShutdown :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
-guestShutdown conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 3 15000000 $ \sock -> do
-    -- guest-shutdown with mode "powerdown" triggers a clean OS shutdown
-    sendJson sock $
-      Aeson.object
-        [ "execute" .= ("guest-shutdown" :: Text)
-        , "arguments" .= Aeson.object ["mode" .= ("powerdown" :: Text)]
-        ]
-    -- guest-shutdown doesn't return a response on success (the agent shuts down),
-    -- so a timeout here is expected and means success.
-    -- If it does respond, it's an error.
-    resp <- timeout 3000000 $ recvJson sock
-    case resp of
-      Just (Just (Object obj)) -> pure $ not $ KM.member "error" obj
-      _ -> pure True
-  case mResult of
-    Left _ -> pure True
-    Right r -> pure r
+guestShutdown = Control.guestShutdown
 
--- | Freeze all writable guest filesystems that support fsfreeze
--- (ext4, xfs, btrfs, ntfs on modern Windows…). QEMU's QGA flushes
--- pending writes through to the disk and then blocks further
--- writes until 'guestFsThaw' is called.
---
--- Returns the number of filesystems successfully frozen on
--- success, or @Left@ on transport / QGA error. A return of @0@
--- in a guest that has writable filesystems means none of them
--- support fsfreeze — the caller decides whether that's an error
--- (per 'QuiesceMode').
---
--- This RPC takes a one-shot 10s connection budget. Freeze on a
--- guest with many filesystems can take several seconds to flush
--- caches; the existing 'guestExec' helpers use the same window.
---
--- CRITICAL: every call site MUST guarantee 'guestFsThaw' runs
--- afterward (use 'Control.Exception.bracket'-style finalisation)
--- — leaving the guest frozen indefinitely on the error path
--- wedges in-guest I/O.
 guestFsFreeze :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
-guestFsFreeze conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-fsfreeze-freeze" :: Text)]
-    mResp <- recvJsonWithin 10000000 sock "guest-fsfreeze-freeze"
-    pure $ case mResp of
-      Just (Object obj) ->
-        case KM.lookup "return" obj of
-          Just (Number n) -> Right (truncate n :: Int)
-          _ -> Left (qgaErrText obj)
-      _ -> Left "guest-fsfreeze-freeze: malformed reply"
-  pure $ case mResult of
-    Left e -> Left (T.pack (show e))
-    Right r -> r
+guestFsFreeze = Control.guestFsFreeze
 
--- | Thaw guest filesystems previously frozen by 'guestFsFreeze'.
--- QGA's @guest-fsfreeze-thaw@ is idempotent — thawing a guest
--- that wasn't frozen returns 0 without error, so this is safe to
--- call unconditionally on the error path of a snapshot attempt.
---
--- Returns the number of thawed filesystems on success, @Left@ on
--- transport / QGA error.
 guestFsThaw :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
-guestFsThaw conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-fsfreeze-thaw" :: Text)]
-    mResp <- recvJsonWithin 10000000 sock "guest-fsfreeze-thaw"
-    pure $ case mResp of
-      Just (Object obj) ->
-        case KM.lookup "return" obj of
-          Just (Number n) -> Right (truncate n :: Int)
-          _ -> Left (qgaErrText obj)
-      _ -> Left "guest-fsfreeze-thaw: malformed reply"
-  pure $ case mResult of
-    Left e -> Left (T.pack (show e))
-    Right r -> r
+guestFsThaw = Control.guestFsThaw
 
--- | Tell QGA to resync the guest's wall clock from the host's
--- hardware clock. @guest-set-time@ with no @time@ argument asks
--- the agent to read the RTC and call @settimeofday()@; subsequent
--- calls to @gettimeofday()@ in the guest reflect host wall-clock
--- time.
---
--- Used after a vmstate restore: the restored guest thinks it's
--- still snapshot-time, which breaks anything time-sensitive
--- (cert validation, build mtime comparisons, NTP). Best-effort —
--- @Left@ when QGA isn't reachable (the caller logs at WARN and
--- continues; the snapshot restore itself isn't undone for a
--- clock-resync miss).
 guestSetTime :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text ())
-guestSetTime conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-set-time" :: Text)]
-    mResp <- recvJsonWithin 10000000 sock "guest-set-time"
-    pure $ case mResp of
-      Just (Object obj) ->
-        case KM.lookup "return" obj of
-          Just _ -> Right ()
-          Nothing -> Left (qgaErrText obj)
-      _ -> Left "guest-set-time: malformed reply"
-  pure $ case mResult of
-    Left e -> Left (T.pack (show e))
-    Right r -> r
-
--- | Pull a human-readable error string out of a QGA error reply.
--- QGA shape: @{"error": {"class": "...", "desc": "..."}}@.
-qgaErrText :: AT.Object -> Text
-qgaErrText obj = case KM.lookup "error" obj of
-  Just (Object err) ->
-    let desc = KM.lookup "desc" err
-        cls = KM.lookup "class" err
-        textOf (Just (String s)) = s
-        textOf _ = ""
-        d = textOf desc
-        c = textOf cls
-     in if not (T.null c) && not (T.null d)
-          then c <> ": " <> d
-          else
-            if not (T.null d)
-              then d
-              else "QGA error (no description)"
-  _ -> "QGA reply lacks both 'return' and 'error' fields"
+guestSetTime = Control.guestSetTime
 
 -- | Query network interfaces from the guest via the QEMU Guest Agent.
 -- Returns Nothing on failure, Just [] if no interfaces reported.
@@ -1046,15 +874,7 @@ recvJson sock = go BS.empty
                 then pure $ parseAcc acc'
                 else go acc'
 
-    parseAcc bs =
-      let cleaned = BS.filter (/= 0xFF) bs
-          lines' = filter (not . BS.null) $ BS.split nlByte cleaned
-       in firstParse lines'
-
-    firstParse [] = Nothing
-    firstParse (l : ls) = case Aeson.decodeStrict l of
-      Just v -> Just v
-      Nothing -> firstParse ls
+    parseAcc = parseQgaFrame
 
 -- | Detect the guest OS shell by querying guest-get-osinfo.
 -- Returns (shell path, shell args) for the detected OS.
@@ -1179,28 +999,7 @@ parseExecStatus mVal = do
 -- cause every interface to be discarded. Interfaces without a hardware
 -- address are skipped since they can't be matched to host rows.
 parseGuestInterfaces :: Maybe Value -> Maybe [GuestNetIf]
-parseGuestInterfaces mVal = do
-  val <- mVal
-  AT.parseMaybe interfacesParser val
-  where
-    interfacesParser = AT.withObject "response" $ \obj -> do
-      ret <- obj .: "return" :: AT.Parser [Value]
-      pure $ mapMaybe (AT.parseMaybe parseIface) ret
-
-    parseIface = AT.withObject "interface" $ \obj -> do
-      mHwAddr <- obj .:? "hardware-address"
-      case mHwAddr of
-        Nothing -> fail "no hardware-address"
-        Just hwAddr -> do
-          rawIps <- obj .:? "ip-addresses" AT..!= ([] :: [Value])
-          let parsedIps = mapMaybe (AT.parseMaybe parseIpAddr) rawIps
-          pure GuestNetIf {gniHardwareAddress = hwAddr, gniIpAddresses = parsedIps}
-
-    parseIpAddr = AT.withObject "ip-address" $ \obj -> do
-      ipType <- obj .: "ip-address-type"
-      ipAddr <- obj .: "ip-address"
-      prefix <- obj .:? "prefix" AT..!= 0
-      pure GuestIpAddress {giaType = ipType, giaAddress = ipAddr, giaPrefix = prefix}
+parseGuestInterfaces = Network.parseGuestInterfaces
 
 -- | Decode a base64-encoded text field from QGA response
 decodeBase64 :: Text -> Text

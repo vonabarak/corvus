@@ -137,6 +137,11 @@ library
       Corvus.Node.Image
       Corvus.Node.SnapshotLive
       Corvus.Node.GuestAgent
+      Corvus.Node.GuestAgent.Types
+      Corvus.Node.GuestAgent.Transport
+      Corvus.Node.GuestAgent.Connection
+      Corvus.Node.GuestAgent.Network
+      Corvus.Node.GuestAgent.Control
       Corvus.Handlers.Disk.SnapshotAutoStop
       Corvus.Node.SocketBuffer
       Corvus.Node.SpicePort
