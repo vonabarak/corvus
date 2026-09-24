@@ -10,6 +10,7 @@ module Corvus.Node.GuestAgent.Control
 where
 
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
+import Corvus.Node.GuestAgent.Exec (pollRecvTimeoutMicros)
 import Corvus.Node.GuestAgent.Transport (recvJson, recvJsonWithin, sendJson)
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value (..), (.=))
@@ -20,9 +21,6 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Timeout (timeout)
-
-pollRecvTimeoutMicros :: Int
-pollRecvTimeoutMicros = 5000000
 
 -- | Ping is deliberately single-attempt: callers already poll. Its bounded
 -- receive prevents a dead QGA from delaying the health-check cadence.

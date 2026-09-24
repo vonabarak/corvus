@@ -201,6 +201,8 @@ library:
     - Corvus.Node.GuestAgent.Connection
     - Corvus.Node.GuestAgent.Network
     - Corvus.Node.GuestAgent.Control
+    - Corvus.Node.GuestAgent.Exec
+    - Corvus.Node.GuestAgent.Exec.Stream
     - Corvus.Handlers.Disk.SnapshotAutoStop
     - Corvus.Node.SocketBuffer
     - Corvus.Node.SpicePort
