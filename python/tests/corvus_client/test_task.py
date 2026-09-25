@@ -33,3 +33,19 @@ def test_task_list_after_disk_create(daemon_socket):
         await disk.delete()
 
     run(go)
+
+
+def test_task_cancel_dispatches(daemon_socket):
+    """`tasks.cancel` dispatches even when the target has already finished."""
+    run = with_client(daemon_socket)
+
+    async def go(c):
+        disk = await c.disks.create("py-task-cancel", size_mb=32)
+        info = await disk.show()
+        task = next(
+            t for t in await c.tasks.list(entity_id=info.id) if t.command == "create"
+        )
+        await c.tasks.cancel(task.id)  # completed tasks are a daemon-side no-op
+        await disk.delete()
+
+    run(go)

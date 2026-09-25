@@ -37,13 +37,13 @@ What's NOT covered here:
   ``register_node`` invocation).  The Python API
   ``register.register_node()`` is tested directly; the CLI
   wrapper is a thin subprocess call.
-* Multi-host deploy (SSH runner).  The harness only boots one
-  node; testing SSH deploys would need a second node, which
-  doubles the fixture cost.  Left as a future add.
+The focused :class:`TestAdminRemoteDeploy` below additionally covers
+the real SSH deployment path against a second, bare test node.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -53,6 +53,7 @@ from pathlib import Path
 
 import pytest
 from corvus_test_harness.cases import IntegrationTestCase, state_for
+from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
 from corvus_test_harness.topology import NodeRole, Topology
 
 # Where the harness mounts the host's repo when ``attach_source=True``.
@@ -573,6 +574,182 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
             f"bind port not in output: {result.stdout!r}"
         )
         assert "corvus-web.service" in _stdout_text(result)
+
+
+# ---------------------------------------------------------------------------
+# Remote SSH deployment
+
+
+class TestAdminRemoteDeploy(IntegrationTestCase):
+    """Use a controller's real SSH path to deploy agents to a bare node."""
+
+    NODES = ("controller", "remote")
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_topology(
+        self, request, crv, image_ready, host_binary, session_test_network
+    ):
+        cls = request.cls
+        state = state_for(cls)
+        topology = None
+        try:
+            topology = Topology(
+                crv,
+                image_ready,
+                host_binary,
+                class_name=cls.__name__,
+                network_name=session_test_network,
+                attach_source=True,
+            ).__enter__()
+            topology.init_cas(("shared",))
+            for short_name in cls.NODES:
+                topology.add(short_name, role=NodeRole.FULL_STACK, ca_key="shared")
+            for node in topology.nodes:
+                _bootstrap_node(node)
+
+            controller, remote = topology.nodes
+            controller._outer_ip = NodeShell(
+                cid=controller.cid, user=NODE_USER, key_path=HOST_ALPINE_KEY_PATH
+            ).outer_ip()
+            remote._outer_ip = NodeShell(
+                cid=remote.cid, user=NODE_USER, key_path=HOST_ALPINE_KEY_PATH
+            ).outer_ip()
+            _configure_controller_ssh(controller, remote.outer_ip)
+            quickstart = _shrun(
+                controller,
+                "corvus-admin quickstart --node-name controller "
+                "--listen-ip 127.0.0.1 --skip-web --healthcheck-timeout 60",
+                check=False,
+                timeout_sec=180.0,
+            )
+            assert quickstart.returncode == 0, (
+                "controller quickstart failed:\n"
+                f"stdout={quickstart.stdout.decode(errors='replace')}\n"
+                f"stderr={quickstart.stderr.decode(errors='replace')}"
+            )
+            state.topology = topology
+        except BaseException as exc:
+            import traceback
+
+            state.setup_failed = True
+            state.setup_error = f"{type(exc).__name__}: {exc}"
+            traceback.print_exc(file=sys.stderr)
+            if topology is not None:
+                try:
+                    topology.finalize(leak_on_failure=True)
+                except Exception:
+                    pass
+                state.topology = None
+            yield
+            return
+
+        try:
+            yield
+        finally:
+            topology = state.topology
+            state.topology = None
+            if topology is not None:
+                topology.finalize(
+                    leak_on_failure=state.first_failure is not None
+                    or state.setup_failed
+                )
+
+    @property
+    def controller(self):
+        return self.nodes[0]
+
+    @property
+    def remote(self):
+        return self.nodes[1]
+
+    def test_remote_deploy_and_register(self):
+        """Certs, units, service health, and controller registration cross SSH."""
+
+        target = self.remote.outer_ip
+        try:
+            for role, binary in (
+                ("netd", "/opt/corvus/bin/corvus-netd"),
+                ("node", "/opt/corvus/bin/corvus-nodeagent"),
+            ):
+                cp = _shrun(
+                    self.controller,
+                    f"corvus-admin deploy {role} remote {target} "
+                    "--ca-dir $HOME/.config/corvus/admin "
+                    f"--ip {target} --binary-path {binary}",
+                    check=False,
+                    timeout_sec=120.0,
+                )
+                assert cp.returncode == 0, (
+                    f"remote deploy {role} failed:\n"
+                    f"stdout={cp.stdout.decode(errors='replace')}\n"
+                    f"stderr={cp.stderr.decode(errors='replace')}"
+                )
+
+            for unit, cert in (
+                ("corvus-netd.service", "corvus-netd"),
+                ("corvus-nodeagent.service", "corvus-node"),
+            ):
+                active = _run(
+                    self.remote, f"sudo systemctl is-active {unit}", check=False
+                )
+                assert active.returncode == 0 and b"active" in active.stdout
+                assert (
+                    _run(
+                        self.remote, f"sudo test -f /etc/corvus/{cert}.crt", check=False
+                    ).returncode
+                    == 0
+                )
+                assert (
+                    _run(
+                        self.remote,
+                        f"sudo test -f /etc/systemd/system/{unit}",
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+
+            registered = _shrun(
+                self.controller,
+                f"corvus-admin register remote --host {target} --healthcheck-timeout 60",
+                check=False,
+                timeout_sec=90.0,
+            )
+            assert registered.returncode == 0, (
+                "remote registration failed:\n"
+                f"stdout={registered.stdout.decode(errors='replace')}\n"
+                f"stderr={registered.stderr.decode(errors='replace')}"
+            )
+            assert b"healthy" in registered.stdout
+            nodes = _shrun(self.controller, "crv node list", check=False)
+            assert nodes.returncode == 0 and b"remote" in nodes.stdout
+        finally:
+            # Exercise remote cleanup explicitly rather than relying on VM teardown.
+            _run(
+                self.remote,
+                "sudo systemctl disable --now corvus-nodeagent.service "
+                "corvus-netd.service; sudo rm -f /etc/systemd/system/corvus-nodeagent.service "
+                "/etc/systemd/system/corvus-netd.service; sudo rm -rf /etc/corvus",
+                check=False,
+            )
+
+
+def _configure_controller_ssh(controller, target: str) -> None:
+    """Make the harness key available to SshRunner on the controller."""
+
+    encoded_key = base64.b64encode(HOST_ALPINE_KEY_PATH.read_bytes()).decode()
+    config = (
+        f"Host {target}\n"
+        "  IdentityFile ~/.ssh/corvus-it\n"
+        "  StrictHostKeyChecking no\n"
+        "  UserKnownHostsFile /dev/null\n"
+    )
+    _shrun(
+        controller,
+        "install -d -m 700 ~/.ssh; "
+        f"printf %s {__import__('shlex').quote(encoded_key)} | base64 -d > ~/.ssh/corvus-it; "
+        "chmod 600 ~/.ssh/corvus-it; "
+        f"printf %s {__import__('shlex').quote(config)} > ~/.ssh/config; chmod 600 ~/.ssh/config",
+    )
 
 
 # ---------------------------------------------------------------------------

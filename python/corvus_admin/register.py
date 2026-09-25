@@ -32,6 +32,8 @@ class RegisterError(RuntimeError):
 # extra flags.
 DEFAULT_NODE_AGENT_PORT = 9878
 DEFAULT_NET_AGENT_PORT = 9877
+_ADD_RETRY_TIMEOUT_SEC = 10.0
+_ADD_RETRY_INTERVAL_SEC = 0.2
 
 
 @dataclass
@@ -87,12 +89,22 @@ def register_node(
     if description is not None:
         add_argv += ["--description", description]
 
-    proc = subprocess.run(add_argv, text=True, capture_output=True)
-    if proc.returncode != 0:
-        raise RegisterError(
-            f"`crv node add` failed (rc={proc.returncode}): {proc.stderr.strip()}",
-            stderr=proc.stderr,
-        )
+    # ``systemctl enable --now`` returns after the daemon process has
+    # started, but before it has necessarily created its RPC socket.  The
+    # client currently reports that short window as a non-zero exit with no
+    # diagnostic.  Retrying only that silent failure keeps quickstart robust
+    # without masking actionable ``crv node add`` errors.
+    deadline = time.monotonic() + _ADD_RETRY_TIMEOUT_SEC
+    while True:
+        proc = subprocess.run(add_argv, text=True, capture_output=True)
+        if proc.returncode == 0:
+            break
+        if proc.stderr.strip() or time.monotonic() >= deadline:
+            raise RegisterError(
+                f"`crv node add` failed (rc={proc.returncode}): {proc.stderr.strip()}",
+                stderr=proc.stderr,
+            )
+        time.sleep(_ADD_RETRY_INTERVAL_SEC)
 
     show_stdout, healthy = _poll_show(crv, name, timeout_sec=healthcheck_timeout_sec)
     return RegisterResult(

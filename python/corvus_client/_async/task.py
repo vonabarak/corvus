@@ -53,6 +53,15 @@ class AsyncTaskManager:
         resp = await mgr.listChildren(parentId=parent_id)
         return [conv.task_info(t) for t in resp.tasks]
 
+    async def cancel(self, task_id: int) -> None:
+        """Request best-effort cancellation of a running task.
+
+        This records the cancellation request; it does not wait for the
+        worker (or its active child) to reach a terminal state.
+        """
+        mgr = await self._ensure()
+        await mgr.cancel(taskId=task_id)
+
     async def subscribe(self, task_id: int, on_event):
         """Subscribe to live progress events for the given task.
 

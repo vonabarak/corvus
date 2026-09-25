@@ -5,6 +5,7 @@ its argv to a log file."""
 from __future__ import annotations
 
 import os
+import subprocess
 
 import pytest
 from corvus_admin import register as register_mod
@@ -87,6 +88,31 @@ def test_register_node_surfaces_failure(tmp_path, monkeypatch):
     assert "simulated failure" in str(exc.value) or "simulated" in (
         exc.value.stderr or ""
     )
+
+
+def test_register_node_retries_silent_daemon_startup_failure(monkeypatch):
+    """A daemon whose RPC socket is not ready yet reports no stderr."""
+
+    calls = 0
+
+    def fake_run(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return subprocess.CompletedProcess([], 1, "", "")
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(register_mod.shutil, "which", lambda _name: "/fake/crv")
+    monkeypatch.setattr(register_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        register_mod, "_poll_show", lambda *_args, **_kwargs: ("", True)
+    )
+    monkeypatch.setattr(register_mod, "_ADD_RETRY_INTERVAL_SEC", 0.0)
+
+    result = register_mod.register_node(name="alpha", host="10.0.0.21")
+
+    assert calls == 2
+    assert result.healthy is True
 
 
 def test_register_returns_unhealthy_when_show_lacks_healthcheck(tmp_path, monkeypatch):

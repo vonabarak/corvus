@@ -949,7 +949,15 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 timeout_sec=60.0,
                 msg="vm did not become running on beta after migrate+start",
             )
-            assert not _file_exists_on(self.node_beta, dst_path)
+            # The QGA may report the guest running just before the incoming
+            # migration coordinator finishes its best-effort state-file
+            # cleanup.  Wait for that independent cleanup rather than
+            # requiring both asynchronous events in the same poll.
+            _poll_until(
+                lambda: not _file_exists_on(self.node_beta, dst_path),
+                timeout_sec=10.0,
+                msg="destination state file was not removed after resume",
+            )
 
             # Sentinel survived the cross-host round trip.
             r = vm.guest_exec("/bin/cat /tmp/sentinel")

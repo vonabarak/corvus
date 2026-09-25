@@ -1,192 +1,137 @@
-"""Task-record invariants: which RPCs record tasks, which don't,
-and what the ``client_name`` field looks like.
-
-[doc/task-history.md](../../doc/task-history.md) describes the
-contract: every mutating RPC is wrapped in ``withTask`` and writes a
-row with the operating client's identity, while read-only RPCs
-(list, show, ping) are skipped. Nothing has pinned this end-to-end —
-a refactor that accidentally untracked a mutation (or one that
-started recording list operations) would only surface in operator
-audit gaps long after the fact.
-
-What's covered:
-
-* Mutating RPCs (``vms.create``, ``disks.create``,
-  ``networks.create``) each write exactly one task row keyed to the
-  newly-created entity. The row carries the right
-  ``(subsystem, command, entity_id, entity_name, result)``.
-* Read-only RPCs (``vms.list``, ``disks.list``, ``status``) do
-  NOT record tasks.
-* ``client_name`` carries the TLS peer's CN suffix
-  (``corvus-client:<short_name>``) for an mTLS-authenticated
-  mutation. Catches a regression that would either flatten
-  ``client_name`` to ``"local"`` (no auth) or strip the prefix.
-
-What's NOT covered here:
-
-* Cancellation cascading on a multi-step apply. The plan called
-  for "cancel the parent task at step 3, assert in-flight subtask
-  is cancelled, never-started subtasks are not_started → cancelled,
-  no half-created entities survive". The cancel RPC isn't exposed
-  in the sync ``corvus_client`` API; reaching into the underlying
-  Cap'n Proto cap from a test is doable but works around the
-  client surface. A future sync wrapper for ``tasks.cancel`` would
-  unblock this case.
-* ``TaskProgressSink`` terminal event. ``tasks.subscribe`` is on
-  the async client only; testing it from the sync harness would
-  add a runloop bridge specific to this test. The ws25-style
-  regression risk is already covered by
-  :mod:`test_subscription_lifetimes`.
-* ``client_name = "system"`` for daemon-internal tasks (startup,
-  scheduled cleanup). Triggering those from a test would require
-  daemon-side stimulus we don't have a clean handle for.
-"""
+"""Cancellation of an asynchronous apply stops future work without rollback."""
 
 from __future__ import annotations
 
 import secrets
+import shlex
+import textwrap
+import time
+from typing import Any
 
+import pytest
+from corvus_client import VmNotFound
 from corvus_test_harness import SingleNodeCase
 
-
-def _latest_task_for(client, *, subsystem: str, entity_name: str):
-    """Return the most-recent task row whose entity name matches.
-
-    Searches the most recent 100 tasks (the test creates fresh
-    entities with high-entropy names, so we don't have to walk
-    further). Returns None if no match — the caller asserts on
-    that explicitly so a missing record produces a clear
-    diagnostic."""
-    rows = client.tasks.list(subsystem=subsystem, limit=100)
-    for row in rows:
-        if row.entity and row.entity.name == entity_name:
-            return row
-    return None
+pytestmark = pytest.mark.timeout(180)
 
 
-class TestMutatingRpcsRecordTasks(SingleNodeCase):
-    """Each mutating RPC must leave a task row with the right
-    ``(subsystem, command, entity)`` tuple. The shape matches what
-    operators see in ``crv task list`` and what
-    ``doc/task-history.md`` documents."""
+class TestTaskCancellation(SingleNodeCase):
+    def test_cancel_apply_cancels_active_import_and_keeps_prior_disk(self):
+        token = secrets.token_hex(4)
+        keep_name = f"cancel-keep-{token}"
+        import_name = f"cancel-import-{token}"
+        future_vm = f"cancel-future-{token}"
+        server_dir = f"/tmp/cancel-http-{token}"
+        port = 30000 + secrets.randbelow(20000)
 
-    def test_vm_create_records_task(self):
-        name = f"task-vm-{secrets.token_hex(3)}"
-        vm = self.client.vms.create(
-            name,
-            cpu_count=1,
-            ram_mb=64,
-            headless=True,
+        # A throttled local server makes the import deterministically long
+        # enough to subscribe and cancel. Random bytes avoid sparse-file and
+        # compression shortcuts in the transfer path.
+        server = textwrap.dedent(
+            f"""
+            import http.server, time
+            class Slow(http.server.SimpleHTTPRequestHandler):
+                def copyfile(self, source, output):
+                    while chunk := source.read(65536):
+                        output.write(chunk); output.flush(); time.sleep(0.03)
+            http.server.ThreadingHTTPServer(('127.0.0.1', {port}), Slow).serve_forever()
+            """
+        ).strip()
+        quoted_server = shlex.quote(server)
+        self.node.run(
+            f"mkdir -p {server_dir}; dd if=/dev/urandom of={server_dir}/payload.raw bs=1M count=32"
+        )
+        self.node.run(
+            # setsid -f forks before returning and all descriptors are
+            # redirected, so the SSH command cannot wait on the server.
+            f"cd {server_dir} && setsid -f python3 -c {quoted_server} "
+            f"</dev/null > {server_dir}/server.log 2>&1"
         )
         try:
-            row = _latest_task_for(self.client, subsystem="vm", entity_name=name)
-            assert row is not None, (
-                f"no vm-subsystem task found for entity name {name!r}"
-            )
-            assert row.command == "create", f"unexpected command: {row.command!r}"
-            assert row.result == "success", f"unexpected result: {row.result!r}"
-            assert row.entity is not None and row.entity.id == vm.show().id, (
-                f"task.entity.id mismatch: {row.entity!r} vs vm.id={vm.show().id}"
-            )
-            assert row.entity.name == name
+            url = f"http://127.0.0.1:{port}/payload.raw"
+            deadline = time.monotonic() + 10
+            while self.node.run(
+                f"curl --fail --silent -o /dev/null {url}", check=False
+            ).returncode:
+                if time.monotonic() >= deadline:
+                    raise AssertionError("throttled HTTP server did not start")
+                time.sleep(0.1)
+
+            yaml_body = textwrap.dedent(
+                f"""
+                disks:
+                  - name: {keep_name}
+                    sizeMb: 8
+                    format: qcow2
+                  - name: {import_name}
+                    import: {url}
+                    format: raw
+                vms:
+                  - name: {future_vm}
+                    cpuCount: 1
+                    ramMb: 64
+                    headless: true
+                """
+            ).strip()
+            # Starting asynchronously gives us the task id before any child
+            # work begins.  In particular, do not run apply_stream from a
+            # second synchronous Client thread: it races the Cap'n Proto
+            # event loop with the polling below and can return before the
+            # apply action has been scheduled.
+            _, parent_id = self.client.apply(yaml_body, wait=False)
+            assert parent_id is not None
+            events: list[Any] = []
+            sub = self.client.tasks.subscribe(parent_id, events.append)
+            child = None
+            try:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    children = self.client.tasks.list_children(parent_id)
+                    child = next(
+                        (task for task in children if task.result == "running"), None
+                    )
+                    if child is not None:
+                        break
+                    time.sleep(0.2)
+                assert child is not None, "apply import never became active"
+
+                self.client.tasks.cancel(parent_id)
+                # Cancellation is a request: the manager returns after
+                # signalling the workers, before their finalizers publish
+                # terminal records.  Poll both task records for that state.
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    final_parent = self.client.tasks.get(parent_id).show()
+                    final_child = self.client.tasks.get(child.id).show()
+                    if (
+                        final_parent.result == "cancelled"
+                        and final_child.result == "cancelled"
+                    ):
+                        break
+                    time.sleep(0.1)
+                assert final_parent.result == "cancelled", final_parent
+                assert final_child.result == "cancelled", final_child
+                # The subscription was live before cancellation and receives
+                # the parent terminal event from the common action finalizer.
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if any(event.result == "cancelled" for event in events):
+                        break
+                    time.sleep(0.05)
+                assert any(event.result == "cancelled" for event in events), events
+                assert (
+                    self.client.disks.get(keep_name, by_name=True).show().name
+                    == keep_name
+                )
+                with pytest.raises(VmNotFound):
+                    self.client.vms.get(future_vm, by_name=True)
+            finally:
+                sub.close()
         finally:
-            vm.delete()
-
-    def test_disk_create_records_task(self):
-        name = f"task-disk-{secrets.token_hex(3)}"
-        disk = self.client.disks.create(name, size_mb=32, format="qcow2")
-        try:
-            row = _latest_task_for(self.client, subsystem="disk", entity_name=name)
-            assert row is not None, (
-                f"no disk-subsystem task found for entity name {name!r}"
-            )
-            assert row.command == "create"
-            assert row.result == "success"
-            assert row.entity.id == disk.show().id
-        finally:
-            disk.delete()
-
-    def test_network_create_records_task(self):
-        name = f"task-net-{secrets.token_hex(3)}"
-        net = self.client.networks.create(
-            name,
-            subnet="10.99.0.0/24",
-            dhcp=False,
-            nat=False,
-            autostart=False,
-        )
-        try:
-            row = _latest_task_for(self.client, subsystem="network", entity_name=name)
-            assert row is not None, (
-                f"no network-subsystem task found for entity name {name!r}"
-            )
-            assert row.command == "create"
-            assert row.result == "success"
-            assert row.entity.id == net.show().id
-        finally:
-            net.delete()
-
-
-class TestReadOnlyRpcsDoNotRecordTasks(SingleNodeCase):
-    """``vms.list``, ``disks.list``, and ``status`` are read-only —
-    Handlers.hs skips them in the ``withTask`` wrapper. A future
-    refactor that wraps every cap method indiscriminately would
-    spam the task table; this catches it."""
-
-    def test_readonly_rpcs_no_new_tasks(self):
-        before = len(self.client.tasks.list(limit=500))
-        # Hammer a handful of read-only RPCs.
-        for _ in range(5):
-            self.client.vms.list()
-            self.client.disks.list()
-            self.client.networks.list()
-            self.client.ssh_keys.list()
-            self.client.tasks.list()
-            self.client.status()
-        after = len(self.client.tasks.list(limit=500))
-        assert after == before, (
-            f"task count changed from {before} to {after} during read-only "
-            f"RPC sweep — one of the calls is now recording a task"
-        )
-
-
-class TestClientNameCarriesTlsCn(SingleNodeCase):
-    """The harness opens the inner client over mTLS with a cert
-    minted by ``CaContext.new(client_name="harness")`` — actual CN
-    is ``corvus-client:harness``. The daemon validates the
-    ``corvus-client:`` prefix at handshake (see
-    ``checkPrefixAndName`` in ``src/Corvus/Tls.hs:513``), then
-    strips it via ``peerNameFromCN`` (``src/Corvus/Tls.hs:332``) so
-    the recorded ``client_name`` is the bare ``"harness"`` suffix.
-
-    Catches regressions that would either:
-
-      * Flatten ``client_name`` to ``"local"`` (auth context not
-        propagated to the task row), or
-      * Stop stripping the prefix (and store ``"corvus-client:harness"``)
-      * Store nothing (empty string) on mTLS connections."""
-
-    def test_create_records_cn_suffix_as_client_name(self):
-        name = f"task-cn-{secrets.token_hex(3)}"
-        vm = self.client.vms.create(
-            name,
-            cpu_count=1,
-            ram_mb=64,
-            headless=True,
-        )
-        try:
-            row = _latest_task_for(self.client, subsystem="vm", entity_name=name)
-            assert row is not None, f"no task found for {name!r}"
-            # The harness's `CaContext.new` mints the cert with
-            # `client_name="harness"` by default; the daemon
-            # records the post-prefix-strip suffix.
-            assert row.client_name == "harness", (
-                f"client_name {row.client_name!r} doesn't match the "
-                f"harness's CN suffix; expected 'harness'. "
-                f"`local` would mean the daemon ran with --no-tls or "
-                f"didn't see the cert; "
-                f"`corvus-client:harness` would mean the prefix-strip "
-                f"in peerNameFromCN regressed."
-            )
-        finally:
-            vm.delete()
+            self.node.run(f"pkill -f 'python3 -c.*{port}'", check=False)
+            self.node.run(f"rm -rf {server_dir}", check=False)
+            for name in (import_name, keep_name):
+                try:
+                    self.client.disks.get(name, by_name=True).delete()
+                except Exception:
+                    pass

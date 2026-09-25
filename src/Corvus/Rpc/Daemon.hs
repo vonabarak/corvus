@@ -31,6 +31,7 @@ import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (IsClient (..))
 import Capnp.Rpc.Server (SomeServer)
 import Capnp.Rpc.Untyped (nullClient)
+import Control.Concurrent (myThreadId)
 import Control.Concurrent.Async (async)
 import Control.Exception (SomeException, try)
 import Control.Monad (void)
@@ -55,11 +56,12 @@ import Corvus.Rpc.Task (newTaskManagerCap)
 import Corvus.Rpc.Template (newTemplateManagerCap)
 import Corvus.Rpc.Vm (newVmManagerCap)
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..), acIfExists)
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), newTaskCancelToken, registerTaskThread)
 import Corvus.Wire.Apply (toCapnpApplyEvent, toCapnpApplyResult)
 import Corvus.Wire.Build (toCapnpBuildEvent)
 import Corvus.Wire.Common (toCapnpStatusInfo)
 import Data.Function ((&))
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (insert, update, (=.))
@@ -367,37 +369,16 @@ runApplyStreaming st cn cfg skipExisting sinkCap = do
             :: IO (Either SomeException ())
         pure ()
       ctx = (mkActionContext st taskKey cn) {acApplySink = pushEvent}
-      -- Mirror 'handleApplyExecute': the CLI's @--skip-existing@
-      -- flag only forces skip behaviour. The YAML's @ifExists@
-      -- field carries the full policy; if the operator left it
-      -- at @error@ AND set @--skip-existing@, treat the merged
-      -- policy as @skip@. @ifExists: overwrite@ in the YAML
-      -- always wins.
-      effectiveIfExists =
-        if skipExisting && acIfExists cfg == IfExistsError
-          then IfExistsSkip
-          else acIfExists cfg
+  _ <- newTaskCancelToken st tid
   void $ async $ do
-    execResult <-
-      try (executeApply ctx cfg effectiveIfExists)
-        :: IO (Either SomeException (Either T.Text PA.ApplyResult))
-    finishedAt <- getCurrentTime
-    let (taskRes, taskMsg, applyMsg) = case execResult of
-          Right (Right _) -> (TaskSuccess, Nothing, T.empty)
-          Right (Left err) -> (TaskError, Just err, err)
-          Left e ->
-            let txt = T.pack (show e)
-             in (TaskError, Just ("internal error: " <> txt), "internal error: " <> txt)
-    runSqlPool
-      ( update
-          taskKey
-          [ TaskFinishedAt =. Just finishedAt
-          , TaskResult =. taskRes
-          , TaskMessage =. taskMsg
-          ]
-      )
-      pool
-    finalize (PA.ApplyEnd taskRes applyMsg tid)
+    myThreadId >>= registerTaskThread st tid
+    -- Use the common finalizer rather than maintaining a second task
+    -- lifecycle here. In particular this preserves cancellation tokens,
+    -- terminal progress events, and the `cancelled` result for streaming
+    -- apply (the non-streaming path already gets these through runAction).
+    resp <- runAndFinalize st ctx (ApplyAction cfg skipExisting)
+    let (taskRes, taskMsg) = classifyResponse resp
+    finalize (PA.ApplyEnd taskRes (fromMaybe T.empty taskMsg) tid)
   pure
     CGCorvus.Daemon'apply'results
       { CGCorvus.result = toCapnpApplyResult emptyApplyResult

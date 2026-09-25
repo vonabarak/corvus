@@ -52,7 +52,7 @@ spec = do
               }
       limitViolations report
         `shouldBe` [ "src/Large.hs: 1001 lines exceeds the module limit of 1000"
-                   , "src/Large.hs:1-501 large: 501 lines exceeds the top-level definition limit of 500"
+                   , "src/Large.hs:1-501 large: 501 lines exceeds the top-level definition limit of 300"
                    ]
 
 appearsBefore :: String -> String -> String -> Bool

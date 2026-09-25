@@ -94,6 +94,25 @@ class TestVmStartFailures(SingleNodeCase):
             assert details.error_message is not None
             assert "exited" in details.error_message.lower()
             assert details.last_error_at is not None
+
+            # Error is a terminal lifecycle state, not a disguised stopped
+            # state: only reset is legal until the operator explicitly clears
+            # the failed QEMU runtime. This catches handlers that bypass the
+            # state machine after a startup failure.
+            for operation in (
+                lambda: vm.start(wait=False),
+                lambda: vm.stop(wait=False),
+                vm.pause,
+                lambda: vm.save(wait=False),
+            ):
+                with pytest.raises(CorvusError):
+                    operation()
+
+            vm.reset()
+            assert vm.show().status == "stopped"
+            vm.edit(ram_mb=256)
+            vm.start(wait=True)
+            assert vm.show().status == "running"
         finally:
             try:
                 vm.reset()

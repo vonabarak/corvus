@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from corvus_client import Client, DiskNotFound
+from corvus_client._sync.task import SyncTaskManager
 
 
 def test_sync_status_and_ping(daemon_socket):
@@ -64,3 +65,41 @@ def test_sync_close_is_idempotent(daemon_socket):
     c.ping()
     c.close()
     c.close()  # second close is a no-op
+
+
+def test_sync_task_subscription_bridges_callback_and_closes():
+    """The sync task facade bridges callbacks and releases its async owner."""
+
+    class AsyncSubscription:
+        def __init__(self):
+            self.close_calls = 0
+
+        async def close(self):
+            self.close_calls += 1
+
+    class AsyncManager:
+        def __init__(self):
+            self.cancelled = []
+            self.subscription = AsyncSubscription()
+
+        async def cancel(self, task_id):
+            self.cancelled.append(task_id)
+
+        async def subscribe(self, task_id, callback):
+            await callback(("progress", task_id))
+            return self.subscription
+
+    class Runloop:
+        def run(self, coroutine):
+            return __import__("asyncio").run(coroutine)
+
+    async_manager = AsyncManager()
+    manager = SyncTaskManager(async_manager, Runloop())
+    received: list[tuple[str, int]] = []
+    sub = manager.subscribe(42, received.append)
+    assert received == [("progress", 42)]
+    manager.cancel(42)
+    assert async_manager.cancelled == [42]
+    sub.close()
+    sub.close()
+    assert async_manager.subscription.close_calls == 1
