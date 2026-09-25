@@ -387,7 +387,6 @@ decideQuiesce conns cfg vmId mode = do
     (QuiesceRequire, True) -> Right True
     (QuiesceAuto, True) -> Right True
     (QuiesceAuto, False) -> Right False
-    (QuiesceSkip, _) -> Right False
 
 -- | Run the action; guarantee thaw runs whether the action
 -- succeeded, returned an error result, or threw.

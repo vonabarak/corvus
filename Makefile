@@ -266,17 +266,21 @@ format:
 lint:
 	hlint src app test
 	fourmolu --mode check $(shell find src app test -name '*.hs')
+	$(MAKE) code-metrics
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MYPY) python integration_tests
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-lint ; \
 	fi
-	$(MAKE) code-metrics
 
 # Report and enforce size limits for authored Haskell source.
 code-metrics:
 	stack run $(STACK_BUILD_FLAGS) corvus-code-metrics
+
+# Enable the repository-managed pre-commit hook for this checkout.
+install-git-hooks:
+	git config core.hooksPath .githooks
 
 # Frontend (Vite + React + TS) build + dev workflow. The SPA lives
 # under /frontend; `make web-build` produces /frontend/dist and copies

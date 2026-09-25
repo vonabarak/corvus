@@ -27,11 +27,22 @@ Stack + Hpack (`package.yaml` -> `corvus.cabal`), LTS-23.28 resolver.
 | `make web-dev` | Run Vite dev server for frontend work |
 | `make web-lint` / `make web-format` | Frontend-specific checks/formatting |
 | `make desktop-run` | Run the desktop GUI from the local tree |
+| `make install-git-hooks` | Enable repository-managed Git hooks for this checkout |
 | `make set-version VERSION=X.Y.Z.W` | Bump `package.yaml`, `corvus.cabal`, and `pyproject.toml` together |
 | `make release` | Stage release tree and tarball with binaries, completions, Python artifacts, docs, YAML, and schema |
 
 Use `make set-version VERSION=X.Y.Z.W` for version bumps and releases; do not
 hand-edit version files.
+
+## Git Hooks
+
+Enable the repository-managed hooks after cloning:
+
+```
+make install-git-hooks
+```
+
+The pre-commit hook runs `make lint` and blocks a commit when it fails.
 
 ### Build Dependencies
 

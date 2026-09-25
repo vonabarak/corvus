@@ -386,7 +386,6 @@ dispatch Subscribers {subsList = ref} snapshot = do
               let reason = case r of
                     Left e -> T.pack (show e)
                     Right Nothing -> "no ACK within 5s"
-                    Right (Just ()) -> "" -- unreachable
               runStderrLoggingT $
                 logWarnN
                   ("[nodeagent] dropping VmStatusSink: " <> reason)

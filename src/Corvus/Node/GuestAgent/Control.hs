@@ -17,6 +17,7 @@ import Data.Aeson (Value (..), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
+import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,7 +33,7 @@ guestPing conns config vmId = do
     pure $ case response of
       Just (Object object) -> KM.member "return" object
       _ -> False
-  pure $ either (const False) id result
+  pure $ fromRight False result
 
 -- | Request a graceful in-guest powerdown. QGA normally closes before
 -- replying, so no reply within the short window is accepted as success.
@@ -44,7 +45,7 @@ guestShutdown conns config vmId = do
     pure $ case response of
       Just (Just (Object object)) -> not (KM.member "error" object)
       _ -> True
-  pure $ either (const True) id result
+  pure $ fromRight True result
 
 -- | Freeze writable guest filesystems. Every caller must arrange a matching
 -- 'guestFsThaw' with bracket-style finalisation: leaving the guest frozen

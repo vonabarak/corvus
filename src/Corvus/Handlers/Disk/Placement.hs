@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -182,7 +181,7 @@ planTransfer state diskId destNode allowAttachedRO mToPath = do
                       case [p | p@(Entity _ row) <- placements, M.diskImageNodeNodeId row /= destNode] of
                         [] ->
                           pure (Left "no source placement available (target is the only node hosting this disk)")
-                        _ -> do
+                        (Entity _ srcRow : _) -> do
                           -- Reject if destination already has a placement.
                           alreadyOnDest <-
                             runSqlPool (hasPlacementOnNode diskKey destNode) pool
@@ -213,14 +212,7 @@ planTransfer state diskId destNode allowAttachedRO mToPath = do
                                   -- Compute paths according to the
                                   -- absolute-source / relative-source
                                   -- rules described in the docstring.
-                                  let srcEntity =
-                                        head
-                                          [ p
-                                          | p@(Entity _ row) <- placements
-                                          , M.diskImageNodeNodeId row /= destNode
-                                          ]
-                                      Entity _ srcRow = srcEntity
-                                      srcStored = M.diskImageNodeFilePath srcRow
+                                  let srcStored = M.diskImageNodeFilePath srcRow
                                       srcRel = T.unpack srcStored
                                       isSrcAbs = "/" `isPrefixOf` srcRel
                                       destBase = T.unpack (M.nodeBasePath destRow)
@@ -261,7 +253,6 @@ planTransfer state diskId destNode allowAttachedRO mToPath = do
                                                 , tpDestAbsPath = destAbs
                                                 , tpDestRelPath = destStored
                                                 }
-                                _ -> pure (Left "internal: unreachable plan branch")
   where
     filterMissing chain target = filterM (fmap not . (`hasPlacementOnNode` target)) chain
 

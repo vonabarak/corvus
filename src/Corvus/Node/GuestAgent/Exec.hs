@@ -102,13 +102,12 @@ detectGuestShell sock = do
     Just osId | "mswindows" `T.isPrefixOf` osId -> pure ("cmd.exe", ["/c"])
     _ -> pure ("/bin/sh", ["-c"])
   where
-    parseOsId value =
+    parseOsId =
       AT.parseMaybe
         ( AT.withObject "response" $ \object -> do
             returned <- object .: "return"
             returned .:? "id" AT..!= ("" :: Text)
         )
-        value
 
 parsePid :: Maybe Value -> Maybe Int
 parsePid mValue = mValue >>= AT.parseMaybe (AT.withObject "response" $ \object -> object .: "return" >>= (.: "pid"))

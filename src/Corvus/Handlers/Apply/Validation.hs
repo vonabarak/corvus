@@ -15,7 +15,7 @@ import Corvus.Schema.Apply
 import Corvus.Schema.Template (TemplateYaml (..))
 import Corvus.Types (ServerState, runServerLogging)
 import Data.Char (isDigit)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -90,7 +90,7 @@ validateConfig config = do
     isHexDigit c = isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
 effectiveCloudInit :: ApplyVm -> Bool
-effectiveCloudInit v = maybe (not $ null $ avSshKeys v) id (avCloudInit v)
+effectiveCloudInit v = fromMaybe (not $ null $ avSshKeys v) (avCloudInit v)
 
 checksumAlgorithmText ChecksumMd5 = "md5"
 checksumAlgorithmText ChecksumSha1 = "sha1"

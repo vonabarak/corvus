@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter) where
@@ -18,7 +17,7 @@ import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
 resolveByName :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record) => ServerState -> (Text -> Unique record) -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
 resolveByName state mkUnique localMap name = case Map.lookup name localMap of
   Just rid -> pure $ Just rid
-  Nothing -> fmap (fmap (fromSqlKey . entityKey)) $ runSqlPool (getBy $ mkUnique name) (ssDbPool state)
+  Nothing -> fmap (fromSqlKey . entityKey) <$> runSqlPool (getBy $ mkUnique name) (ssDbPool state)
 
 resolveByNameFilter :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record) => ServerState -> (Text -> [Filter record]) -> (NodeId -> [Filter record]) -> Map.Map Text Int64 -> Text -> Text -> IO (Maybe Int64)
 resolveByNameFilter state mkFilter mkNodeFilter localMap name nodeRef = case Map.lookup name localMap of

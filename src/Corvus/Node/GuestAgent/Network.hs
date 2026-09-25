@@ -13,6 +13,7 @@ import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AT
+import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -24,7 +25,7 @@ guestNetworkGetInterfaces conns config vmId = do
   result <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
     parseGuestInterfaces <$> recvJson sock
-  pure $ either (const Nothing) id result
+  pure $ fromRight Nothing result
 
 -- | Leniently parse QGA interfaces: malformed addresses and interfaces are
 -- dropped independently, while address-less (e.g. Windows loopback)

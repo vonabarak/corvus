@@ -27,7 +27,7 @@ instance Action ApplyDiskCreate where
   actionExecute ctx a =
     let d = adcConfig a; state = acState ctx; ephem = adEphemeral d; nodeRef = adNode d
      in case (adImport d, adOverlay d, adClone d, adRegister d) of
-          (Just importPath, _, _, _) -> actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText $ adFormat d) (fmap checksumSpecToImport $ adChecksum d) ephem nodeRef)
+          (Just importPath, _, _, _) -> actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (enumToText <$> adFormat d) (checksumSpecToImport <$> adChecksum d) ephem nodeRef)
           (_, _, _, Just registerPath)
             | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
             | otherwise -> do

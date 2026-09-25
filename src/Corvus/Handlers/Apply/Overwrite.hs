@@ -39,9 +39,9 @@ preflightSshKeyOverwrite state eid = do
     names nameOf ks = do es <- mapM get ks; pure [nameOf e | Just e <- es]
 vmsAttachedToDisk diskId = do
   drives <- selectList [DriveDiskImageId ==. Just diskId] []
-  vms <- mapM get $ map (driveVmId . entityVal) drives
+  vms <- mapM (get . driveVmId . entityVal) drives
   pure [vmName v | Just v <- vms]
 vmsAttachedToNetwork nid = do
   nis <- selectList [NetworkInterfaceNetworkId ==. Just nid] []
-  vms <- mapM get $ map (networkInterfaceVmId . entityVal) nis
+  vms <- mapM (get . networkInterfaceVmId . entityVal) nis
   pure [vmName v | Just v <- vms]
