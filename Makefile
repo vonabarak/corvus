@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp code-metrics python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -272,7 +272,11 @@ lint:
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-lint ; \
 	fi
+	$(MAKE) code-metrics
 
+# Report and enforce size limits for authored Haskell source.
+code-metrics:
+	stack run $(STACK_BUILD_FLAGS) corvus-code-metrics
 
 # Frontend (Vite + React + TS) build + dev workflow. The SPA lives
 # under /frontend; `make web-build` produces /frontend/dist and copies

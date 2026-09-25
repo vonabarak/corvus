@@ -17,6 +17,7 @@ Stack + Hpack (`package.yaml` -> `corvus.cabal`), LTS-23.28 resolver.
 | `make install` | Install Haskell binaries, shell completions, Python tooling, and web assets when available |
 | `make format` | Ruff + Fourmolu formatting; also frontend formatting when `frontend/node_modules/` exists |
 | `make lint` | HLint, Fourmolu check, Ruff check/format check, mypy; also frontend checks when `frontend/node_modules/` exists |
+| `make code-metrics` | Report and enforce size limits for authored Haskell modules and top-level value definitions using the GHC parser |
 | `make unit-tests` | Haskell unit tests; accepts `MATCH=<hspec pattern>` |
 | `make python-test` | Python client/admin/web/desktop tests against a temp daemon |
 | `make integration-tests` | Pytest nested-VM suite; accepts `MATCH=<pytest -k expr>` and `WORKERS=N` |

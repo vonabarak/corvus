@@ -332,6 +332,15 @@ library:
         - -DWITH_SQLITE
 
 executables:
+  corvus-code-metrics:
+    main: Main.hs
+    source-dirs:
+      - app/code-metrics-cli
+      - app/code-metrics
+    dependencies:
+      - ghc
+      - Cabal
+
   corvus:
     main: Main.hs
     source-dirs: app/daemon
@@ -374,7 +383,9 @@ executables:
 tests:
   corvus-test:
     main: Spec.hs
-    source-dirs: test
+    source-dirs:
+      - test
+      - app/code-metrics
     ghc-options:
       - -threaded
       - -rtsopts
@@ -389,3 +400,5 @@ tests:
       - uuid
       - async
       - silently
+      - ghc
+      - Cabal
