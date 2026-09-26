@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -17,14 +18,20 @@ import qualified Capnp.Gen.Task as CGT
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent (forkIO, throwTo)
 import Control.Concurrent.STM (atomically, modifyTVar', writeTVar)
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Corvus.Action (TaskCancelledException (..))
 import Corvus.Handlers (handleTaskList, handleTaskListChildren, handleTaskShow)
+import Corvus.Model (TaskResult (TaskRunning))
 import Corvus.Protocol (Response (..))
+import Corvus.Protocol.Task (TaskInfo (..))
 import Corvus.Rpc.Common (handleParsed, throwError, throwWireError)
-import Corvus.Rpc.Streams (EmptyHandle (..))
+import Corvus.Rpc.Streams (EmptyHandle (..), callSink)
 import Corvus.Types (ServerState (..), lookupTaskCancelToken, lookupTaskThread)
-import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem)
+import Corvus.Wire.Enums
+  ( fromCapnpTaskResult
+  , fromCapnpTaskSubsystem
+  , toCapnpTaskSubsystem
+  )
 import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.Errors (showWireError)
 import Corvus.Wire.Task (toCapnpTaskInfo)
@@ -77,15 +84,35 @@ instance CGT.TaskManager'server_ TaskManagerCap where
           pure CGT.TaskManager'listChildren'results {CGT.tasks = map toCapnpTaskInfo tasks}
         _ -> throwError resp
 
-  -- Register a 'TaskProgressSink' against the given task id.
-  -- The Action runtime pushes a @finished@ event when the task
-  -- completes; subscribers added after the task has already
-  -- finished will never receive an event.
+  -- Register a 'TaskProgressSink' against the given task id. A running
+  -- task gets an initial @started@ event so clients that join after the
+  -- Action has begun can establish its identity before later progress or
+  -- completion events arrive.
   taskManager'subscribe (TaskManagerCap st sup) =
     handleParsed $ \CGT.TaskManager'subscribe'params {CGT.taskId = tid, CGT.sink = sinkClient} -> do
       atomically $
         modifyTVar' (ssTaskProgressSubs st) $
           Map.insertWith (++) tid [sinkClient]
+      snapshot <- handleTaskShow st tid
+      case snapshot of
+        RespTaskInfo taskInfo ->
+          when (tiResult taskInfo == TaskRunning) $
+            callSink
+              #push
+              CGS.TaskProgressSink'push'params
+                { CGS.event =
+                    CGS.TaskProgressEvent
+                      { CGS.taskId = tid
+                      , CGS.union' =
+                          CGS.TaskProgressEvent'started
+                            CGS.TaskProgressEvent'started'
+                              { CGS.command = tiCommand taskInfo
+                              , CGS.subsystem = toCapnpTaskSubsystem (tiSubsystem taskInfo)
+                              }
+                      }
+                }
+              sinkClient
+        _ -> pure ()
       handle <- export @CGS.Handle sup EmptyHandle
       pure CGT.TaskManager'subscribe'results {CGT.handle = handle}
 

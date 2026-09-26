@@ -34,10 +34,11 @@ Strategy:
 
 from __future__ import annotations
 
+import secrets
 import time
 
 import pytest
-from corvus_test_harness import SingleNodeCase
+from corvus_test_harness import SingleNodeCase, Vm
 
 pytestmark = pytest.mark.timeout(300)
 
@@ -200,6 +201,60 @@ class TestComponentRestart(SingleNodeCase):
             f"daemon process was bounced as a side effect of nodeagent "
             f"restart (PID {daemon_pid_before} → {daemon_pid_after})"
         )
+
+    def test_restart_nodeagent_recovers_running_vm(self):
+        """A running VM is re-started after nodeagent loses its QEMU state.
+
+        Nodeagent cleanup deliberately terminates its QEMU children on a
+        service restart.  The daemon must therefore notice the reconnected
+        agent reports the VM as unknown, reapply its desired state, and leave
+        a non-ephemeral attached data disk intact.
+        """
+
+        marker = f"corvus-nodeagent-restart-{secrets.token_hex(6)}"
+        data_disk = f"{marker}-data"
+        self.client.disks.create(data_disk, size_mb=8, format="raw")
+        try:
+            with Vm(self) as vm:
+                vm_id = vm.cap.show().id
+                vm.cap.attach_disk(data_disk, interface="virtio")
+                written = vm.cap.guest_exec(
+                    f"/bin/sh -c 'until test -b /dev/vdb; do sleep 1; done; "
+                    f"printf %s {marker} | dd of=/dev/vdb bs=1 conv=notrunc "
+                    "status=none; sync'"
+                )
+                assert written.exit_code == 0, written
+
+                self._restart(NODE_AGENT_UNIT)
+                self._fresh_status_must_work("after nodeagent restart with running VM")
+
+                # _fresh_status_must_work replaces the harness's cached Client;
+                # refresh the context manager's capability before using it again
+                # (including its eventual cleanup).
+                vm.client = self.client
+                vm.cap = self.client.vms.get(vm_id)
+
+                deadline = time.monotonic() + RECONNECT_BUDGET_SEC
+                last_result = None
+                while time.monotonic() < deadline:
+                    info = vm.cap.show()
+                    if info.status == "running":
+                        last_result = vm.cap.guest_exec(
+                            f"dd if=/dev/vdb bs=1 count={len(marker)} 2>/dev/null"
+                        )
+                        if last_result.exit_code == 0 and last_result.stdout == marker:
+                            break
+                    time.sleep(0.5)
+                else:
+                    raise AssertionError(
+                        "VM did not recover after nodeagent restart; "
+                        f"last guest command result: {last_result!r}"
+                    )
+        finally:
+            try:
+                self.client.disks.get(data_disk, by_name=True).delete()
+            except Exception:
+                pass
 
     def test_restart_netd_daemon_survives(self):
         """Bouncing netd must not take down the daemon. Same
