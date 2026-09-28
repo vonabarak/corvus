@@ -246,6 +246,7 @@ main = do
     -- shutting down, the process must exit non-zero so systemd
     -- ('Restart=on-failure' / '=always') restarts us cleanly.
     liftIO $ waitForShutdownOrListenerDeath state' capnpThreads
+    shutdownRequested <- liftIO $ readTVarIO (ssShutdownFlag state')
 
     -- Re-check the listeners: surface a fatal log line for any
     -- that died BEFORE the rest of the teardown so the journal
@@ -279,10 +280,13 @@ main = do
     liftIO $ mapM_ cancel nodeSupervisors
 
     liftIO $ handleGracefulShutdown state'
-    -- Exit non-zero if any listener died and we're here only
-    -- because of that. Otherwise normal shutdown is success.
+    -- Exit non-zero only when a listener died before shutdown was
+    -- requested. Cancelling listeners is part of normal shutdown,
+    -- and async cancellation otherwise looks like a listener failure
+    -- after the final poll (which makes systemd restart a daemon that
+    -- the public shutdown RPC intentionally stopped).
     finalStatuses <- liftIO $ mapM poll capnpThreads
-    if any isCrash finalStatuses
+    if not shutdownRequested && any isCrash finalStatuses
       then liftIO (exitWith (ExitFailure 1))
       else liftIO exitSuccess
   where

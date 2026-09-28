@@ -18,9 +18,11 @@ What's covered:
 * Dropping one subscriber doesn't starve the other (the daemon's
   per-VM subscriber list is correctly indexed by handle identity,
   not e.g. ``head : tail``).
-* ``close()``-ing a subscription stops the daemon from pushing
-  further events to it — asserted by comparing the pre- and post-
-  close event counts after another tick.
+* VM-statistics subscriptions decode samples, fan out to independent
+  subscribers, and leave surviving sinks live when one is closed.
+
+This focused coverage does not exercise Ctrl+Alt+Del behavior, web/CLI route
+breadth, or task-stream terminal semantics.
 
 What's NOT covered here:
 
@@ -200,3 +202,57 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
             sub.close()
             # Idempotent: second close shouldn't raise.
             sub.close()
+
+    def test_stats_subscribers_fan_out_and_survive_close(self):
+        """Live VM-statistics samples fan out, and closing one sink leaves
+        the other receiving later decoded samples.
+
+        A stats stream is scoped to the VM capability, so receiving a
+        ``VmStats`` object from this subscription proves it belongs to the
+        booted VM. We intentionally do not assert that the closed sink stops
+        receiving: pycapnp 2.x does not deterministically release its cap on
+        Python-side ``close()``.
+        """
+        with Vm(self) as vm:
+            a_events: list = []
+            b_events: list = []
+            lock = threading.Lock()
+
+            def make_handler(target):
+                def on_event(sample):
+                    with lock:
+                        target.append(sample)
+
+                return on_event
+
+            def drain(target, *, target_count: int, timeout_sec: float) -> None:
+                deadline = time.monotonic() + timeout_sec
+                while time.monotonic() < deadline:
+                    with lock:
+                        if len(target) >= target_count:
+                            return
+                    time.sleep(0.5)
+                with lock:
+                    count = len(target)
+                raise AssertionError(
+                    f"only received {count}/{target_count} stats samples "
+                    f"within {timeout_sec}s"
+                )
+
+            sub_a = vm.cap.subscribe_stats(make_handler(a_events))
+            sub_b = vm.cap.subscribe_stats(make_handler(b_events))
+            try:
+                drain(a_events, target_count=1, timeout_sec=30.0)
+                drain(b_events, target_count=1, timeout_sec=30.0)
+                with lock:
+                    samples = (a_events[-1], b_events[-1])
+                    b_baseline = len(b_events)
+                for sample in samples:
+                    assert sample.sampled_at_nanos > 0
+                    assert sample.interval_millis > 0
+
+                sub_a.close()
+                drain(b_events, target_count=b_baseline + 1, timeout_sec=20.0)
+            finally:
+                sub_a.close()
+                sub_b.close()

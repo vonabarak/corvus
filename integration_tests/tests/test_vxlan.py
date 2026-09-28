@@ -9,12 +9,13 @@ Topology: ``OneDaemonTwoNodesCase``. Alpha runs the daemon + agents;
 beta runs agents only. The class fixture below registers beta with
 alpha's daemon.
 
-The class is deliberately state-heavy and boot-light — we don't start
-QEMU here. Cross-node L2 connectivity through the VXLAN is checked at
-the netd level (the device exists, the bridge is enslaved, the flood
-FDB carries the peer's underlay IP); pushing actual frames through it
-is left to a follow-up test that runs once the harness has stable
-nested-VM networking on both nodes.
+Most of the class is deliberately state-heavy and boot-light. Its slow
+data-plane case also boots one Alpine guest on each node and sends
+packets over the overlay, proving the VTEP/FDB control plane forwards
+real guest frames in both directions.
+
+This focused coverage does not exercise Ctrl+Alt+Del behavior, web/CLI route
+breadth, or task-stream terminal semantics.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import time
 
 import pytest
 from corvus_client import ServerError
-from corvus_test_harness import OneDaemonTwoNodesCase
+from corvus_test_harness import OneDaemonTwoNodesCase, VmShell
 
 
 def _uniq(stem: str) -> str:
@@ -309,6 +310,95 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             assert ip == "10.99.6.2"
         finally:
             self._delete_silent_vm(vm_name)
+            self._delete_silent_network(nw_name)
+
+    def test_overlay_forwards_guest_packets_between_nodes(self):
+        """Two DHCP guests on different nodes can ping across the VXLAN.
+
+        The Alpine base is staged on both nodes before creating the
+        overlays. ``create_overlay`` chooses one of the backing image's
+        placements, so move beta's overlay explicitly; its backing image is
+        already present there and the move transfers only the small overlay.
+        VSOCK provides test control only: each guest has exactly one NIC, the
+        managed overlay NIC under test.
+        """
+        nw_name = _uniq("vx-data")
+        alpha_vm_name = _uniq("vx-alpha")
+        beta_vm_name = _uniq("vx-beta")
+        alpha_overlay = _uniq("vx-alpha-ovl")
+        beta_overlay = _uniq("vx-beta-ovl")
+        shells: list[VmShell] = []
+        nw = self.client_alpha.networks.create(
+            nw_name,
+            subnet="10.99.10.0/24",
+            node=self.alpha_name,
+            dhcp=True,
+            nat=False,
+        )
+        try:
+            nw.attach_node(self.beta_name)
+            nw.start()
+
+            images = self.register_base_images()
+            base_disk = images.get("alpine")
+            if base_disk is None:
+                pytest.skip(
+                    "Alpine base image is unavailable; run `make image IMAGE=vm`"
+                )
+            self.stage_base_images_on(node_index=1)
+
+            self.client_alpha.disks.create_overlay(
+                alpha_overlay, base_disk, ephemeral=True
+            )
+            self.client_alpha.disks.create_overlay(
+                beta_overlay, base_disk, ephemeral=True
+            )
+            move_task = self.client_alpha.disks.move(beta_overlay, self.beta_name)
+            self.wait_for_task(self.client_alpha, move_task, timeout_sec=120.0)
+
+            def boot(name: str, overlay: str, node_name: str):
+                vm = self.client_alpha.vms.create(
+                    name,
+                    cpu_count=1,
+                    ram_mb=512,
+                    node=node_name,
+                    headless=True,
+                    guest_agent=True,
+                    cloud_init=False,
+                )
+                vm.attach_disk(overlay, interface="virtio")
+                vm.add_net_if(type="managed", network_ref=nw_name)
+                vm.start(wait=True)
+                return vm
+
+            alpha_vm = boot(alpha_vm_name, alpha_overlay, self.alpha_name)
+            beta_vm = boot(beta_vm_name, beta_overlay, self.beta_name)
+            alpha_ip = alpha_vm.list_net_ifs()[0].ip_address
+            beta_ip = beta_vm.list_net_ifs()[0].ip_address
+            assert alpha_ip is not None and beta_ip is not None
+            assert alpha_ip != beta_ip
+
+            alpha_shell = self.vm_shell(alpha_vm, node_index=0)
+            beta_shell = self.vm_shell(beta_vm, node_index=1)
+            shells.extend((alpha_shell, beta_shell))
+            alpha_shell.wait_ready(timeout_sec=90.0)
+            beta_shell.wait_ready(timeout_sec=90.0)
+            for shell in shells:
+                shell.run(
+                    "doas ip link set eth0 up && doas udhcpc -i eth0 -n -q -t 5 -T 2"
+                )
+
+            alpha_shell.run(f"ping -c 2 -W 3 {beta_ip}")
+            beta_shell.run(f"ping -c 2 -W 3 {alpha_ip}")
+        finally:
+            for shell in shells:
+                try:
+                    shell.close()
+                except Exception:
+                    pass
+            # Guests must be gone before tearing their managed bridge down.
+            self._delete_silent_vm(alpha_vm_name)
+            self._delete_silent_vm(beta_vm_name)
             self._delete_silent_network(nw_name)
 
     def test_managed_nic_cross_node_refused_without_attach(self):

@@ -12,6 +12,9 @@ operator-driven restarts. The system has to tolerate that:
   ``status`` — must remain reachable while the agents flap.
 * When the bounced agent comes back, the daemon must reconnect
   to it without manual intervention.
+* The public daemon ``shutdown()`` RPC must stop only the daemon;
+  live agent-owned VM and network state must reconcile when an
+  operator starts it again.
 
 The bug this test was written to catch: bouncing the nodeagent
 while the daemon is up left the daemon process in a state where
@@ -30,6 +33,9 @@ Strategy:
   load-bearing — the failure mode is "daemon's listening socket
   is gone", which surfaces at ``connect()`` time, not on a
   retained socket.
+
+This focused coverage does not exercise Ctrl+Alt+Del behavior, web/CLI route
+breadth, or task-stream terminal semantics.
 """
 
 from __future__ import annotations
@@ -38,7 +44,7 @@ import secrets
 import time
 
 import pytest
-from corvus_test_harness import SingleNodeCase, Vm
+from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 
 pytestmark = pytest.mark.timeout(300)
 
@@ -89,6 +95,20 @@ class TestComponentRestart(SingleNodeCase):
             f"{unit} did not return to 'active' within 15s of "
             f"'systemctl restart {unit}'"
         )
+
+    def _start(self, unit: str) -> None:
+        """Start a deliberately stopped unit and wait for systemd to report
+        it active. Kept separate from ``_restart`` because the graceful
+        shutdown test must prove the unit was actually inactive first."""
+
+        self.node.run(f"sudo systemctl start {unit}", check=True)
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            result = self.node.run(f"systemctl is-active {unit}", check=False)
+            if result.stdout.decode().strip() == "active":
+                return
+            time.sleep(0.5)
+        raise AssertionError(f"{unit} did not become active within 15s of start")
 
     def _main_pid(self, unit: str) -> str:
         """Return the systemd-reported MainPID for *unit* as a
@@ -302,6 +322,97 @@ class TestComponentRestart(SingleNodeCase):
         )
 
         self._fresh_status_must_work("after daemon restart")
+
+    def test_shutdown_rpc_preserves_agent_owned_running_state(self):
+        """A public graceful shutdown stops only the daemon and restores its
+        view of a live managed VM/network after an explicit start.
+
+        The marker is read over the existing direct guest SSH transport while
+        the daemon is down. That distinguishes daemon reconciliation from a
+        VM that merely happened to be restarted during recovery.
+        """
+        network_name = f"shutdown-net-{secrets.token_hex(3)}"
+        marker = f"corvus-shutdown-{secrets.token_hex(6)}"
+        network = self.client.networks.create(
+            network_name,
+            subnet="10.98.0.0/24",
+            dhcp=True,
+            nat=False,
+        )
+        try:
+            network.start()
+
+            class _ManagedVm(VmSsh):
+                def _net_ifs(self):
+                    return [{"type": "managed", "network_ref": network_name}]
+
+            with _ManagedVm(self, name=f"shutdown-vm-{secrets.token_hex(3)}") as vm:
+                vm_id = vm.cap.show().id
+                allocated_ip = vm.cap.list_net_ifs()[0].ip_address
+                assert allocated_ip is not None
+                vm.run(f"printf %s {marker} > /tmp/corvus-shutdown-marker")
+
+                nodeagent_pid = self._main_pid(NODE_AGENT_UNIT)
+                netd_pid = self._main_pid(NETD_UNIT)
+                self.client.shutdown()
+                self._drop_cached_client()
+
+                # The RPC acknowledgement is sent before the daemon's final
+                # listener teardown reaches systemd. Poll rather than racing
+                # that hand-off; an on-failure restart still leaves the unit
+                # active and fails this assertion within the bounded budget.
+                deadline = time.monotonic() + 15.0
+                daemon_state = ""
+                while time.monotonic() < deadline:
+                    daemon_state = (
+                        self.node.run(f"systemctl is-active {DAEMON_UNIT}", check=False)
+                        .stdout.decode()
+                        .strip()
+                    )
+                    if daemon_state == "inactive":
+                        break
+                    time.sleep(0.5)
+                else:
+                    raise AssertionError(
+                        f"shutdown RPC left {DAEMON_UNIT} {daemon_state!r}"
+                    )
+                assert self._main_pid(NODE_AGENT_UNIT) == nodeagent_pid
+                assert self._main_pid(NETD_UNIT) == netd_pid
+                marker_result = vm.run("cat /tmp/corvus-shutdown-marker")
+                assert marker_result.stdout.strip() == marker
+
+                self._start(DAEMON_UNIT)
+                self._fresh_status_must_work("after public daemon shutdown")
+
+                # The old capability belongs to the pre-shutdown client. Keep
+                # the context manager's cleanup path on the fresh connection.
+                vm.client = self.client
+                vm.cap = self.client.vms.get(vm_id)
+                deadline = time.monotonic() + RECONNECT_BUDGET_SEC
+                while time.monotonic() < deadline:
+                    info = vm.cap.show()
+                    if info.status == "running":
+                        break
+                    time.sleep(0.5)
+                else:
+                    raise AssertionError(
+                        "VM was not reconciled as running after daemon start"
+                    )
+
+                assert (
+                    vm.run("cat /tmp/corvus-shutdown-marker").stdout.strip() == marker
+                )
+                nics = vm.cap.list_net_ifs()
+                assert len(nics) == 1
+                assert nics[0].ip_address == allocated_ip
+                assert self.client.networks.get(network_name).show().running
+        finally:
+            try:
+                fresh_network = self.client.networks.get(network_name)
+                fresh_network.stop(force=True)
+                fresh_network.delete()
+            except Exception:
+                pass
 
     # ----------------------------------------------------------------
     # Compound restarts — repeated bounces, alternating order.
