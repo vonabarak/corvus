@@ -51,6 +51,7 @@ data MigrationPlan = MigrationPlan
   , mpDestNode :: !M.NodeId
   , mpDriveOps :: ![MigrationDriveOp]
   , mpStateFile :: !Bool
+  , mpTpmState :: !Bool
   -- ^ True iff the source VM is in 'M.VmSaved' status. The
   -- orchestrator transfers
   -- @\<srcBasePath\>\/\<vmName\>\/state.qemu@ to the destination
@@ -82,8 +83,6 @@ validateMigration state vmId destNode = do
   case mVm of
     Nothing -> pure (Left "VM not found")
     Just vm
-      | M.vmTpm vm ->
-          pure (Left "VM has TPM enabled; disable TPM before migrating")
       -- @vm migrate@ accepts stopped VMs (no state file) and
       -- saved VMs (state file follows to the destination). Running
       -- and paused VMs are auto-saved by the orchestrator BEFORE
@@ -255,6 +254,7 @@ buildPlanFromDrives state vmId vm destNode destRow = do
                 , mpDestNode = destNode
                 , mpDriveOps = allOps
                 , mpStateFile = M.vmStatus vm == M.VmSaved
+                , mpTpmState = M.vmTpm vm
                 }
 
 -- ---------------------------------------------------------------------------

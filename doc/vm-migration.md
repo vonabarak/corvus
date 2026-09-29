@@ -37,8 +37,10 @@ block for completion or `crv task show <ID>` to inspect progress and results.
 - The destination node exists, is `online`, and is not the VM's
   current node.
 - The VM has no shared directories (host paths are node-local).
-- TPM is disabled. TPM state is node-local and is not transferred;
-  disable TPM first, which permanently removes its persistent state.
+- TPM-enabled VMs are supported. After the VM is stopped or saved, Corvus
+  transfers its persistent `swtpm` state over the same authenticated
+  nodeagent-to-nodeagent channel as disk data. TPM keys, identity, and
+  measurements are preserved; both nodes require `tar` as well as `swtpm`.
 - Every network interface is of type `user` (SLIRP) — always
   allowed — or `managed` on a network that includes the
   destination node (as owner, or as a peer added with
@@ -98,7 +100,14 @@ or move stage every missing backing ancestor first.
      not on this connection.
    - The destination verifies the received size and md5, renames
      `.part` into its final location.
-4. **Commit.** In a single transaction:
+4. **TPM state.** For TPM-enabled VMs, the source nodeagent packages the
+   quiescent `tpm2/` directory into a private archive. The archive follows the
+   same direct, checksum-verified transfer path and is extracted on the
+   destination through a private staging directory before atomic promotion.
+   Corvus removes the source TPM state strictly before committing placement, so
+   a failed cleanup rolls back the destination state rather than leaving two
+   usable copies of one TPM identity.
+5. **Commit.** In a single transaction:
    - `Vm.nodeId` is updated.
    - `Vm.vsockCid` and `Vm.spicePort` are cleared — the
      destination's per-node allocators will hand out fresh values
@@ -106,7 +115,7 @@ or move stage every missing backing ancestor first.
    - Source-side `DiskImageNode` rows for every moved drive are
      deleted.
    - `Vm.migrating` is cleared.
-5. **Cleanup.** Source agents are asked, best-effort, to delete
+6. **Cleanup.** Source agents are asked, best-effort, to delete
    the moved files. A failure here is logged but doesn't undo
    the migration — the DB already reflects the new placement.
 
@@ -117,6 +126,8 @@ If any transfer fails mid-flight, the orchestrator:
 - Asks the destination agent to delete every file it had finished
   receiving during this attempt.
 - Drops the matching `DiskImageNode` rows on the destination.
+- Removes any staged TPM archive or installed destination TPM state; the
+  source TPM state remains usable unless migration has committed.
 - Clears the `Vm.migrating` flag.
 
 The source side is untouched until the very last step, so a

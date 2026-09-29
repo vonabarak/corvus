@@ -9,6 +9,9 @@ module Corvus.Node.Caps.Session.Vm
   , handleVmSave
   , handleDeleteSavedState
   , handleDeleteTpmState
+  , handlePrepareTpmMigration
+  , handleRestoreTpmMigration
+  , handleCleanupTpmMigrationArchive
   , handleVmGuestExec
   , handleVmGuestExecStream
   , handleVmStatus

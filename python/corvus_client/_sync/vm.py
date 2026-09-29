@@ -94,8 +94,8 @@ class SyncVm(LoopBoundResource):
     def start(self, *, wait: bool = False):
         return self._rl.run(self._a.start(wait=wait))
 
-    def stop(self, *, wait: bool = False):
-        return self._rl.run(self._a.stop(wait=wait))
+    def stop(self, *, wait: bool = False, timeout_sec: int = 300):
+        return self._rl.run(self._a.stop(wait=wait, timeout_sec=timeout_sec))
 
     def pause(self):
         return self._rl.run(self._a.pause())

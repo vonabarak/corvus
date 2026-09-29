@@ -26,6 +26,9 @@ module Corvus.Node.Caps.Session.Vm.Lifecycle
   , reapEntryAfterQuit
   , handleDeleteSavedState
   , handleDeleteTpmState
+  , handlePrepareTpmMigration
+  , handleRestoreTpmMigration
+  , handleCleanupTpmMigrationArchive
   , sanitiseVmName
   ) where
 
@@ -99,9 +102,9 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
-import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, removeFile, removePathForcibly, renameFile)
+import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, removeFile, removePathForcibly, renameDirectory, renameFile)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory)
+import System.FilePath (takeDirectory, (</>))
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Posix.Types (CPid (..))
 import System.Process
@@ -111,6 +114,7 @@ import System.Process
   , getPid
   , getProcessExitCode
   , proc
+  , readProcessWithExitCode
   , std_err
   , std_out
   , waitForProcess
@@ -485,6 +489,86 @@ handleDeleteTpmState _sc vmName = do
       exists <- doesPathExist path
       when exists $ removePathForcibly path
       pure CGNA.Session'deleteTpmState'results
+
+-- | The TPM state is a small directory rather than a disk image.  Package it
+-- under an agent-owned fixed name so the daemon can reuse its authenticated
+-- peer-to-peer file transfer without ever inspecting TPM key material.
+handlePrepareTpmMigration
+  :: SessionCap
+  -> Text
+  -> IO (CGNA.Parsed CGNA.Session'prepareTpmMigration'results)
+handlePrepareTpmMigration _sc vmName = do
+  safeName <- either (throwFailed . ("prepareTpmMigration: " <>)) pure (sanitiseVmName vmName)
+  stateDir <- NR.getTpmStateDir agentQemuConfig safeName
+  exists <- doesPathExist stateDir
+  -- swtpm creates its files only on the first boot.  A TPM-enabled VM that
+  -- has not booted yet still has valid (empty) state, which must remain
+  -- migratable; create the private directory using the same helper as VM
+  -- startup before packaging it.
+  unless exists $ void (NR.createTpmStateDir agentQemuConfig safeName)
+  let vmDir = takeDirectory stateDir
+      archive = tpmMigrationArchive vmDir
+  _ <- E.try @E.SomeException (removeFile archive)
+  runTar "prepareTpmMigration" ["-C", vmDir, "-cf", archive, "tpm2"]
+  pure CGNA.Session'prepareTpmMigration'results {CGNA.archivePath = T.pack archive}
+
+-- | Install a previously transferred TPM archive without ever overwriting an
+-- existing state directory.  The staging directory is on the same filesystem
+-- as the final path, so promotion is atomic.
+handleRestoreTpmMigration
+  :: SessionCap
+  -> Text
+  -> IO (CGNA.Parsed CGNA.Session'restoreTpmMigration'results)
+handleRestoreTpmMigration _sc vmName = do
+  safeName <- either (throwFailed . ("restoreTpmMigration: " <>)) pure (sanitiseVmName vmName)
+  stateDir <- NR.getTpmStateDir agentQemuConfig safeName
+  let vmDir = takeDirectory stateDir
+      archive = tpmMigrationArchive vmDir
+      staging = vmDir </> ".tpm2.migration"
+      stagedState = staging </> "tpm2"
+  stateExists <- doesPathExist stateDir
+  when stateExists $ throwFailed "restoreTpmMigration: TPM state directory already exists"
+  archiveExists <- doesPathExist archive
+  unless archiveExists $ throwFailed "restoreTpmMigration: TPM migration archive does not exist"
+  stale <- doesPathExist staging
+  when stale $ removePathForcibly staging
+  createDirectoryIfMissing True staging
+  E.onException
+    ( do
+        runTar "restoreTpmMigration" ["-C", staging, "-xf", archive]
+        stagedExists <- doesPathExist stagedState
+        unless stagedExists $ throwFailed "restoreTpmMigration: archive does not contain tpm2 state"
+        renameDirectory stagedState stateDir
+    )
+    ( do
+        leftover <- doesPathExist staging
+        when leftover (removePathForcibly staging)
+    )
+  -- Cleanup cannot turn a completed installation into a failed RPC: the
+  -- daemon retries this idempotently on both nodes after migration.
+  _ <- E.try @E.SomeException (removePathForcibly staging)
+  _ <- E.try @E.SomeException (removeFile archive)
+  pure CGNA.Session'restoreTpmMigration'results
+
+handleCleanupTpmMigrationArchive
+  :: SessionCap
+  -> Text
+  -> IO (CGNA.Parsed CGNA.Session'cleanupTpmMigrationArchive'results)
+handleCleanupTpmMigrationArchive _sc vmName = do
+  safeName <- either (throwFailed . ("cleanupTpmMigrationArchive: " <>)) pure (sanitiseVmName vmName)
+  stateDir <- NR.getTpmStateDir agentQemuConfig safeName
+  _ <- E.try @E.SomeException (removeFile (tpmMigrationArchive (takeDirectory stateDir)))
+  pure CGNA.Session'cleanupTpmMigrationArchive'results
+
+tpmMigrationArchive :: FilePath -> FilePath
+tpmMigrationArchive vmDir = vmDir </> ".tpm2.migration.tar"
+
+runTar :: Text -> [FilePath] -> IO ()
+runTar operation args = do
+  (exitCode, _stdout, stderr) <- readProcessWithExitCode "tar" args ""
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> throwFailed (operation <> ": tar failed: " <> T.pack stderr)
 
 -- | Reject names that could escape the @basePath/<vmName>/@
 -- directory: empty, absolute, contains @..@, contains a path

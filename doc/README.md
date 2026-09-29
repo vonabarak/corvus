@@ -31,7 +31,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - QEMU with KVM support
 - `qemu-img` (for disk image operations)
 - `virtiofsd` (for shared directories)
-- `swtpm` (for VMs with TPM 2.0 enabled)
+- `swtpm` and `tar` (for VMs with TPM 2.0 enabled or TPM VM migration)
 - `genisoimage` or `mkisofs` (for cloud-init ISO generation)
 - `vde_switch` and `dnsmasq` (optional, for virtual networking)
 - `curl` or `wget` (optional, for HTTP disk image import)

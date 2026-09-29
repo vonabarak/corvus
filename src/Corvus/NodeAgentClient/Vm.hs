@@ -14,6 +14,9 @@ module Corvus.NodeAgentClient.Vm
   , vmSave
   , deleteSavedState
   , deleteTpmState
+  , prepareTpmMigration
+  , restoreTpmMigration
+  , cleanupTpmMigrationArchive
   , vmGuestExec
   , vmGuestExecStream
   , vmStatus
@@ -297,6 +300,24 @@ deleteTpmState nac vmName = remote $ do
       #deleteTpmState
       CGNA.Session'deleteTpmState'params {CGNA.vmName = vmName}
       (nacSession nac)
+  pure ()
+
+prepareTpmMigration :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError T.Text)
+prepareTpmMigration nac vmName = remote $ do
+  CGNA.Session'prepareTpmMigration'results {CGNA.archivePath = path} <-
+    callOn #prepareTpmMigration CGNA.Session'prepareTpmMigration'params {CGNA.vmName = vmName} (nacSession nac)
+  pure path
+
+restoreTpmMigration :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError ())
+restoreTpmMigration nac vmName = remote $ do
+  _ :: C.Parsed CGNA.Session'restoreTpmMigration'results <-
+    callOn #restoreTpmMigration CGNA.Session'restoreTpmMigration'params {CGNA.vmName = vmName} (nacSession nac)
+  pure ()
+
+cleanupTpmMigrationArchive :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError ())
+cleanupTpmMigrationArchive nac vmName = remote $ do
+  _ :: C.Parsed CGNA.Session'cleanupTpmMigrationArchive'results <-
+    callOn #cleanupTpmMigrationArchive CGNA.Session'cleanupTpmMigrationArchive'params {CGNA.vmName = vmName} (nacSession nac)
   pure ()
 
 vmGuestExec

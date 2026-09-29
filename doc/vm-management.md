@@ -82,9 +82,11 @@ survive ordinary stops, starts, saves, and host reboots.
 TPM can only be changed while the VM is stopped. Disabling it permanently
 deletes that state before the flag is changed; if cleanup fails, TPM remains
 enabled. Deleting a TPM-enabled VM has the same strict cleanup behavior.
-Cross-node migration is rejected while TPM is enabled because Corvus does not
-move TPM state between nodes. Disable TPM first if losing its state is
-acceptable. Secure Boot is independent of TPM and is not enabled by this flag.
+Cross-node migration transfers the quiescent TPM state directly between
+nodeagents, preserving TPM identity, keys, and measurements. Both source and
+destination hosts need `tar` and `swtpm` on `PATH`; migration fails without
+changing placement if the state cannot be copied or the source state cannot be
+removed. Secure Boot is independent of TPM and is not enabled by this flag.
 
 ## Editing a VM
 

@@ -111,8 +111,9 @@ class AsyncVm:
         resp = await self._cap.start(wait=wait)
         return str(resp.status)
 
-    async def stop(self, *, wait: bool = False) -> str:
-        resp = await self._cap.stop(wait=wait)
+    async def stop(self, *, wait: bool = False, timeout_sec: int = 300) -> str:
+        """Stop the VM, force-stopping it immediately when timeout_sec is zero."""
+        resp = await self._cap.stop(wait=wait, timeoutSec=timeout_sec)
         return str(resp.status)
 
     async def pause(self) -> str:

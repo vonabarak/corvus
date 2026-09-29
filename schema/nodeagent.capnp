@@ -291,6 +291,23 @@ interface Session {
   # this before disabling TPM and before deleting a TPM-enabled VM.
   deleteTpmState @44 (vmName :Text) -> ();
 
+  # Prepare the persistent swtpm state of a stopped VM for migration.
+  # The agent writes a private archive beside the VM's state directory and
+  # returns its absolute path; the daemon transfers that archive through the
+  # normal agent-to-agent reader path.  The archive is agent-owned and must be
+  # removed with `cleanupTpmMigrationArchive` after the migration completes or
+  # rolls back.
+  prepareTpmMigration @48 (vmName :Text) -> (archivePath :Text);
+
+  # Atomically install the already-transferred TPM archive for `vmName`.
+  # Extraction happens in a private staging directory and is promoted only
+  # after a complete successful extraction.  Refuses to overwrite state.
+  restoreTpmMigration @49 (vmName :Text) -> ();
+
+  # Remove the private migration archive for `vmName`. Idempotent; used on
+  # both source and destination after success or rollback.
+  cleanupTpmMigrationArchive @50 (vmName :Text) -> ();
+
   # Execute a command via QGA on the running VM. Agent locates
   # the QGA socket from the ledger entry for req.vmId.
   vmGuestExec @20 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);

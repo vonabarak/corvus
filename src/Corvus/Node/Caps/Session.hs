@@ -489,6 +489,18 @@ instance CGNA.Session'server_ SessionCap where
     handleParsed $ \CGNA.Session'deleteTpmState'params {CGNA.vmName = name} ->
       handleDeleteTpmState sc name
 
+  session'prepareTpmMigration sc =
+    handleParsed $ \CGNA.Session'prepareTpmMigration'params {CGNA.vmName = name} ->
+      handlePrepareTpmMigration sc name
+
+  session'restoreTpmMigration sc =
+    handleParsed $ \CGNA.Session'restoreTpmMigration'params {CGNA.vmName = name} ->
+      handleRestoreTpmMigration sc name
+
+  session'cleanupTpmMigrationArchive sc =
+    handleParsed $ \CGNA.Session'cleanupTpmMigrationArchive'params {CGNA.vmName = name} ->
+      handleCleanupTpmMigrationArchive sc name
+
   session'vmGuestExec sc =
     -- Async dispatch: a single guest-exec can run for many
     -- minutes (build provisioners are the worst offender), and

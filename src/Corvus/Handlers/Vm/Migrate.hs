@@ -112,39 +112,35 @@ handleVmMigrate ctx vmIdRaw destNodeRaw = runServerLogging state $ do
   case preStatus of
     Nothing -> pure RespVmNotFound
     Just origStatus -> do
-      tpmEnabled <- liftIO $ readTpmEnabled state vmId
-      if tpmEnabled
-        then pure (RespError "VM has TPM enabled; disable TPM before migrating")
-        else do
-          -- (2) Auto-save running/paused VMs as a child task. The save
-          -- runs through the same VmSave Action 'crv vm save' uses, so
-          -- the FSM gate + node-side migrate-quit-reap flow is shared.
-          -- 'runActionAsSubtask' records the save as a child of the
-          -- migrate task so 'crv task history' shows the full causality.
-          saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
-          case saveOutcome of
+      -- (2) Auto-save running/paused VMs as a child task. The save
+      -- runs through the same VmSave Action 'crv vm save' uses, so
+      -- the FSM gate + node-side migrate-quit-reap flow is shared.
+      -- 'runActionAsSubtask' records the save as a child of the
+      -- migrate task so 'crv task history' shows the full causality.
+      saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
+      case saveOutcome of
+        Left err -> pure (RespError err)
+        Right () -> do
+          -- (3) Pre-check. The row is now in VmStopped or VmSaved
+          -- (auto-save above flipped any live VM to VmSaved). We
+          -- run the pre-check before the FSM lock so PreCheck can
+          -- observe the row's true save status to compute
+          -- mpStateFile. A concurrent migrate that slipped in
+          -- between PreCheck and tryEnterMigrating will be
+          -- rejected by the FSM lock below.
+          ePlan <- liftIO $ validateMigration state vmId destNode
+          case ePlan of
             Left err -> pure (RespError err)
-            Right () -> do
-              -- (3) Pre-check. The row is now in VmStopped or VmSaved
-              -- (auto-save above flipped any live VM to VmSaved). We
-              -- run the pre-check before the FSM lock so PreCheck can
-              -- observe the row's true save status to compute
-              -- mpStateFile. A concurrent migrate that slipped in
-              -- between PreCheck and tryEnterMigrating will be
-              -- rejected by the FSM lock below.
-              ePlan <- liftIO $ validateMigration state vmId destNode
-              case ePlan of
+            Right plan -> do
+              -- (4) Acquire the lock by transitioning the row to
+              -- VmMigrating. Allowed only from VmStopped / VmSaved.
+              -- The validator handles concurrent-migration rejection
+              -- for free — a second migrate against a VmMigrating
+              -- row gets a clean error.
+              acquired <- liftIO $ tryEnterMigrating state vmId
+              case acquired of
                 Left err -> pure (RespError err)
-                Right plan -> do
-                  -- (4) Acquire the lock by transitioning the row to
-                  -- VmMigrating. Allowed only from VmStopped / VmSaved.
-                  -- The validator handles concurrent-migration rejection
-                  -- for free — a second migrate against a VmMigrating
-                  -- row gets a clean error.
-                  acquired <- liftIO $ tryEnterMigrating state vmId
-                  case acquired of
-                    Left err -> pure (RespError err)
-                    Right () -> driveTransfers ctx vmId destNode plan origStatus
+                Right () -> driveTransfers ctx vmId destNode plan origStatus
   where
     state = acState ctx
 
@@ -155,10 +151,6 @@ handleVmMigrate ctx vmIdRaw destNodeRaw = runServerLogging state $ do
 readPreMigrateStatus :: ServerState -> M.VmId -> IO (Maybe M.VmStatus)
 readPreMigrateStatus state vmId =
   fmap (fmap M.vmStatus) (runSqlPool (get vmId) (ssDbPool state))
-
-readTpmEnabled :: ServerState -> M.VmId -> IO Bool
-readTpmEnabled state vmId =
-  fmap (maybe False M.vmTpm) (runSqlPool (get vmId) (ssDbPool state))
 
 -- | Atomically transition the VM row to 'VmMigrating'. Returns
 -- 'Right ()' if the row was in a migrate-eligible state ('VmStopped'
@@ -172,20 +164,17 @@ tryEnterMigrating state vmId =
         mVm <- get vmId
         case mVm of
           Nothing -> pure (Left "VM not found")
-          Just vm
-            | M.vmTpm vm -> pure (Left "VM has TPM enabled; disable TPM before migrating")
-            | otherwise ->
-                case M.vmStatus vm of
-                  M.VmStopped -> doFlip
-                  M.VmSaved -> doFlip
-                  other ->
-                    pure
-                      ( Left
-                          ( "VM must be stopped or saved before migrating (current: "
-                              <> M.enumToText other
-                              <> ")"
-                          )
-                      )
+          Just vm -> case M.vmStatus vm of
+            M.VmStopped -> doFlip
+            M.VmSaved -> doFlip
+            other ->
+              pure
+                ( Left
+                    ( "VM must be stopped or saved before migrating (current: "
+                        <> M.enumToText other
+                        <> ")"
+                    )
+                )
     )
     (ssDbPool state)
   where
@@ -270,8 +259,88 @@ driveTransfers ctx vmId destNode plan origStatus = do
               liftIO $ rollbackCreated state plan destNode created
               liftIO $ rollbackMigrating state vmId (mpStateFile plan)
               pure (RespError (err <> " (state file: " <> stateFileStatus (mpStateFile plan) <> ")"))
-            Right () -> commitMigration ctx vmId destNode plan created origStatus
-        else commitMigration ctx vmId destNode plan created origStatus
+            Right () -> finishTpmAndCommit created
+        else finishTpmAndCommit created
+  where
+    state = acState ctx
+    finishTpmAndCommit created
+      | not (mpTpmState plan) = commitMigration ctx vmId destNode plan created origStatus
+      | otherwise = do
+          tpmResult <- liftIO $ stageTpmState state plan
+          case tpmResult of
+            Left err -> do
+              liftIO $ cleanupTpmArchives state plan
+              liftIO $ rollbackCreated state plan destNode created
+              liftIO $ rollbackMigrating state vmId (mpStateFile plan)
+              pure (RespError err)
+            Right () -> do
+              vmNameResult <- liftIO $ vmNameForPlan state plan
+              case vmNameResult of
+                Left err -> pure (RespError err)
+                Right vmName -> do
+                  sourceDelete <- liftIO $ deleteTpmStateOnNode state (mpSrcNode plan) vmName
+                  case sourceDelete of
+                    Left err -> do
+                      -- Do not commit a second usable TPM identity when source
+                      -- cleanup fails. The source state remains authoritative.
+                      liftIO $ void $ deleteTpmStateOnNode state destNode vmName
+                      liftIO $ cleanupTpmArchives state plan
+                      liftIO $ rollbackCreated state plan destNode created
+                      liftIO $ rollbackMigrating state vmId (mpStateFile plan)
+                      pure (RespError ("TPM source-state cleanup failed: " <> err))
+                    Right () -> do
+                      liftIO $ cleanupTpmArchives state plan
+                      commitMigration ctx vmId destNode plan created origStatus
+
+-- | Package, transfer, and atomically install persistent swtpm state. The
+-- archive never crosses the daemon: it uses the existing mTLS peer-to-peer
+-- reader path just like saved QEMU state and disk images.
+stageTpmState :: ServerState -> MigrationPlan -> IO (Either T.Text ())
+stageTpmState state plan = do
+  nameResult <- vmNameForPlan state plan
+  case nameResult of
+    Left err -> pure (Left err)
+    Right vmName -> do
+      prepared <- withNodeAgent state (mpSrcNode plan) (`NOA.prepareTpmMigration` vmName)
+      case prepared of
+        Left err -> pure (Left ("TPM state preparation: " <> err))
+        Right (Left err) -> pure (Left ("TPM state preparation: " <> T.pack (show err)))
+        Right (Right srcArchive) -> do
+          daemonBase <- getEffectiveBasePath (ssQemuConfig state)
+          mDest <- runSqlPool (get (mpDestNode plan)) (ssDbPool state)
+          let destBase = maybe daemonBase (T.unpack . M.nodeBasePath) mDest
+              destArchive = destBase </> T.unpack vmName </> ".tpm2.migration.tar"
+          copied <- DT.transferImageBetweenNodes state (mpSrcNode plan) (mpDestNode plan) (T.unpack srcArchive) destArchive
+          case copied of
+            Left err -> pure (Left ("TPM state transfer: " <> err))
+            Right () -> do
+              restored <- withNodeAgent state (mpDestNode plan) (`NOA.restoreTpmMigration` vmName)
+              pure $ case restored of
+                Left err -> Left ("TPM state restore: " <> err)
+                Right (Left err) -> Left ("TPM state restore: " <> T.pack (show err))
+                Right (Right ()) -> Right ()
+
+cleanupTpmArchives :: ServerState -> MigrationPlan -> IO ()
+cleanupTpmArchives state plan = do
+  nameResult <- vmNameForPlan state plan
+  case nameResult of
+    Left _ -> pure ()
+    Right vmName -> do
+      void $ withNodeAgent state (mpSrcNode plan) (`NOA.cleanupTpmMigrationArchive` vmName)
+      void $ withNodeAgent state (mpDestNode plan) (`NOA.cleanupTpmMigrationArchive` vmName)
+
+deleteTpmStateOnNode :: ServerState -> M.NodeId -> T.Text -> IO (Either T.Text ())
+deleteTpmStateOnNode state nodeId vmName = do
+  r <- withNodeAgent state nodeId (`NOA.deleteTpmState` vmName)
+  pure $ case r of
+    Left err -> Left err
+    Right (Left err) -> Left (T.pack (show err))
+    Right (Right ()) -> Right ()
+
+vmNameForPlan :: ServerState -> MigrationPlan -> IO (Either T.Text T.Text)
+vmNameForPlan state plan = do
+  mVm <- runSqlPool (get (mpVmId plan)) (ssDbPool state)
+  pure $ maybe (Left "internal: VM row vanished mid-TPM-transfer") (Right . M.vmName) mVm
 
 -- | Move @\<basePath\>\/\<vmName\>\/state.qemu.zst@ from the source
 -- node to the destination, reusing the same agent-to-agent byte

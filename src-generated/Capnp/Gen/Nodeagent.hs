@@ -378,9 +378,12 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'deleteTpmState) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskOpenWrite) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmEjectMedia) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmChangeMedia) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmChangeMedia) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'prepareTpmMigration) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'restoreTpmMigration) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'cleanupTpmMigrationArchive) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -477,6 +480,12 @@ class (Session'server_ s_) where
     session'vmEjectMedia _ = GH.methodUnimplemented
     session'vmChangeMedia :: s_ -> (GH.MethodHandler Session'vmChangeMedia'params Session'vmChangeMedia'results)
     session'vmChangeMedia _ = GH.methodUnimplemented
+    session'prepareTpmMigration :: s_ -> (GH.MethodHandler Session'prepareTpmMigration'params Session'prepareTpmMigration'results)
+    session'prepareTpmMigration _ = GH.methodUnimplemented
+    session'restoreTpmMigration :: s_ -> (GH.MethodHandler Session'restoreTpmMigration'params Session'restoreTpmMigration'results)
+    session'restoreTpmMigration _ = GH.methodUnimplemented
+    session'cleanupTpmMigrationArchive :: s_ -> (GH.MethodHandler Session'cleanupTpmMigrationArchive'params Session'cleanupTpmMigrationArchive'results)
+    session'cleanupTpmMigrationArchive _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -573,6 +582,12 @@ instance (GH.HasMethod "vmEjectMedia" Session Session'vmEjectMedia'params Sessio
     methodByLabel  = (GH.Method 11450192344861352079 46)
 instance (GH.HasMethod "vmChangeMedia" Session Session'vmChangeMedia'params Session'vmChangeMedia'results) where
     methodByLabel  = (GH.Method 11450192344861352079 47)
+instance (GH.HasMethod "prepareTpmMigration" Session Session'prepareTpmMigration'params Session'prepareTpmMigration'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 48)
+instance (GH.HasMethod "restoreTpmMigration" Session Session'restoreTpmMigration'params Session'restoreTpmMigration'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 49)
+instance (GH.HasMethod "cleanupTpmMigrationArchive" Session Session'cleanupTpmMigrationArchive'params Session'cleanupTpmMigrationArchive'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 50)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -3683,6 +3698,176 @@ instance (C.Parse Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'
     parse raw_ = (Std_.pure Session'vmChangeMedia'results)
 instance (C.Marshal Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results)) where
     marshalInto _raw (Session'vmChangeMedia'results) = (Std_.pure ())
+data Session'prepareTpmMigration'params 
+type instance (R.ReprFor Session'prepareTpmMigration'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'prepareTpmMigration'params) where
+    typeId  = 10211772327123698838
+instance (C.TypedStruct Session'prepareTpmMigration'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'prepareTpmMigration'params) where
+    type AllocHint Session'prepareTpmMigration'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'prepareTpmMigration'params (C.Parsed Session'prepareTpmMigration'params))
+instance (C.AllocateList Session'prepareTpmMigration'params) where
+    type ListAllocHint Session'prepareTpmMigration'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'prepareTpmMigration'params (C.Parsed Session'prepareTpmMigration'params))
+data instance C.Parsed Session'prepareTpmMigration'params
+    = Session'prepareTpmMigration'params 
+        {vmName :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'prepareTpmMigration'params))
+deriving instance (Std_.Eq (C.Parsed Session'prepareTpmMigration'params))
+instance (C.Parse Session'prepareTpmMigration'params (C.Parsed Session'prepareTpmMigration'params)) where
+    parse raw_ = (Session'prepareTpmMigration'params <$> (GH.parseField #vmName raw_))
+instance (C.Marshal Session'prepareTpmMigration'params (C.Parsed Session'prepareTpmMigration'params)) where
+    marshalInto raw_ Session'prepareTpmMigration'params{..} = (do
+        (GH.encodeField #vmName vmName raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmName" GH.Slot Session'prepareTpmMigration'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'prepareTpmMigration'results 
+type instance (R.ReprFor Session'prepareTpmMigration'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'prepareTpmMigration'results) where
+    typeId  = 15013204939972778009
+instance (C.TypedStruct Session'prepareTpmMigration'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'prepareTpmMigration'results) where
+    type AllocHint Session'prepareTpmMigration'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'prepareTpmMigration'results (C.Parsed Session'prepareTpmMigration'results))
+instance (C.AllocateList Session'prepareTpmMigration'results) where
+    type ListAllocHint Session'prepareTpmMigration'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'prepareTpmMigration'results (C.Parsed Session'prepareTpmMigration'results))
+data instance C.Parsed Session'prepareTpmMigration'results
+    = Session'prepareTpmMigration'results 
+        {archivePath :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'prepareTpmMigration'results))
+deriving instance (Std_.Eq (C.Parsed Session'prepareTpmMigration'results))
+instance (C.Parse Session'prepareTpmMigration'results (C.Parsed Session'prepareTpmMigration'results)) where
+    parse raw_ = (Session'prepareTpmMigration'results <$> (GH.parseField #archivePath raw_))
+instance (C.Marshal Session'prepareTpmMigration'results (C.Parsed Session'prepareTpmMigration'results)) where
+    marshalInto raw_ Session'prepareTpmMigration'results{..} = (do
+        (GH.encodeField #archivePath archivePath raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "archivePath" GH.Slot Session'prepareTpmMigration'results Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'restoreTpmMigration'params 
+type instance (R.ReprFor Session'restoreTpmMigration'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'restoreTpmMigration'params) where
+    typeId  = 14123564710931201902
+instance (C.TypedStruct Session'restoreTpmMigration'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'restoreTpmMigration'params) where
+    type AllocHint Session'restoreTpmMigration'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'restoreTpmMigration'params (C.Parsed Session'restoreTpmMigration'params))
+instance (C.AllocateList Session'restoreTpmMigration'params) where
+    type ListAllocHint Session'restoreTpmMigration'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'restoreTpmMigration'params (C.Parsed Session'restoreTpmMigration'params))
+data instance C.Parsed Session'restoreTpmMigration'params
+    = Session'restoreTpmMigration'params 
+        {vmName :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'restoreTpmMigration'params))
+deriving instance (Std_.Eq (C.Parsed Session'restoreTpmMigration'params))
+instance (C.Parse Session'restoreTpmMigration'params (C.Parsed Session'restoreTpmMigration'params)) where
+    parse raw_ = (Session'restoreTpmMigration'params <$> (GH.parseField #vmName raw_))
+instance (C.Marshal Session'restoreTpmMigration'params (C.Parsed Session'restoreTpmMigration'params)) where
+    marshalInto raw_ Session'restoreTpmMigration'params{..} = (do
+        (GH.encodeField #vmName vmName raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmName" GH.Slot Session'restoreTpmMigration'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'restoreTpmMigration'results 
+type instance (R.ReprFor Session'restoreTpmMigration'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'restoreTpmMigration'results) where
+    typeId  = 11919681427679042146
+instance (C.TypedStruct Session'restoreTpmMigration'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'restoreTpmMigration'results) where
+    type AllocHint Session'restoreTpmMigration'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'restoreTpmMigration'results (C.Parsed Session'restoreTpmMigration'results))
+instance (C.AllocateList Session'restoreTpmMigration'results) where
+    type ListAllocHint Session'restoreTpmMigration'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'restoreTpmMigration'results (C.Parsed Session'restoreTpmMigration'results))
+data instance C.Parsed Session'restoreTpmMigration'results
+    = Session'restoreTpmMigration'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'restoreTpmMigration'results))
+deriving instance (Std_.Eq (C.Parsed Session'restoreTpmMigration'results))
+instance (C.Parse Session'restoreTpmMigration'results (C.Parsed Session'restoreTpmMigration'results)) where
+    parse raw_ = (Std_.pure Session'restoreTpmMigration'results)
+instance (C.Marshal Session'restoreTpmMigration'results (C.Parsed Session'restoreTpmMigration'results)) where
+    marshalInto _raw (Session'restoreTpmMigration'results) = (Std_.pure ())
+data Session'cleanupTpmMigrationArchive'params 
+type instance (R.ReprFor Session'cleanupTpmMigrationArchive'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'cleanupTpmMigrationArchive'params) where
+    typeId  = 18285722263799615971
+instance (C.TypedStruct Session'cleanupTpmMigrationArchive'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'cleanupTpmMigrationArchive'params) where
+    type AllocHint Session'cleanupTpmMigrationArchive'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'cleanupTpmMigrationArchive'params (C.Parsed Session'cleanupTpmMigrationArchive'params))
+instance (C.AllocateList Session'cleanupTpmMigrationArchive'params) where
+    type ListAllocHint Session'cleanupTpmMigrationArchive'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'cleanupTpmMigrationArchive'params (C.Parsed Session'cleanupTpmMigrationArchive'params))
+data instance C.Parsed Session'cleanupTpmMigrationArchive'params
+    = Session'cleanupTpmMigrationArchive'params 
+        {vmName :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'cleanupTpmMigrationArchive'params))
+deriving instance (Std_.Eq (C.Parsed Session'cleanupTpmMigrationArchive'params))
+instance (C.Parse Session'cleanupTpmMigrationArchive'params (C.Parsed Session'cleanupTpmMigrationArchive'params)) where
+    parse raw_ = (Session'cleanupTpmMigrationArchive'params <$> (GH.parseField #vmName raw_))
+instance (C.Marshal Session'cleanupTpmMigrationArchive'params (C.Parsed Session'cleanupTpmMigrationArchive'params)) where
+    marshalInto raw_ Session'cleanupTpmMigrationArchive'params{..} = (do
+        (GH.encodeField #vmName vmName raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmName" GH.Slot Session'cleanupTpmMigrationArchive'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'cleanupTpmMigrationArchive'results 
+type instance (R.ReprFor Session'cleanupTpmMigrationArchive'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'cleanupTpmMigrationArchive'results) where
+    typeId  = 10548626588249548089
+instance (C.TypedStruct Session'cleanupTpmMigrationArchive'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'cleanupTpmMigrationArchive'results) where
+    type AllocHint Session'cleanupTpmMigrationArchive'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results))
+instance (C.AllocateList Session'cleanupTpmMigrationArchive'results) where
+    type ListAllocHint Session'cleanupTpmMigrationArchive'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results))
+data instance C.Parsed Session'cleanupTpmMigrationArchive'results
+    = Session'cleanupTpmMigrationArchive'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'cleanupTpmMigrationArchive'results))
+deriving instance (Std_.Eq (C.Parsed Session'cleanupTpmMigrationArchive'results))
+instance (C.Parse Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results)) where
+    parse raw_ = (Std_.pure Session'cleanupTpmMigrationArchive'results)
+instance (C.Marshal Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results)) where
+    marshalInto _raw (Session'cleanupTpmMigrationArchive'results) = (Std_.pure ())
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where
@@ -4394,7 +4579,7 @@ instance (GH.HasField "lifecycleRevision" GH.Slot VmRuntimeInfo Std_.Int64) wher
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "runtimeGeneration" GH.Slot VmRuntimeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
-data VmStartResult
+data VmStartResult 
 type instance (R.ReprFor VmStartResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStartResult) where
     typeId  = 15761967887000627501
@@ -4410,7 +4595,7 @@ instance (C.AllocateList VmStartResult) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStartResult (C.Parsed VmStartResult))
 data instance C.Parsed VmStartResult
-    = VmStartResult
+    = VmStartResult 
         {union' :: (C.Parsed (GH.Which VmStartResult))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStartResult))
@@ -4441,7 +4626,7 @@ instance (GH.HasVariant "vsockCidBusy" GH.Slot VmStartResult ()) where
     variantByLabel  = (GH.Variant GH.voidField 1)
 data instance C.Parsed (GH.Which VmStartResult)
     = VmStartResult'started (RP.Parsed VmRuntimeInfo)
-    | VmStartResult'vsockCidBusy
+    | VmStartResult'vsockCidBusy 
     | VmStartResult'unknown' Std_.Word16
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed (GH.Which VmStartResult)))

@@ -149,6 +149,8 @@ pipeline:
               openssh \
               qemu-guest-agent \
               socat \
+              tpm2-tools \
+              tpm2-tss-tcti-device \
               acpid \
               doas \
               e2fsprogs \

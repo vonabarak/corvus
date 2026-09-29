@@ -385,30 +385,79 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
-    def test_migrate_refuses_enabled_tpm_then_succeeds_after_disable(self):
-        """TPM is node-local: migration rejects the enabled flag, while
-        disabling it first removes its state and restores normal migration."""
+    def test_migrate_enabled_tpm_preserves_state(self):
+        """A TPM VM boots on beta with its persistent key intact."""
         vm_name = _uniq("mig-tpm")
-        disk_name = _uniq("mig-tpm-disk")
-        vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
+        overlay_name = _uniq("mig-tpm-ovl")
+        vm = self._make_bootable_vm(vm_name, overlay_name, guest_agent=True)
         try:
             vm.edit(tpm=True)
             assert vm.show().tpm is True
-            self._assert_migrate_fails(
-                vm,
-                self.beta_name,
-                message_must_match=["tpm enabled", "disable tpm"],
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg=f"TPM VM {vm_name!r} did not reach running on alpha",
             )
 
-            vm.edit(tpm=False)
-            assert vm.show().tpm is False
+            # Persist a primary key in swtpm. Reading its public portion after
+            # migration proves the migrated state is usable, not merely copied.
+            read_key_command = (
+                "TPM2TOOLS_TCTI=device:/dev/tpm0 tpm2_readpublic "
+                "-c 0x81010001 -f pem | sha256sum | awk '{print $1}'"
+            )
+            key_command = (
+                "export TPM2TOOLS_TCTI=device:/dev/tpm0; "
+                "tpm2_createprimary -C o -c /tmp/corvus-migration-primary.ctx "
+                ">/dev/null && "
+                "tpm2_evictcontrol -C o -c /tmp/corvus-migration-primary.ctx "
+                "0x81010001 >/dev/null && " + read_key_command
+            )
+            key_before = vm.guest_exec(f"/bin/sh -c {shlex.quote(key_command)}")
+            assert key_before.exit_code == 0, key_before
+            key_fingerprint = key_before.stdout.strip()
+            assert key_fingerprint
+
+            vm.stop(wait=True)
+            alpha_state = f"/home/corvus/VMs/{vm_name}/tpm2"
+            beta_state = f"/home/corvus/VMs/{vm_name}/tpm2"
+            self.node_alpha.run(f"test -d {shlex.quote(alpha_state)}")
             tid = vm.migrate(self.beta_name)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
             assert vm.show().node.name == self.beta_name
-            assert self._placement_nodes(disk_name) == {self.beta_name}
+            assert vm.show().tpm is True
+            assert self._placement_nodes(overlay_name) == {self.beta_name}
+            self.node_alpha.run(f"test ! -e {shlex.quote(alpha_state)}")
+            self.node_beta.run(f"test -d {shlex.quote(beta_state)}")
+
+            _retry_start(vm)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg=f"TPM VM {vm_name!r} did not reach running on beta",
+            )
+            details = vm.show()
+            processes = self.node_beta.run(
+                "pgrep -af 'swtpm.*swtpm.sock' || true",
+                check=False,
+                timeout_sec=10.0,
+            ).stdout.decode("utf-8", errors="replace")
+            socket_path = f"/corvus/vms/{details.id}/swtpm.sock"
+            assert "swtpm socket" in processes, processes
+            assert socket_path in processes, processes
+            guest_tpm = vm.guest_exec(
+                "/bin/sh -c 'test -c /dev/tpm0 && "
+                "cat /sys/class/tpm/tpm0/tpm_version_major'"
+            )
+            assert guest_tpm.exit_code == 0, guest_tpm
+            assert guest_tpm.stdout.strip() == "2", guest_tpm
+
+            key_after = vm.guest_exec(f"/bin/sh -c {shlex.quote(read_key_command)}")
+            assert key_after.exit_code == 0, key_after
+            assert key_after.stdout.strip() == key_fingerprint
         finally:
             self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_silent_disk(overlay_name)
 
     def test_migrate_ro_drive_copied_rw_drive_moved(self):
         """A VM with one r/w boot disk + one r/o data disk migrates:

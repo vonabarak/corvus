@@ -206,7 +206,7 @@ export default function VmCreate() {
             <CheckboxField
               id="tpm"
               label="TPM 2.0"
-              hint="Attach an emulated TPM 2.0 CRB device backed by persistent swtpm state. TPM-enabled VMs cannot migrate between nodes."
+              hint="Attach an emulated TPM 2.0 CRB device backed by persistent swtpm state. TPM state moves with the VM during migration."
               checked={tpm}
               onChange={setTpm}
             />
