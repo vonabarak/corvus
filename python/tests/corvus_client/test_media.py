@@ -7,23 +7,26 @@ by the integration tests.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from corvus_client import CorvusError
+from corvus_client import AsyncClient, CorvusError
+from corvus_client.types import DriveInfo, VmDetails
 
 from ._helpers import with_client
 
 
-def _drive(details, drive_id):
+def _drive(details: VmDetails, drive_id: int) -> DriveInfo:
     for d in details.drives:
         if d.id == drive_id:
             return d
     raise AssertionError(f"drive {drive_id} not in vm.show().drives")
 
 
-def test_media_eject_and_change_stopped_vm(daemon_socket):
+def test_media_eject_and_change_stopped_vm(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk_a = await c.disks.create("py-cd-a", size_mb=16)
         disk_b = await c.disks.create("py-cd-b", size_mb=16)
         vm = await c.vms.create("py-vm-media", cpu_count=1, ram_mb=256, headless=True)
@@ -59,10 +62,10 @@ def test_media_eject_and_change_stopped_vm(daemon_socket):
     run(go)
 
 
-def test_media_eject_rejected_on_plain_disk(daemon_socket):
+def test_media_eject_rejected_on_plain_disk(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-plain-disk", size_mb=16)
         vm = await c.vms.create(
             "py-vm-media-reject", cpu_count=1, ram_mb=256, headless=True

@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .outer import Crv, CrvError
+from .outer import Crv, CrvError, JsonObject
 
 
 @dataclass(frozen=True)
@@ -78,7 +78,7 @@ def check_nested_kvm() -> NestedKvmStatus:
     )
 
 
-def check_outer_version(crv: Crv) -> dict:
+def check_outer_version(crv: Crv) -> JsonObject:
     """Confirm the outer daemon is reachable and capture its version.
 
     Returns the parsed status envelope on success. Raises a
@@ -98,7 +98,10 @@ def check_outer_version(crv: Crv) -> dict:
         raise RuntimeError(
             f"`crv status` failed: {e.message or e.stderr.strip()}"
         ) from None
-    version = info.get("version") or info.get("info", {}).get("version")
+    nested_info = info.get("info")
+    version = info.get("version")
+    if not version and isinstance(nested_info, dict):
+        version = nested_info.get("version")
     if not version:
         raise RuntimeError(
             f"outer Corvus `status` envelope had no version field. got: {info!r}"

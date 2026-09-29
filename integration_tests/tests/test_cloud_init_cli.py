@@ -26,8 +26,9 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from corvus_client._sync.vm import SyncVm
 from corvus_client.exceptions import CorvusError
-from corvus_test_harness import SingleNodeCase
+from corvus_test_harness import SingleNodeCase, TestNode
 
 
 def _generate_ed25519_pubkey(comment: str) -> str:
@@ -52,7 +53,9 @@ _NET_MARKER_IP = "192.0.2.42"
 _USER_DATA_MARKER = "corvus-it-userdata-marker"
 
 
-def _crv(node, args: str, *, check: bool = False):
+def _crv(
+    node: TestNode, args: str, *, check: bool = False
+) -> subprocess.CompletedProcess[bytes]:
     """Run `crv <args>` on the test-node and return CompletedProcess.
 
     Defaults to ``check=False`` so callers can assert on
@@ -62,7 +65,7 @@ def _crv(node, args: str, *, check: bool = False):
     return node.run(f"/opt/corvus/bin/crv {args}", check=check)
 
 
-def _assert_ok(cp, *, what: str = "crv") -> None:
+def _assert_ok(cp: subprocess.CompletedProcess[bytes], *, what: str = "crv") -> None:
     """Assert a CompletedProcess exit 0; include captured streams
     in the diagnostic so SSH-piped failures are debuggable."""
     assert cp.returncode == 0, (
@@ -72,7 +75,7 @@ def _assert_ok(cp, *, what: str = "crv") -> None:
     )
 
 
-def _write_file(node, path: str, content: str) -> None:
+def _write_file(node: TestNode, path: str, content: str) -> None:
     """Stage ``content`` at ``path`` on the test-node.
 
     Base64-pipes the payload so embedded quotes, newlines and
@@ -86,13 +89,13 @@ class TestCloudInitCli(SingleNodeCase):
     """Direct coverage of `crv cloud-init` verbs + networkConfig."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology):
+    def _install_client_certs(self, _class_topology: object) -> None:
         """The inner ``/opt/corvus/bin/crv`` calls below dial the
         daemon over mTLS; install the client cert trio under the
         corvus user's XDG config dir before any test runs."""
         self.install_node_client_certs()
 
-    def _make_ci_vm(self, name: str):
+    def _make_ci_vm(self, name: str) -> SyncVm:
         """Create a stopped cloud-init VM. Caller is responsible
         for deleting it via the returned cap."""
         return self.client.vms.create(
@@ -103,7 +106,7 @@ class TestCloudInitCli(SingleNodeCase):
             cloud_init=True,
         )
 
-    def test_crv_cloud_init_set_and_show(self):
+    def test_crv_cloud_init_set_and_show(self) -> None:
         """`crv cloud-init set <vm> <file.yml>` writes the config;
         `crv cloud-init show <vm>` prints it back.
 
@@ -141,7 +144,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_crv_cloud_init_delete_reverts_to_default(self):
+    def test_crv_cloud_init_delete_reverts_to_default(self) -> None:
         """`crv cloud-init delete` strips the custom config; a
         second delete is a no-op (idempotent — the daemon doesn't
         error on "delete what isn't there")."""
@@ -176,7 +179,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_show_default_message_when_no_custom_config(self):
+    def test_show_default_message_when_no_custom_config(self) -> None:
         """`crv cloud-init show` on a VM that has no custom config
         prints the sentinel `Using default cloud-init configuration.`
         documented in `src/Corvus/Client/Commands/CloudInit.hs`."""
@@ -193,7 +196,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_generate_registers_iso_disk(self):
+    def test_generate_registers_iso_disk(self) -> None:
         """`crv cloud-init generate` produces the NoCloud ISO and
         the daemon registers it as the ``<vm>-cloud-init`` disk —
         the same disk the VM start path would normally produce.
@@ -251,7 +254,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_attach_ssh_key_regenerates_iso(self):
+    def test_attach_ssh_key_regenerates_iso(self) -> None:
         """Attaching an SSH key to a cloud-init VM is supposed to
         regenerate the NoCloud ISO so the next boot picks up the
         new authorized_keys. Without an explicit regenerate after
@@ -344,7 +347,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_inject_ssh_keys_false_does_not_inject(self):
+    def test_inject_ssh_keys_false_does_not_inject(self) -> None:
         """``injectSshKeys: false`` MUST keep attached keys out of
         the generated ISO. An operator that opts out should never
         find their pubkeys baked into the user-data. Catches a
@@ -396,7 +399,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_raw_script_user_data_skips_key_injection(self):
+    def test_raw_script_user_data_skips_key_injection(self) -> None:
         """When ``userData`` starts with ``#!`` (a raw script
         body, not a ``#cloud-config`` document), the daemon's
         cloud-init builder can't safely splice ``users:`` into it,
@@ -447,7 +450,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_generate_is_idempotent_at_disk_record_level(self):
+    def test_generate_is_idempotent_at_disk_record_level(self) -> None:
         """Re-running ``crv cloud-init generate`` doesn't break the
         existing ``<vm>-cloud-init`` disk record — same id, same
         placement path, no second disk row spawned. The on-disk
@@ -495,7 +498,7 @@ class TestCloudInitCli(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_set_rejected_on_non_cloud_init_vm(self):
+    def test_set_rejected_on_non_cloud_init_vm(self) -> None:
         """`crv cloud-init set` against a VM with cloudInit=false
         is refused at the handler — surfaces as a non-zero exit
         from the CLI and a typed `CorvusError` from the RPC."""

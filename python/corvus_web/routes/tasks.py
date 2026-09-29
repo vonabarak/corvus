@@ -17,10 +17,11 @@ import asyncio
 import logging
 from contextlib import suppress
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError, TaskNotFound
 from corvus_client.types import (
+    TaskProgressEvent,
     TaskProgressFinished,
     TaskProgressProgress,
     TaskProgressStarted,
@@ -35,7 +36,7 @@ from fastapi import (
 )
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -55,7 +56,7 @@ async def list_tasks(
     entity_id: int | None = None,
     result: str | None = None,
     include_subtasks: bool = False,
-) -> list[dict[str, Any]]:
+) -> list[JsonObject]:
     """List tasks newest-first. Filter knobs match
     ``crv task list``: subsystem (vm/disk/network/ssh-key/template/
     shared-dir/snapshot/system/apply), entity_id (the resource the
@@ -71,7 +72,7 @@ async def list_tasks(
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_task(task_id: int, client: ClientDep) -> JsonObject:
     """Full task record."""
     try:
         task = await client.tasks.get(task_id)
@@ -81,14 +82,14 @@ async def get_task(task_id: int, client: ClientDep) -> dict[str, Any]:
 
 
 @router.get("/{task_id}/children")
-async def list_task_children(task_id: int, client: ClientDep) -> list[dict[str, Any]]:
+async def list_task_children(task_id: int, client: ClientDep) -> list[JsonObject]:
     """Sub-tasks spawned by this task. Apply and build flows record a
     parent task and one child per resource they touch."""
     children = await client.tasks.list_children(task_id)
     return [to_dict(t) for t in children]
 
 
-def _task_progress_event_to_dict(event: Any) -> dict[str, Any]:
+def _task_progress_event_to_dict(event: TaskProgressEvent) -> JsonObject:
     """Tag a ``TaskProgressEvent`` dataclass with its variant name and
     flatten to a JSON-friendly dict. The variant tag mirrors the
     Cap'n Proto union discriminator (started / progress / finished)."""
@@ -98,9 +99,9 @@ def _task_progress_event_to_dict(event: Any) -> dict[str, Any]:
         return {"type": "progress", **asdict(event)}
     if isinstance(event, TaskProgressFinished):
         return {"type": "finished", **asdict(event)}
-    # Unknown variant — surface raw fields so the client at least
-    # sees something. Should not happen in practice.
-    return {"type": "unknown", "payload": str(event)}
+    # Preserve a diagnostic frame if an untyped runtime source delivers a new
+    # event variant before TaskProgressEvent is updated.
+    return {"type": "unknown", "payload": str(event)}  # type: ignore[unreachable]
 
 
 @router.websocket("/{task_id}/ws")
@@ -119,9 +120,9 @@ async def task_progress_ws(ws: WebSocket, task_id: int) -> None:
     client = ws.app.state.client
     await ws.accept()
 
-    queue: asyncio.Queue[Any] = asyncio.Queue()
+    queue: asyncio.Queue[TaskProgressEvent] = asyncio.Queue()
 
-    async def on_event(event: Any) -> None:
+    async def on_event(event: TaskProgressEvent) -> None:
         await queue.put(event)
 
     try:

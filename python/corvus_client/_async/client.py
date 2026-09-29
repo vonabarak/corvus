@@ -15,12 +15,15 @@ so they survive across calls.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from types import TracebackType
+from typing import TYPE_CHECKING
 
 import capnp
 
 from .. import _schema, _tls
+from .. import types as t
 from ..exceptions import translate_errors
 from . import _convert as conv
 
@@ -82,12 +85,8 @@ class AsyncClient:
             self._tls_enabled = bool(tls)
         self._tls_bundle: _tls.TlsBundle | None = None
         self._twoparty: capnp.TwoPartyClient | None = None
-        # `_daemon` is set on connect via `cast_as`, which returns the
-        # dynamic Daemon cap typed as Any. Annotate explicitly so the
-        # init-time None doesn't pin the field's type to `None` and
-        # render the post-check branch in the `daemon` property
-        # unreachable to mypy.
-        self._daemon: Any = None
+        # The concrete pycapnp capability class is shared by all RPC interfaces.
+        self._daemon: capnp.lib.capnp._DynamicCapabilityClient | None = None
         self._stream: capnp.AsyncIoStream | None = None
         self._vms: AsyncVmManager | None = None
         self._disks: AsyncDiskManager | None = None
@@ -102,7 +101,7 @@ class AsyncClient:
         if self._unix:
             stream = await capnp.AsyncIoStream.create_unix_connection(self._unix)
         else:
-            kwargs: dict[str, Any] = {}
+            kwargs: dict[str, object] = {}
             if self._tls_enabled:
                 # Build the bundle once on the connection path so
                 # the constructor stays cheap and so we can pull
@@ -160,7 +159,12 @@ class AsyncClient:
         peercert = transport.get_extra_info("peercert")
         _tls.validate_peer_cn(peercert, bundle)
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self.close()
 
     async def close(self) -> None:
@@ -180,7 +184,7 @@ class AsyncClient:
             self._stream = None
 
     @property
-    def daemon(self):
+    def daemon(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         """Raw Daemon cap. Library users may invoke un-wrapped methods through this."""
         if self._daemon is None:
             raise RuntimeError(
@@ -193,7 +197,7 @@ class AsyncClient:
     async def ping(self) -> None:
         await self.daemon.ping()
 
-    async def status(self):
+    async def status(self) -> t.StatusInfo:
         info = (await self.daemon.status()).info
         return conv.status_info(info)
 
@@ -202,7 +206,7 @@ class AsyncClient:
 
     async def apply(
         self, yaml: str, *, skip_existing: bool = False, wait: bool = False
-    ):
+    ) -> tuple[t.ApplyResult, int]:
         """Run `apply` against a YAML pipeline. Returns (ApplyResult, task_id).
 
         Non-streaming form: the daemon either blocks until completion
@@ -214,7 +218,9 @@ class AsyncClient:
         resp = await self.daemon.apply(yaml=yaml, skipExisting=skip_existing, wait=wait)
         return conv.apply_result(resp.result), resp.taskId
 
-    def apply_stream(self, yaml: str, *, skip_existing: bool = False):
+    def apply_stream(
+        self, yaml: str, *, skip_existing: bool = False
+    ) -> AsyncIterator[t.ApplyStreamItem]:
         """Stream :class:`ApplyEvent` dataclasses for an apply run.
 
         Returns an async generator that yields events as the daemon
@@ -232,7 +238,7 @@ class AsyncClient:
         use_cache: bool = False,
         build_cache: bool = False,
         rebuild_from: int = 0,
-    ):
+    ) -> AsyncIterator[t.BuildStreamItem]:
         """Stream `Daemon.build` events for a YAML pipeline file.
 
         Returns an async generator. The YAML is preprocessed client-side
@@ -261,7 +267,7 @@ class AsyncClient:
         use_cache: bool = False,
         build_cache: bool = False,
         rebuild_from: int = 0,
-    ):
+    ) -> AsyncIterator[t.BuildStreamItem]:
         """Like `build_stream`, but accepts already-preprocessed YAML text.
 
         Useful for callers that read/transform the YAML themselves.

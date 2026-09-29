@@ -7,7 +7,9 @@ from __future__ import annotations
 import socket
 import ssl
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 from corvus_admin import ca, deploy, store
@@ -15,12 +17,14 @@ from corvus_admin import status as status_mod
 
 
 @pytest.fixture()
-def initialised_store(admin_store):
+def initialised_store(admin_store: store.AdminStore) -> store.AdminStore:
     ca.init_ca(admin_store)
     return admin_store
 
 
-def test_probe_all_returns_one_row_per_record(initialised_store, xdg_home):
+def test_probe_all_returns_one_row_per_record(
+    initialised_store: store.AdminStore, xdg_home: Path
+) -> None:
     # Just issue a few certs; we don't need them actually
     # deployed to verify the index → probe walk.
     ca.issue_cert(initialised_store, role=ca.ROLE_DAEMON, name="dabc", ip="10.0.0.1")
@@ -37,7 +41,7 @@ def test_probe_all_returns_one_row_per_record(initialised_store, xdg_home):
     assert by_cn["corvus-daemon:dabc"].reachable is False
 
 
-def test_probe_target_handles_missing_ip(initialised_store):
+def test_probe_target_handles_missing_ip(initialised_store: store.AdminStore) -> None:
     """A daemon record minted without an IP SAN AND without a
     deploy target has no probe target — status should report it
     as unreachable with a helpful diagnostic, not crash."""
@@ -53,7 +57,9 @@ def test_probe_target_handles_missing_ip(initialised_store):
     assert "no probe target" in report.handshake_error
 
 
-def test_probe_target_falls_back_to_deployed_to_local(initialised_store):
+def test_probe_target_falls_back_to_deployed_to_local(
+    initialised_store: store.AdminStore,
+) -> None:
     """A record minted without --ip but later deployed to `local`
     should still get a probe target — 127.0.0.1 on the per-role
     port. The probe attempt will fail (nothing's listening on
@@ -73,7 +79,7 @@ def test_probe_target_falls_back_to_deployed_to_local(initialised_store):
     assert "no probe target" not in report.handshake_error
 
 
-def test_host_from_deploy_label_extracts_ssh_host():
+def test_host_from_deploy_label_extracts_ssh_host() -> None:
     f = status_mod._host_from_deploy_label
     assert f("local") == "127.0.0.1"
     assert f("ssh:tobacco") == "tobacco"
@@ -88,7 +94,9 @@ def test_host_from_deploy_label_extracts_ssh_host():
 
 
 @contextmanager
-def _tls_listener_using_admin_ca(admin_store: store.AdminStore):
+def _tls_listener_using_admin_ca(
+    admin_store: store.AdminStore,
+) -> Iterator[tuple[str, int]]:
     """Stand up a one-shot TLS server using a server cert signed
     by the admin store's CA. Yields (host, port). The server
     accepts one connection, performs the handshake, sends an
@@ -116,7 +124,7 @@ def _tls_listener_using_admin_ca(admin_store: store.AdminStore):
     sock.listen(1)
     host, port = sock.getsockname()
 
-    def serve():
+    def serve() -> None:
         try:
             conn, _ = sock.accept()
             with ctx.wrap_socket(conn, server_side=True) as tls_conn:
@@ -139,7 +147,9 @@ def _tls_listener_using_admin_ca(admin_store: store.AdminStore):
             pass
 
 
-def test_try_handshake_succeeds_with_admin_ca(initialised_store, xdg_home):
+def test_try_handshake_succeeds_with_admin_ca(
+    initialised_store: store.AdminStore, xdg_home: Path
+) -> None:
     """End-to-end: stand up a TLS listener using a cert signed by
     the admin's CA, mint a client cert into XDG, ask
     `_try_handshake` to dial it. The fact that it succeeds
@@ -154,7 +164,9 @@ def test_try_handshake_succeeds_with_admin_ca(initialised_store, xdg_home):
     assert err is None, err
 
 
-def test_try_handshake_fails_without_client_cert(initialised_store, xdg_home):
+def test_try_handshake_fails_without_client_cert(
+    initialised_store: store.AdminStore, xdg_home: Path
+) -> None:
     """Without an admin client cert in XDG the probe can't build
     its SSLContext — status should report a clean error rather
     than panic."""
@@ -167,7 +179,7 @@ def test_try_handshake_fails_without_client_cert(initialised_store, xdg_home):
     # signals here; the key property is "no panic".
 
 
-def test_cert_not_after_round_trips(initialised_store):
+def test_cert_not_after_round_trips(initialised_store: store.AdminStore) -> None:
     issued = ca.issue_cert(
         initialised_store, role=ca.ROLE_NODE, name="alpha", ip="10.0.0.21"
     )

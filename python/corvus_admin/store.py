@@ -58,7 +58,7 @@ class IssuedRecord:
     # legacy records predating this field — treat those as
     # system-service (the historical default).
     user_service: bool | None = None
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, object] = field(default_factory=dict)
 
 
 def default_admin_dir() -> Path:

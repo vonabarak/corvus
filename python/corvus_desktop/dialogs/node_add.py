@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,11 +14,15 @@ from PySide6.QtWidgets import (
 )
 
 from .form_dialog import FormDialog
+from .payload_types import NodePayload
 
 _ADMIN_STATES = ("online", "draining", "maintenance")
 
 
 class NodeAddDialog(FormDialog):
+    def payload(self) -> NodePayload:
+        return cast(NodePayload, super().payload())
+
     def __init__(self, parent: QWidget | None = None) -> None:
         self._name = QLineEdit()
         self._host = QLineEdit()
@@ -47,7 +51,7 @@ class NodeAddDialog(FormDialog):
         form.addRow("Admin state:", self._admin_state)
         form.addRow("netd disabled:", self._netd_disabled)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> NodePayload | None:
         name = self._name.text().strip()
         host = self._host.text().strip()
         if not name or not host:

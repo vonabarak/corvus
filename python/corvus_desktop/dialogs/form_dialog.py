@@ -8,7 +8,7 @@ error message).
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+FormPayload = Mapping[str, object]
 
 
 class FormDialog(QDialog):
@@ -62,7 +64,7 @@ class FormDialog(QDialog):
     def build_form(self, form: QFormLayout) -> None:
         """Override to populate the form. Default no-op."""
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> FormPayload | None:
         """Override to return the payload to deliver on Save.
 
         Return ``None`` to block accept (also set an error message via
@@ -85,7 +87,7 @@ class FormDialog(QDialog):
         self._cached_payload = payload
         self.accept()
 
-    def payload(self) -> dict[str, Any]:
+    def payload(self) -> FormPayload:
         """Return the payload from the last successful Save."""
         return getattr(self, "_cached_payload", {})
 

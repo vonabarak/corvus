@@ -17,14 +17,17 @@ from __future__ import annotations
 
 import json
 import secrets
+import subprocess
 import textwrap
 
 import pytest
 from corvus_client.exceptions import CorvusError, TaskNotFound
-from corvus_test_harness import SingleNodeCase
+from corvus_test_harness import SingleNodeCase, TestNode
 
 
-def _crv(node, args: str, *, check: bool = False):
+def _crv(
+    node: TestNode, args: str, *, check: bool = False
+) -> subprocess.CompletedProcess[bytes]:
     """Run `crv <args>` on the test-node.
 
     Defaults to ``check=False`` so callers can assert on
@@ -34,7 +37,7 @@ def _crv(node, args: str, *, check: bool = False):
     return node.run(f"/opt/corvus/bin/crv {args}", check=check)
 
 
-def _assert_ok(cp, *, what: str = "crv") -> None:
+def _assert_ok(cp: subprocess.CompletedProcess[bytes], *, what: str = "crv") -> None:
     """Assert a CompletedProcess exit 0; include captured streams
     in the diagnostic so SSH-piped failures are debuggable."""
     assert cp.returncode == 0, (
@@ -48,7 +51,7 @@ class TestTaskHistory(SingleNodeCase):
     """Direct coverage of `TaskManager` + `Task.show` + `crv task wait`."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology):
+    def _install_client_certs(self, _class_topology: object) -> None:
         """``crv task list`` / ``crv task wait`` invocations below
         dial the daemon over mTLS; install the client cert trio
         under the corvus user's XDG config dir before any test
@@ -57,7 +60,7 @@ class TestTaskHistory(SingleNodeCase):
 
     # ---- list filters -----------------------------------------------------
 
-    def test_list_filters_by_subsystem_and_result(self):
+    def test_list_filters_by_subsystem_and_result(self) -> None:
         """`tasks.list(subsystem=…)` narrows the result set and
         `tasks.list(result=…)` narrows it again.
 
@@ -109,7 +112,7 @@ class TestTaskHistory(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_list_limit_caps_returned_rows(self):
+    def test_list_limit_caps_returned_rows(self) -> None:
         """`tasks.list(limit=N)` returns at most N rows."""
         # Generate three tasks so limit=2 has something to cap.
         tokens = [secrets.token_hex(3) for _ in range(3)]
@@ -132,7 +135,7 @@ class TestTaskHistory(SingleNodeCase):
 
     # ---- show -------------------------------------------------------------
 
-    def test_show_returns_full_record(self):
+    def test_show_returns_full_record(self) -> None:
         """`tasks.get(id).show()` returns the same fields as
         `list()` but freshly fetched, including ``client_name``
         (which the daemon stamps from the TLS peer CN)."""
@@ -166,21 +169,21 @@ class TestTaskHistory(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_get_nonexistent_task_raises_task_not_found(self):
+    def test_get_nonexistent_task_raises_task_not_found(self) -> None:
         """Resolving a task id the daemon never minted surfaces as
         :class:`TaskNotFound` (mapped from the daemon's
         ``Task #N not found`` message via the exceptions table)."""
         # Pick an id well above any current row. `list(limit=1)`
         # returns the most-recent task; +1 000 000 is comfortably
         # past any concurrent activity.
-        ceiling = (self.client.tasks.list(limit=1) or [None])[0]
-        bogus = (ceiling.id if ceiling else 0) + 1_000_000
+        recent = self.client.tasks.list(limit=1)
+        bogus = (recent[0].id if recent else 0) + 1_000_000
         with pytest.raises(TaskNotFound):
             self.client.tasks.get(bogus).show()
 
     # ---- crv task wait ---------------------------------------------------
 
-    def test_crv_task_wait_completes_for_finished_task(self):
+    def test_crv_task_wait_completes_for_finished_task(self) -> None:
         """`crv task wait <id>` against an already-finished task
         returns immediately with exit 0 — the CLI's blocking-poll
         path short-circuits when ``result != running``."""
@@ -207,7 +210,7 @@ class TestTaskHistory(SingleNodeCase):
 
     # ---- apply parent / child hierarchy ---------------------------------
 
-    def test_apply_creates_parent_and_subtasks(self):
+    def test_apply_creates_parent_and_subtasks(self) -> None:
         """An apply records a parent task + one child per resource.
 
         Wire-shape notes:
@@ -285,7 +288,7 @@ class TestTaskHistory(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_apply_failure_marks_parent_error_and_records_failing_subtask(self):
+    def test_apply_failure_marks_parent_error_and_records_failing_subtask(self) -> None:
         """When an apply subtask fails, the parent task ends with
         ``result == "error"`` and the failing child has the same
         result.  Resources processed before the failure remain in
@@ -347,7 +350,7 @@ class TestTaskHistory(SingleNodeCase):
 
     # ---- crv task list ---------------------------------------------------
 
-    def test_crv_task_list_filters_by_subsystem_and_result(self):
+    def test_crv_task_list_filters_by_subsystem_and_result(self) -> None:
         """`crv task list` forwards both subsystem and result filters."""
         # Make sure there's at least one fresh disk task in scope.
         disk = self.client.disks.create(

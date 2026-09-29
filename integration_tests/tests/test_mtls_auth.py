@@ -76,7 +76,7 @@ def _mint_in_harness_ca(
     name: str,
     not_after: dt.datetime | None,
     admin_store: AdminStore,
-):
+) -> ca.IssuedCert:
     """Mint a leaf cert under the harness's existing CA. Used for
     the expired-cert and wrong-CN tests where the only thing
     pathological is the leaf itself (CA trust is intact)."""
@@ -115,7 +115,7 @@ class TestMtlsHandshakeFailures(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_wrong_ca_signed_client_cert_rejected(self, tmp_path: Path):
+    def test_wrong_ca_signed_client_cert_rejected(self, tmp_path: Path) -> None:
         """A client cert signed by a CA the daemon doesn't trust is
         rejected at handshake (chain validation). We mint a fresh,
         foreign CA, sign a properly-named ``corvus-client:foreign``
@@ -146,7 +146,7 @@ class TestMtlsHandshakeFailures(SingleNodeCase):
         with pytest.raises(Exception):  # noqa: B017
             self._try_dial(cert_dir)
 
-    def test_expired_client_cert_rejected(self, tmp_path: Path):
+    def test_expired_client_cert_rejected(self, tmp_path: Path) -> None:
         """``not_valid_after`` set 1 minute in the past: the cert
         was correctly issued by the harness CA but expired before
         we presented it. Modern TLS stacks reject during chain
@@ -173,7 +173,7 @@ class TestMtlsHandshakeFailures(SingleNodeCase):
         with pytest.raises(Exception):  # noqa: B017
             self._try_dial(cert_dir)
 
-    def test_wrong_cn_prefix_rejected(self, tmp_path: Path):
+    def test_wrong_cn_prefix_rejected(self, tmp_path: Path) -> None:
         """A cert signed by the right CA but carrying a
         ``corvus-daemon:`` CN instead of ``corvus-client:`` is
         rejected post-handshake by the daemon's CN-prefix check
@@ -211,7 +211,7 @@ class TestMultipleConcurrentClientsSameCn(SingleNodeCase):
     must not single-track on CN identity (an operator running
     ``crv`` from two terminals at once is a common case)."""
 
-    def test_two_clients_share_same_cn(self):
+    def test_two_clients_share_same_cn(self) -> None:
         """Open two simultaneous Client instances with the harness's
         shared cert_dir (same CN: ``corvus-client:harness``), assert
         both reach ``status()`` successfully and stay open in

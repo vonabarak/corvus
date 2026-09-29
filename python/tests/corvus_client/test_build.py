@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
+from corvus_client import AsyncClient
 from corvus_client._async.build import preprocess_build_yaml
 from corvus_client.types import BuildPipelineEnd
 
@@ -13,7 +14,7 @@ import yaml
 from ._helpers import with_client
 
 
-def test_preprocess_inlines_shell_and_file(tmp_path: Path):
+def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
     script_path = tmp_path / "init.sh"
     script_path.write_text("#!/bin/sh\necho hi\n")
     file_path = tmp_path / "payload.bin"
@@ -50,7 +51,7 @@ def test_preprocess_inlines_shell_and_file(tmp_path: Path):
     assert base64.b64decode(file_["content"]) == b"\x00\x01\x02hello"
 
 
-def test_build_stream_reports_pipeline_end(daemon_socket, tmp_path: Path):
+def test_build_stream_reports_pipeline_end(daemon_socket: Path, tmp_path: Path) -> None:
     """A trivial pipeline with one build step returning an error event.
 
     We avoid an actual VM boot (which would require KVM + a real image)
@@ -77,7 +78,7 @@ def test_build_stream_reports_pipeline_end(daemon_socket, tmp_path: Path):
 
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         saw_pipeline_end = False
         last_task_id = None
         async for item in c.build_stream(str(yaml_path)):

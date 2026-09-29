@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtWidgets import QCheckBox, QFormLayout, QLineEdit, QWidget
 
 from ..widgets.entity_combo import EntityCombo
 from .form_dialog import FormDialog
+from .payload_types import NetworkCreatePayload
 
 if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
 
 class NetworkCreateDialog(FormDialog):
     """Name + subnet + DHCP / NAT / autostart flags + optional node pin."""
+
+    def payload(self) -> NetworkCreatePayload:
+        return cast(NetworkCreatePayload, super().payload())
 
     def __init__(self, bridge: CorvusBridge, parent: QWidget | None = None) -> None:
         self._name = QLineEdit()
@@ -40,7 +44,7 @@ class NetworkCreateDialog(FormDialog):
         form.addRow("NAT:", self._nat)
         form.addRow("Autostart:", self._autostart)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> NetworkCreatePayload | None:
         name = self._name.text().strip()
         subnet = self._subnet.text().strip()
         if not name:

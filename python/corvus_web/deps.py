@@ -8,7 +8,7 @@ fake client via the standard FastAPI ``dependency_overrides`` mechanism.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import Request
 
@@ -28,4 +28,4 @@ def get_client(request: Request) -> AsyncClient:
             "corvus-web: AsyncClient not on app.state — "
             "the lifespan did not initialise correctly"
         )
-    return client
+    return cast("AsyncClient", client)

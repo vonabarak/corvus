@@ -51,13 +51,16 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from collections.abc import Callable, Sized
+from urllib.error import HTTPError
 
 import pytest
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh, WebGateway
+from websockets.sync.client import ClientConnection
 from websockets.sync.client import connect as ws_connect
 
 
-def _drain_until(ws, needle: bytes, *, timeout_sec: float) -> bytes:
+def _drain_until(ws: ClientConnection, needle: bytes, *, timeout_sec: float) -> bytes:
     """Read binary WS frames until ``needle`` appears or ``timeout_sec``
     elapses. Accumulates the bytes seen so far — used to inspect the
     ring-buffer replay on connect."""
@@ -83,7 +86,9 @@ def _drain_until(ws, needle: bytes, *, timeout_sec: float) -> bytes:
     )
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -97,7 +102,7 @@ class TestWebRestSurface(SingleNodeCase):
     most assertions — the daemon's empty-cluster baseline is enough
     to verify the wiring."""
 
-    def test_listing_endpoints_return_inner_counts(self):
+    def test_listing_endpoints_return_inner_counts(self) -> None:
         """Every documented listing route returns 200 and an array
         whose length matches the inner client's ``.list()``.
 
@@ -127,19 +132,27 @@ class TestWebRestSurface(SingleNodeCase):
                 ("/api/tasks", self.client.tasks.list),
             ]
             for path, inner_list in routes:
-                body = web.get(path)
+                try:
+                    body = web.get(path)
+                except HTTPError as exc:
+                    detail = exc.read().decode("utf-8", errors="replace")
+                    pytest.fail(
+                        f"GET {path} returned HTTP {exc.code}: {detail}; "
+                        f"corvus-web log tail:\n{web.log_tail()}"
+                    )
                 items = json.loads(body)
                 assert isinstance(items, list), (
                     f"{path}: expected list, got {type(items).__name__}"
                 )
                 inner_items = inner_list()
+                assert isinstance(inner_items, Sized)
                 assert len(items) == len(inner_items), (
                     f"{path}: gateway returned {len(items)} rows, "
                     f"inner client returned {len(inner_items)} — "
                     f"the gateway dropped or invented entries"
                 )
 
-    def test_create_vm_round_trips_through_gateway(self):
+    def test_create_vm_round_trips_through_gateway(self) -> None:
         """``POST /api/vms`` actually creates a VM on the daemon —
         not a per-gateway cache entry — and the new row shows up
         in both ``GET /api/vms`` and ``inner.vms.list()``.
@@ -215,7 +228,7 @@ class TestSerialConsoleWebSocket(SingleNodeCase):
     Mirrors :mod:`test_serial_console`'s direct-Cap'n-Proto coverage
     via the corvus-web bridge."""
 
-    def test_serial_ws_replays_buffer_on_connect(self):
+    def test_serial_ws_replays_buffer_on_connect(self) -> None:
         with Vm(self) as vm, WebGateway(self.node) as web:
             vm_id = vm.cap.show().id
 
@@ -237,7 +250,7 @@ class TestSerialConsoleWebSocket(SingleNodeCase):
                 data = _drain_until(ws, sentinel, timeout_sec=10.0)
                 assert sentinel in data
 
-    def test_serial_ws_rejects_stopped_vm(self):
+    def test_serial_ws_rejects_stopped_vm(self) -> None:
         """The route closes the WS with code 1008 ("policy
         violation") and a message naming the daemon's refusal
         when the VM isn't running. Cheap negative test using a
@@ -277,7 +290,7 @@ class TestSpiceConsoleHandshake(SingleNodeCase):
     needs a real spice-html5 client to drive; we exercise the cheap
     REST half plus a WS-accept smoke check."""
 
-    def test_grant_session_for_running_gfx_vm(self):
+    def test_grant_session_for_running_gfx_vm(self) -> None:
         class _GfxVm(VmSsh):
             headless = False
 
@@ -330,7 +343,7 @@ class TestSpiceConsoleHandshake(SingleNodeCase):
             # passing the URL to spice-html5.
             assert isinstance(payload["session_id"], str)
 
-    def test_grant_rejects_headless_vm(self):
+    def test_grant_rejects_headless_vm(self) -> None:
         """A headless VM has no SPICE device; the route translates
         the daemon's refusal into 400 (per spice.py:135)."""
         with Vm(self) as vm, WebGateway(self.node) as web:

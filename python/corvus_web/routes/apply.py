@@ -12,14 +12,14 @@ shape because the typical apply is small (a handful of resources).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -29,7 +29,7 @@ router = APIRouter(tags=["apply"])
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
-class ApplyBody(BaseModel):
+class ApplyBody(BaseModel):  # type: ignore[explicit-any]
     yaml: str = Field(..., min_length=1, description="The pipeline document.")
     skip_existing: bool = Field(
         False,
@@ -42,7 +42,7 @@ class ApplyBody(BaseModel):
 
 
 @router.post("/apply")
-async def run_apply(body: ApplyBody, client: ClientDep) -> dict[str, Any]:
+async def run_apply(body: ApplyBody, client: ClientDep) -> JsonObject:
     """Run an apply pipeline. Returns
     ``{result: ApplyResult, task_id: int}``. The daemon's ``CorvusError``
     subclasses (BadEnvelope, ProtocolError, ServerError, …) translate to

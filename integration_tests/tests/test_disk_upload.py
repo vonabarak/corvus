@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import shlex
+from pathlib import Path
 
 import pytest
 from corvus_client.exceptions import CorvusError
@@ -25,7 +26,7 @@ class TestDiskUpload(SingleNodeCase):
             f"upload at {path!r} has digest {actual}, not {expected}"
         )
 
-    def test_upload_from_file_places_exact_bytes_on_node(self, tmp_path):
+    def test_upload_from_file_places_exact_bytes_on_node(self, tmp_path: Path) -> None:
         name = _uniq("upload")
         source = tmp_path / "payload.raw"
         payload = secrets.token_bytes(1024 * 1024 + 137)
@@ -44,8 +45,8 @@ class TestDiskUpload(SingleNodeCase):
             disk.delete()
 
     def test_upload_rejects_duplicate_unless_overwrite_then_replaces_bytes(
-        self, tmp_path
-    ):
+        self, tmp_path: Path
+    ) -> None:
         name = _uniq("upload-overwrite")
         first = tmp_path / "first.raw"
         second = tmp_path / "second.raw"

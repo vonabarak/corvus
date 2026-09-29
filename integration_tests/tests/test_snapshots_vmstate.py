@@ -33,7 +33,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
     """Vmstate snapshot CRUD against a running VM. Each test boots
     its own VM via the harness ``Vm`` context manager."""
 
-    def test_with_ram_snapshot_create_lists_with_v_flag(self):
+    def test_with_ram_snapshot_create_lists_with_v_flag(self) -> None:
         """``snapshot_create --with-ram`` produces a
         ``SnapshotInfo`` with ``has_vmstate=True`` on the carrier
         disk. The carrier is the disk the user invokes
@@ -72,7 +72,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
             finally:
                 snap.delete()
 
-    def test_with_ram_snapshot_delete_clears_qcow2_entry(self):
+    def test_with_ram_snapshot_delete_clears_qcow2_entry(self) -> None:
         """Deleting a vmstate-aware snapshot must remove both the
         DB row and the qcow2 internal-snapshot entry. The agent
         routes through QMP ``snapshot-delete`` (async job) rather
@@ -93,7 +93,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
                 f"snapshot {tag} still present after delete: {listed}"
             )
 
-    def test_with_ram_snapshot_rejects_stopped_vm(self):
+    def test_with_ram_snapshot_rejects_stopped_vm(self) -> None:
         """Full-machine snapshots require the VM to be running —
         the QMP ``snapshot-save`` job needs an attached QEMU
         process. A stopped VM means QMP isn't there to talk to;
@@ -105,7 +105,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
             with pytest.raises(CorvusError, match="running"):
                 disk.snapshot_create(_uniq("nope"), full_machine=True)
 
-    def test_with_ram_rollback_restores_guest_state(self):
+    def test_with_ram_rollback_restores_guest_state(self) -> None:
         """The smoking-gun test: a file created before the
         snapshot and deleted after it must come back after
         rollback. This proves vmstate restore is captured the
@@ -167,7 +167,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
                 except CorvusError:
                     pass
 
-    def test_with_ram_rollback_rejects_stopped_vm(self):
+    def test_with_ram_rollback_rejects_stopped_vm(self) -> None:
         """Vmstate rollback requires a live QEMU process for the
         QMP ``snapshot-load`` async job. The paused-start
         lifecycle that would let us load into a freshly-spawned

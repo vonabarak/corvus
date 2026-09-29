@@ -17,8 +17,10 @@ Stack + Hpack (`package.yaml` -> `corvus.cabal`), LTS-23.28 resolver.
 | `make install` | Install Haskell binaries, shell completions, Python tooling, and web assets when available |
 | `make format` | Ruff + Fourmolu formatting; also frontend formatting when `frontend/node_modules/` exists |
 | `make lint` | HLint, Fourmolu check, Ruff check/format check, mypy; also frontend checks when `frontend/node_modules/` exists |
+| `make desktop-typecheck` | Strict mypy check for the desktop package and its tests; requires the `desktop` extra |
 | `make code-metrics` | Report and enforce size limits for authored Haskell modules and top-level value definitions using the GHC parser |
 | `make unit-tests` | Haskell unit tests; accepts `MATCH=<hspec pattern>` |
+| `make venv` | Create/update root `.venv` with system site packages, Python test dependencies, and lint tools |
 | `make python-test` | Python client/admin/web/desktop tests against a temp daemon |
 | `make integration-tests` | Pytest nested-VM suite; accepts `MATCH=<pytest -k expr>` and `WORKERS=N` |
 | `make integration-tests-clean` | Remove leftover `corvus-it-*` VMs/networks from aborted runs |
@@ -75,6 +77,12 @@ Integration tests live in `integration_tests/` (pytest). Python package tests
 live in `python/tests/`. Haskell `test/` is unit-test focused and uses the custom
 BDD DSL (`Test.DSL.*`) with `testCase`, `given`, `when_`, `then_`.
 
+`make venv` creates the shared `.venv` with access to system Python packages
+(including a host-installed PySide6) and installs the package with the `harness`,
+`desktop`, and `dev` extras. `make python-test` and `make integration-tests` run it
+automatically. Run `make venv` before `make lint` or `make typecheck-core`; those
+targets use the venv's Ruff and mypy rather than tools from the system PATH.
+
 See the [integration harness guide](../integration_tests/README.md) for nested
 QEMU/KVM prerequisites, test images, scheduling rules, and debugging. Database
 changes also require the [migration guide](database-migrations.md), including
@@ -130,6 +138,13 @@ run the frontend-specific setup/checks needed for that work.
 ```
 make format
 make lint
+```
+
+Desktop changes additionally require a desktop-enabled environment and:
+
+```
+pip install -e '.[harness,desktop]'
+make desktop-typecheck
 ```
 
 ### Before Committing

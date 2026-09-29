@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from corvus_admin import deploy, privesc, store
@@ -10,7 +12,7 @@ from corvus_admin import systemd as systemd_mod
 
 
 @pytest.fixture(autouse=True)
-def reset_privesc_cache():
+def reset_privesc_cache() -> Iterator[None]:
     """privesc.detect() caches its result for the lifetime of the
     process. Tests that monkey-patch $PATH or shutil.which need a
     clean slate. Clearing before AND after each test is cheap and
@@ -22,7 +24,7 @@ def reset_privesc_cache():
 
 
 @pytest.fixture()
-def admin_store(tmp_path):
+def admin_store(tmp_path: Path) -> store.AdminStore:
     """A fresh AdminStore rooted at a per-test tmpdir. The CA has
     NOT been initialised — call `ca.init_ca(...)` in the test
     body when you want one."""
@@ -31,7 +33,7 @@ def admin_store(tmp_path):
 
 
 @pytest.fixture()
-def xdg_home(tmp_path, monkeypatch):
+def xdg_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Pin $XDG_CONFIG_HOME to a per-test dir so client-cert
     deploy doesn't touch the developer's real ~/.config."""
 
@@ -42,7 +44,7 @@ def xdg_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def fake_paths(tmp_path, monkeypatch):
+def fake_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """Redirect the deploy module's system paths into tmp_path and
     stub out systemctl + sudo. Returns ``(cert_dir, systemctl_log)``
     so individual tests can assert on the recorded systemctl argv

@@ -6,9 +6,10 @@ refresh on open and on user request rather than auto-polling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import VmInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -78,10 +79,10 @@ class VmListWidget(QWidget):
         if dlg.exec():
             self._bridge.vm_create(**dlg.payload())
 
-    def _on_vms(self, vms: Any) -> None:
+    def _on_vms(self, vms: list[VmInfo]) -> None:
         self._model.set_vms(vms)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         vm = self._model.vm_at(index.row())
         if vm is not None:
             self.vm_activated.emit(vm.id)

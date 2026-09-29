@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -16,11 +16,15 @@ from PySide6.QtWidgets import (
 )
 
 from .form_dialog import FormDialog
+from .payload_types import AddSharedDirPayload
 
 _CACHE = ("auto", "always", "never")
 
 
 class AddSharedDirDialog(FormDialog):
+    def payload(self) -> AddSharedDirPayload:
+        return cast(AddSharedDirPayload, super().payload())
+
     def __init__(self, parent: QWidget | None = None) -> None:
         self._path = QLineEdit()
         self._path.setPlaceholderText("/path on host")
@@ -52,7 +56,7 @@ class AddSharedDirDialog(FormDialog):
         if path:
             self._path.setText(path)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> AddSharedDirPayload | None:
         path = self._path.text().strip()
         tag = self._tag.text().strip()
         if not path:

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import capnp
 from corvus_client._async.client import AsyncClient
+from corvus_client.types import StatusInfo
 
 
-def test_status_returns_version_and_uptime(daemon_socket):
+def test_status_returns_version_and_uptime(daemon_socket: Path) -> None:
     """Connect to a fresh daemon and call status() once."""
 
-    async def run():
+    async def run() -> StatusInfo:
         async with capnp.kj_loop():
             async with AsyncClient(unix_socket=str(daemon_socket)) as c:
                 info = await c.status()

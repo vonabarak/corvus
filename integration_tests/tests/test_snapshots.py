@@ -31,7 +31,7 @@ class TestSnapshots(SingleNodeCase):
 
     # ---- pure DB-path tests (no VM boot) ------------------------------------
 
-    def test_snapshot_create_list_delete(self):
+    def test_snapshot_create_list_delete(self) -> None:
         """Create → list → get → delete round-trip on a fresh qcow2."""
         name = _uniq("snap-crud")
         disk = self.client.disks.create(name, size_mb=8, format="qcow2")
@@ -48,7 +48,7 @@ class TestSnapshots(SingleNodeCase):
         finally:
             disk.delete()
 
-    def test_duplicate_name_rejected(self):
+    def test_duplicate_name_rejected(self) -> None:
         """The second `snapshot_create` with the same name on the same
         disk must fail (unique constraint on `(disk_id, name)`)."""
         name = _uniq("snap-dup")
@@ -73,7 +73,7 @@ class TestSnapshots(SingleNodeCase):
         finally:
             disk.delete()
 
-    def test_rapid_sequential_creates(self):
+    def test_rapid_sequential_creates(self) -> None:
         """Three snapshots in quick succession all land in the DB."""
         name = _uniq("snap-rapid")
         disk = self.client.disks.create(name, size_mb=8, format="qcow2")
@@ -95,7 +95,7 @@ class TestSnapshots(SingleNodeCase):
         finally:
             disk.delete()
 
-    def test_snapshot_create_against_running_vm_uses_live_path(self):
+    def test_snapshot_create_against_running_vm_uses_live_path(self) -> None:
         """`disk.snapshot_create` on a disk attached to a running VM
         now succeeds: the daemon routes the call through QMP
         (``blockdev-snapshot-internal-sync``) instead of refusing
@@ -126,7 +126,7 @@ class TestSnapshots(SingleNodeCase):
             finally:
                 snap.delete()
 
-    def test_snapshot_delete_against_running_vm_uses_live_path(self):
+    def test_snapshot_delete_against_running_vm_uses_live_path(self) -> None:
         """`Snapshot.delete` on a snapshot whose disk is attached to a
         running VM now succeeds (QMP
         ``blockdev-snapshot-delete-internal-sync``); previously
@@ -138,7 +138,7 @@ class TestSnapshots(SingleNodeCase):
             snap.delete()
             assert not any(s.name == "to-delete" for s in disk.snapshot_list())
 
-    def test_rollback_rejects_running_vm_without_autostop(self):
+    def test_rollback_rejects_running_vm_without_autostop(self) -> None:
         """Rollback has no QMP equivalent. Without ``--auto-stop`` the
         daemon refuses the call when an attached VM is running, with
         the same `VmMustBeStopped` it always raised."""
@@ -154,7 +154,7 @@ class TestSnapshots(SingleNodeCase):
                 vm.cap.stop(wait=True)
                 snap.delete()
 
-    def test_rollback_autostop_cycles_running_vm(self):
+    def test_rollback_autostop_cycles_running_vm(self) -> None:
         """`Snapshot.rollback(auto_stop=True)` orchestrates a graceful
         VmStop + offline rollback + VmStart when the VM is running.
         End state: VM is running again on the snapshot's disk
@@ -191,7 +191,7 @@ class TestSnapshots(SingleNodeCase):
 
     # ---- rollback / merge round-trips ---------------------------------------
 
-    def test_rollback_restores_file(self):
+    def test_rollback_restores_file(self) -> None:
         """Boot, write a marker, stop, snapshot, restart, delete the
         marker (confirm gone), stop, rollback, restart, confirm the
         marker is back. Standard "snapshot a known-good state" flow."""
@@ -230,7 +230,7 @@ class TestSnapshots(SingleNodeCase):
                 restored = shell.run(f"cat {path}").stdout.strip()
                 assert restored == token
 
-    def test_rollback_specific_snapshot_of_many(self):
+    def test_rollback_specific_snapshot_of_many(self) -> None:
         """Three writes interleaved with two snapshots; rollback to
         the FIRST snapshot must restore the value at that time, not
         the second."""
@@ -269,7 +269,7 @@ class TestSnapshots(SingleNodeCase):
                     f"rollback to state-1 should have restored '1'; got {got!r}"
                 )
 
-    def test_multi_disk_vm_snapshot_targets_one_disk_only(self):
+    def test_multi_disk_vm_snapshot_targets_one_disk_only(self) -> None:
         """A VM with two attached disks where the operator snapshots
         only the boot disk: the data disk must NOT carry a snapshot
         with the same name. ``Disk.snapshot_create`` operates on a
@@ -306,7 +306,7 @@ class TestSnapshots(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_quiesce_require_records_quiesced_flag(self):
+    def test_quiesce_require_records_quiesced_flag(self) -> None:
         """``snapshot_create(quiesce=QuiesceMode.REQUIRE)`` against a
         running QGA-equipped VM must invoke ``guest-fsfreeze-freeze``
         and surface ``info.quiesced=True``. The default ``auto`` path
@@ -333,7 +333,7 @@ class TestSnapshots(SingleNodeCase):
             finally:
                 snap.delete()
 
-    def test_snapshot_merge(self):
+    def test_snapshot_merge(self) -> None:
         """`Snapshot.merge` consolidates a snapshot into its parent.
         After merge the snapshot row is gone, and the disk's live data
         reflects writes made AFTER the snapshot was taken (the merged
@@ -380,7 +380,7 @@ class TestSnapshots(SingleNodeCase):
     # VM-scoped full-machine snapshots (`crv vm snapshot ...`)
     # ----------------------------------------------------------------------
 
-    def test_vm_snapshot_running_roundtrip(self):
+    def test_vm_snapshot_running_roundtrip(self) -> None:
         """``vm.snapshot_create`` / ``snapshot_rollback`` on a running
         VM: write marker → snapshot → overwrite marker → rollback →
         original marker is back.
@@ -429,7 +429,7 @@ class TestSnapshots(SingleNodeCase):
                 except Exception:
                     pass
 
-    def test_vm_snapshot_stopped_rollback(self):
+    def test_vm_snapshot_stopped_rollback(self) -> None:
         """``vm.snapshot_rollback`` on a stopped VM: launches QEMU
         paused, loads vmstate, then resumes — the VM ends running
         at the captured state. This is the paused-start follow-up
@@ -468,7 +468,7 @@ class TestSnapshots(SingleNodeCase):
                 except Exception:
                     pass
 
-    def test_vm_snapshot_uniqueness(self):
+    def test_vm_snapshot_uniqueness(self) -> None:
         """Creating a second snapshot under the same name must be
         rejected by the validation pre-flight — before any QMP
         traffic, so no orphaned sibling rows linger. The disk-scoped
@@ -486,7 +486,7 @@ class TestSnapshots(SingleNodeCase):
             finally:
                 vm.cap.snapshot_delete("dup")
 
-    def test_vm_snapshot_delete_clears_listing(self):
+    def test_vm_snapshot_delete_clears_listing(self) -> None:
         """After ``snapshot_delete``, the VM-scoped list is empty AND
         the per-disk list shows no sibling rows under the deleted
         name. This catches a regression where vmstate delete fired

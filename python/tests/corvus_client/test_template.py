@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from corvus_client import AsyncClient
+
 from ._helpers import with_client
 
 TEMPLATE_YAML = """\
@@ -18,10 +22,10 @@ sshKeys: []
 """
 
 
-def test_template_create_show_delete(daemon_socket):
+def test_template_create_show_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         tpl = await c.templates.create(TEMPLATE_YAML)
         details = await tpl.show()
         assert details.name == "py-tpl"
@@ -36,10 +40,10 @@ def test_template_create_show_delete(daemon_socket):
     run(go)
 
 
-def test_template_instantiate(daemon_socket):
+def test_template_instantiate(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         tpl = await c.templates.create(TEMPLATE_YAML)
         vm = await tpl.instantiate("py-tpl-vm")
         details = await vm.show()

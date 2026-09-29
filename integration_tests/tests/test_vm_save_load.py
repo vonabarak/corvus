@@ -26,11 +26,13 @@ from __future__ import annotations
 
 import shlex
 import time
+from collections.abc import Callable
 
-from corvus_test_harness import SingleNodeCase, Vm
+from corvus_client import Client
+from corvus_test_harness import SingleNodeCase, TestNode, Vm
 
 
-def _saved_state_path(client, node_name: str, vm_name: str) -> str:
+def _saved_state_path(client: Client, node_name: str, vm_name: str) -> str:
     """Reproduce the conventional saved-state path the node-agent uses.
 
     Mirrors `Corvus.Node.Runtime.getSavedStateFile` — the daemon
@@ -44,7 +46,7 @@ def _saved_state_path(client, node_name: str, vm_name: str) -> str:
     return f"{base}/{vm_name}/state.qemu.zst"
 
 
-def _file_exists_on(node, path: str) -> bool:
+def _file_exists_on(node: TestNode, path: str) -> bool:
     """SSH into the test node, return True iff `path` exists.
 
     Plain `test -f` returns non-zero when missing — we wrap with
@@ -55,7 +57,7 @@ def _file_exists_on(node, path: str) -> bool:
     return r.stdout.decode("utf-8", errors="replace").strip() == "PRESENT"
 
 
-def _qemu_count(node, vm_name: str) -> int:
+def _qemu_count(node: TestNode, vm_name: str) -> int:
     """Count qemu-system processes whose argv mentions `vm_name`.
 
     Mirrors the helper in test_vm_migration.py. The `^qemu-system`
@@ -71,7 +73,9 @@ def _qemu_count(node, vm_name: str) -> int:
     return sum(1 for line in out.splitlines() if line.strip())
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -85,7 +89,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
     survives. The other refusal/discard cases hang off this same
     fixture pattern to share the bake cost."""
 
-    def test_save_then_start_preserves_ram(self):
+    def test_save_then_start_preserves_ram(self) -> None:
         """The whole point of save: a value written to RAM survives
         a save → start cycle. Drop a sentinel into `/tmp/sentinel`
         via QGA (no fsync — RAM is the only thing we care about),
@@ -146,7 +150,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
                 f"guest stdout={r.stdout!r}"
             )
 
-    def test_stop_refuses_saved_vm(self):
+    def test_stop_refuses_saved_vm(self) -> None:
         """`vm stop` on a saved VM must refuse — operators land at
         `vm reset` (discard) or `vm start` (resume), not at a
         silent half-state. The FSM rule emits a message naming
@@ -193,7 +197,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
                 "saved-state file disappeared after a refused stop"
             )
 
-    def test_reset_drops_state_file_and_lands_stopped(self):
+    def test_reset_drops_state_file_and_lands_stopped(self) -> None:
         """`vm reset` is the discard verb. On a saved VM it asks
         the agent to unlink the state file, then flips the row to
         stopped. Idempotent: a missing file is still success."""
@@ -217,7 +221,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
                 "reset on saved VM did not unlink the state file"
             )
 
-    def test_saved_state_file_is_zstd_compressed(self):
+    def test_saved_state_file_is_zstd_compressed(self) -> None:
         """The saved-state file on disk is zstd-compressed, not raw
         QEMU migration stream. The agent's `qmpMigrate` issues
         `migrate "exec:zstd …"`, so the file's first 4 bytes must
@@ -248,7 +252,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
                 f"first-4-bytes magic={magic!r} (expected '28b52ffd')"
             )
 
-    def test_async_save_surfaces_saving_state_and_blocks_concurrent_start(self):
+    def test_async_save_surfaces_saving_state_and_blocks_concurrent_start(self) -> None:
         """With `wait=False`, `vm.save()` returns immediately with
         `status=saving`. The DB row stays in `VmSaving` until the
         agent's QMP migrate + quit dance completes. Any concurrent

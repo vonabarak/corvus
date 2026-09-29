@@ -40,6 +40,7 @@ from corvus_client.types import (
     BuildStepEnd,
     BuildStepOutput,
     BuildStepStart,
+    BuildStreamItem,
 )
 from corvus_test_harness import SingleNodeCase
 from corvus_test_harness.host_binary import REPO_ROOT
@@ -64,7 +65,7 @@ _BAKE_TEMPLATE = textwrap.dedent("""
 
 
 class TestBuildPipeline(SingleNodeCase):
-    def test_bake_overlay_marker_roundtrip(self):
+    def test_bake_overlay_marker_roundtrip(self) -> None:
         """Happy-path bake produces an artifact whose marker survives.
 
         Single bake (~5-10 min nested). Verifies:
@@ -169,7 +170,7 @@ class TestBuildPipeline(SingleNodeCase):
         finally:
             tpl.delete()
 
-    def test_failed_provisioner_no_artifact_no_orphans(self):
+    def test_failed_provisioner_no_artifact_no_orphans(self) -> None:
         """`cleanup: always` + failing provisioner → no artifact, no orphans.
 
         Single bake; the shell exits 7. Daemon must tear the bake VM
@@ -228,7 +229,7 @@ class TestBuildPipeline(SingleNodeCase):
         finally:
             tpl.delete()
 
-    def test_builds_corvus_test_vm_image(self):
+    def test_builds_corvus_test_vm_image(self) -> None:
         """End-to-end build of the project's Alpine test image.
 
         Drives `crv build yaml/corvus-test-vm/corvus-test-vm.yml`
@@ -378,7 +379,7 @@ class TestBuildPipeline(SingleNodeCase):
         finally:
             _drop_artifact()
 
-    def test_provisioner_output_streams_live(self):
+    def test_provisioner_output_streams_live(self) -> None:
         """Provisioner stdout reaches the client line-by-line, not in
         a single batch at step end.
 
@@ -443,7 +444,7 @@ class TestBuildPipeline(SingleNodeCase):
             # streams back. Stamping at event-receipt time on the
             # client is the only way to distinguish "arrived live"
             # from "arrived in a final batch".
-            timeline: list[tuple[float, object]] = []
+            timeline: list[tuple[float, BuildStreamItem]] = []
             for ev in self.client.build_stream_text(pipeline_yaml):
                 timeline.append((time.monotonic(), ev))
 
@@ -510,7 +511,7 @@ class TestBuildPipeline(SingleNodeCase):
         finally:
             tpl.delete()
 
-    def test_file_waitfor_shelldefaults_corvus_env_in_one_bake(self):
+    def test_file_waitfor_shelldefaults_corvus_env_in_one_bake(self) -> None:
         """Single bake that exercises four provisioner / env features
         the prior coverage missed:
 
@@ -684,7 +685,7 @@ class TestBuildPipeline(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_target_ifexists_skip_short_circuits(self):
+    def test_target_ifexists_skip_short_circuits(self) -> None:
         """`target.ifExists: skip` returns the existing disk id, no bake.
 
         Pre-stage a stub disk with the artifact name. The build's

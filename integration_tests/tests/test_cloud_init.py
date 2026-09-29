@@ -38,6 +38,7 @@ from pathlib import Path
 
 import pytest
 from corvus_test_harness import SingleNodeCase, VmCloudInit
+from corvus_test_harness.vm import _CloudInitOptions
 
 pytestmark = [pytest.mark.slow]
 
@@ -65,7 +66,9 @@ class TestCloudInit(SingleNodeCase):
 
     # ---- verification helpers ----------------------------------------------
 
-    def _verify_marker(self, vm, *, marker_path: str, marker_label: str) -> None:
+    def _verify_marker(
+        self, vm: VmCloudInit, *, marker_path: str, marker_label: str
+    ) -> None:
         """Poll for a NoCloud-completion marker file inside the guest.
 
         Poll for up to ~20 min at 2 s intervals; cloud-init/nuageinit
@@ -87,7 +90,7 @@ class TestCloudInit(SingleNodeCase):
             f"{marker_path} did not appear within ~180 s of SSH coming up"
         )
 
-    def _verify_authorized_key(self, vm) -> None:
+    def _verify_authorized_key(self, vm: VmCloudInit) -> None:
         """The registered pubkey is in the default user's
         authorized_keys. Strip the trailing comment off the public
         key — `authorized_keys` may or may not preserve it depending
@@ -96,7 +99,7 @@ class TestCloudInit(SingleNodeCase):
         ak = vm.run("cat ~/.ssh/authorized_keys").stdout
         assert pub_body in ak, f"injected pubkey not found in authorized_keys:\n{ak!r}"
 
-    def _verify_login_linux(self, vm) -> None:
+    def _verify_login_linux(self, vm: VmCloudInit) -> None:
         """Verify a cloud-init-based Linux distro (Alpine, AlmaLinux,
         Ubuntu, Debian, Gentoo): SSH'd in as `vm.ssh_user`, cloud-init
         wrote `/var/lib/cloud/instance/boot-finished` from its
@@ -111,7 +114,7 @@ class TestCloudInit(SingleNodeCase):
         )
         self._verify_authorized_key(vm)
 
-    def _verify_login_freebsd(self, vm) -> None:
+    def _verify_login_freebsd(self, vm: VmCloudInit) -> None:
         """Verify a FreeBSD vm. FreeBSD stock cloud images don't ship
         cloud-init proper — they use `nuageinit`, an in-base,
         C-implemented NoCloud processor enabled via
@@ -131,35 +134,35 @@ class TestCloudInit(SingleNodeCase):
 
     # ---- per-distro key-injection tests ------------------------------------
 
-    def test_alpine(self):
+    def test_alpine(self) -> None:
         class _AlpineCI(_CIBase):
             base_image_key = "alpine-3-21-base"
 
         with _AlpineCI(self) as vm:
             self._verify_login_linux(vm)
 
-    def test_almalinux(self):
+    def test_almalinux(self) -> None:
         class _AlmaLinuxCI(_CIBase):
             base_image_key = "almalinux-10-base"
 
         with _AlmaLinuxCI(self) as vm:
             self._verify_login_linux(vm)
 
-    def test_ubuntu(self):
+    def test_ubuntu(self) -> None:
         class _UbuntuCI(_CIBase):
             base_image_key = "ubuntu-24-04-server-base"
 
         with _UbuntuCI(self) as vm:
             self._verify_login_linux(vm)
 
-    def test_debian(self):
+    def test_debian(self) -> None:
         class _DebianCI(_CIBase):
             base_image_key = "debian-12-generic-base"
 
         with _DebianCI(self) as vm:
             self._verify_login_linux(vm)
 
-    def test_freebsd(self):
+    def test_freebsd(self) -> None:
         class _FreeBsdCI(_CIBase):
             base_image_key = "freebsd-14-base"
             # Under full parallel load, FreeBSD's first-boot nuageinit and
@@ -170,7 +173,7 @@ class TestCloudInit(SingleNodeCase):
         with _FreeBsdCI(self) as vm:
             self._verify_login_freebsd(vm)
 
-    def test_gentoo(self):
+    def test_gentoo(self) -> None:
         # gentoo-base-headless has cloud-init STRIPPED OUT (it's the
         # bake host for corvus-test-node which doesn't want cloud-init
         # at apply time). Use the cloudinit variant so cloud-init's
@@ -183,7 +186,7 @@ class TestCloudInit(SingleNodeCase):
 
     # ---- multiple SSH keys -------------------------------------------------
 
-    def test_multiple_ssh_keys(self):
+    def test_multiple_ssh_keys(self) -> None:
         """Attach two distinct keypairs; both end up in the guest's
         authorized_keys and both can independently authenticate over
         SSH."""
@@ -242,7 +245,7 @@ class TestCloudInit(SingleNodeCase):
 
     # ---- cloud-init config CRUD (no boot) ----------------------------------
 
-    def test_cloud_init_crud(self):
+    def test_cloud_init_crud(self) -> None:
         """Pure daemon-side CRUD; no VM start.
 
         Creates a VM with `cloud_init=True`, asserts the initial
@@ -293,7 +296,7 @@ class TestCloudInit(SingleNodeCase):
 
     # ---- custom user-data + key injection ----------------------------------
 
-    def test_custom_user_data_with_ssh_injection(self):
+    def test_custom_user_data_with_ssh_injection(self) -> None:
         """Supply fully-custom user-data that creates a `testadmin`
         user with sudo and an explicit `ssh_authorized_keys` entry.
         After boot, SSH in as `testadmin` and verify the user is in
@@ -310,7 +313,7 @@ class TestCloudInit(SingleNodeCase):
             base_image_key = "gentoo-base-headless-cloudinit"
             ssh_user = "testadmin"
 
-            def _cloud_init_config(_self):
+            def _cloud_init_config(_self) -> _CloudInitOptions:
                 user_data = textwrap.dedent(f"""\
                     #cloud-config
                     users:

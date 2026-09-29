@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from .._async.cloudinit import AsyncCloudInitManager
+from .._runloop import SyncRunloop
+from ..types import CloudInitInfo
+
 
 class SyncCloudInitManager:
-    def __init__(self, async_mgr, runloop):
+    def __init__(self, async_mgr: AsyncCloudInitManager, runloop: SyncRunloop) -> None:
         self._a = async_mgr
         self._rl = runloop
 
@@ -16,7 +20,7 @@ class SyncCloudInitManager:
         network_config: str | None = None,
         inject_ssh_keys: bool = False,
     ) -> None:
-        return self._rl.run(
+        self._rl.run(
             self._a.set(
                 vm_ref,
                 user_data=user_data,
@@ -25,8 +29,8 @@ class SyncCloudInitManager:
             )
         )
 
-    def get(self, vm_ref: int | str):
+    def get(self, vm_ref: int | str) -> CloudInitInfo:
         return self._rl.run(self._a.get(vm_ref))
 
     def delete(self, vm_ref: int | str) -> None:
-        return self._rl.run(self._a.delete(vm_ref))
+        self._rl.run(self._a.delete(vm_ref))

@@ -7,16 +7,18 @@ concern; the conftest daemon fixture doesn't depend on that).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from corvus_client import VmNotFound
+from corvus_client import AsyncClient, VmNotFound
 
 from ._helpers import with_client
 
 
-def test_vm_create_show_edit_delete(daemon_socket):
+def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         vm = await c.vms.create(
             "py-vm-1",
             cpu_count=2,
@@ -52,10 +54,10 @@ def test_vm_create_show_edit_delete(daemon_socket):
     run(go)
 
 
-def test_vm_attach_detach_disk(daemon_socket):
+def test_vm_attach_detach_disk(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-attach-disk", size_mb=64)
         vm = await c.vms.create("py-vm-attach", cpu_count=1, ram_mb=256, headless=True)
         info = await disk.show()

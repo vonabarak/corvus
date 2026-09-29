@@ -31,15 +31,17 @@ from __future__ import annotations
 import secrets
 import shlex
 import time
+from collections.abc import Callable
 
-from corvus_test_harness import SingleNodeCase, Vm
+from corvus_client._sync.vm import SyncVm
+from corvus_test_harness import SingleNodeCase, TestNode, Vm
 
 
 def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-def _qemu_count(node, vm_name: str) -> int:
+def _qemu_count(node: TestNode, vm_name: str) -> int:
     """Count qemu-system processes whose argv mentions `vm_name`.
 
     Mirrors the helper in test_vm_migration.py / test_vm_save_load.py;
@@ -55,7 +57,9 @@ def _qemu_count(node, vm_name: str) -> int:
     return sum(1 for line in out.splitlines() if line.strip())
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -64,7 +68,7 @@ def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) ->
     raise AssertionError(f"{msg} (waited {timeout_sec}s)")
 
 
-def _restart_unit(node, unit: str) -> None:
+def _restart_unit(node: TestNode, unit: str) -> None:
     """`systemctl restart` a unit and wait for it to come back active.
     Mirrors the pattern in test_component_restart.py; kept inline so
     this file is self-contained and doesn't import from another test
@@ -83,7 +87,7 @@ def _restart_unit(node, unit: str) -> None:
     raise AssertionError(f"{unit} did not return to active within 15 s")
 
 
-def _drop_cached_client(node) -> None:
+def _drop_cached_client(node: TestNode) -> None:
     """The harness lazily memoises one pycapnp Client per TestNode.
     After a daemon restart the old TCP socket is stale; drop the
     cache so the next `self.client` access re-dials."""
@@ -102,7 +106,7 @@ class TestVmAutostart(SingleNodeCase):
     Alpine with QGA, round-tripping a RAM sentinel), and the
     no-refire-on-agent-flap invariant."""
 
-    def _create_stopped_autostart_vm(self):
+    def _create_stopped_autostart_vm(self) -> tuple[SyncVm, str, str]:
         """Build a non-bootable, no-QGA VM marked autostart=True on the
         single node. Returns `(vm_cap, vm_name, disk_name)`. The
         daemon will happily transition this through
@@ -138,7 +142,7 @@ class TestVmAutostart(SingleNodeCase):
         except Exception:
             pass
 
-    def test_vm_autostart_starts_stopped_vm_on_daemon_boot(self):
+    def test_vm_autostart_starts_stopped_vm_on_daemon_boot(self) -> None:
         """A stopped VM with autostart=True is started after a daemon
         restart. Pre-fix: the startup-time autostart loop raced the
         supervisor's first nodeagent dial and the VM landed in
@@ -180,7 +184,7 @@ class TestVmAutostart(SingleNodeCase):
         finally:
             self._cleanup_silent(vm_name, disk_name)
 
-    def test_vm_autostart_resumes_saved_vm(self):
+    def test_vm_autostart_resumes_saved_vm(self) -> None:
         """A saved VM with autostart=True resumes after a daemon
         restart, and the guest's RAM (a sentinel in /tmp) survives.
         Uses the full Alpine + QGA fixture because we need the
@@ -262,7 +266,7 @@ class TestVmAutostart(SingleNodeCase):
                 f"guest stdout={r.stdout!r}"
             )
 
-    def test_vm_autostart_does_not_refire_on_agent_reconnect(self):
+    def test_vm_autostart_does_not_refire_on_agent_reconnect(self) -> None:
         """The single-shot flag ('claimAutostartSlot' on NodeConns)
         ensures autostart fires once per supervisor lifetime, not
         on every nodeagent reconnect. Without the gate, an operator
@@ -376,7 +380,7 @@ class TestNetworkAutostart(SingleNodeCase):
         except Exception:
             pass
 
-    def test_network_autostart_starts_on_daemon_boot(self):
+    def test_network_autostart_starts_on_daemon_boot(self) -> None:
         """A network with autostart=True is started after a daemon
         restart. Pre-fix: the startup autostart loop fired before
         netd was registered. Post-fix: the netd onConnect callback
@@ -409,7 +413,7 @@ class TestNetworkAutostart(SingleNodeCase):
         finally:
             self._cleanup_silent_network(name)
 
-    def test_network_autostart_does_not_refire_on_netd_reconnect(self):
+    def test_network_autostart_does_not_refire_on_netd_reconnect(self) -> None:
         """Symmetric single-shot guard for networks: bouncing just
         corvus-netd (daemon stays up) must not re-fire autostart on
         a network the operator has stopped manually."""

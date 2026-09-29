@@ -7,14 +7,14 @@ multi-node overlays are still TODO.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError, NetworkNotFound
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -25,12 +25,12 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
 @router.get("")
-async def list_networks(client: ClientDep) -> list[dict[str, Any]]:
+async def list_networks(client: ClientDep) -> list[JsonObject]:
     """Mirrors ``crv network list``."""
     return [to_dict(n) for n in await client.networks.list()]
 
 
-class NetworkCreateBody(BaseModel):
+class NetworkCreateBody(BaseModel):  # type: ignore[explicit-any]
     """Mirrors corvus_client.AsyncNetworkManager.create kwargs.
 
     Networks are per-node (the bridge + dnsmasq instance live on one
@@ -64,7 +64,7 @@ class NetworkCreateBody(BaseModel):
 
 
 @router.post("")
-async def create_network(body: NetworkCreateBody, client: ClientDep) -> dict[str, Any]:
+async def create_network(body: NetworkCreateBody, client: ClientDep) -> JsonObject:
     """Create a virtual network record. Returns the new NetworkInfo
     so the frontend can route straight to the detail page. The bridge
     is not started here — call POST /api/networks/{id}/start (or set
@@ -84,7 +84,7 @@ async def create_network(body: NetworkCreateBody, client: ClientDep) -> dict[str
 
 
 @router.get("/{network_id}")
-async def get_network(network_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_network(network_id: int, client: ClientDep) -> JsonObject:
     """Network detail — same fields as the list entry."""
     try:
         net = await client.networks.get(network_id)

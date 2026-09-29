@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import SshKeyInfo
 from PySide6.QtCore import Signal
@@ -84,7 +84,7 @@ class SshKeyDetailWidget(QWidget):
         self._attached.setText("—")
         self._public_key.clear()
 
-    def _on_keys(self, keys: Any) -> None:
+    def _on_keys(self, keys: list[SshKeyInfo]) -> None:
         if self._key_id is None:
             return
         for key in keys:

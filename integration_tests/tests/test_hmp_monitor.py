@@ -24,11 +24,12 @@ import secrets
 import time
 
 import pytest
+from corvus_client._sync.vm import SyncByteStream
 from corvus_client.exceptions import VmNotFound, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 
-def _drain_until(stream, needle: bytes, *, timeout: float) -> bytes:
+def _drain_until(stream: SyncByteStream, needle: bytes, *, timeout: float) -> bytes:
     """Read chunks until ``needle`` appears or ``timeout`` elapses.
 
     Mirrors the same-named helper in
@@ -53,7 +54,7 @@ def _drain_until(stream, needle: bytes, *, timeout: float) -> bytes:
 class TestHmpMonitor(SingleNodeCase):
     """HMP monitor ring buffer + flush + rejection paths."""
 
-    def test_hmp_lifecycle(self):
+    def test_hmp_lifecycle(self) -> None:
         """Replay-on-reconnect + write/read round-trip + flush.
 
         Single boot, multiple HMP attach/detach cycles. The HMP
@@ -93,7 +94,7 @@ class TestHmpMonitor(SingleNodeCase):
                 early = stream3.read(timeout=2.0) or b""
                 assert b"info status" not in early, early
 
-    def test_hmp_rejected_on_stopped_vm(self):
+    def test_hmp_rejected_on_stopped_vm(self) -> None:
         """Attaching HMP to a stopped VM raises with the
         documented "not running" daemon message — the cap method
         gates on VM status before reaching the buffer map (see
@@ -114,7 +115,7 @@ class TestHmpMonitor(SingleNodeCase):
         finally:
             vm.delete(keep_disks=True)
 
-    def test_hmp_works_on_non_headless_vm(self):
+    def test_hmp_works_on_non_headless_vm(self) -> None:
         """`crv vm monitor` is documented to work for every
         running VM regardless of `headless`. Verify the
         non-headless branch reaches the same buffer path the
@@ -129,7 +130,7 @@ class TestHmpMonitor(SingleNodeCase):
             with vm.cap.hmp_monitor() as stream:
                 _drain_until(stream, b"(qemu)", timeout=10.0)
 
-    def test_hmp_get_on_missing_vm(self):
+    def test_hmp_get_on_missing_vm(self) -> None:
         """Resolving a non-existent VM by name surfaces as
         :class:`VmNotFound`. This is upstream of the HMP path
         but documents the failure mode end users hit when they

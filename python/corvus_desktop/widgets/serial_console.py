@@ -20,11 +20,17 @@ Lifecycle (set up by ``VmDetailWidget``):
 
 from __future__ import annotations
 
-from typing import Any
-
 import pyte
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetrics, QPainter
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QFontMetrics,
+    QKeyEvent,
+    QPainter,
+    QPaintEvent,
+)
 from PySide6.QtWidgets import QWidget
 
 # 16-color xterm palette by index. Matches pyte's `Char.fg`/`bg` strings
@@ -148,7 +154,7 @@ class SerialConsoleWidget(QWidget):
     def sizeHint(self) -> QSize:
         return QSize(self._cell_w * self.DEFAULT_COLS, self._cell_h * self.DEFAULT_ROWS)
 
-    def keyPressEvent(self, event: Any) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         key = event.key()
         mods = event.modifiers()
         # Ctrl+letter → control character
@@ -167,7 +173,7 @@ class SerialConsoleWidget(QWidget):
             return
         super().keyPressEvent(event)
 
-    def paintEvent(self, _event: Any) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), _BG_DEFAULT)
         painter.setFont(self.font())

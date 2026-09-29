@@ -23,11 +23,15 @@ import secrets
 import time
 
 import pytest
+from corvus_client import Client
 from corvus_client.exceptions import CorvusError, NodeInUse
+from corvus_client.types import NodeDetails
 from corvus_test_harness import SingleNodeCase
 
 
-def _wait_for_first_push(client, node_name: str, *, timeout_sec: float = 30.0):
+def _wait_for_first_push(
+    client: Client, node_name: str, *, timeout_sec: float = 30.0
+) -> NodeDetails:
     """Block until the inner daemon has received its first NodeStats push.
 
     Capacity fields (`ram_mb_free`, `storage_bytes_free`, `load_avg1`)
@@ -50,14 +54,14 @@ class TestNodes(SingleNodeCase):
     """Direct coverage of the `NodeManager` cap + matching CLI verbs."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology):
+    def _install_client_certs(self, _class_topology: object) -> None:
         """Make the corvus user's ``~/.config/corvus`` carry the
         client cert trio so the inner ``/opt/corvus/bin/crv`` can
         dial the daemon over mTLS (see
         ``IntegrationTestCase.install_node_client_certs``)."""
         self.install_node_client_certs()
 
-    def test_list_and_show_self(self):
+    def test_list_and_show_self(self) -> None:
         """`nodes.list()` includes the self-registered node and
         `nodes.show()` exposes the full record (host, ports,
         basePath, kernelRelease, agentVersion, healthcheck
@@ -88,7 +92,7 @@ class TestNodes(SingleNodeCase):
         assert details.agent_version, details.agent_version
         assert details.last_node_agent_push_at is not None
 
-    def test_crv_node_list_renders_self(self):
+    def test_crv_node_list_renders_self(self) -> None:
         """`crv node list` on the test-node prints a row for the
         self-registered node. Mirrors the smoke check in
         `test_quickstart.py:312` but isolates it from quickstart's
@@ -104,7 +108,7 @@ class TestNodes(SingleNodeCase):
         # Default text formatter prints the admin state.
         assert "online" in output.lower(), output
 
-    def test_edit_description_and_revert(self):
+    def test_edit_description_and_revert(self) -> None:
         """`nodes.edit(description=…)` round-trips through `show`.
 
         Also exercises the empty-string clear path documented in
@@ -133,7 +137,7 @@ class TestNodes(SingleNodeCase):
             else:
                 node.edit(description=original)
 
-    def test_drain_blocks_scheduler(self):
+    def test_drain_blocks_scheduler(self) -> None:
         """A draining node can't host a fresh VM whose create asks
         the scheduler to pick. Once reverted to ``online``, the
         same create succeeds.
@@ -172,7 +176,7 @@ class TestNodes(SingleNodeCase):
         finally:
             vm.delete()
 
-    def test_delete_refused_while_in_use(self):
+    def test_delete_refused_while_in_use(self) -> None:
         """`nodes.delete()` is refused while a VM, network, or
         disk-image placement still references the node.
 
@@ -196,7 +200,7 @@ class TestNodes(SingleNodeCase):
         finally:
             vm.delete()
 
-    def test_edit_host_keeps_supervisor_alive(self):
+    def test_edit_host_keeps_supervisor_alive(self) -> None:
         """Re-asserting the same host through `nodes.edit(host=…)`
         triggers a supervisor respawn (documented in
         `doc/multi-node.md`) without breaking connectivity. After

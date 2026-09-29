@@ -29,10 +29,11 @@ from __future__ import annotations
 import secrets
 import textwrap
 import time
+from collections.abc import Iterator
 
 import pytest
-from corvus_client import ServerError
-from corvus_test_harness import OneDaemonTwoNodesCase
+from corvus_client import Client, ServerError
+from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
 
 
 def _uniq(stem: str) -> str:
@@ -41,7 +42,7 @@ def _uniq(stem: str) -> str:
 
 
 def _wait_until_node_ready(
-    client, node_name: str, *, timeout_sec: float = 30.0
+    client: Client, node_name: str, *, timeout_sec: float = 30.0
 ) -> None:
     """Poll until the daemon's per-node supervisor has dialled the
     agent at least once.
@@ -68,15 +69,14 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
     # ---- class-scoped setup ------------------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self, request):
+    def _register_beta(self) -> Iterator[None]:
         """Register beta with alpha's daemon for every test in the class.
 
-        Bookkeeping lives on the class object (rather than `self`)
-        because pytest re-instantiates the test class per method.
+        The registered capability remains local to this class-scoped
+        fixture while pytest re-instantiates the test class per method.
         """
-        cls = request.cls
         client = self.client_alpha
-        beta_name = self.node_beta.short_name
+        beta_name = self.beta_name
         beta_ip = self.node_beta.outer_ip
         try:
             existing = next(
@@ -86,7 +86,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            cls.beta_node = client.nodes.create(
+            beta_node = client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
@@ -94,13 +94,11 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 description="alpha→beta multi-node disk tests",
             )
         else:
-            cls.beta_node = client.nodes.get(beta_name)
-        cls.beta_name = beta_name
-        cls.alpha_name = self.node_alpha.short_name
+            beta_node = client.nodes.get(beta_name)
         _wait_until_node_ready(client, beta_name)
         yield
         try:
-            cls.beta_node.delete()
+            beta_node.delete()
         except Exception:
             pass
 
@@ -132,7 +130,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             f"placements: {[p.node.name for p in info.placements]!r}"
         )
 
-    def _node_for(self, short_name: str):
+    def _node_for(self, short_name: str) -> TestNode:
         return self.node_alpha if short_name == self.alpha_name else self.node_beta
 
     def _file_exists_on(self, node_short: str, path: str) -> bool:
@@ -143,7 +141,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
 
     # ---- `--node` on disks.create / register / import ---------------------
 
-    def test_create_with_node_lands_on_chosen(self):
+    def test_create_with_node_lands_on_chosen(self) -> None:
         """`disks.create(..., node='beta')` produces a placement only
         on beta — not alpha."""
         name = _uniq("create-on-beta")
@@ -158,7 +156,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         finally:
             self._delete_disk_silent(name)
 
-    def test_create_without_node_uses_scheduler(self):
+    def test_create_without_node_uses_scheduler(self) -> None:
         """`disks.create` without `node=` defers to the scheduler.
         The exact node is the lowest-id online one; assert at least
         that the disk has a single placement and the file is on
@@ -173,7 +171,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         finally:
             self._delete_disk_silent(name)
 
-    def test_register_with_node_records_placement(self):
+    def test_register_with_node_records_placement(self) -> None:
         """`disks.register(..., node='beta')` against a pre-existing
         file on beta records the placement on beta."""
         name = _uniq("register-beta")
@@ -199,7 +197,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
 
     # ---- placement-aware operations on existing disks ---------------------
 
-    def test_snapshot_runs_on_disks_node(self):
+    def test_snapshot_runs_on_disks_node(self) -> None:
         """A snapshot of a disk that lives only on beta succeeds
         without an explicit node — the placement-aware picker
         chooses beta. The snapshot row appears under the disk and
@@ -224,7 +222,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         finally:
             self._delete_disk_silent(name)
 
-    def test_overlay_inherits_base_node(self):
+    def test_overlay_inherits_base_node(self) -> None:
         """An overlay of a disk on beta lands on beta — the
         placement-aware picker must follow the base."""
         base = _uniq("ovl-base-beta")
@@ -241,7 +239,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         finally:
             self._delete_disk_silent(base)
 
-    def test_clone_inherits_source_node(self):
+    def test_clone_inherits_source_node(self) -> None:
         """Clone of a disk on beta lands on beta."""
         src = _uniq("clone-src-beta")
         dst = _uniq("clone-dst-beta")
@@ -257,7 +255,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         finally:
             self._delete_disk_silent(src)
 
-    def test_refresh_works_on_beta_only_disk(self):
+    def test_refresh_works_on_beta_only_disk(self) -> None:
         """`disk.refresh()` on a beta-only disk must succeed — the
         picker has to find beta, not pick alpha and bail with
         "no placement"."""
@@ -271,7 +269,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         finally:
             self._delete_disk_silent(name)
 
-    def test_resize_works_on_beta_only_disk(self):
+    def test_resize_works_on_beta_only_disk(self) -> None:
         """Same property as ``test_refresh_works_on_beta_only_disk``
         but exercising the qemu-img-mutating path."""
         name = _uniq("resize-beta")
@@ -288,7 +286,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
 
     # ---- apply YAML with per-resource `node:` ----------------------------
 
-    def test_apply_disks_with_per_node_placement(self):
+    def test_apply_disks_with_per_node_placement(self) -> None:
         """`apply` YAML with explicit `node:` on each disk places
         them accordingly. Two disks of the same shape, one on each
         node, both reachable through the daemon."""
@@ -315,7 +313,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             self._delete_disk_silent(alpha_disk)
             self._delete_disk_silent(beta_disk)
 
-    def test_apply_skip_existing_disambiguates_same_name_across_nodes(self):
+    def test_apply_skip_existing_disambiguates_same_name_across_nodes(self) -> None:
         """Two VMs named the same on different nodes round-trip
         through `apply --skip-existing` without false-positive
         deduplication.
@@ -373,7 +371,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
 
     # ---- VM details exposes per-node file path ---------------------------
 
-    def test_vm_show_drive_file_path_is_resolved(self):
+    def test_vm_show_drive_file_path_is_resolved(self) -> None:
         """`vm.show().drives[i].file_path` returns the actual
         per-node path on the VM's node. Before the multi-node
         refactor this was the empty string; now it surfaces the

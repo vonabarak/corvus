@@ -48,13 +48,17 @@ table.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 
 import pytest
 from corvus_client import InvalidTransition
+from corvus_client._sync.vm import SyncVm
 from corvus_test_harness import SingleNodeCase, Vm
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -64,7 +68,7 @@ def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) ->
 
 
 def _assert_refused(
-    action,
+    action: Callable[[], object],
     *,
     from_status: str,
     keyword: str,
@@ -104,7 +108,7 @@ class TestRefusedFromStopped(SingleNodeCase):
     ``self.client.vms.create`` directly is enough.
     """
 
-    def _make_stopped_vm(self, name: str):
+    def _make_stopped_vm(self, name: str) -> SyncVm:
         return self.client.vms.create(
             name,
             cpu_count=1,
@@ -113,7 +117,7 @@ class TestRefusedFromStopped(SingleNodeCase):
             guest_agent=False,
         )
 
-    def test_stop_on_stopped_refused(self):
+    def test_stop_on_stopped_refused(self) -> None:
         vm = self._make_stopped_vm("fsm-stop-on-stopped")
         try:
             assert vm.show().status == "stopped"
@@ -126,7 +130,7 @@ class TestRefusedFromStopped(SingleNodeCase):
         finally:
             vm.delete()
 
-    def test_pause_on_stopped_refused(self):
+    def test_pause_on_stopped_refused(self) -> None:
         vm = self._make_stopped_vm("fsm-pause-on-stopped")
         try:
             _assert_refused(
@@ -138,7 +142,7 @@ class TestRefusedFromStopped(SingleNodeCase):
         finally:
             vm.delete()
 
-    def test_save_on_stopped_refused(self):
+    def test_save_on_stopped_refused(self) -> None:
         vm = self._make_stopped_vm("fsm-save-on-stopped")
         try:
             _assert_refused(
@@ -155,7 +159,7 @@ class TestRefusedFromRunning(SingleNodeCase):
     """A running VM rejects ``start``. (``stop``, ``pause``, and
     ``save`` from running are legal and exercised elsewhere.)"""
 
-    def test_start_on_running_refused(self):
+    def test_start_on_running_refused(self) -> None:
         with Vm(self) as vm:
             assert vm.cap.show().status == "running"
             _assert_refused(
@@ -176,7 +180,7 @@ class TestRefusedFromPaused(SingleNodeCase):
     ``ActionStartResumePaused`` and resumes via QMP ``cont`` — so
     that's not a refusal to test."""
 
-    def test_stop_on_paused_refused(self):
+    def test_stop_on_paused_refused(self) -> None:
         with Vm(self) as vm:
             vm.cap.pause()
             _poll_until(
@@ -197,7 +201,7 @@ class TestRefusedFromPaused(SingleNodeCase):
                 "status drifted after refused stop on paused VM"
             )
 
-    def test_pause_on_paused_refused(self):
+    def test_pause_on_paused_refused(self) -> None:
         with Vm(self) as vm:
             vm.cap.pause()
             _poll_until(
@@ -219,7 +223,7 @@ class TestRefusedFromSaved(SingleNodeCase):
     canonical example of the FSM's "operators must explicitly choose
     discard or resume" pattern.)"""
 
-    def test_pause_on_saved_refused(self):
+    def test_pause_on_saved_refused(self) -> None:
         with Vm(self) as vm:
             vm.cap.save(wait=True)
             _poll_until(
@@ -236,7 +240,7 @@ class TestRefusedFromSaved(SingleNodeCase):
                 "status drifted after refused pause on saved VM"
             )
 
-    def test_save_on_saved_refused(self):
+    def test_save_on_saved_refused(self) -> None:
         with Vm(self) as vm:
             vm.cap.save(wait=True)
             _poll_until(
@@ -263,7 +267,7 @@ class TestResetUniversal(SingleNodeCase):
     :mod:`test_vm_save_load`; ``error`` is in
     :mod:`test_vm_start_failures`.)"""
 
-    def test_reset_from_stopped_is_idempotent(self):
+    def test_reset_from_stopped_is_idempotent(self) -> None:
         """Reset on an already-stopped VM is a no-op success — the
         VM stays stopped, no error. Without this, scripted recovery
         flows (`reset; start`) would need a `try/except` around the
@@ -289,7 +293,7 @@ class TestResetUniversal(SingleNodeCase):
         finally:
             vm.delete()
 
-    def test_reset_from_running_lands_stopped(self):
+    def test_reset_from_running_lands_stopped(self) -> None:
         with Vm(self) as vm:
             assert vm.cap.show().status == "running"
             vm.cap.reset()
@@ -299,7 +303,7 @@ class TestResetUniversal(SingleNodeCase):
                 msg="vm did not reach 'stopped' after reset from running",
             )
 
-    def test_reset_from_paused_lands_stopped(self):
+    def test_reset_from_paused_lands_stopped(self) -> None:
         with Vm(self) as vm:
             vm.cap.pause()
             _poll_until(

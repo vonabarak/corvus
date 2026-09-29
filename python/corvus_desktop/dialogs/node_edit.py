@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from corvus_client.types import NodeDetails
 from PySide6.QtWidgets import (
@@ -14,12 +14,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .form_dialog import FormDialog
+from .form_dialog import FormDialog, FormPayload
+from .payload_types import NodeEditPayload
 
 _ADMIN_STATES = ("online", "draining", "maintenance")
 
 
 class NodeEditDialog(FormDialog):
+    def payload(self) -> NodeEditPayload:
+        return cast(NodeEditPayload, super().payload())
+
     def __init__(self, node: NodeDetails, parent: QWidget | None = None) -> None:
         self._original = node
         self._name = QLineEdit(node.name)
@@ -50,8 +54,8 @@ class NodeEditDialog(FormDialog):
         form.addRow("Admin state:", self._admin_state)
         form.addRow("netd disabled:", self._netd_disabled)
 
-    def result_payload(self) -> dict[str, Any] | None:
-        payload: dict[str, Any] = {}
+    def result_payload(self) -> FormPayload | None:
+        payload: dict[str, str | int | bool | None] = {}
         if self._name.text() != self._original.name:
             payload["name"] = self._name.text()
         if self._host.text() != self._original.host:

@@ -68,7 +68,7 @@ def _admin(
     ca_dir: Path,
     xdg_home: Path,
     check: bool = True,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Invoke ``corvus-admin`` as a subprocess of the venv Python.
 
     Using ``sys.executable -m corvus_admin`` rather than the
@@ -105,7 +105,7 @@ def _admin(
 class TestCaInitAndIdempotence:
     """``corvus-admin init`` + re-run idempotence."""
 
-    def test_init_creates_ca_and_client_cert(self, tmp_path: Path):
+    def test_init_creates_ca_and_client_cert(self, tmp_path: Path) -> None:
         ca_dir = tmp_path / "admin"
         xdg = tmp_path / "xdg"
         xdg.mkdir()
@@ -133,7 +133,7 @@ class TestCaInitAndIdempotence:
         rec = rows[0]
         assert rec["cn"].startswith("corvus-client:"), rec
 
-    def test_init_is_idempotent(self, tmp_path: Path):
+    def test_init_is_idempotent(self, tmp_path: Path) -> None:
         """Re-running ``init`` on an already-populated store
         prints a "already initialised" banner and exits 0 without
         touching files (rotation requires ``--force``)."""
@@ -162,7 +162,7 @@ class TestCaInitAndIdempotence:
 class TestRenewDryRun:
     """``corvus-admin renew --due`` sweeps the store and reports."""
 
-    def test_renew_due_dry_run_leaves_files_untouched(self, tmp_path: Path):
+    def test_renew_due_dry_run_leaves_files_untouched(self, tmp_path: Path) -> None:
         """``--due --within 36500`` (≈100 years) matches every cert
         the freshly-issued admin client owns; ``--dry-run`` prints
         what it would do, leaves the cert untouched, exits 0."""
@@ -195,7 +195,7 @@ class TestRenewDryRun:
 class TestListAndRevoke:
     """``list --output json`` shape + ``revoke`` bookkeeping."""
 
-    def test_list_json_shape(self, tmp_path: Path):
+    def test_list_json_shape(self, tmp_path: Path) -> None:
         """The JSON exposition is the operator's machine-readable
         view of the store. Pin the keys so a refactor that renames
         ``expires_at`` to ``expiry`` (or moves things into a nested
@@ -230,7 +230,7 @@ class TestListAndRevoke:
             "corvus-netd",
         ), f"unexpected role {rec['role']!r}"
 
-    def test_revoke_drops_row_from_index(self, tmp_path: Path):
+    def test_revoke_drops_row_from_index(self, tmp_path: Path) -> None:
         """``revoke <cn>`` removes the row from the index but
         leaves the cert/key files in place. cli.py:1146-1153 calls
         this out: ``revoke`` is pure bookkeeping — Corvus does not
@@ -264,7 +264,7 @@ class TestListAndRevoke:
             "the index row is dropped"
         )
 
-    def test_revoke_unknown_cn_errors(self, tmp_path: Path):
+    def test_revoke_unknown_cn_errors(self, tmp_path: Path) -> None:
         """Revoking a CN not in the index exits non-zero with a
         diagnostic on stderr."""
         ca_dir = tmp_path / "admin"

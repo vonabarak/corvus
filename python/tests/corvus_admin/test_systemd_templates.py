@@ -6,7 +6,7 @@ import pytest
 from corvus_admin import systemd as systemd_mod
 
 
-def test_daemon_user_mode_has_no_runtime_directory():
+def test_daemon_user_mode_has_no_runtime_directory() -> None:
     rendered = systemd_mod.render_unit(
         "daemon",
         mode="user",
@@ -20,7 +20,7 @@ def test_daemon_user_mode_has_no_runtime_directory():
     assert "WantedBy=default.target" in rendered
 
 
-def test_daemon_system_mode_sets_runtime_directory():
+def test_daemon_system_mode_sets_runtime_directory() -> None:
     rendered = systemd_mod.render_unit(
         "daemon",
         mode="system",
@@ -32,7 +32,7 @@ def test_daemon_system_mode_sets_runtime_directory():
     assert "WantedBy=multi-user.target" in rendered
 
 
-def test_nodeagent_user_mode_has_no_runtime_directory():
+def test_nodeagent_user_mode_has_no_runtime_directory() -> None:
     rendered = systemd_mod.render_unit(
         "nodeagent",
         mode="user",
@@ -42,7 +42,7 @@ def test_nodeagent_user_mode_has_no_runtime_directory():
     assert "ExecStart=/home/alice/.local/bin/corvus-nodeagent" in rendered
 
 
-def test_nodeagent_system_mode_sets_runtime_directory():
+def test_nodeagent_system_mode_sets_runtime_directory() -> None:
     rendered = systemd_mod.render_unit(
         "nodeagent",
         mode="system",
@@ -52,7 +52,7 @@ def test_nodeagent_system_mode_sets_runtime_directory():
     assert "Environment=XDG_RUNTIME_DIR=/run/corvus" in rendered
 
 
-def test_netd_only_renders_in_system_mode():
+def test_netd_only_renders_in_system_mode() -> None:
     rendered = systemd_mod.render_unit(
         "netd",
         mode="system",
@@ -62,7 +62,7 @@ def test_netd_only_renders_in_system_mode():
     assert "WantedBy=multi-user.target" in rendered
 
 
-def test_netd_user_mode_is_rejected():
+def test_netd_user_mode_is_rejected() -> None:
     with pytest.raises(ValueError):
         systemd_mod.render_unit(
             "netd",
@@ -71,7 +71,7 @@ def test_netd_user_mode_is_rejected():
         )
 
 
-def test_unknown_component_raises():
+def test_unknown_component_raises() -> None:
     with pytest.raises(ValueError):
         systemd_mod.render_unit(
             "ghost",
@@ -80,7 +80,7 @@ def test_unknown_component_raises():
         )
 
 
-def test_log_level_is_threaded_through():
+def test_log_level_is_threaded_through() -> None:
     rendered = systemd_mod.render_unit(
         "daemon",
         mode="user",
@@ -90,7 +90,7 @@ def test_log_level_is_threaded_through():
     assert "--log-level debug" in rendered
 
 
-def test_database_is_threaded_through_daemon_template():
+def test_database_is_threaded_through_daemon_template() -> None:
     rendered = systemd_mod.render_unit(
         "daemon",
         mode="user",

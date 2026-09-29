@@ -8,9 +8,10 @@ much friendlier to laptop battery.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import TaskInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -122,12 +123,12 @@ class TaskListWidget(QWidget):
 
     # ----------------------------------------------------- slots
 
-    def _on_tasks(self, tasks: Any) -> None:
+    def _on_tasks(self, tasks: list[TaskInfo]) -> None:
         # The signal carries `list[TaskInfo]` but is typed `object`.
         # Defer typing checks to the model.
         self._model.set_tasks(tasks)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         task = self._model.task_at(index.row())
         if task is not None:
             self.task_activated.emit(task.id)

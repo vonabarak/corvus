@@ -134,25 +134,15 @@ jobs:
           ~/.local/bin/hlint --version
           ~/.local/bin/fourmolu --version
 
-      # The Makefile's `lint` target prefers the project venv
-      # (`python/.venv-corvus-py/`) for `ruff` and `mypy` so they
-      # resolve against the project's own pinned third-party
-      # types; create it the same way `make python-test` /
-      # `make integration-tests` do. `pip install -e .` pulls in
-      # pycapnp + cryptography + click + jinja2 + PyYAML — mypy
-      # needs them on PYTHONPATH to resolve third-party stubs.
-      # Mirrors the dev venv: ruff + mypy + types-PyYAML (so
-      # mypy resolves yaml.safe_load et al), plus the project
-      # installed with the [harness] extra so `pytest` is on
-      # PYTHONPATH — mypy walks every `python/tests/*.py` and
-      # `integration_tests/**/*.py` and needs the stubs.
+      # Lint runs inside the shared .venv so mypy sees the same project,
+      # pytest, and YAML typing dependencies as the Python tests. CI omits
+      # the optional desktop extra because its type check is a separate gate.
       - name: Bootstrap Python toolchain
         run: |
           set -ex
-          python3 -m venv python/.venv-corvus-py
-          python/.venv-corvus-py/bin/pip install --upgrade pip
-          python/.venv-corvus-py/bin/pip install ruff mypy types-PyYAML
-          python/.venv-corvus-py/bin/pip install -e '.[harness]'
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e '.[harness,dev]'
 
       # Install the frontend toolchain so `make lint`'s gated
       # `web-lint` step (Makefile checks for

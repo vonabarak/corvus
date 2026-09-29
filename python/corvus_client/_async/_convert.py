@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import capnp
+
 from .. import types as t
 
 
@@ -32,13 +34,13 @@ def _nz_float(x: float) -> float | None:
     return None if x == 0.0 else x
 
 
-def named_ref(r) -> t.NamedRef:
+def named_ref(r: capnp.lib.capnp._DynamicStructReader) -> t.NamedRef:
     """Convert a ``Common.NamedRef`` capnp struct to the Python dataclass.
     Use directly for required references."""
     return t.NamedRef(id=r.id, name=r.name)
 
 
-def named_ref_or_none(r) -> t.NamedRef | None:
+def named_ref_or_none(r: capnp.lib.capnp._DynamicStructReader) -> t.NamedRef | None:
     """Optional variant: the wire sentinel ``id == 0`` becomes ``None``."""
     if r.id == 0:
         return None
@@ -50,7 +52,7 @@ def named_ref_or_none(r) -> t.NamedRef | None:
 # ---------------------------------------------------------------------------
 
 
-def status_info(r) -> t.StatusInfo:
+def status_info(r: capnp.lib.capnp._DynamicStructReader) -> t.StatusInfo:
     return t.StatusInfo(
         uptime_seconds=r.uptimeSeconds,
         connections=r.connections,
@@ -61,7 +63,7 @@ def status_info(r) -> t.StatusInfo:
     )
 
 
-def view_grant(r) -> t.ViewGrant:
+def view_grant(r: capnp.lib.capnp._DynamicStructReader) -> t.ViewGrant:
     return t.ViewGrant(
         host=r.host,
         port=r.port,
@@ -75,7 +77,7 @@ def view_grant(r) -> t.ViewGrant:
 # ---------------------------------------------------------------------------
 
 
-def cloud_init_info(r) -> t.CloudInitInfo:
+def cloud_init_info(r: capnp.lib.capnp._DynamicStructReader) -> t.CloudInitInfo:
     return t.CloudInitInfo(
         user_data=r.userData if r.hasUserData else None,
         network_config=r.networkConfig if r.hasNetworkConfig else None,
@@ -88,7 +90,7 @@ def cloud_init_info(r) -> t.CloudInitInfo:
 # ---------------------------------------------------------------------------
 
 
-def vm_info(r) -> t.VmInfo:
+def vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.VmInfo:
     return t.VmInfo(
         id=r.id,
         name=r.name,
@@ -107,7 +109,7 @@ def vm_info(r) -> t.VmInfo:
     )
 
 
-def drive_info(r) -> t.DriveInfo:
+def drive_info(r: capnp.lib.capnp._DynamicStructReader) -> t.DriveInfo:
     return t.DriveInfo(
         id=r.id,
         disk_image=named_ref_or_none(r.diskImage),
@@ -121,7 +123,7 @@ def drive_info(r) -> t.DriveInfo:
     )
 
 
-def net_if_info(r) -> t.NetIfInfo:
+def net_if_info(r: capnp.lib.capnp._DynamicStructReader) -> t.NetIfInfo:
     return t.NetIfInfo(
         id=r.id,
         type=str(r.type),
@@ -133,7 +135,7 @@ def net_if_info(r) -> t.NetIfInfo:
     )
 
 
-def shared_dir_info(r) -> t.SharedDirInfo:
+def shared_dir_info(r: capnp.lib.capnp._DynamicStructReader) -> t.SharedDirInfo:
     return t.SharedDirInfo(
         id=r.id,
         path=r.path,
@@ -144,7 +146,7 @@ def shared_dir_info(r) -> t.SharedDirInfo:
     )
 
 
-def vm_details(r) -> t.VmDetails:
+def vm_details(r: capnp.lib.capnp._DynamicStructReader) -> t.VmDetails:
     return t.VmDetails(
         id=r.id,
         name=r.name,
@@ -177,7 +179,7 @@ def vm_details(r) -> t.VmDetails:
     )
 
 
-def vm_stats(r) -> t.VmStats:
+def vm_stats(r: capnp.lib.capnp._DynamicStructReader) -> t.VmStats:
     return t.VmStats(
         sampled_at_nanos=r.sampledAtNanos,
         interval_millis=r.intervalMillis,
@@ -191,7 +193,7 @@ def vm_stats(r) -> t.VmStats:
     )
 
 
-def drive_io(r) -> t.DriveIo:
+def drive_io(r: capnp.lib.capnp._DynamicStructReader) -> t.DriveIo:
     return t.DriveIo(
         name=r.name,
         read_bytes_total=r.readBytesTotal,
@@ -201,7 +203,7 @@ def drive_io(r) -> t.DriveIo:
     )
 
 
-def net_io(r) -> t.NetIo:
+def net_io(r: capnp.lib.capnp._DynamicStructReader) -> t.NetIo:
     return t.NetIo(
         tap_name=r.tapName,
         rx_bytes_total=r.rxBytesTotal,
@@ -209,7 +211,7 @@ def net_io(r) -> t.NetIo:
     )
 
 
-def guest_exec_result(r) -> t.GuestExecResult:
+def guest_exec_result(r: capnp.lib.capnp._DynamicStructReader) -> t.GuestExecResult:
     return t.GuestExecResult(
         exit_code=r.exitCode,
         stdout=r.stdout,
@@ -222,18 +224,20 @@ def guest_exec_result(r) -> t.GuestExecResult:
 # ---------------------------------------------------------------------------
 
 
-def disk_attachment(r) -> t.DiskAttachment:
+def disk_attachment(r: capnp.lib.capnp._DynamicStructReader) -> t.DiskAttachment:
     return t.DiskAttachment(vm=named_ref(r.vm))
 
 
-def disk_image_placement(r) -> t.DiskImagePlacement:
+def disk_image_placement(
+    r: capnp.lib.capnp._DynamicStructReader,
+) -> t.DiskImagePlacement:
     return t.DiskImagePlacement(
         node=named_ref(r.node),
         file_path=r.filePath,
     )
 
 
-def disk_image_info(r) -> t.DiskImageInfo:
+def disk_image_info(r: capnp.lib.capnp._DynamicStructReader) -> t.DiskImageInfo:
     return t.DiskImageInfo(
         id=r.id,
         name=r.name,
@@ -247,7 +251,7 @@ def disk_image_info(r) -> t.DiskImageInfo:
     )
 
 
-def snapshot_info(r) -> t.SnapshotInfo:
+def snapshot_info(r: capnp.lib.capnp._DynamicStructReader) -> t.SnapshotInfo:
     return t.SnapshotInfo(
         id=r.id,
         name=r.name,
@@ -259,7 +263,7 @@ def snapshot_info(r) -> t.SnapshotInfo:
     )
 
 
-def vm_snapshot_info(r) -> t.VmSnapshotInfo:
+def vm_snapshot_info(r: capnp.lib.capnp._DynamicStructReader) -> t.VmSnapshotInfo:
     return t.VmSnapshotInfo(
         name=r.name,
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
@@ -275,7 +279,7 @@ def vm_snapshot_info(r) -> t.VmSnapshotInfo:
 # ---------------------------------------------------------------------------
 
 
-def node_info(r) -> t.NodeInfo:
+def node_info(r: capnp.lib.capnp._DynamicStructReader) -> t.NodeInfo:
     return t.NodeInfo(
         id=r.id,
         name=r.name,
@@ -297,7 +301,7 @@ def node_info(r) -> t.NodeInfo:
     )
 
 
-def node_details(r) -> t.NodeDetails:
+def node_details(r: capnp.lib.capnp._DynamicStructReader) -> t.NodeDetails:
     return t.NodeDetails(
         id=r.id,
         name=r.name,
@@ -330,7 +334,7 @@ def node_details(r) -> t.NodeDetails:
 # ---------------------------------------------------------------------------
 
 
-def network_info(r) -> t.NetworkInfo:
+def network_info(r: capnp.lib.capnp._DynamicStructReader) -> t.NetworkInfo:
     return t.NetworkInfo(
         id=r.id,
         name=r.name,
@@ -354,11 +358,11 @@ def network_info(r) -> t.NetworkInfo:
 # ---------------------------------------------------------------------------
 
 
-def vm_attachment(r) -> t.VmAttachment:
+def vm_attachment(r: capnp.lib.capnp._DynamicStructReader) -> t.VmAttachment:
     return t.VmAttachment(vm=named_ref(r.vm))
 
 
-def ssh_key_info(r) -> t.SshKeyInfo:
+def ssh_key_info(r: capnp.lib.capnp._DynamicStructReader) -> t.SshKeyInfo:
     return t.SshKeyInfo(
         id=r.id,
         name=r.name,
@@ -373,7 +377,7 @@ def ssh_key_info(r) -> t.SshKeyInfo:
 # ---------------------------------------------------------------------------
 
 
-def template_vm_info(r) -> t.TemplateVmInfo:
+def template_vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateVmInfo:
     return t.TemplateVmInfo(
         id=r.id,
         name=r.name,
@@ -387,7 +391,7 @@ def template_vm_info(r) -> t.TemplateVmInfo:
     )
 
 
-def template_drive_info(r) -> t.TemplateDriveInfo:
+def template_drive_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDriveInfo:
     return t.TemplateDriveInfo(
         disk_image=named_ref_or_none(r.diskImage),
         interface=str(r.interface),
@@ -401,18 +405,24 @@ def template_drive_info(r) -> t.TemplateDriveInfo:
     )
 
 
-def template_net_if_info(r) -> t.TemplateNetIfInfo:
+def template_net_if_info(
+    r: capnp.lib.capnp._DynamicStructReader,
+) -> t.TemplateNetIfInfo:
     return t.TemplateNetIfInfo(
         type=str(r.type),
         host_device=_nz_text(r.hostDevice),
     )
 
 
-def template_ssh_key_info(r) -> t.TemplateSshKeyInfo:
+def template_ssh_key_info(
+    r: capnp.lib.capnp._DynamicStructReader,
+) -> t.TemplateSshKeyInfo:
     return t.TemplateSshKeyInfo(id=r.id, name=r.name)
 
 
-def template_shared_dir_info(r) -> t.TemplateSharedDirInfo:
+def template_shared_dir_info(
+    r: capnp.lib.capnp._DynamicStructReader,
+) -> t.TemplateSharedDirInfo:
     return t.TemplateSharedDirInfo(
         id=r.id,
         path=r.path,
@@ -422,7 +432,7 @@ def template_shared_dir_info(r) -> t.TemplateSharedDirInfo:
     )
 
 
-def template_details(r) -> t.TemplateDetails:
+def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetails:
     return t.TemplateDetails(
         id=r.id,
         name=r.name,
@@ -448,7 +458,7 @@ def template_details(r) -> t.TemplateDetails:
 # ---------------------------------------------------------------------------
 
 
-def task_info(r) -> t.TaskInfo:
+def task_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TaskInfo:
     return t.TaskInfo(
         id=r.id,
         parent_id=_nz_int(r.parentId),
@@ -468,11 +478,11 @@ def task_info(r) -> t.TaskInfo:
 # ---------------------------------------------------------------------------
 
 
-def apply_created(r) -> t.ApplyCreated:
+def apply_created(r: capnp.lib.capnp._DynamicStructReader) -> t.ApplyCreated:
     return t.ApplyCreated(name=r.name, id=r.id)
 
 
-def apply_result(r) -> t.ApplyResult:
+def apply_result(r: capnp.lib.capnp._DynamicStructReader) -> t.ApplyResult:
     return t.ApplyResult(
         ssh_keys=[apply_created(x) for x in r.sshKeys],
         disks=[apply_created(x) for x in r.disks],
@@ -487,7 +497,7 @@ def apply_result(r) -> t.ApplyResult:
 # ---------------------------------------------------------------------------
 
 
-def build_one_result(r) -> t.BuildOneResult:
+def build_one_result(r: capnp.lib.capnp._DynamicStructReader) -> t.BuildOneResult:
     return t.BuildOneResult(
         name=r.name,
         artifact_disk_id=_nz_int(r.artifactDiskId),
@@ -495,7 +505,7 @@ def build_one_result(r) -> t.BuildOneResult:
     )
 
 
-def build_event(r):
+def build_event(r: capnp.lib.capnp._DynamicStructReader) -> t.BuildEvent:
     """BuildEvent is a union; dispatch on the `which()` discriminator."""
     which = r.which()
     if which == "logLine":
@@ -535,7 +545,7 @@ def build_event(r):
     raise ValueError(f"unknown BuildEvent variant: {which!r}")
 
 
-def apply_event(r):
+def apply_event(r: capnp.lib.capnp._DynamicStructReader) -> t.ApplyEvent:
     """ApplyEvent is a union; dispatch on the ``which()`` discriminator."""
     which = r.which()
     if which == "logLine":
@@ -582,7 +592,7 @@ def apply_event(r):
     raise ValueError(f"unknown ApplyEvent variant: {which!r}")
 
 
-def guest_agent_status(r) -> t.GuestAgentStatus:
+def guest_agent_status(r: capnp.lib.capnp._DynamicStructReader) -> t.GuestAgentStatus:
     return t.GuestAgentStatus(
         vm_id=r.vmId,
         last_healthcheck=_ts(r.lastHealthcheck),
@@ -592,7 +602,7 @@ def guest_agent_status(r) -> t.GuestAgentStatus:
     )
 
 
-def task_progress_event(r):
+def task_progress_event(r: capnp.lib.capnp._DynamicStructReader) -> t.TaskProgressEvent:
     """TaskProgressEvent is a union over started / progress / finished."""
     which = r.which()
     if which == "started":

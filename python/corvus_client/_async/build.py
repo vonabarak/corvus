@@ -12,10 +12,12 @@ from __future__ import annotations
 import base64
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+
+import capnp
 
 import yaml
 
+from .. import types
 from .disk import AsyncDiskManager
 from .streams import stream_build_events
 
@@ -32,7 +34,7 @@ def _read_bytes(base_dir: Path, rel: str) -> bytes:
         return f.read()
 
 
-def _rewrite_shell(prov: dict, base_dir: Path) -> None:
+def _rewrite_shell(prov: dict[str, object], base_dir: Path) -> None:
     sh = prov.get("shell")
     if not isinstance(sh, dict):
         return
@@ -41,7 +43,7 @@ def _rewrite_shell(prov: dict, base_dir: Path) -> None:
         sh["inline"] = _read_text(base_dir, script)
 
 
-def _rewrite_file(prov: dict, base_dir: Path) -> None:
+def _rewrite_file(prov: dict[str, object], base_dir: Path) -> None:
     fl = prov.get("file")
     if not isinstance(fl, dict):
         return
@@ -77,13 +79,13 @@ def preprocess_build_yaml(yaml_path: str) -> str:
 
 
 async def stream_build_from_file(
-    daemon,
+    daemon: capnp.lib.capnp._DynamicCapabilityClient,
     yaml_path: str,
     *,
     use_cache: bool = False,
     build_cache: bool = False,
     rebuild_from: int = 0,
-) -> AsyncIterator[Any]:
+) -> AsyncIterator[types.BuildStreamItem]:
     """Run `Daemon.build` on a preprocessed YAML file.
 
     Yields `BuildEvent` dataclasses as they arrive, followed by a final
@@ -95,8 +97,8 @@ async def stream_build_from_file(
     if isinstance(doc, dict):
         steps = doc.get("pipeline")
         if isinstance(steps, list):
-            uploads: list[dict[str, Any]] = []
-            rest: list[Any] = []
+            uploads: list[dict[str, object]] = []
+            rest: list[object] = []
             seen_non_upload = False
             for step in steps:
                 if isinstance(step, dict) and isinstance(step.get("upload"), dict):
@@ -132,13 +134,24 @@ async def stream_build_from_file(
                         raise ValueError(
                             "upload.ifExists must be 'error' or 'overwrite'"
                         )
+                    upload_path = upload.get("path")
+                    if upload_path is not None and not isinstance(upload_path, str):
+                        raise ValueError("upload.path must be a string")
+                    ephemeral = upload.get("ephemeral", True)
+                    if not isinstance(ephemeral, bool):
+                        raise ValueError("upload.ephemeral must be a boolean")
+                    node = upload.get("node")
+                    if node is not None and (
+                        isinstance(node, bool) or not isinstance(node, (int, str))
+                    ):
+                        raise ValueError("upload.node must be an integer or string")
                     await disks.upload_from_file(
                         name,
                         source_path,
                         format=format,
-                        path=upload.get("path"),
-                        ephemeral=upload.get("ephemeral", True),
-                        node=upload.get("node"),
+                        path=upload_path,
+                        ephemeral=ephemeral,
+                        node=node,
                         overwrite=upload.get("ifExists") == "overwrite",
                     )
                 doc["pipeline"] = rest

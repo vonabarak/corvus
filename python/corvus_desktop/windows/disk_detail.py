@@ -8,7 +8,7 @@ shrink with a clear error that we route through ``operation_failed``).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import DiskImageInfo, SnapshotInfo
 from PySide6.QtCore import Qt, Signal
@@ -179,7 +179,7 @@ class DiskDetailWidget(QWidget):
 
     # ---------------------------------------------------- bridge slots
 
-    def _on_detail(self, info: Any) -> None:
+    def _on_detail(self, info: DiskImageInfo) -> None:
         if not isinstance(info, DiskImageInfo) or info.id != self._disk_id:
             return
         self._size_mb = info.size_mb
@@ -200,7 +200,7 @@ class DiskDetailWidget(QWidget):
         # surface any rejection.
         self._btn_resize.setEnabled(True)
 
-    def _on_snapshots(self, disk_id: int, snaps: Any) -> None:
+    def _on_snapshots(self, disk_id: int, snaps: list[SnapshotInfo]) -> None:
         if disk_id != self._disk_id:
             return
         self._fill_snapshots(snaps)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import pytest
 from corvus_client.types import (
@@ -12,8 +12,10 @@ from corvus_client.types import (
     BuildStepOutput,
     BuildStepStart,
 )
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.windows.build import BuildWidget, preprocess_build_yaml
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 import yaml
 
@@ -37,8 +39,10 @@ def bridge() -> _MockBridge:
     return _MockBridge()
 
 
-def test_build_widget_calls_bridge_on_run(qapp: Any, bridge: _MockBridge) -> None:
-    w = BuildWidget(bridge)
+def test_build_widget_calls_bridge_on_run(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    w = BuildWidget(cast(CorvusBridge, bridge))
     try:
         w._editor.set_text("pipeline: []\n")
         w._run_btn.click()
@@ -47,8 +51,10 @@ def test_build_widget_calls_bridge_on_run(qapp: Any, bridge: _MockBridge) -> Non
         w.deleteLater()
 
 
-def test_build_widget_appends_step_sections(qapp: Any, bridge: _MockBridge) -> None:
-    w = BuildWidget(bridge)
+def test_build_widget_appends_step_sections(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    w = BuildWidget(cast(CorvusBridge, bridge))
     try:
         bridge.build_event.emit(
             BuildStepStart(step_index=0, name="apt-get", command="apt-get install ...")
@@ -67,8 +73,10 @@ def test_build_widget_appends_step_sections(qapp: Any, bridge: _MockBridge) -> N
         w.deleteLater()
 
 
-def test_build_widget_invalid_yaml_disables_run(qapp: Any, bridge: _MockBridge) -> None:
-    w = BuildWidget(bridge)
+def test_build_widget_invalid_yaml_disables_run(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    w = BuildWidget(cast(CorvusBridge, bridge))
     try:
         w._editor.set_text("pipeline: [unterminated\n")
         assert not w._run_btn.isEnabled()
@@ -78,8 +86,10 @@ def test_build_widget_invalid_yaml_disables_run(qapp: Any, bridge: _MockBridge) 
         w.deleteLater()
 
 
-def test_build_widget_finish_resets_button(qapp: Any, bridge: _MockBridge) -> None:
-    w = BuildWidget(bridge)
+def test_build_widget_finish_resets_button(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    w = BuildWidget(cast(CorvusBridge, bridge))
     try:
         w._run_btn.setEnabled(False)
         bridge.build_finished.emit("")

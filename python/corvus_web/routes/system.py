@@ -8,11 +8,12 @@ probes in front of the gateway.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends
 
 from ..deps import get_client
+from ..lib import JsonObject
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -35,7 +36,7 @@ async def ping(client: ClientDep) -> dict[str, str]:
 
 
 @router.get("/status")
-async def status(client: ClientDep) -> dict[str, Any]:
+async def status(client: ClientDep) -> JsonObject:
     """Daemon uptime, connection count, version, protocol, and database info.
 
     Mirrors ``crv status`` (see src/Corvus/Client/Commands/*.hs)."""

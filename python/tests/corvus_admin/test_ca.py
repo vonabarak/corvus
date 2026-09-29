@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import datetime as dt
 import ipaddress
+from typing import cast
 
 import pytest
-from corvus_admin import ca
+from corvus_admin import ca, store
 from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
-def test_init_ca_creates_cert_and_key(admin_store):
+def test_init_ca_creates_cert_and_key(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     assert admin_store.ca_cert_path.is_file()
     assert admin_store.ca_key_path.is_file()
@@ -19,13 +21,13 @@ def test_init_ca_creates_cert_and_key(admin_store):
     assert mode == 0o600, f"expected 0600, got {oct(mode)}"
 
 
-def test_init_ca_is_idempotent_without_force(admin_store):
+def test_init_ca_is_idempotent_without_force(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     with pytest.raises(FileExistsError):
         ca.init_ca(admin_store)
 
 
-def test_init_ca_overwrites_when_force(admin_store):
+def test_init_ca_overwrites_when_force(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     first = admin_store.ca_cert_path.read_bytes()
     ca.init_ca(admin_store, force=True)
@@ -33,7 +35,7 @@ def test_init_ca_overwrites_when_force(admin_store):
     assert first != second
 
 
-def test_issued_cert_has_expected_cn_and_san(admin_store):
+def test_issued_cert_has_expected_cn_and_san(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     issued = ca.issue_cert(
         admin_store,
@@ -50,7 +52,7 @@ def test_issued_cert_has_expected_cn_and_san(admin_store):
     assert ipaddress.ip_address("10.0.0.10") in ips
 
 
-def test_issued_cert_validates_against_the_ca(admin_store):
+def test_issued_cert_validates_against_the_ca(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     issued = ca.issue_cert(
         admin_store,
@@ -63,13 +65,13 @@ def test_issued_cert_validates_against_the_ca(admin_store):
     # The cert's signature is verifiable against the CA's public
     # key. For Ed25519 we use the bytes interface and let the
     # algorithm pick itself based on the cert's signing algorithm.
-    ca_cert.public_key().verify(
+    cast(Ed25519PublicKey, ca_cert.public_key()).verify(
         cert.signature,
         cert.tbs_certificate_bytes,
     )
 
 
-def test_issued_cert_records_get_indexed(admin_store):
+def test_issued_cert_records_get_indexed(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     ca.issue_cert(admin_store, role=ca.ROLE_NODE, name="alpha", ip="10.0.0.21")
     ca.issue_cert(admin_store, role=ca.ROLE_NETD, name="alpha", ip="10.0.0.21")
@@ -77,7 +79,7 @@ def test_issued_cert_records_get_indexed(admin_store):
     assert cns == {"corvus-node:alpha", "corvus-netd:alpha"}
 
 
-def test_serial_increments_monotonically(admin_store):
+def test_serial_increments_monotonically(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     r1 = ca.issue_cert(admin_store, role=ca.ROLE_NODE, name="a", ip=None)
     r2 = ca.issue_cert(admin_store, role=ca.ROLE_NODE, name="b", ip=None)
@@ -86,19 +88,19 @@ def test_serial_increments_monotonically(admin_store):
     assert r3.record.serial == r2.record.serial + 1
 
 
-def test_issue_cert_rejects_bad_role(admin_store):
+def test_issue_cert_rejects_bad_role(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     with pytest.raises(ValueError):
         ca.issue_cert(admin_store, role="corvus-nope", name="x", ip=None)
 
 
-def test_issue_cert_rejects_colon_in_name(admin_store):
+def test_issue_cert_rejects_colon_in_name(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     with pytest.raises(ValueError):
         ca.issue_cert(admin_store, role=ca.ROLE_NODE, name="a:b", ip=None)
 
 
-def test_cert_expiry_uses_default_lifetime(admin_store):
+def test_cert_expiry_uses_default_lifetime(admin_store: store.AdminStore) -> None:
     ca.init_ca(admin_store)
     issued = ca.issue_cert(admin_store, role=ca.ROLE_CLIENT, name="alice", ip=None)
     cert = x509.load_pem_x509_certificate(issued.cert_pem)
@@ -110,7 +112,9 @@ def test_cert_expiry_uses_default_lifetime(admin_store):
     assert dt.timedelta(days=364) <= delta <= dt.timedelta(days=366)
 
 
-def test_atomic_write_leaves_no_tmp_file(admin_store, monkeypatch):
+def test_atomic_write_leaves_no_tmp_file(
+    admin_store: store.AdminStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Smoke test that a normal init doesn't leave a *.tmp turd."""
     ca.init_ca(admin_store)
     tmp_keys = list(admin_store.root.glob("*.tmp"))

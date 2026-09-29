@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from types import ModuleType
 
 import capnp
 
@@ -49,18 +49,17 @@ def _resolve_schema_dir() -> Path:
 SCHEMA_DIR: Path = _resolve_schema_dir()
 
 
-def _load_all() -> dict[str, Any]:
+def _load_all() -> dict[str, ModuleType]:
     # Each value is whatever pycapnp returns from `capnp.load(...)`:
     # a runtime-generated module-like object whose attributes are the
-    # schema's top-level types. Typed as `Any` so attribute access
-    # like `_schema.vm.VmCreateParams` doesn't need a stub per type.
+    # schema's top-level types.
     if not SCHEMA_DIR.is_dir():
         raise RuntimeError(
             f"corvus_client: schema directory not found at {SCHEMA_DIR}. "
             "Set CORVUS_SCHEMA_DIR or run `make python-schema-sync`."
         )
     imports = [str(SCHEMA_DIR)]
-    modules: dict[str, Any] = {}
+    modules: dict[str, ModuleType] = {}
     for fname in _SCHEMA_FILES:
         path = SCHEMA_DIR / fname
         if not path.is_file():
@@ -72,18 +71,17 @@ def _load_all() -> dict[str, Any]:
 
 _MODULES = _load_all()
 
-# Per-schema module attributes — typed Any for the same reason as
-# the dict values above.
-common: Any = _MODULES["common"]
-enums: Any = _MODULES["enums"]
-streams: Any = _MODULES["streams"]
-cloudinit: Any = _MODULES["cloudinit"]
-sshkey: Any = _MODULES["sshkey"]
-task: Any = _MODULES["task"]
-network: Any = _MODULES["network"]
-disk: Any = _MODULES["disk"]
-template: Any = _MODULES["template"]
-vm: Any = _MODULES["vm"]
-node: Any = _MODULES["node"]
-corvus: Any = _MODULES["corvus"]
-netagent: Any = _MODULES["netagent"]
+# Per-schema module attributes.
+common: ModuleType = _MODULES["common"]
+enums: ModuleType = _MODULES["enums"]
+streams: ModuleType = _MODULES["streams"]
+cloudinit: ModuleType = _MODULES["cloudinit"]
+sshkey: ModuleType = _MODULES["sshkey"]
+task: ModuleType = _MODULES["task"]
+network: ModuleType = _MODULES["network"]
+disk: ModuleType = _MODULES["disk"]
+template: ModuleType = _MODULES["template"]
+vm: ModuleType = _MODULES["vm"]
+node: ModuleType = _MODULES["node"]
+corvus: ModuleType = _MODULES["corvus"]
+netagent: ModuleType = _MODULES["netagent"]

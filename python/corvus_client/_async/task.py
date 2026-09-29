@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+import builtins
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
+
+import capnp
+
 from .. import _schema
+from .. import types as t
 from ..exceptions import translate_errors
 from . import _convert as conv
+
+if TYPE_CHECKING:
+    from .streams import TaskProgressSubscription
 
 
 @translate_errors
 class AsyncTaskManager:
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.tasks()).mgr
         return self._mgr
@@ -26,7 +36,7 @@ class AsyncTaskManager:
         entity_id: int | None = None,
         result: str | None = None,
         include_subtasks: bool = False,
-    ):
+    ) -> list[t.TaskInfo]:
         mgr = await self._ensure()
         params = _schema.task.TaskListParams.new_message()
         if limit is not None:
@@ -48,7 +58,7 @@ class AsyncTaskManager:
         resp = await mgr.get(taskId=task_id)
         return AsyncTask(resp.task)
 
-    async def list_children(self, parent_id: int):
+    async def list_children(self, parent_id: int) -> builtins.list[t.TaskInfo]:
         mgr = await self._ensure()
         resp = await mgr.listChildren(parentId=parent_id)
         return [conv.task_info(t) for t in resp.tasks]
@@ -62,7 +72,11 @@ class AsyncTaskManager:
         mgr = await self._ensure()
         await mgr.cancel(taskId=task_id)
 
-    async def subscribe(self, task_id: int, on_event):
+    async def subscribe(
+        self,
+        task_id: int,
+        on_event: Callable[[t.TaskProgressEvent], Awaitable[None]],
+    ) -> TaskProgressSubscription:
         """Subscribe to live progress events for the given task.
 
         `on_event` is an async callable invoked with each
@@ -77,9 +91,9 @@ class AsyncTaskManager:
 
 @translate_errors
 class AsyncTask:
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
-    async def show(self):
+    async def show(self) -> t.TaskInfo:
         resp = await self._cap.show()
         return conv.task_info(resp.info)

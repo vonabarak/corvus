@@ -11,14 +11,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError, VmNotFound
+from corvus_client.types import GuestAgentStatus, VmStats
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -31,13 +32,13 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("")
-async def list_vms(client: ClientDep) -> list[dict[str, Any]]:
+async def list_vms(client: ClientDep) -> list[JsonObject]:
     """List every VM. Mirrors ``crv vm list``."""
     vms = await client.vms.list()
     return [to_dict(v) for v in vms]
 
 
-class VmCreateBody(BaseModel):
+class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
     """Mirrors corvus_client.AsyncVmManager.create kwargs.
 
     `node` accepts a node name or numeric id as a string — the daemon's
@@ -67,7 +68,7 @@ class VmCreateBody(BaseModel):
 
 
 @router.post("")
-async def create_vm(body: VmCreateBody, client: ClientDep) -> dict[str, Any]:
+async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
     """Create a bare VM record. Drives, NICs, SSH keys, cloud-init are
     attached after the fact (or in one shot via /api/apply). Returns
     the new VM's detail payload so the frontend can route straight to
@@ -96,7 +97,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> dict[str, Any]:
 
 
 @router.get("/{vm_id}")
-async def get_vm(vm_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_vm(vm_id: int, client: ClientDep) -> JsonObject:
     """Full detail view. Mirrors ``crv vm show <id>``."""
     try:
         vm = await client.vms.get(vm_id)
@@ -197,7 +198,7 @@ async def delete_vm(
 
 
 @router.get("/{vm_id}/cloud-init")
-async def get_cloud_init(vm_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_cloud_init(vm_id: int, client: ClientDep) -> JsonObject:
     """Read the VM's effective cloud-init config (user-data,
     network-config, inject_ssh_keys flag). Mirrors ``crv cloud-init
     show <vm>``. Editing lands with the YAML-editor slice."""
@@ -226,7 +227,7 @@ def _coerce_ref(ref: str) -> int | str:
         return ref
 
 
-class DriveAttachBody(BaseModel):
+class DriveAttachBody(BaseModel):  # type: ignore[explicit-any]
     """Mirrors corvus_client.AsyncVm.attach_disk kwargs.
 
     ``disk_ref`` is a disk id or name (the daemon resolves both via
@@ -282,7 +283,7 @@ async def detach_drive(vm_id: int, drive_id: int, client: ClientDep) -> dict[str
     return {"status": "detached"}
 
 
-class NetIfAddBody(BaseModel):
+class NetIfAddBody(BaseModel):  # type: ignore[explicit-any]
     """Mirrors corvus_client.AsyncVm.add_net_if kwargs.
 
     All fields are optional — the schema's defaults model the
@@ -344,14 +345,14 @@ async def remove_net_if(
     return {"status": "removed"}
 
 
-class SshKeyAttachBody(BaseModel):
+class SshKeyAttachBody(BaseModel):  # type: ignore[explicit-any]
     """SSH-key attach body. ``key_ref`` accepts id or name."""
 
     key_ref: str = Field(..., min_length=1)
 
 
 @router.get("/{vm_id}/ssh-keys")
-async def list_vm_ssh_keys(vm_id: int, client: ClientDep) -> list[dict[str, Any]]:
+async def list_vm_ssh_keys(vm_id: int, client: ClientDep) -> list[JsonObject]:
     """SSH keys attached to this VM. The VmDetails payload doesn't
     carry the list, so the SSH-keys card on VmDetail fetches this
     separately."""
@@ -515,9 +516,9 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
         await ws.close(code=1008, reason="VM not found")
         return
 
-    queue: asyncio.Queue[Any] = asyncio.Queue()
+    queue: asyncio.Queue[GuestAgentStatus] = asyncio.Queue()
 
-    async def on_event(status: Any) -> None:
+    async def on_event(status: GuestAgentStatus) -> None:
         await queue.put(status)
 
     try:
@@ -567,8 +568,8 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
 @router.get("/{vm_id}/stats/history")
 async def vm_stats_history(
     vm_id: int,
-    client: Annotated[Any, Depends(get_client)],
-) -> list[dict[str, Any]]:
+    client: ClientDep,
+) -> list[JsonObject]:
     """Return the daemon's stats ring buffer for one VM (up to 60
     samples, oldest first). Empty when the VM is stopped or has
     not been polled yet."""
@@ -594,9 +595,9 @@ async def vm_stats_ws(ws: WebSocket, vm_id: int) -> None:
         await ws.close(code=1008, reason="VM not found")
         return
 
-    queue: asyncio.Queue[Any] = asyncio.Queue()
+    queue: asyncio.Queue[VmStats] = asyncio.Queue()
 
-    async def on_event(stats: Any) -> None:
+    async def on_event(stats: VmStats) -> None:
         await queue.put(stats)
 
     try:

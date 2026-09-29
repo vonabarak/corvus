@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from corvus_client.types import VmInfo
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    Qt,
+)
 
 _INVALID_PARENT: QModelIndex = QModelIndex()
 
@@ -37,7 +41,7 @@ class VmTableModel(QAbstractTableModel):
     COL_FLAGS = 5
     COLS: tuple[str, ...] = ("Name", "Node", "Status", "CPU", "RAM (MB)", "Flags")
 
-    def __init__(self, parent: Any = None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._vms: list[VmInfo] = []
 
@@ -68,7 +72,7 @@ class VmTableModel(QAbstractTableModel):
         section: int,
         orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | None:
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
@@ -81,7 +85,7 @@ class VmTableModel(QAbstractTableModel):
         self,
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | int | None:
         if not index.isValid():
             return None
         vm = self.vm_at(index.row())

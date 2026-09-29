@@ -8,8 +8,12 @@ Every public method calls into the async core via
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from types import TracebackType
+from typing import Generic, TypeVar, cast
 
+from .. import types as t
 from .._async.client import AsyncClient
 from .._runloop import SyncRunloop
 from .cloudinit import SyncCloudInitManager
@@ -77,10 +81,15 @@ class Client:
     def __enter__(self) -> Client:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         try:
             self.close()
         except Exception:
@@ -91,16 +100,20 @@ class Client:
     def ping(self) -> None:
         return self._rl.run(self._a.ping())
 
-    def status(self):
+    def status(self) -> t.StatusInfo:
         return self._rl.run(self._a.status())
 
     def shutdown(self) -> None:
         return self._rl.run(self._a.shutdown())
 
-    def apply(self, yaml: str, *, skip_existing: bool = False, wait: bool = False):
+    def apply(
+        self, yaml: str, *, skip_existing: bool = False, wait: bool = False
+    ) -> tuple[t.ApplyResult, int]:
         return self._rl.run(self._a.apply(yaml, skip_existing=skip_existing, wait=wait))
 
-    def apply_stream(self, yaml: str, *, skip_existing: bool = False):
+    def apply_stream(
+        self, yaml: str, *, skip_existing: bool = False
+    ) -> Iterator[t.ApplyStreamItem]:
         """Iterate :class:`ApplyEvent` payloads on the calling thread.
 
         Mirrors :meth:`build_stream_text`. Yields ``ApplyEvent``
@@ -119,7 +132,7 @@ class Client:
         use_cache: bool = False,
         build_cache: bool = False,
         rebuild_from: int = 0,
-    ):
+    ) -> Iterator[t.BuildStreamItem]:
         """Iterate build events from a YAML pipeline file.
 
         Each call to `next()` drives the background loop until the next
@@ -142,7 +155,7 @@ class Client:
         use_cache: bool = False,
         build_cache: bool = False,
         rebuild_from: int = 0,
-    ):
+    ) -> Iterator[t.BuildStreamItem]:
         agen = self._a.build_stream_text(
             yaml_text,
             use_cache=use_cache,
@@ -152,18 +165,21 @@ class Client:
         return _SyncIterator(agen, self._rl)
 
 
-class _SyncIterator:
+T = TypeVar("T")
+
+
+class _SyncIterator(Generic[T], Iterator[T]):
     """Wrap an async generator as a sync iterator via the runloop."""
 
-    def __init__(self, agen, runloop: SyncRunloop):
+    def __init__(self, agen: AsyncIterator[T], runloop: SyncRunloop) -> None:
         self._agen = agen
         self._rl = runloop
 
-    def __iter__(self):
+    def __iter__(self) -> _SyncIterator[T]:
         return self
 
-    def __next__(self):
-        async def _step():
+    def __next__(self) -> T:
+        async def _step() -> T | object:
             try:
                 return await self._agen.__anext__()
             except StopAsyncIteration:
@@ -172,7 +188,7 @@ class _SyncIterator:
         result = self._rl.run(_step())
         if result is _STOP:
             raise StopIteration
-        return result
+        return cast(T, result)
 
 
 _STOP = object()

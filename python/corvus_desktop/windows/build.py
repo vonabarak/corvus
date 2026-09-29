@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import base64
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import (
     BuildBuildEnd,
@@ -265,7 +265,15 @@ class BuildWidget(QWidget):
         self._run_btn.setEnabled(False)
         self._bridge.build_run(yaml_text, base_dir)
 
-    def _on_event(self, event: Any) -> None:
+    def _on_event(
+        self,
+        event: BuildBuildEnd
+        | BuildLogLine
+        | BuildPipelineEnd
+        | BuildStepEnd
+        | BuildStepOutput
+        | BuildStepStart,
+    ) -> None:
         if isinstance(event, BuildStepStart):
             new_section = _StepSection(event.step_index, event.name, event.command)
             self._sections[event.step_index] = new_section

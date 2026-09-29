@@ -14,16 +14,25 @@ of doc/plans/corvus-desktop.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from corvus_client.exceptions import ConnectError
+from corvus_client.types import (
+    TaskInfo,
+    TaskProgressFinished,
+    TaskProgressProgress,
+    TaskProgressStarted,
+)
 from corvus_desktop import client_bridge
 from corvus_desktop.cli import DesktopConfig
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtTest import QSignalSpy
+from PySide6.QtWidgets import QApplication
 
 # --------------------------------------------------------------- test config
 
@@ -97,16 +106,29 @@ class _FakeTaskManager:
     """Stand-in for ``client.tasks`` — enough surface for bridge tests."""
 
     def __init__(self) -> None:
-        self.list_calls: list[dict[str, Any]] = []
-        self.list_return: list[Any] = []
+        self.list_calls: list[dict[str, str | int | None]] = []
+        self.list_return: list[TaskInfo] = []
         self.subscriptions: dict[int, _FakeTaskSubscription] = {}
-        self.subscribe_callbacks: dict[int, Any] = {}
+        self.subscribe_callbacks: dict[
+            int,
+            Callable[
+                [TaskProgressStarted | TaskProgressProgress | TaskProgressFinished],
+                Coroutine[object, object, None],
+            ],
+        ] = {}
 
-    async def list(self, **kwargs: Any) -> list[Any]:
+    async def list(self, **kwargs: str | int | None) -> list[TaskInfo]:
         self.list_calls.append(kwargs)
         return list(self.list_return)
 
-    async def subscribe(self, task_id: int, on_event: Any) -> _FakeTaskSubscription:
+    async def subscribe(
+        self,
+        task_id: int,
+        on_event: Callable[
+            [TaskProgressStarted | TaskProgressProgress | TaskProgressFinished],
+            Coroutine[object, object, None],
+        ],
+    ) -> _FakeTaskSubscription:
         sub = _FakeTaskSubscription()
         self.subscriptions[task_id] = sub
         self.subscribe_callbacks[task_id] = on_event
@@ -123,7 +145,7 @@ class _FakeAsyncClient:
 
     instances: ClassVar[list[_FakeAsyncClient]] = []
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: str | int | bool | Path | None) -> None:
         self.init_kwargs = kwargs
         self.status_calls = 0
         self.tasks = _FakeTaskManager()
@@ -151,7 +173,7 @@ class _FailingAsyncClient:
     """Stub that fails its TLS handshake / connect — exercises
     ``connection_failed`` emission path."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: str | int | bool | Path | None) -> None:
         pass
 
     async def __aenter__(self) -> _FailingAsyncClient:
@@ -185,7 +207,7 @@ def failing_client(monkeypatch: pytest.MonkeyPatch) -> type[_FailingAsyncClient]
 
 
 def test_bridge_connects_and_returns_status(
-    qapp: Any, fake_client: type[_FakeAsyncClient]
+    qapp: QApplication, fake_client: type[_FakeAsyncClient]
 ) -> None:
     """Happy path: start → connected → request_status → status_ready."""
     bridge = client_bridge.CorvusBridge(_config())
@@ -217,7 +239,7 @@ def test_bridge_connects_and_returns_status(
 
 
 def test_bridge_emits_connection_failed(
-    qapp: Any, failing_client: type[_FailingAsyncClient]
+    qapp: QApplication, failing_client: type[_FailingAsyncClient]
 ) -> None:
     """``__aenter__`` raising ``CorvusError`` → ``connection_failed``."""
     bridge = client_bridge.CorvusBridge(_config())
@@ -237,7 +259,7 @@ def test_bridge_emits_connection_failed(
 
 
 def test_request_before_connect_is_safe(
-    qapp: Any, fake_client: type[_FakeAsyncClient]
+    qapp: QApplication, fake_client: type[_FakeAsyncClient]
 ) -> None:
     """A slot called before ``connected`` fires drops the request
     rather than raising. The GUI shouldn't crash if the user clicks
@@ -256,7 +278,7 @@ def test_request_before_connect_is_safe(
 
 
 def test_request_task_list_returns_results(
-    qapp: Any, fake_client: type[_FakeAsyncClient]
+    qapp: QApplication, fake_client: type[_FakeAsyncClient]
 ) -> None:
     """``request_task_list`` → ``task_list_ready`` carries the daemon's reply."""
     bridge = client_bridge.CorvusBridge(_config())
@@ -266,11 +288,21 @@ def test_request_task_list_returns_results(
     try:
         assert _pump_until(lambda: connected_spy.count() > 0)
         # Seed the fake's return value before requesting.
-        fake_client.instances[0].tasks.list_return = [{"id": 1}, {"id": 2}]
+        tasks = [
+            TaskInfo(
+                id=i,
+                started_at=datetime.now(timezone.utc),
+                subsystem="vm",
+                command="start",
+                result="running",
+            )
+            for i in (1, 2)
+        ]
+        fake_client.instances[0].tasks.list_return = tasks
         bridge.request_task_list(limit=10, subsystem="vm", result=None)
         assert _pump_until(lambda: list_spy.count() > 0)
         payload = list_spy.at(0)[0]
-        assert payload == [{"id": 1}, {"id": 2}]
+        assert payload == tasks
         kwargs = fake_client.instances[0].tasks.list_calls[0]
         assert kwargs == {"limit": 10, "subsystem": "vm", "result": None}
     finally:
@@ -278,7 +310,7 @@ def test_request_task_list_returns_results(
 
 
 def test_subscribe_task_pipes_events_to_signal(
-    qapp: Any, fake_client: type[_FakeAsyncClient]
+    qapp: QApplication, fake_client: type[_FakeAsyncClient]
 ) -> None:
     """Events delivered to the subscription callback should fan out as
     ``task_event`` signals tagged with the task id."""
@@ -301,13 +333,14 @@ def test_subscribe_task_pipes_events_to_signal(
         # The callback is an async function on the worker loop; drive
         # it via run_coroutine_threadsafe so it runs in the right
         # context (where the signal emission is wired).
-        fut = _asyncio.run_coroutine_threadsafe(cb({"sentinel": "started"}), loop)
+        event = TaskProgressStarted(task_id=42, command="start", subsystem="vm")
+        fut = _asyncio.run_coroutine_threadsafe(cb(event), loop)
         fut.result(timeout=5)
 
         assert _pump_until(lambda: events_spy.count() > 0)
         task_id, payload = events_spy.at(0)[0], events_spy.at(0)[1]
         assert task_id == 42
-        assert payload == {"sentinel": "started"}
+        assert payload == event
 
         bridge.unsubscribe_task(42)
         assert _pump_until(lambda: client.tasks.subscriptions[42].closed)
@@ -316,7 +349,7 @@ def test_subscribe_task_pipes_events_to_signal(
 
 
 def test_pause_resume_subscriptions_round_trip(
-    qapp: Any, fake_client: type[_FakeAsyncClient]
+    qapp: QApplication, fake_client: type[_FakeAsyncClient]
 ) -> None:
     """Pause drops every live task sub; resume re-establishes them."""
     bridge = client_bridge.CorvusBridge(_config())
@@ -352,7 +385,9 @@ def test_pause_resume_subscriptions_round_trip(
         bridge.shutdown(timeout=5.0)
 
 
-def test_shutdown_is_idempotent(qapp: Any, fake_client: type[_FakeAsyncClient]) -> None:
+def test_shutdown_is_idempotent(
+    qapp: QApplication, fake_client: type[_FakeAsyncClient]
+) -> None:
     """``shutdown()`` may be called twice (e.g. once on aboutToQuit
     and once in a finally)."""
     bridge = client_bridge.CorvusBridge(_config())

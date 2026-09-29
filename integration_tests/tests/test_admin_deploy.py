@@ -49,12 +49,14 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from corvus_test_harness import Crv, HostBinary, ImageReady
 from corvus_test_harness.cases import IntegrationTestCase, state_for
 from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
-from corvus_test_harness.topology import NodeRole, Topology
+from corvus_test_harness.topology import NodeRole, TestNode, Topology
 
 # Where the harness mounts the host's repo when ``attach_source=True``.
 SRC_MOUNT = "/mnt/corvus"
@@ -66,13 +68,13 @@ NODE_USER = "corvus"
 
 
 def _run(
-    node,
+    node: TestNode,
     cmd: str,
     *,
     user: str = NODE_USER,
     check: bool = True,
     timeout_sec: float = 120.0,
-):
+) -> subprocess.CompletedProcess[bytes]:
     """``node.run`` wrapper that decodes stdout/stderr."""
     cp = node.run(cmd, user=user, check=check, timeout_sec=timeout_sec)
     return cp
@@ -87,13 +89,13 @@ def _user_env_prefix() -> str:
 
 
 def _shrun(
-    node,
+    node: TestNode,
     body: str,
     *,
     user: str = NODE_USER,
     check: bool = True,
     timeout_sec: float = 120.0,
-):
+) -> subprocess.CompletedProcess[bytes]:
     full = _user_env_prefix() + body
     return _run(
         node,
@@ -105,13 +107,13 @@ def _shrun(
 
 
 def _admin(
-    node,
+    node: TestNode,
     *args: str,
     ca_dir: Path,
     xdg_home: Path,
     check: bool = True,
     timeout_sec: float = 30.0,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[bytes]:
     """Invoke ``corvus-admin`` as a subprocess on the test node."""
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(xdg_home)
@@ -134,17 +136,17 @@ def _admin(
     )
 
 
-def _stdout_text(cp):
+def _stdout_text(cp: subprocess.CompletedProcess[bytes]) -> str:
     """Decode stdout from a CompletedProcess, ignoring errors."""
     return cp.stdout.decode(errors="replace")
 
 
-def node_user_for(_node):
+def node_user_for(_node: TestNode) -> str:
     """The user that runs corvus-admin on the test node."""
     return NODE_USER
 
 
-def _test_subdir(node, name):
+def _test_subdir(node: TestNode, name: str) -> str:
     """Create a unique per-test subdirectory on the test node."""
     cp = _run(node, "mktemp -d", user=NODE_USER)
     result_dir = cp.stdout.decode().strip()
@@ -153,7 +155,7 @@ def _test_subdir(node, name):
     return result_dir
 
 
-def _remote_mkdir(node, path: str):
+def _remote_mkdir(node: TestNode, path: str) -> None:
     """Create a directory on the test node."""
     _run(node, f"mkdir -p {path}", user=NODE_USER)
 
@@ -172,11 +174,17 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
 
     @pytest.fixture(scope="class", autouse=True)
     def _class_topology(
-        self, request, crv, image_ready, host_binary, session_test_network
-    ):
+        self,
+        request: pytest.FixtureRequest,
+        crv: Crv,
+        image_ready: ImageReady,
+        host_binary: HostBinary,
+        session_test_network: str,
+    ) -> Iterator[None]:
         cls = request.cls
+        assert isinstance(cls, type) and issubclass(cls, IntegrationTestCase)
         state = state_for(cls)
-        topology = None
+        topology: Topology | None = None
         try:
             topology = Topology(
                 crv,
@@ -244,10 +252,10 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
                     sys.stderr.flush()
 
     @property
-    def node(self):
+    def node(self) -> TestNode:
         return self.nodes[0]
 
-    def _subdir(self):
+    def _subdir(self) -> str:
         """Create a unique per-test subdirectory on the test node.
 
         Each test gets its own temp dir so it doesn't pollute or
@@ -258,7 +266,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
 
     # ---- Tests ---------------------------------------------------------
 
-    def test_01_deploy_node_dry_run(self):
+    def test_01_deploy_node_dry_run(self) -> None:
         """``corvus-admin deploy node --dry-run`` prints a plan
         summary without minting a cert or touching the filesystem."""
 
@@ -296,7 +304,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         assert "testnode" in out, f"missing name in output: {out!r}"
         assert "local" in out, f"missing target in output: {out!r}"
 
-    def test_02_deploy_web_dry_run(self):
+    def test_02_deploy_web_dry_run(self) -> None:
         """``corvus-admin deploy web --dry-run`` produces a plan
         with the correct service unit and role."""
 
@@ -323,7 +331,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         assert "corvus-web" in out, f"missing corvus-web: {out!r}"
         assert "corvus-web.service" in out, f"missing service unit: {out!r}"
 
-    def test_03_deploy_node_mints_cert(self):
+    def test_03_deploy_node_mints_cert(self) -> None:
         """Verify the ``corvus_admin.ca.issue_cert`` Python API
         mints a valid cert on the test node.  We test the Python
         API directly because the CLI ``deploy node`` always tries to
@@ -382,7 +390,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         cert_ca = _shrun(self.node, f"cat {cert_dir}/ca.crt", check=False)
         assert ca_on_node.stdout == cert_ca.stdout, "CA cert mismatch"
 
-    def test_04_deploy_daemon_dry_run(self):
+    def test_04_deploy_daemon_dry_run(self) -> None:
         """``corvus-admin deploy daemon local --dry-run`` produces a plan
         with a ``corvus-daemon:<uuid>`` CN."""
 
@@ -409,7 +417,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         assert "corvus-daemon:" in out, f"missing daemon CN prefix: {out!r}"
         assert "corvus.service" in out, f"missing service unit: {out!r}"
 
-    def test_05_deploy_netd_dry_run(self):
+    def test_05_deploy_netd_dry_run(self) -> None:
         """``corvus-admin deploy netd --dry-run`` produces a plan
         with the correct role and service unit."""
 
@@ -437,7 +445,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         assert "testnetd" in out, f"missing name: {out!r}"
         assert "corvus-netd.service" in out, f"missing service unit: {out!r}"
 
-    def test_06_renew_due_sweep(self):
+    def test_06_renew_due_sweep(self) -> None:
         """``corvus-admin renew --due --within 36500`` (≈100 years)
         matches every cert and reports what it would renew."""
 
@@ -466,7 +474,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         # At least the admin client cert should be reported.
         assert "would renew" in _stdout_text(result), _stdout_text(result)
 
-    def test_07_renew_list_after_init(self):
+    def test_07_renew_list_after_init(self) -> None:
         """After ``init``, ``crv-admin list --output json`` shows
         exactly one row (the admin client cert)."""
 
@@ -493,7 +501,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         assert len(rows) == 1, f"expected 1 row, got {len(rows)}: {rows!r}"
         assert rows[0]["cn"].startswith("corvus-client:")
 
-    def test_08_register_node_missing_crv(self):
+    def test_08_register_node_missing_crv(self) -> None:
         """``register_node()`` raises ``RegisterError`` when
         ``crv`` is not on ``$PATH``."""
 
@@ -517,7 +525,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
             f"expected REGISTER_ERROR:ok in output: {_stdout_text(result)!r}"
         )
 
-    def test_09_deploy_client_dry_run(self):
+    def test_09_deploy_client_dry_run(self) -> None:
         """``corvus-admin deploy client --dry-run`` returns ``None``
         (no DeployPlan for client certs — they're local-only)."""
 
@@ -544,7 +552,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
             f"expected [DRY-RUN] in output for client dry-run: {_stdout_text(result)!r}"
         )
 
-    def test_10_deploy_web_unit_render(self):
+    def test_10_deploy_web_unit_render(self) -> None:
         """``corvus-admin deploy web --dry-run`` reports the bind
         host/port and service unit that would be used."""
 
@@ -587,11 +595,17 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
 
     @pytest.fixture(scope="class", autouse=True)
     def _class_topology(
-        self, request, crv, image_ready, host_binary, session_test_network
-    ):
+        self,
+        request: pytest.FixtureRequest,
+        crv: Crv,
+        image_ready: ImageReady,
+        host_binary: HostBinary,
+        session_test_network: str,
+    ) -> Iterator[None]:
         cls = request.cls
+        assert isinstance(cls, type) and issubclass(cls, IntegrationTestCase)
         state = state_for(cls)
-        topology = None
+        topology: Topology | None = None
         try:
             topology = Topology(
                 crv,
@@ -655,14 +669,14 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
                 )
 
     @property
-    def controller(self):
+    def controller(self) -> TestNode:
         return self.nodes[0]
 
     @property
-    def remote(self):
+    def remote(self) -> TestNode:
         return self.nodes[1]
 
-    def test_remote_deploy_and_register(self):
+    def test_remote_deploy_and_register(self) -> None:
         """Certs, units, service health, and controller registration cross SSH."""
 
         target = self.remote.outer_ip
@@ -733,7 +747,7 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
             )
 
 
-def _configure_controller_ssh(controller, target: str) -> None:
+def _configure_controller_ssh(controller: TestNode, target: str) -> None:
     """Make the harness key available to SshRunner on the controller."""
 
     encoded_key = base64.b64encode(HOST_ALPINE_KEY_PATH.read_bytes()).decode()
@@ -756,7 +770,7 @@ def _configure_controller_ssh(controller, target: str) -> None:
 # Bootstrap (same pattern as test_quickstart)
 
 
-def _bootstrap_node(node):
+def _bootstrap_node(node: TestNode) -> None:
     """One-time per-class prep: enable linger, ensure pip, install
     corvus from the mounted source tree."""
     import sys as _sys

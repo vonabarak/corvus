@@ -41,6 +41,7 @@ def test_display_truncates_long_body(model: SshKeyTableModel) -> None:
     text = model.data(
         model.index(0, SshKeyTableModel.COL_PUBLIC_KEY), Qt.ItemDataRole.DisplayRole
     )
+    assert isinstance(text, str)
     assert text.startswith("ssh-rsa ")
     assert "bob@host" in text
     assert "…" in text  # middle truncation marker
@@ -68,6 +69,10 @@ def test_attached_column_lists_vms(model: SshKeyTableModel) -> None:
 
 def test_key_at_round_trip(model: SshKeyTableModel) -> None:
     model.set_keys([_key(key_id=i, name=f"k{i}") for i in (1, 5)])
-    assert model.key_at(0).name == "k1"
-    assert model.key_at(1).name == "k5"
+    first = model.key_at(0)
+    second = model.key_at(1)
+    assert first is not None
+    assert second is not None
+    assert first.name == "k1"
+    assert second.name == "k5"
     assert model.key_at(9) is None

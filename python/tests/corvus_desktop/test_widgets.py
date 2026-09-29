@@ -5,18 +5,17 @@ status / dispatch a key event and assert on internal state."""
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from corvus_desktop.widgets.serial_console import SerialConsoleWidget
 from corvus_desktop.widgets.status_badge import StatusBadge
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QApplication
 
 # --------------------------------------------------------- StatusBadge
 
 
-def test_status_badge_renders_known_states(qapp: Any) -> None:
+def test_status_badge_renders_known_states(qapp: QApplication) -> None:
     badge = StatusBadge("vm")
     for state in ("stopped", "running", "paused", "error"):
         badge.set_status(state)
@@ -25,7 +24,7 @@ def test_status_badge_renders_known_states(qapp: Any) -> None:
         assert "background" in badge.styleSheet()
 
 
-def test_status_badge_unknown_state_degrades(qapp: Any) -> None:
+def test_status_badge_unknown_state_degrades(qapp: QApplication) -> None:
     badge = StatusBadge("vm")
     badge.set_status("totally-made-up")
     assert badge.text() == "totally-made-up"
@@ -33,7 +32,7 @@ def test_status_badge_unknown_state_degrades(qapp: Any) -> None:
     assert "background" in badge.styleSheet()
 
 
-def test_status_badge_task_kind_uses_task_palette(qapp: Any) -> None:
+def test_status_badge_task_kind_uses_task_palette(qapp: QApplication) -> None:
     badge = StatusBadge("task")
     for state in ("running", "success", "error"):
         badge.set_status(state)
@@ -44,7 +43,7 @@ def test_status_badge_task_kind_uses_task_palette(qapp: Any) -> None:
 
 
 @pytest.fixture
-def console(qapp: Any) -> SerialConsoleWidget:
+def console(qapp: QApplication) -> SerialConsoleWidget:
     return SerialConsoleWidget()
 
 

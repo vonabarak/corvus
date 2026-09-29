@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,9 +14,13 @@ from PySide6.QtWidgets import (
 )
 
 from .form_dialog import FormDialog
+from .payload_types import VmCreatePayload
 
 
 class VmCreateDialog(FormDialog):
+    def payload(self) -> VmCreatePayload:
+        return cast(VmCreatePayload, super().payload())
+
     def __init__(self, parent: QWidget | None = None) -> None:
         self._name = QLineEdit()
         self._name.setPlaceholderText("e.g. web-1")
@@ -56,7 +60,7 @@ class VmCreateDialog(FormDialog):
         form.addRow("Autostart:", self._autostart)
         form.addRow("Reboot quirk:", self._reboot_quirk)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> VmCreatePayload | None:
         name = self._name.text().strip()
         if not name:
             self.show_error("Name is required.")

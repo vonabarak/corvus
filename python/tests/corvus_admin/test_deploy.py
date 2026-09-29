@@ -9,26 +9,29 @@ VM (Phase 2 verification).
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import cast
+
 import pytest
-from corvus_admin import ca, deploy
-from corvus_admin.runner import LocalRunner
+from corvus_admin import ca, deploy, store
+from corvus_admin.runner import LocalRunner, Runner
 from cryptography import x509
 
 
 @pytest.fixture()
-def initialised_store(admin_store):
+def initialised_store(admin_store: store.AdminStore) -> store.AdminStore:
     ca.init_ca(admin_store)
     return admin_store
 
 
 def test_deploy_daemon_drops_three_files_with_right_modes(
-    initialised_store, fake_paths
-):
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     etc, _ = fake_paths
     runner = LocalRunner()
     plan = deploy.deploy_daemon(
         initialised_store,
-        runner,
+        cast(Runner, runner),
         listen_ip="127.0.0.1",
     )
 
@@ -54,7 +57,9 @@ def test_deploy_daemon_drops_three_files_with_right_modes(
     _ = serialization.load_pem_private_key(daemon_key, password=None)
 
 
-def test_deploy_daemon_invokes_systemctl_restart(initialised_store, fake_paths):
+def test_deploy_daemon_invokes_systemctl_restart(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     _, log = fake_paths
     runner = LocalRunner()
     deploy.deploy_daemon(initialised_store, runner, listen_ip="127.0.0.1")
@@ -64,11 +69,13 @@ def test_deploy_daemon_invokes_systemctl_restart(initialised_store, fake_paths):
     assert any(line == "restart corvus.service" for line in lines), lines
 
 
-def test_deploy_node_records_deployment_target(initialised_store, fake_paths):
+def test_deploy_node_records_deployment_target(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     runner = LocalRunner()
     plan = deploy.deploy_node(
         initialised_store,
-        runner,
+        cast(Runner, runner),
         name="alpha",
         ip="10.0.0.21",
     )
@@ -80,8 +87,8 @@ def test_deploy_node_records_deployment_target(initialised_store, fake_paths):
 
 
 def test_deploy_client_lands_under_xdg_config_home(
-    initialised_store, fake_paths, xdg_home
-):
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], xdg_home: Path
+) -> None:
     deploy.deploy_client(initialised_store, name="alice")
     client_dir = xdg_home / "corvus"
     assert (client_dir / "ca.crt").is_file()
@@ -92,8 +99,8 @@ def test_deploy_client_lands_under_xdg_config_home(
 
 
 def test_deploy_client_does_not_invoke_systemctl(
-    initialised_store, fake_paths, xdg_home
-):
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], xdg_home: Path
+) -> None:
     _, log = fake_paths
     deploy.deploy_client(initialised_store, name="alice")
     # Client deploy is purely local; systemctl should never run.
@@ -153,7 +160,9 @@ class _RecordingRunner:
         return _R()
 
 
-def test_deploy_node_user_service_does_not_escalate(initialised_store):
+def test_deploy_node_user_service_does_not_escalate(
+    initialised_store: store.AdminStore,
+) -> None:
     """Regression: `corvus-admin deploy node ... --user-service` must
     not invoke sudo for any step. The bug surfaced as `sudo: a
     password is required` on remote SSH targets where the operator
@@ -163,7 +172,7 @@ def test_deploy_node_user_service_does_not_escalate(initialised_store):
     runner = _RecordingRunner()
     deploy.deploy_node(
         initialised_store,
-        runner,
+        cast(Runner, runner),
         name="tobacco",
         ip="192.168.1.16",
         user_service=True,
@@ -188,14 +197,16 @@ def test_deploy_node_user_service_does_not_escalate(initialised_store):
         assert sudo is False, argv
 
 
-def test_deploy_node_system_service_escalates(initialised_store):
+def test_deploy_node_system_service_escalates(
+    initialised_store: store.AdminStore,
+) -> None:
     """Counter-check: without --user-service the system-mode deploy
     escalates for mkdir, copy, and systemctl."""
 
     runner = _RecordingRunner()
     deploy.deploy_node(
         initialised_store,
-        runner,
+        cast(Runner, runner),
         name="tobacco",
         ip="192.168.1.16",
         user_service=False,
@@ -211,7 +222,9 @@ def test_deploy_node_system_service_escalates(initialised_store):
     ), runner.runs
 
 
-def test_deploy_node_installs_unit_file(initialised_store, fake_paths, tmp_path):
+def test_deploy_node_installs_unit_file(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     """The deploy step writes a rendered systemd unit to the
     install directory, baking an absolute ExecStart path
     discovered via `command -v` on the runner. fake_paths puts
@@ -237,8 +250,8 @@ def test_deploy_node_installs_unit_file(initialised_store, fake_paths, tmp_path)
 
 
 def test_deploy_node_unit_file_picks_up_binary_path_override(
-    initialised_store, fake_paths, tmp_path
-):
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     """--binary-path overrides the default binary location in the
     rendered unit."""
 
@@ -257,8 +270,8 @@ def test_deploy_node_unit_file_picks_up_binary_path_override(
 
 
 def test_deploy_daemon_unit_file_carries_database(
-    initialised_store, fake_paths, tmp_path
-):
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     runner = LocalRunner()
     deploy.deploy_daemon(
         initialised_store,
@@ -276,8 +289,8 @@ def test_deploy_daemon_unit_file_carries_database(
 
 
 def test_deploy_daemon_dry_run_does_not_touch_disk(
-    initialised_store, fake_paths, tmp_path
-):
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     """`--dry-run` short-circuits after computing the DeployPlan:
     no cert is minted, no files are written, no systemctl invoked,
     and the admin store's index gains nothing."""
@@ -304,14 +317,18 @@ def test_deploy_daemon_dry_run_does_not_touch_disk(
     assert list(initialised_store.iter_records()) == []
 
 
-def test_deploy_node_dry_run_does_not_record(initialised_store, fake_paths):
+def test_deploy_node_dry_run_does_not_record(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     deploy.deploy_node(
         initialised_store, LocalRunner(), name="alpha", ip="10.0.0.1", dry_run=True
     )
     assert list(initialised_store.iter_records()) == []
 
 
-def test_deploy_web_installs_user_unit_with_bind_options(fake_paths, tmp_path):
+def test_deploy_web_installs_user_unit_with_bind_options(
+    fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     """`deploy_web` mints no cert, renders the systemd unit with
     the operator's bind host/port, installs it under the user-
     systemd directory, and runs `systemctl --user enable/restart`."""
@@ -339,7 +356,9 @@ def test_deploy_web_installs_user_unit_with_bind_options(fake_paths, tmp_path):
     assert any(line == "--user restart corvus-web.service" for line in lines), lines
 
 
-def test_deploy_web_dry_run_writes_nothing(fake_paths, tmp_path):
+def test_deploy_web_dry_run_writes_nothing(
+    fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     _, log = fake_paths
     runner = LocalRunner()
     plan = deploy.deploy_web(runner, dry_run=True)
@@ -349,7 +368,9 @@ def test_deploy_web_dry_run_writes_nothing(fake_paths, tmp_path):
     assert not log.exists() or log.read_text() == ""
 
 
-def test_deploy_web_system_service_renders_system_target(fake_paths, tmp_path):
+def test_deploy_web_system_service_renders_system_target(
+    fake_paths: tuple[Path, Path], tmp_path: Path
+) -> None:
     """`--system-service` flips the unit's WantedBy to
     `multi-user.target` and lands the file under /etc/systemd/system."""
 
@@ -362,7 +383,9 @@ def test_deploy_web_system_service_renders_system_target(fake_paths, tmp_path):
     assert "--bind-port 9000" in content
 
 
-def test_renew_node_dry_run_does_not_mint(initialised_store, fake_paths):
+def test_renew_node_dry_run_does_not_mint(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     """Set up a node record, then renew it under --dry-run and check
     no fresh cert overwrites the original in the issued/ dir."""
 

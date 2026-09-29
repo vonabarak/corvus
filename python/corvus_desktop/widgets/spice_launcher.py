@@ -10,7 +10,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-from typing import Any
 
 from corvus_client.types import ViewGrant
 from PySide6.QtWidgets import QMessageBox, QWidget
@@ -50,7 +49,7 @@ def launch_remote_viewer(grant: ViewGrant, parent: QWidget | None = None) -> Non
         )
 
 
-def _show_grant_dialog(grant: ViewGrant, parent: Any) -> None:
+def _show_grant_dialog(grant: ViewGrant, parent: QWidget | None) -> None:
     QMessageBox.information(
         parent,
         "SPICE connection details",

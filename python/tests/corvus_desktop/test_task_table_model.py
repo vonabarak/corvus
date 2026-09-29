@@ -129,6 +129,10 @@ def test_out_of_range_index_returns_none(model: TaskTableModel) -> None:
 def test_task_at_round_trip(model: TaskTableModel) -> None:
     tasks = [_task(task_id=i) for i in (3, 5, 7)]
     model.set_tasks(tasks)
-    assert model.task_at(0).id == 3
-    assert model.task_at(2).id == 7
+    first = model.task_at(0)
+    second = model.task_at(2)
+    assert first is not None
+    assert second is not None
+    assert first.id == 3
+    assert second.id == 7
     assert model.task_at(99) is None

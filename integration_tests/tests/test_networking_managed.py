@@ -19,18 +19,20 @@ from __future__ import annotations
 import contextlib
 import re
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 
 import pytest
 from corvus_client import Client
-from corvus_test_harness import SingleNodeCase, VmSsh
+from corvus_client._sync.network import SyncNetwork
+from corvus_test_harness import SingleNodeCase, TestNode, VmSsh
+from corvus_test_harness.vm import _NetIfOptions
 
 # ---------------------------------------------------------------------------
 # Helpers
 
 
 def _wait_for_vm_iface_ip(
-    vm,
+    vm: VmSsh,
     *,
     network_id: int,
     timeout_sec: float = 30.0,
@@ -82,7 +84,7 @@ def _bridge_name(network_id: int) -> str:
     return "corvus-br-" + "".join(reversed(digits))
 
 
-def _bridge_ifindex(node, bridge: str) -> int:
+def _bridge_ifindex(node: TestNode, bridge: str) -> int:
     r = node.run(f"cat /sys/class/net/{bridge}/ifindex", check=False)
     if r.returncode != 0:
         raise AssertionError(
@@ -100,7 +102,7 @@ def _network(
     dhcp: bool = False,
     nat: bool = False,
     dns_servers: Iterable[str] = (),
-):
+) -> Iterator[SyncNetwork]:
     """Create, start, and (on exit) stop + delete a network.
 
     Takes a *callable* returning a Client rather than a Client itself
@@ -122,7 +124,7 @@ def _network(
         # restarted). If the network was already torn down by the
         # body, `.get` raises and we skip the rest.
         try:
-            fresh = client_fn().networks.get(name)
+            fresh: SyncNetwork | None = client_fn().networks.get(name)
         except Exception:
             fresh = None
         if fresh is not None:
@@ -144,7 +146,7 @@ class _ManagedVm(VmSsh):
 
     network_name: str = ""
 
-    def _net_ifs(self):
+    def _net_ifs(self) -> list[_NetIfOptions]:
         if not self.network_name:
             raise RuntimeError("_ManagedVm.network_name must be set")
         return [{"type": "managed", "network_ref": self.network_name}]
@@ -159,7 +161,7 @@ EXTERNAL_TARGET = "1.1.1.1"
 
 
 def _ping_with_retry(
-    vm,
+    vm: VmSsh,
     target: str,
     *,
     attempts: int = 3,
@@ -189,7 +191,7 @@ def _ping_with_retry(
     raise last_err
 
 
-def _node_has_outbound_internet(node) -> bool:
+def _node_has_outbound_internet(node: TestNode) -> bool:
     """Probe whether the test-node itself can reach 'EXTERNAL_TARGET'.
 
     The NAT-chain tests rely on the test-node forwarding VM traffic
@@ -206,7 +208,7 @@ def _node_has_outbound_internet(node) -> bool:
     """
     cache_key = "_corvus_outbound_ok"
     cached = getattr(node, cache_key, None)
-    if cached is not None:
+    if isinstance(cached, bool):
         return cached
     # 'TestNode.run' returns 'subprocess.CompletedProcess' (whose
     # exit status is 'returncode'), not the inner VM's 'SshResult'
@@ -232,7 +234,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 1. Isolated network, manual IP --------------------------------------
 
-    def test_isolated_network_manual_ip(self):
+    def test_isolated_network_manual_ip(self) -> None:
         """Network without DHCP/NAT: VM has no auto IP; manual config
         gives reachability with the node and isolates from the outside."""
         node = self.node
@@ -279,7 +281,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 2. DHCP + NAT, two VMs ----------------------------------------------
 
-    def test_dhcp_nat_inter_vm(self):
+    def test_dhcp_nat_inter_vm(self) -> None:
         """Network with DHCP+NAT: two VMs both get IPs, can ping each
         other, the bridge, and the outside world."""
         node = self.node
@@ -344,7 +346,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 2b. DHCP option 6 (DNS) ---------------------------------------------
 
-    def test_dhcp_option_dns_servers(self):
+    def test_dhcp_option_dns_servers(self) -> None:
         """A network created with `dns_servers=[...]` advertises those
         resolvers to its DHCP clients (option 6), and the running
         dnsmasq carries the corresponding ``--dhcp-option`` flag.
@@ -409,7 +411,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 2c. Host-side resolution: `ping <vm>.<network>` from the node ------
 
-    def test_host_resolves_vm_by_name(self):
+    def test_host_resolves_vm_by_name(self) -> None:
         """End-to-end: a DHCP'd VM is reachable from the node by name
         via ``<vm-hostname>.<network>``.
 
@@ -509,7 +511,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 3. Cross-network isolation ------------------------------------------
 
-    def test_cross_network_isolation(self):
+    def test_cross_network_isolation(self) -> None:
         """Two distinct networks: VM on net-a can't reach VM on net-b
         (agent's `iifname "corvus-br*" oifname "corvus-br*" drop`)."""
 
@@ -550,7 +552,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 4. Daemon re-apply on reconnect -------------------------------------
 
-    def test_daemon_reapply_on_reconnect(self):
+    def test_daemon_reapply_on_reconnect(self) -> None:
         """Restart the daemon. The agent owns kernel state, so the
         bridge survives. After reconnect, the daemon walks the DB and
         re-applies idempotently — the bridge's ifindex is unchanged,
@@ -589,10 +591,11 @@ class TestManagedNetworking(SingleNodeCase):
             # Drop the stale client (the restart killed its TCP
             # connection through the VSOCK relay); next access to
             # `self.client` opens a fresh one.
-            try:
-                node._client.close()
-            except Exception:
-                pass
+            if node._client is not None:
+                try:
+                    node._client.close()
+                except Exception:
+                    pass
             node._client = None
 
             # Give the daemon's reconnect-and-reapply loop a moment
@@ -627,7 +630,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 5. Netd restart wipes-and-reconciles --------------------------------
 
-    def test_netd_restart_wipes_and_reconciles(self):
+    def test_netd_restart_wipes_and_reconciles(self) -> None:
         """Restart corvus-netd. Its startup cleanup wipes corvus-*
         kernel state; the daemon's reconnect loop re-applies. The
         bridge reappears with a fresh ifindex (proving the wipe ran
@@ -677,7 +680,7 @@ class TestManagedNetworking(SingleNodeCase):
 
     # -- 8. Hard error when agent is down ------------------------------------
 
-    def test_netd_unavailable_hard_errors(self):
+    def test_netd_unavailable_hard_errors(self) -> None:
         """With corvus-netd stopped, network operations fail fast
         with 'netd unavailable' — no fallback, no hang."""
         node = self.node

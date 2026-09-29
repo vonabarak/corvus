@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
+from typing import cast
 
 import pytest
 from corvus_client.types import (
@@ -12,13 +12,14 @@ from corvus_client.types import (
     CloudInitInfo,
     TemplateVmInfo,
 )
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.dialogs.template_instantiate import TemplateInstantiateDialog
 from corvus_desktop.dialogs.template_yaml import TemplateYamlDialog
 from corvus_desktop.widgets.cloud_init_panel import CloudInitPanel
 from corvus_desktop.windows.apply import ApplyWidget
 from corvus_desktop.windows.template_list import TemplateListWidget
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QTableView
+from PySide6.QtWidgets import QApplication, QTableView
 
 
 class _MockBridge(QObject):
@@ -39,7 +40,7 @@ class _MockBridge(QObject):
         self.template_deletes: list[int] = []
         self.template_instantiates: list[tuple[int, str, str | None]] = []
         self.cloud_init_calls: list[int] = []
-        self.cloud_init_sets: list[tuple[int, dict[str, Any]]] = []
+        self.cloud_init_sets: list[tuple[int, dict[str, str | bool | None]]] = []
         self.cloud_init_deletes: list[int] = []
         self.apply_calls: list[tuple[str, bool]] = []
 
@@ -63,7 +64,7 @@ class _MockBridge(QObject):
     def request_cloud_init(self, vm_id: int) -> None:
         self.cloud_init_calls.append(vm_id)
 
-    def cloud_init_set(self, vm_id: int, **kwargs: Any) -> None:
+    def cloud_init_set(self, vm_id: int, **kwargs: str | bool | None) -> None:
         self.cloud_init_sets.append((vm_id, kwargs))
 
     def cloud_init_delete(self, vm_id: int) -> None:
@@ -83,20 +84,22 @@ def bridge() -> _MockBridge:
 # ----------------------------------------------------- template dialogs
 
 
-def test_template_yaml_dialog_disables_save_on_invalid(qapp: Any) -> None:
+def test_template_yaml_dialog_disables_save_on_invalid(qapp: QApplication) -> None:
     dlg = TemplateYamlDialog("Test", initial="a: [unterminated\n")
     assert not dlg._save_btn.isEnabled()
     dlg._editor.set_text("a: 1\n")
     assert dlg._save_btn.isEnabled()
 
 
-def test_template_yaml_dialog_text_round_trip(qapp: Any) -> None:
+def test_template_yaml_dialog_text_round_trip(qapp: QApplication) -> None:
     dlg = TemplateYamlDialog("Test", initial="foo: bar\n")
     assert dlg.text() == "foo: bar\n"
 
 
-def test_template_instantiate_dialog_validates(qapp: Any, bridge: _MockBridge) -> None:
-    dlg = TemplateInstantiateDialog(bridge, "alma-10")
+def test_template_instantiate_dialog_validates(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    dlg = TemplateInstantiateDialog(cast(CorvusBridge, bridge), "alma-10")
     dlg._vm_name.setText("")
     assert dlg.result_payload() is None
     dlg._vm_name.setText("web-1")
@@ -127,8 +130,8 @@ def test_template_instantiate_dialog_validates(qapp: Any, bridge: _MockBridge) -
 
 
 @pytest.fixture
-def tpl_list(qapp: Any, bridge: _MockBridge) -> Iterator[TemplateListWidget]:
-    w = TemplateListWidget(bridge)
+def tpl_list(qapp: QApplication, bridge: _MockBridge) -> Iterator[TemplateListWidget]:
+    w = TemplateListWidget(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 
@@ -162,8 +165,8 @@ def test_template_list_refresh_and_populate(
 
 
 @pytest.fixture
-def ci_panel(qapp: Any, bridge: _MockBridge) -> Iterator[CloudInitPanel]:
-    w = CloudInitPanel(bridge)
+def ci_panel(qapp: QApplication, bridge: _MockBridge) -> Iterator[CloudInitPanel]:
+    w = CloudInitPanel(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 
@@ -196,8 +199,8 @@ def test_cloud_init_panel_renders_payload(
 
 
 @pytest.fixture
-def apply_widget(qapp: Any, bridge: _MockBridge) -> Iterator[ApplyWidget]:
-    w = ApplyWidget(bridge)
+def apply_widget(qapp: QApplication, bridge: _MockBridge) -> Iterator[ApplyWidget]:
+    w = ApplyWidget(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 

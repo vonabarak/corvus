@@ -21,7 +21,11 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
+
+from pydantic import JsonValue
+
+JsonObject = dict[str, JsonValue]
 
 
 class CrvError(RuntimeError):
@@ -44,7 +48,6 @@ class CrvError(RuntimeError):
         stdout: str,
         stderr: str,
     ) -> None:
-        self.args = list(args)
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
@@ -57,8 +60,10 @@ class CrvError(RuntimeError):
         except json.JSONDecodeError:
             envelope = None
         if isinstance(envelope, dict) and envelope.get("status") == "error":
-            self.kind = envelope.get("error") or envelope.get("kind")
-            self.message = envelope.get("message")
+            kind = envelope.get("error") or envelope.get("kind")
+            message = envelope.get("message")
+            self.kind = kind if isinstance(kind, str) else None
+            self.message = message if isinstance(message, str) else None
         msg = self.message or stderr.strip() or f"crv exited {returncode}"
         super().__init__(f"{msg} (argv: {' '.join(shlex.quote(a) for a in args)})")
 
@@ -149,7 +154,7 @@ class Crv:
         timeout: float | None = None,
         check: bool = True,
         input_bytes: bytes | None = None,
-    ) -> Any:
+    ) -> JsonValue:
         """Run `crv -o json <args>` and return the parsed JSON payload.
 
         On non-zero exit (when `check=True`), raises `CrvError`. The
@@ -173,7 +178,11 @@ class Crv:
         if proc.returncode != 0:
             if check:
                 raise CrvError(argv, proc.returncode, stdout, stderr)
-            return {"status": "error", "stderr": stderr, "returncode": proc.returncode}
+            return {
+                "status": "error",
+                "stderr": stderr,
+                "returncode": proc.returncode,
+            }
         # Some commands (`apply --wait`) emit progress events one-per-line
         # before the final envelope. We want the last well-formed JSON
         # object from stdout.
@@ -181,19 +190,19 @@ class Crv:
 
     # ---- daemon-level ----------------------------------------------------
 
-    def status(self) -> dict[str, Any]:
-        return self.run("status")
+    def status(self) -> JsonObject:
+        return _as_object(self.run("status"))
 
     def ping(self) -> None:
         self.run("ping")
 
     # ---- vm subsystem ----------------------------------------------------
 
-    def vm_list(self) -> list[dict[str, Any]]:
+    def vm_list(self) -> list[JsonObject]:
         return _as_list(self.run("vm", "list"), key="vms")
 
-    def vm_show(self, name_or_id: str | int) -> dict[str, Any]:
-        return self.run("vm", "show", str(name_or_id))
+    def vm_show(self, name_or_id: str | int) -> JsonObject:
+        return _as_object(self.run("vm", "show", str(name_or_id)))
 
     def vm_create(
         self,
@@ -206,7 +215,7 @@ class Crv:
         guest_agent: bool = False,
         cloud_init: bool = False,
         autostart: bool = False,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         args = ["vm", "create", name, "-c", str(cpu_count), "-m", str(ram_mb)]
         if description is not None:
             args += ["-d", description]
@@ -218,14 +227,14 @@ class Crv:
             args.append("--cloud-init")
         if autostart:
             args.append("--autostart")
-        return self.run(*args)
+        return _as_object(self.run(*args))
 
-    def vm_start(self, name_or_id: str | int, *, wait: bool = False) -> dict[str, Any]:
+    def vm_start(self, name_or_id: str | int, *, wait: bool = False) -> JsonObject:
         args = ["vm", "start", str(name_or_id)]
         if wait:
             args.append("--wait")
         # Boots with cloud-init can comfortably take 90s on a cold cache.
-        return self.run(*args, timeout=300)
+        return _as_object(self.run(*args, timeout=300))
 
     def vm_stop(
         self,
@@ -233,7 +242,7 @@ class Crv:
         *,
         wait: bool = False,
         timeout_sec: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         # `crv vm stop` is graceful only — there's no `--force` (that
         # option only exists on `network stop`). For uncooperative
         # guests, lower `timeout_sec` so the daemon's own watchdog
@@ -243,15 +252,15 @@ class Crv:
             args.append("--wait")
         if timeout_sec is not None:
             args += ["--timeout", str(timeout_sec)]
-        return self.run(*args, timeout=180)
+        return _as_object(self.run(*args, timeout=180))
 
     def vm_delete(
         self, name_or_id: str | int, *, keep_disks: bool = False
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         args = ["vm", "delete", str(name_or_id)]
         if keep_disks:
             args.append("--keep-disks")
-        return self.run(*args, timeout=120)
+        return _as_object(self.run(*args, timeout=120))
 
     def vm_exec(
         self,
@@ -259,7 +268,7 @@ class Crv:
         command: str,
         *,
         timeout_sec: float = 30.0,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """Run a shell command inside the VM via the QEMU guest agent.
 
         Returns the parsed envelope: `{exit_code, stdout, stderr}` (the
@@ -267,7 +276,9 @@ class Crv:
         one-shots (mounting virtiofs shares, probing systemd units) that
         the inner Corvus daemon itself doesn't expose.
         """
-        return self.run("vm", "exec", str(name_or_id), command, timeout=timeout_sec)
+        return _as_object(
+            self.run("vm", "exec", str(name_or_id), command, timeout=timeout_sec)
+        )
 
     # ---- shared-dir ------------------------------------------------------
 
@@ -279,15 +290,15 @@ class Crv:
         *,
         cache: str | None = None,
         read_only: bool = False,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         args = ["shared-dir", "add", str(vm), str(path), tag]
         if cache is not None:
             args += ["--cache", cache]
         if read_only:
             args.append("--read-only")
-        return self.run(*args)
+        return _as_object(self.run(*args))
 
-    def shared_dir_list(self, vm: str | int) -> list[dict[str, Any]]:
+    def shared_dir_list(self, vm: str | int) -> list[JsonObject]:
         """List a VM's shared directories.
 
         `crv vm show` deliberately omits sharedDirs (the protocol-side
@@ -298,14 +309,14 @@ class Crv:
 
     # ---- template / disk -------------------------------------------------
 
-    def template_list(self) -> list[dict[str, Any]]:
+    def template_list(self) -> list[JsonObject]:
         return _as_list(self.run("template", "list"), key="templates")
 
-    def disk_list(self) -> list[dict[str, Any]]:
+    def disk_list(self) -> list[JsonObject]:
         return _as_list(self.run("disk", "list"), key="disks")
 
-    def disk_show(self, name_or_id: str | int) -> dict[str, Any]:
-        return self.run("disk", "show", str(name_or_id))
+    def disk_show(self, name_or_id: str | int) -> JsonObject:
+        return _as_object(self.run("disk", "show", str(name_or_id)))
 
     # ---- apply / build ---------------------------------------------------
 
@@ -316,30 +327,30 @@ class Crv:
         skip_existing: bool = True,
         wait: bool = True,
         timeout_sec: float = 3600.0,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         args = ["apply", str(yaml_path)]
         if skip_existing:
             args.append("--skip-existing")
         if wait:
             args.append("--wait")
-        return self.run(*args, timeout=timeout_sec)
+        return _as_object(self.run(*args, timeout=timeout_sec))
 
     # ---- network subsystem -----------------------------------------------
 
-    def network_list(self) -> list[dict[str, Any]]:
+    def network_list(self) -> list[JsonObject]:
         return _as_list(self.run("network", "list"), key="networks")
 
-    def network_start(self, name: str) -> dict[str, Any]:
-        return self.run("network", "start", name)
+    def network_start(self, name: str) -> JsonObject:
+        return _as_object(self.run("network", "start", name))
 
-    def network_stop(self, name: str, *, force: bool = False) -> dict[str, Any]:
+    def network_stop(self, name: str, *, force: bool = False) -> JsonObject:
         args = ["network", "stop", name]
         if force:
             args.append("--force")
-        return self.run(*args)
+        return _as_object(self.run(*args))
 
-    def network_delete(self, name: str) -> dict[str, Any]:
-        return self.run("network", "delete", name)
+    def network_delete(self, name: str) -> JsonObject:
+        return _as_object(self.run("network", "delete", name))
 
     def build(
         self,
@@ -347,14 +358,14 @@ class Crv:
         *,
         wait: bool = True,
         timeout_sec: float = 7200.0,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         args = ["build", str(yaml_path)]
         if wait:
             args.append("--wait")
-        return self.run(*args, timeout=timeout_sec)
+        return _as_object(self.run(*args, timeout=timeout_sec))
 
 
-def _last_json_object(s: str) -> Any:
+def _last_json_object(s: str) -> JsonValue:
     """Parse the last well-formed JSON value printed in `s`.
 
     The `crv apply --wait` and `crv build --wait` paths interleave
@@ -368,7 +379,7 @@ def _last_json_object(s: str) -> Any:
         return {}
     # Cheap fast path: a single top-level JSON value.
     try:
-        return json.loads(s)
+        return cast(JsonValue, json.loads(s))
     except json.JSONDecodeError:
         pass
     # Fallback: the last non-empty line that parses as JSON.
@@ -377,13 +388,19 @@ def _last_json_object(s: str) -> Any:
         if not line:
             continue
         try:
-            return json.loads(line)
+            return cast(JsonValue, json.loads(line))
         except json.JSONDecodeError:
             continue
     return {"raw": s}
 
 
-def _as_list(payload: Any, *, key: str) -> list[dict[str, Any]]:
+def _as_object(payload: JsonValue) -> JsonObject:
+    if isinstance(payload, dict):
+        return payload
+    raise TypeError(f"expected JSON object, got {type(payload).__name__}")
+
+
+def _as_list(payload: JsonValue, *, key: str) -> list[JsonObject]:
     """Coerce a list command's response to a list-of-dicts.
 
     `crv -o json` for list commands currently returns a top-level
@@ -391,12 +408,12 @@ def _as_list(payload: Any, *, key: str) -> list[dict[str, Any]]:
     `{"<key>": [...], "status": "ok"}`. We accept either shape.
     """
     if isinstance(payload, list):
-        return payload
+        return [_as_object(item) for item in payload]
     if isinstance(payload, dict):
         nested = payload.get(key)
         if isinstance(nested, list):
-            return nested
+            return [_as_object(item) for item in nested]
         nested = payload.get("data")
         if isinstance(nested, list):
-            return nested
+            return [_as_object(item) for item in nested]
     return []

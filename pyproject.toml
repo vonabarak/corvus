@@ -37,6 +37,7 @@ harness = [
     "pytest>=8",
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
+    "typing-extensions>=4.1",
 ]
 # Desktop GUI deps — opt-in via `pip install -e .[desktop]`. PySide6 is
 # ~150 MiB; keeping it optional spares the corvus-admin / corvus-web
@@ -45,6 +46,13 @@ harness = [
 desktop = [
     "PySide6>=6.6",
     "pyte>=0.8",
+]
+# Developer-only lint/type-check tools. Keep these in the same environment as
+# the project and its test dependencies so mypy resolves their annotations.
+dev = [
+    "mypy",
+    "ruff",
+    "types-PyYAML",
 ]
 
 [project.scripts]
@@ -90,7 +98,7 @@ corvus_desktop = "python/corvus_desktop"
 "corvus_desktop.windows" = "python/corvus_desktop/windows"
 
 [tool.setuptools.package-data]
-corvus_client = ["schema/*.capnp"]
+corvus_client = ["schema/*.capnp", "py.typed"]
 # Systemd unit templates that `corvus-admin quickstart` renders.
 # The canonical location is python/corvus_admin/_systemd_templates/;
 # the repo-root `systemd/` symlink points at the same directory for
@@ -173,12 +181,17 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 no_implicit_optional = true
-check_untyped_defs = true
+# Check the Python packages, their tests, and the integration harness together.
+strict = true
+# ``Any`` is an escape hatch, not a substitute for an interface.
+disallow_any_explicit = true
 exclude = [
     "(^|/)\\.venv",
     # Reserved for future codegen — see the ruff `extend-exclude`
     # entry for the same path. Nothing currently matches.
     "(^|/)_generated/",
+    "python/corvus_desktop",
+    "python/tests/corvus_desktop"
 ]
 
 # pycapnp's `capnp` module has incomplete stubs (no py.typed
@@ -189,79 +202,13 @@ exclude = [
 module = "capnp"
 ignore_missing_imports = true
 
-# pytest-xdist ships without a py.typed marker. We only touch the
-# scheduler surface via a small subclass in integration_tests/conftest.py;
-# treating the package as untyped at the import boundary is correct.
+# pytest imports NumPy only for the optional ndarray typing of approx().
+# Host NumPy stubs may use Python 3.12 syntax even though Corvus targets 3.10.
+# No first-party core module imports NumPy, so skip only this transitive stub.
 [[tool.mypy.overrides]]
-module = "xdist.*"
-ignore_missing_imports = true
-
-# corvus_admin — strict-annotated module. Keep the gate tight here:
-# the admin CLI is small (~3k LoC, single subsystem) and every
-# function already has reasonably narrow types thanks to Click.
-[[tool.mypy.overrides]]
-module = ["corvus_admin.*"]
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
-# corvus_client — looser for now. Ratcheting to disallow_untyped_defs
-# is a future follow-up: ~244 sync-wrapper functions in _sync/ + _async/
-# mirror each other and would need annotations either copied from
-# the async side or wrapped through a generic helper. Until that
-# pass lands, keep the baseline gentle so `make lint` stays green.
-[[tool.mypy.overrides]]
-module = ["corvus_client.*"]
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-
-# corvus_web — strict-annotated module, same gate as corvus_admin.
-# The web gateway is small (FastAPI routes + lifespan), all hand-written,
-# and the call surface into corvus_client has typed dataclass returns
-# (see python/corvus_client/types.py). Keep the gate tight from day one
-# so type drift doesn't accumulate.
-[[tool.mypy.overrides]]
-module = ["corvus_web.*"]
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
-# corvus_desktop — strict-annotated module, same gate as
-# corvus_admin / corvus_web. The desktop GUI is hand-written
-# (no generated code) and the call surface into corvus_client has
-# typed dataclass returns; new code should land annotated.
-[[tool.mypy.overrides]]
-module = ["corvus_desktop.*"]
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
-# PySide6 + pyte are optional ([desktop] extra) — the venv mypy uses
-# for lint may not have them installed. Treat the imports as untyped
-# at the boundary so `make lint` stays green without forcing the
-# [desktop] extra into the dev venv.
-[[tool.mypy.overrides]]
-module = ["PySide6.*", "pyte", "pyte.*"]
-ignore_missing_imports = true
-
-# Tests + harness + the top-level conftest at integration_tests/
-# (which mypy sees as bare module `conftest`): looser bar. The
-# disabled error codes correspond to patterns the harness leans on
-# heavily but mypy can't follow without an annotated refactor:
-#   * attr-defined / arg-type — VmSsh subclasses Vm and
-#     __enter__ returns the actual subclass; mypy infers the
-#     base class.
-#   * union-attr — Optional fields (self.cap, self.client) are
-#     populated in __enter__ and accessed afterward without an
-#     explicit None-guard the harness's invariant already
-#     enforces.
-#   * call-arg — cryptography's public_key() return is a wide
-#     union; tests do `.verify(sig, msg)` which is ed25519-only
-#     and not in the union of all signature shapes.
-#   * unreachable — pytest fixture flow defeats mypy's narrowing.
-# Full typing here is a separate effort.
-[[tool.mypy.overrides]]
-module = ["tests.*", "corvus_test_harness.*", "conftest"]
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-disable_error_code = ["attr-defined", "arg-type", "union-attr", "call-arg", "unreachable", "misc", "assignment", "has-type"]
+module = "numpy"
+follow_imports = "skip"
+follow_imports_for_stubs = true
 
 [tool.pytest.ini_options]
 # Both /python/tests and /integration_tests/tests are discoverable

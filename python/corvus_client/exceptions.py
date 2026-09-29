@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import ParamSpec, TypeVar
 
 import capnp
 
@@ -26,7 +26,7 @@ import capnp
 class CorvusError(Exception):
     """Base class. Always caught in a catch-all block."""
 
-    def __init__(self, message: str, details: Any = None) -> None:
+    def __init__(self, message: str, details: object | None = None) -> None:
         super().__init__(message)
         self.details = details
 
@@ -274,11 +274,13 @@ def translate_kj_exception(exc: capnp.KjException) -> CorvusError:
 # ---------------------------------------------------------------------------
 
 T = TypeVar("T")
+P = ParamSpec("P")
+C = TypeVar("C")
 
 
 def translate_async(
-    fn: Callable[..., Awaitable[T]],
-) -> Callable[..., Awaitable[T]]:
+    fn: Callable[P, Awaitable[T]],
+) -> Callable[P, Awaitable[T]]:
     """Async-method decorator: translate `KjException` → typed exception.
 
     Also invalidates a cached manager cap (`self._mgr`) on failure.
@@ -291,7 +293,7 @@ def translate_async(
     entity and silently re-fetching would change identity.
     """
 
-    async def wrapped(*args, **kwargs):
+    async def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return await fn(*args, **kwargs)
         except capnp.KjException as e:
@@ -304,7 +306,7 @@ def translate_async(
     return wrapped
 
 
-def translate_errors(cls):
+def translate_errors(cls: type[C]) -> type[C]:
     """Class decorator: wrap every async public method to translate errors.
 
     Applied to each Async* class so callers see typed

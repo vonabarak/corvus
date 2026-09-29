@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import SshKeyInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -70,10 +71,10 @@ class SshKeyListWidget(QWidget):
             payload = dlg.payload()
             self._bridge.ssh_key_create(payload["name"], payload["public_key"])
 
-    def _on_keys(self, keys: Any) -> None:
+    def _on_keys(self, keys: list[SshKeyInfo]) -> None:
         self._model.set_keys(keys)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         key = self._model.key_at(index.row())
         if key is not None:
             self.key_activated.emit(key.id)

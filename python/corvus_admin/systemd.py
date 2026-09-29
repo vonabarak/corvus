@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib.resources as _ir
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import jinja2
 
@@ -127,13 +127,16 @@ def render_unit(
         keep_trailing_newline=True,
         autoescape=False,
     )
-    return template.render(
-        install_mode=mode,
-        binary_path=binary_path,
-        log_level=log_level,
-        database=database,
-        bind_host=bind_host,
-        bind_port=bind_port,
+    return cast(
+        str,
+        template.render(
+            install_mode=mode,
+            binary_path=binary_path,
+            log_level=log_level,
+            database=database,
+            bind_host=bind_host,
+            bind_port=bind_port,
+        ),
     )
 
 

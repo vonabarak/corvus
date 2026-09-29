@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from corvus_client import AsyncClient
+
 from ._helpers import with_client
 
 SAMPLE_USERDATA = "#cloud-config\nhostname: py-test\n"
 
 
-def test_cloudinit_set_get_delete(daemon_socket):
+def test_cloudinit_set_get_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         vm = await c.vms.create(
             "py-ci-vm",
             cpu_count=1,

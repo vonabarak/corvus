@@ -15,6 +15,7 @@ import time
 import pytest
 from corvus_client import ServerError, VmMustBeStopped
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
+from corvus_test_harness.vm import _DriveOptions
 
 
 def _uniq(stem: str) -> str:
@@ -39,7 +40,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- create / show / delete --------------------------------------------
 
-    def test_disk_create_and_delete(self):
+    def test_disk_create_and_delete(self) -> None:
         name = _uniq("crud")
         disk = self.client.disks.create(name, size_mb=16, format="qcow2")
         try:
@@ -58,7 +59,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- clone --------------------------------------------------------------
 
-    def test_clone_preserves_size_and_format(self):
+    def test_clone_preserves_size_and_format(self) -> None:
         src_name = _uniq("clone-src")
         clone_name = _uniq("clone-dst")
         self.client.disks.create(src_name, size_mb=8, format="qcow2")
@@ -77,7 +78,7 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(src_name)
 
-    def test_clone_preserves_snapshots(self):
+    def test_clone_preserves_snapshots(self) -> None:
         src_name = _uniq("clone-snap-src")
         clone_name = _uniq("clone-snap-dst")
         src = self.client.disks.create(src_name, size_mb=8, format="qcow2")
@@ -92,14 +93,14 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(src_name)
 
-    def test_clone_rejects_running_vm(self):
+    def test_clone_rejects_running_vm(self) -> None:
         """Cloning a disk attached to a running VM must fail with
         `VmMustBeStopped`. The disk is the Alpine vm's overlay,
         which is attached and busy for the lifetime of the `with`."""
         with Vm(self) as vm, pytest.raises(VmMustBeStopped):
             self.client.disks.clone(vm.name, _uniq("clone-while-running"))
 
-    def test_clone_to_custom_path(self):
+    def test_clone_to_custom_path(self) -> None:
         """`disks.clone(..., path=...)` writes the clone to an
         explicit filesystem location. The path is in the daemon's
         view (i.e. inside the node); we don't ssh in to
@@ -145,7 +146,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- overlay ------------------------------------------------------------
 
-    def test_create_overlay_has_backing(self):
+    def test_create_overlay_has_backing(self) -> None:
         base_name = _uniq("ov-base")
         overlay_name = _uniq("ov-top")
         base = self.client.disks.create(base_name, size_mb=8, format="qcow2")
@@ -166,7 +167,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- rebase -------------------------------------------------------------
 
-    def test_rebase_to_other_base(self):
+    def test_rebase_to_other_base(self) -> None:
         """Rebase an overlay from baseA to baseB and confirm the
         backing pointer follows. Both bases are independent 8 MB qcow2s
         so the rebase is `qemu-img rebase`-fast."""
@@ -178,8 +179,9 @@ class TestDisk(SingleNodeCase):
         try:
             ov = self.client.disks.create_overlay(overlay, base_a)
             try:
-                assert ov.show().backing_image is not None
-                assert ov.show().backing_image.name == base_a
+                backing = ov.show().backing_image
+                assert backing is not None
+                assert backing.name == base_a
                 self.client.disks.rebase(overlay, base_b)
                 show = ov.show()
                 assert show.backing_image is not None
@@ -191,7 +193,7 @@ class TestDisk(SingleNodeCase):
             self._delete_silent(base_a)
             self._delete_silent(base_b)
 
-    def test_rebase_flatten_drops_backing(self):
+    def test_rebase_flatten_drops_backing(self) -> None:
         """`disks.flatten(overlay)` consolidates the overlay's delta
         with its backing image(s) into a single standalone qcow2.
         Afterwards `disk.show()` must report no backing image."""
@@ -222,7 +224,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- import -------------------------------------------------------------
 
-    def test_import_local_file_copies(self):
+    def test_import_local_file_copies(self) -> None:
         """Register a daemon-owned file, then `import_` it under a new
         name pointing at the registered file's on-disk path. The import
         copies (canonicalised dest != src), and we get a fresh disk
@@ -253,7 +255,7 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(src_name)
 
-    def test_import_same_path_rejected(self):
+    def test_import_same_path_rejected(self) -> None:
         """If the import name resolves to the same canonical path as
         the source file, the daemon refuses with a 'Source and
         destination paths are the same' error (Handlers/Disk/Import.hs:145)."""
@@ -272,7 +274,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- hot-plug attach / detach -------------------------------------------
 
-    def test_hot_attach_detach_reattach(self):
+    def test_hot_attach_detach_reattach(self) -> None:
         """Boot an Alpine guest, create a fresh data disk, attach it
         over virtio, see the kernel pick up `/dev/vd*`, detach,
         re-attach (regression check that the qcow2 lock is released
@@ -317,7 +319,7 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(data_disk)
 
-    def test_preboot_virtio_and_scsi_drives_detach_live(self):
+    def test_preboot_virtio_and_scsi_drives_detach_live(self) -> None:
         """Drives present at boot retain deterministic QEMU IDs, so
         virtio and SCSI data drives can be detached and reattached
         while the VM remains active.
@@ -330,7 +332,7 @@ class TestDisk(SingleNodeCase):
         class PrebootDataVm(Vm):
             guest_agent = False
 
-            def _drives(self):
+            def _drives(self) -> list[_DriveOptions]:
                 return super()._drives() + [
                     {"disk_ref": virtio_disk, "interface": "virtio"},
                     {"disk_ref": scsi_disk, "interface": "scsi"},
@@ -356,9 +358,15 @@ class TestDisk(SingleNodeCase):
                 time.sleep(15)
                 initial = vm.cap.show().drives
                 virtio_id = next(
-                    d.id for d in initial if d.disk_image.name == virtio_disk
+                    d.id
+                    for d in initial
+                    if d.disk_image is not None and d.disk_image.name == virtio_disk
                 )
-                scsi_id = next(d.id for d in initial if d.disk_image.name == scsi_disk)
+                scsi_id = next(
+                    d.id
+                    for d in initial
+                    if d.disk_image is not None and d.disk_image.name == scsi_disk
+                )
 
                 detach_when_qmp_ready(vm, virtio_id)
                 detach_when_qmp_ready(vm, scsi_id)
@@ -372,7 +380,7 @@ class TestDisk(SingleNodeCase):
             self._delete_silent(virtio_disk)
             self._delete_silent(scsi_disk)
 
-    def test_preboot_ide_cdrom_requires_stopping_before_detach(self):
+    def test_preboot_ide_cdrom_requires_stopping_before_detach(self) -> None:
         """IDE installer media is not on a hot-pluggable QEMU bus, so
         a live detach is rejected without changing the database row.
         """
@@ -382,7 +390,7 @@ class TestDisk(SingleNodeCase):
         class PrebootInstallerVm(Vm):
             guest_agent = False
 
-            def _drives(self):
+            def _drives(self) -> list[_DriveOptions]:
                 return super()._drives() + [
                     {
                         "disk_ref": installer_disk,
@@ -397,7 +405,7 @@ class TestDisk(SingleNodeCase):
                 drive_id = next(
                     d.id
                     for d in vm.cap.show().drives
-                    if d.disk_image.name == installer_disk
+                    if d.disk_image is not None and d.disk_image.name == installer_disk
                 )
                 with pytest.raises(
                     ServerError, match=r"ide drive.*does not support hot unplug"
@@ -414,7 +422,7 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(installer_disk)
 
-    def test_media_eject_live_persist_and_detach(self):
+    def test_media_eject_live_persist_and_detach(self) -> None:
         """Live-eject a CD-ROM drive's media, verify `vm show` reports the
         empty tray, confirm the empty state survives a reboot, and detach
         the now-medialess drive (IDE cdroms only detach while stopped)."""
@@ -424,7 +432,7 @@ class TestDisk(SingleNodeCase):
         class CdromVm(Vm):
             guest_agent = False
 
-            def _drives(self):
+            def _drives(self) -> list[_DriveOptions]:
                 return super()._drives() + [
                     {
                         "disk_ref": cd_disk,
@@ -437,7 +445,9 @@ class TestDisk(SingleNodeCase):
         try:
             with CdromVm(self) as vm:
                 drive_id = next(
-                    d.id for d in vm.cap.show().drives if d.disk_image.name == cd_disk
+                    d.id
+                    for d in vm.cap.show().drives
+                    if d.disk_image is not None and d.disk_image.name == cd_disk
                 )
                 drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
                 assert drive.media == "cdrom"
@@ -469,7 +479,7 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(cd_disk)
 
-    def test_media_change_live_persist(self):
+    def test_media_change_live_persist(self) -> None:
         """Live-change a CD-ROM drive's media to a second image, change
         from an empty tray, and confirm the new media is present after a
         reboot."""
@@ -481,7 +491,7 @@ class TestDisk(SingleNodeCase):
         class CdromVm(Vm):
             guest_agent = False
 
-            def _drives(self):
+            def _drives(self) -> list[_DriveOptions]:
                 return super()._drives() + [
                     {
                         "disk_ref": cd_a,
@@ -494,10 +504,13 @@ class TestDisk(SingleNodeCase):
         try:
             with CdromVm(self) as vm:
                 drive_id = next(
-                    d.id for d in vm.cap.show().drives if d.disk_image.name == cd_a
+                    d.id
+                    for d in vm.cap.show().drives
+                    if d.disk_image is not None and d.disk_image.name == cd_a
                 )
                 drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
                 assert drive.media == "cdrom"
+                assert drive.disk_image is not None
                 assert drive.disk_image.name == cd_a
 
                 # Live change: the running VM now serves cd_b.
@@ -533,7 +546,7 @@ class TestDisk(SingleNodeCase):
             self._delete_silent(cd_a)
             self._delete_silent(cd_b)
 
-    def test_hot_attach_read_only(self):
+    def test_hot_attach_read_only(self) -> None:
         """`attach_disk(..., read_only=True)` surfaces as `read_only=True`
         on the matching drive in `vm.show()`."""
         data_disk = _uniq("hotplug-ro")
@@ -558,7 +571,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- ephemeral cleanup on vm delete -------------------------------------
 
-    def test_vm_delete_reaps_ephemeral_keeps_non_ephemeral(self):
+    def test_vm_delete_reaps_ephemeral_keeps_non_ephemeral(self) -> None:
         """`vm.delete()` with no flags must reap every ephemeral disk
         attached to the VM and leave non-ephemeral disks alone.
 
@@ -597,7 +610,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- resize -------------------------------------------------------------
 
-    def test_resize_grows_disk(self):
+    def test_resize_grows_disk(self) -> None:
         name = _uniq("resize")
         disk = self.client.disks.create(name, size_mb=8, format="qcow2")
         try:
@@ -611,7 +624,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- attach options round-trip -----------------------------------------
 
-    def test_attach_options_round_trip(self):
+    def test_attach_options_round_trip(self) -> None:
         """``attach_disk(cache_type=..., discard=True)`` surfaces back
         as the matching fields on ``vm.show().drives``. The harness's
         existing ``test_hot_attach_read_only`` covers the read-only
@@ -645,7 +658,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- import from URL ---------------------------------------------------
 
-    def test_import_from_http_url(self):
+    def test_import_from_http_url(self) -> None:
         """Spin a one-shot ``python -m http.server`` on the test
         node, serve a qcow2 the daemon will fetch via
         ``disks.import_url``. Verifies the URL-import code path
@@ -715,7 +728,7 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(src_name)
 
-    def test_import_xz_auto_decompress(self):
+    def test_import_xz_auto_decompress(self) -> None:
         """Same flow as the plain-HTTP import test, but the served
         URL ends in ``.xz`` — the daemon's importer detects the
         suffix and pipes the body through ``xz -d`` on the agent
@@ -768,7 +781,7 @@ class TestDisk(SingleNodeCase):
 
     # ---- refresh picks up out-of-band changes -----------------------------
 
-    def test_refresh_updates_size_after_out_of_band_resize(self):
+    def test_refresh_updates_size_after_out_of_band_resize(self) -> None:
         """``disk.refresh()`` re-probes the on-disk image and writes
         the new virtual size to the DB. We simulate an out-of-band
         change by ``qemu-img resize``-ing the file directly on the

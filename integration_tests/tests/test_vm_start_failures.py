@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Callable
 
 import pytest
 from corvus_client.exceptions import CorvusError
@@ -32,7 +33,7 @@ pytestmark = pytest.mark.timeout(300)
 
 
 class TestVmStartFailures(SingleNodeCase):
-    def test_vm_oversized_ram_surfaces_in_vm_show(self):
+    def test_vm_oversized_ram_surfaces_in_vm_show(self) -> None:
         """Requesting more RAM than the node has surfaces a real
         error on `vm.show()`, not a misleading QGA-timeout."""
         # Discover the node's total RAM so the test is independent
@@ -99,12 +100,13 @@ class TestVmStartFailures(SingleNodeCase):
             # state: only reset is legal until the operator explicitly clears
             # the failed QEMU runtime. This catches handlers that bypass the
             # state machine after a startup failure.
-            for operation in (
+            operations: tuple[Callable[[], object], ...] = (
                 lambda: vm.start(wait=False),
                 lambda: vm.stop(wait=False),
                 vm.pause,
                 lambda: vm.save(wait=False),
-            ):
+            )
+            for operation in operations:
                 with pytest.raises(CorvusError):
                     operation()
 

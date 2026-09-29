@@ -27,11 +27,13 @@ import textwrap
 import time
 
 import pytest
+from corvus_client._sync.vm import SyncVm
 from corvus_client.exceptions import CorvusError
 from corvus_client.types import (
     ApplyEnd,
     ApplyEntityEnd,
     ApplyEntityStart,
+    ApplyEvent,
     ApplyPhaseStart,
 )
 from corvus_test_harness import SingleNodeCase
@@ -40,7 +42,7 @@ pytestmark = pytest.mark.timeout(1200)
 
 
 # Module-level helper: raises with a useful message on non-zero exit.
-def _qga(vm, cmd: str) -> None:
+def _qga(vm: SyncVm, cmd: str) -> None:
     r = vm.guest_exec(cmd)
     assert r.exit_code == 0, (
         f"{cmd!r} failed: exit={r.exit_code} stdout={r.stdout!r} stderr={r.stderr!r}"
@@ -55,7 +57,7 @@ _TEST_PUB_KEY_BLOB = (
 
 
 class TestApply(SingleNodeCase):
-    def test_two_vms_managed_network_can_ping(self):
+    def test_two_vms_managed_network_can_ping(self) -> None:
         """Two VMs on a managed network can ping each other.
 
         First integration test to exercise the rootful managed-network
@@ -151,7 +153,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_deploys_ssh_key_via_cloud_init(self):
+    def test_deploys_ssh_key_via_cloud_init(self) -> None:
         """SSH key declared in YAML lands in authorized_keys.
 
         Apply's contract: cloud-init injects the key referenced in
@@ -231,7 +233,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_custom_cloud_init_creates_deployer_user(self):
+    def test_custom_cloud_init_creates_deployer_user(self) -> None:
         """`cloudInitConfig.userData` creates a deployer user + injects key.
 
         Verifies the apply layer carries the userData through to the
@@ -325,7 +327,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_skip_existing_idempotent(self):
+    def test_skip_existing_idempotent(self) -> None:
         """Re-applying the same YAML with skip_existing=True is a no-op.
 
         Same IDs round-trip on the second apply — proves the daemon
@@ -385,7 +387,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_rejects_missing_disk_reference(self):
+    def test_rejects_missing_disk_reference(self) -> None:
         """A VM referencing a nonexistent disk fails the apply.
 
         Resource creation order is sshKeys → disks → networks → VMs;
@@ -424,7 +426,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_md5_mismatch_fails_after_retries(self):
+    def test_md5_mismatch_fails_after_retries(self) -> None:
         """A URL-imported disk whose checksum is set to the wrong
         digest must fail the apply. The importer retries up to 3
         times and then deletes the partial download and reports the
@@ -479,7 +481,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_yaml_anchors_and_merge_keys_apply(self):
+    def test_yaml_anchors_and_merge_keys_apply(self) -> None:
         """The daemon's YAML parser must honour anchors (``&name``)
         and merge keys (``<<: *name``) — without them, operators
         can't deduplicate common stanzas across many VMs and the
@@ -529,7 +531,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_validation_rejects_duplicate_disk_name(self):
+    def test_validation_rejects_duplicate_disk_name(self) -> None:
         """Two disk entries with the same ``name`` in one YAML are
         a validation error — the daemon checks for duplicates
         before any side-effects (``Handlers/Apply.hs`` ``validateConfig``)."""
@@ -557,7 +559,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_if_exists_overwrite_replaces_disk(self):
+    def test_if_exists_overwrite_replaces_disk(self) -> None:
         """``ifExists: overwrite`` in apply YAML deletes the matching
         existing entity before re-creating it. (The Schema/Apply.hs:70
         comment claims this is rejected at parse time, but the
@@ -605,7 +607,7 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_stream_apply_phase_and_entity_events(self):
+    def test_stream_apply_phase_and_entity_events(self) -> None:
         """`apply_stream` emits per-phase / per-entity events in order.
 
         Drives a trivial config (one SSH key + one register-only disk)
@@ -634,7 +636,7 @@ class TestApply(SingleNodeCase):
         """).strip()
 
         try:
-            events: list = []
+            events: list[ApplyEvent] = []
             task_id = None
             for item in self.client.apply_stream(yaml_body):
                 if isinstance(item, tuple):

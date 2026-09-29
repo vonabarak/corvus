@@ -50,12 +50,16 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 
 from corvus_test_harness import SingleNodeCase, VmSsh, WebGateway
+from corvus_test_harness.vm import _NetIfOptions
 from websockets.sync.client import connect as ws_connect
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -127,7 +131,7 @@ def _find_metric(
 class TestObservability(SingleNodeCase):
     """One VM, one corvus-web spawn, every documented endpoint."""
 
-    def test_metrics_and_stats_end_to_end(self):
+    def test_metrics_and_stats_end_to_end(self) -> None:
         """Boot VM → /metrics → drive workload → re-scrape → /stats/history
         → /stats/ws. Single boot, sequential phases."""
 
@@ -136,7 +140,7 @@ class TestObservability(SingleNodeCase):
         # checks via labels-missing, but it's a less informative
         # assertion). See test_vm_lifecycle.py for the same pattern.
         class _ObsVm(VmSsh):
-            def _net_ifs(self):
+            def _net_ifs(self) -> list[_NetIfOptions]:
                 return [{"type": "user"}]
 
         with _ObsVm(self) as vm:
@@ -152,8 +156,8 @@ class TestObservability(SingleNodeCase):
             # scrape wouldn't list our VM.
             _poll_until(
                 lambda: (
-                    vm.cap.show().stats is not None
-                    and vm.cap.show().stats.sampled_at_nanos > 0
+                    (stats := vm.cap.show().stats) is not None
+                    and stats.sampled_at_nanos > 0
                 ),
                 timeout_sec=30.0,
                 msg="daemon never reported a non-zero stats sample for VM",
@@ -307,7 +311,7 @@ class TestObservability(SingleNodeCase):
                 # frames (the agent pushes every ~10 s, so 25 s
                 # comfortably covers two pushes plus initial
                 # subscription latency).
-                frames: list[dict] = []
+                frames: list[dict[str, int]] = []
                 with ws_connect(
                     web.ws_url(f"/api/vms/{vm_id}/stats/ws"),
                     open_timeout=10.0,
@@ -319,7 +323,14 @@ class TestObservability(SingleNodeCase):
                             msg = wsk.recv(timeout=remaining)
                         except TimeoutError:
                             break
-                        frames.append(json.loads(msg))
+                        frame = json.loads(msg)
+                        assert isinstance(frame, dict)
+                        timestamp = frame.get("sampled_at_nanos")
+                        rss_value = frame.get("host_rss_bytes")
+                        assert isinstance(timestamp, int) and isinstance(rss_value, int)
+                        frames.append(
+                            {"sampled_at_nanos": timestamp, "host_rss_bytes": rss_value}
+                        )
                 assert len(frames) >= 2, (
                     f"received {len(frames)} WS frames in 25 s; expected ≥ 2 "
                     f"(StatusPoller cadence is 10 s)"
@@ -334,7 +345,7 @@ class TestObservability(SingleNodeCase):
                     f"WS frame had zero host_rss_bytes: {frames!r}"
                 )
 
-    def test_metrics_503_during_cold_start(self):
+    def test_metrics_503_during_cold_start(self) -> None:
         """Boot a fresh corvus-web with no VMs in the daemon yet, hit
         ``/metrics`` immediately, and assert the documented 503-with-
         ``warmed_up=False`` behaviour (see

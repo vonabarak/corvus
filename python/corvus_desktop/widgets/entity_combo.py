@@ -15,13 +15,19 @@ one. Adds an optional first item with ``id=None`` for "auto" /
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Sequence
+from typing import Protocol
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import Signal, SignalInstance
 from PySide6.QtWidgets import QComboBox, QWidget
 
-if TYPE_CHECKING:
-    pass
+
+class EntityItem(Protocol):
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def name(self) -> str: ...
 
 
 class EntityCombo(QComboBox):
@@ -36,8 +42,8 @@ class EntityCombo(QComboBox):
 
     def __init__(
         self,
-        list_request: Any,  # bound bridge method; called with no args
-        list_signal: Any,  # PySide6.QtCore.SignalInstance — bound bridge signal
+        list_request: Callable[[], None],
+        list_signal: SignalInstance,
         *,
         placeholder: str | None = None,
         parent: QWidget | None = None,
@@ -56,7 +62,8 @@ class EntityCombo(QComboBox):
     # ---------------------------------------------------- public
 
     def selected_id(self) -> int | None:
-        return self.currentData()
+        data = self.currentData()
+        return data if isinstance(data, int) else None
 
     def selected_name(self) -> str | None:
         idx = self.currentIndex()
@@ -75,7 +82,7 @@ class EntityCombo(QComboBox):
 
     # ---------------------------------------------------- slots
 
-    def _on_list(self, items: Any) -> None:
+    def _on_list(self, items: Sequence[EntityItem]) -> None:
         # Preserve the currently-selected id across refresh so the user
         # doesn't lose their pick when a dialog refreshes underneath.
         previous = self.currentData()
@@ -84,18 +91,10 @@ class EntityCombo(QComboBox):
         if self._placeholder is not None:
             self.addItem(self._placeholder, userData=None)
         for item in items:
-            name = getattr(item, "name", None) or str(getattr(item, "id", "?"))
-            entity_id = getattr(item, "id", None)
-            self.addItem(name, userData=entity_id)
-        if previous is not None:
+            self.addItem(item.name or str(item.id), userData=item.id)
+        if isinstance(previous, int):
             self.select_id(previous)
         self.blockSignals(False)
 
     def _on_index_changed(self, _index: int) -> None:
         self.selection_changed.emit(self.currentData())
-
-
-# Helper to expose ``QObject`` as part of the public surface for type
-# checkers — keeps the import from being flagged as unused if no other
-# code in this module needs it directly.
-_ = QObject

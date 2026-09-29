@@ -32,7 +32,7 @@ import dataclasses
 import getpass
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import click
@@ -881,7 +881,7 @@ def _renew_one(st: store.AdminStore, rec: store.IssuedRecord, *, dry_run: bool) 
     handler = _RENEW_DISPATCH.get(rec.role)
     if handler is None:
         raise deploy.RenewError(f"unknown role {rec.role!r} in record {rec.cn}")
-    result = handler(st, rec, dry_run)
+    result = handler(st, rec, dry_run)  # type: ignore[no-untyped-call]
     if isinstance(result, deploy.DeployPlan):
         # daemon / node / netd path — DeployPlan has the redeploy target.
         verb = "would renew" if dry_run else "renewed"
@@ -1216,7 +1216,9 @@ def _ensure_initialised(ca_dir: Path | None) -> store.AdminStore:
     return st
 
 
-def _records_to_json(records: list) -> str:
+def _records_to_json(
+    records: Sequence[store.IssuedRecord | status_mod.ProbeReport],
+) -> str:
     """Serialize a list of dataclass records to JSON. `default=str`
     catches anything dataclasses.asdict can't handle natively (Path,
     datetime); records in this codebase only carry primitives, so the

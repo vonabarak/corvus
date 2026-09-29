@@ -22,17 +22,21 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Iterator
 
 import pytest
-from corvus_client import ServerError
-from corvus_test_harness import OneDaemonTwoNodesCase, VmShell
+from corvus_client import Client, ServerError
+from corvus_client._sync.vm import SyncVm
+from corvus_test_harness import OneDaemonTwoNodesCase, TestNode, VmShell
 
 
 def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-def _wait_until_node_ready(client, node_name: str, timeout_sec: float = 30.0) -> None:
+def _wait_until_node_ready(
+    client: Client, node_name: str, timeout_sec: float = 30.0
+) -> None:
     """Block until the per-node supervisor has reported RAM stats for
     ``node_name`` — that's how we know its nodeagent reconnected
     after ``nodes.create``.
@@ -56,7 +60,7 @@ def _vxlan_iface_for(vni: int) -> str:
     return f"corvus-vx{vni}"
 
 
-def _link_exists(node, name: str) -> bool:
+def _link_exists(node: TestNode, name: str) -> bool:
     r = node.run(
         f"ip -o link show {name} 2>/dev/null || true",
         check=False,
@@ -66,7 +70,7 @@ def _link_exists(node, name: str) -> bool:
     return bool(out)
 
 
-def _fdb_dsts(node, dev: str) -> set[str]:
+def _fdb_dsts(node: TestNode, dev: str) -> set[str]:
     """Return the set of peer underlay IPs the flood FDB carries on
     ``dev``. Each `bridge fdb show` row for the all-zero MAC looks
     like ``00:00:00:00:00:00 dst 192.0.2.20 self permanent``.
@@ -96,10 +100,9 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
     # ---- class-scoped setup ------------------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self, request):
-        cls = request.cls
+    def _register_beta(self) -> Iterator[None]:
         client = self.client_alpha
-        beta_name = self.node_beta.short_name
+        beta_name = self.beta_name
         beta_ip = self.node_beta.outer_ip
         try:
             existing = next(
@@ -109,7 +112,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            cls.beta_node = client.nodes.create(
+            beta_node = client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
@@ -117,13 +120,11 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
                 description="alpha→beta vxlan tests",
             )
         else:
-            cls.beta_node = client.nodes.get(beta_name)
-        cls.beta_name = beta_name
-        cls.alpha_name = self.node_alpha.short_name
+            beta_node = client.nodes.get(beta_name)
         _wait_until_node_ready(client, beta_name)
         yield
         try:
-            cls.beta_node.delete()
+            beta_node.delete()
         except Exception:
             pass
 
@@ -148,7 +149,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
 
     # ---- state-only tests --------------------------------------------------
 
-    def test_attach_node_allocates_vni_and_records_peer(self):
+    def test_attach_node_allocates_vni_and_records_peer(self) -> None:
         """First attach-node assigns a VNI and adds the peer to the
         network's peer set."""
         nw_name = _uniq("vx-state")
@@ -170,7 +171,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent_network(nw_name)
 
-    def test_attach_node_refuses_owner_node(self):
+    def test_attach_node_refuses_owner_node(self) -> None:
         nw_name = _uniq("vx-owner")
         nw = self.client_alpha.networks.create(
             nw_name, subnet="10.99.1.0/24", node=self.alpha_name
@@ -182,7 +183,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent_network(nw_name)
 
-    def test_detach_node_refuses_owner_node(self):
+    def test_detach_node_refuses_owner_node(self) -> None:
         nw_name = _uniq("vx-detach-owner")
         nw = self.client_alpha.networks.create(
             nw_name, subnet="10.99.2.0/24", node=self.alpha_name
@@ -198,7 +199,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent_network(nw_name)
 
-    def test_detach_node_removes_peer(self):
+    def test_detach_node_removes_peer(self) -> None:
         nw_name = _uniq("vx-detach")
         nw = self.client_alpha.networks.create(
             nw_name, subnet="10.99.3.0/24", node=self.alpha_name
@@ -213,7 +214,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
 
     # ---- netd-side kernel checks (requires the network running) ------------
 
-    def test_running_network_materialises_vxlan_on_both_nodes(self):
+    def test_running_network_materialises_vxlan_on_both_nodes(self) -> None:
         """Starting a multi-node network creates the bridge on the
         owner AND the VXLAN VTEP on every member. Each VTEP's flood
         FDB contains the *other* member's underlay IP."""
@@ -242,7 +243,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent_network(nw_name)
 
-    def test_detach_node_drops_remote_vxlan(self):
+    def test_detach_node_drops_remote_vxlan(self) -> None:
         nw_name = _uniq("vx-drop")
         nw = self.client_alpha.networks.create(
             nw_name,
@@ -274,7 +275,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
 
     # ---- NIC IPAM ----------------------------------------------------------
 
-    def test_attaching_nic_to_overlay_assigns_ip(self):
+    def test_attaching_nic_to_overlay_assigns_ip(self) -> None:
         """A VM created on a peer node attaches to the overlay
         network and gets an IPAM-allocated address recorded on the
         NIC. dnsmasq then has a host-reservation for that MAC, so
@@ -312,7 +313,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_network(nw_name)
 
-    def test_overlay_forwards_guest_packets_between_nodes(self):
+    def test_overlay_forwards_guest_packets_between_nodes(self) -> None:
         """Two DHCP guests on different nodes can ping across the VXLAN.
 
         The Alpine base is staged on both nodes before creating the
@@ -356,7 +357,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             move_task = self.client_alpha.disks.move(beta_overlay, self.beta_name)
             self.wait_for_task(self.client_alpha, move_task, timeout_sec=120.0)
 
-            def boot(name: str, overlay: str, node_name: str):
+            def boot(name: str, overlay: str, node_name: str) -> SyncVm:
                 vm = self.client_alpha.vms.create(
                     name,
                     cpu_count=1,
@@ -401,7 +402,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             self._delete_silent_vm(beta_vm_name)
             self._delete_silent_network(nw_name)
 
-    def test_managed_nic_cross_node_refused_without_attach(self):
+    def test_managed_nic_cross_node_refused_without_attach(self) -> None:
         """A managed NIC's network must include the VM's node — the
         bridge has to be present on the kernel running QEMU. Without
         attach-node the daemon should refuse the NetIf.add."""
@@ -429,7 +430,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
 
     # ---- migration acceptance -----------------------------------------------
 
-    def test_migrate_allowed_when_overlay_includes_destination(self):
+    def test_migrate_allowed_when_overlay_includes_destination(self) -> None:
         """A stopped VM with a managed NIC migrates between owner and
         peer when the network's peer set covers both. State-only:
         we don't boot QEMU here — the migrate orchestrator's
@@ -473,7 +474,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             except Exception:
                 pass
 
-    def test_migrate_refused_when_overlay_excludes_destination(self):
+    def test_migrate_refused_when_overlay_excludes_destination(self) -> None:
         """A managed NIC on a single-node network cannot migrate; the
         pre-check refuses with a clear hint."""
         nw_name = _uniq("vx-mig-no")

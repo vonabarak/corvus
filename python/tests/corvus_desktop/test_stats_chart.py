@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from corvus_client.types import DriveIo, NetIo, SshKeyInfo, VmStats
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.widgets.stats_chart import StatsSparkline
 from corvus_desktop.windows.vm_detail import (
     _sum_drive_delta,
     _sum_net_delta,
 )
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 
-def test_sparkline_rolling_window(qapp: Any) -> None:
+def test_sparkline_rolling_window(qapp: QApplication) -> None:
     spark = StatsSparkline(max_points=3)
     for v in (1.0, 2.0, 3.0, 4.0):
         spark.add_point(v)
@@ -22,7 +24,7 @@ def test_sparkline_rolling_window(qapp: Any) -> None:
     assert spark._values == [2.0, 3.0, 4.0]
 
 
-def test_sparkline_clear(qapp: Any) -> None:
+def test_sparkline_clear(qapp: QApplication) -> None:
     spark = StatsSparkline()
     spark.add_point(5.0)
     spark.clear()
@@ -129,13 +131,13 @@ class _MockBridge(QObject):
     def request_node_list(self) -> None: ...
 
 
-def test_vm_detail_renders_ssh_key_list(qapp: Any) -> None:
+def test_vm_detail_renders_ssh_key_list(qapp: QApplication) -> None:
     from datetime import datetime, timezone
 
     from corvus_desktop.windows.vm_detail import VmDetailWidget
 
     bridge = _MockBridge()
-    w = VmDetailWidget(bridge)
+    w = VmDetailWidget(cast(CorvusBridge, bridge))
     try:
         w.set_vm_id(7)
         assert bridge.ssh_key_list_calls == [7]
@@ -157,16 +159,18 @@ def test_vm_detail_renders_ssh_key_list(qapp: Any) -> None:
             ],
         )
         assert w._ssh_table.rowCount() == 2
-        assert w._ssh_table.item(0, 0).text() == "workstation"
+        item = w._ssh_table.item(0, 0)
+        assert item is not None
+        assert item.text() == "workstation"
     finally:
         w.deleteLater()
 
 
-def test_vm_detail_stats_appends_chart_point(qapp: Any) -> None:
+def test_vm_detail_stats_appends_chart_point(qapp: QApplication) -> None:
     from corvus_desktop.windows.vm_detail import VmDetailWidget
 
     bridge = _MockBridge()
-    w = VmDetailWidget(bridge)
+    w = VmDetailWidget(cast(CorvusBridge, bridge))
     try:
         w._vm_id = 9
         # Two samples 1 s apart with a CPU jiffies delta of 100.

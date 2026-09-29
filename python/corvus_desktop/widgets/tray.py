@@ -15,9 +15,13 @@ introducing a separate notification subscription channel.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from corvus_client.types import TaskProgressFinished
+from corvus_client.types import (
+    TaskProgressFinished,
+    TaskProgressProgress,
+    TaskProgressStarted,
+)
 from PySide6.QtCore import QObject
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -82,11 +86,15 @@ class DesktopTray(QObject):
             widget.raise_()
             widget.activateWindow()
 
-    def _on_activated(self, reason: Any) -> None:
+    def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self._on_show()
 
-    def _on_task_event(self, task_id: int, event: Any) -> None:
+    def _on_task_event(
+        self,
+        task_id: int,
+        event: TaskProgressStarted | TaskProgressProgress | TaskProgressFinished,
+    ) -> None:
         if not isinstance(event, TaskProgressFinished):
             return
         title = f"Task #{task_id} {event.result}"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from ..widgets.entity_combo import EntityCombo
 from .form_dialog import FormDialog
+from .payload_types import AttachDiskPayload
 
 if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
@@ -24,6 +25,9 @@ _CACHE = ("default", "writeback", "none", "writethrough", "directsync", "unsafe"
 
 
 class AttachDiskDialog(FormDialog):
+    def payload(self) -> AttachDiskPayload:
+        return cast(AttachDiskPayload, super().payload())
+
     def __init__(self, bridge: CorvusBridge, parent: QWidget | None = None) -> None:
         self._bridge = bridge
         self._disk = EntityCombo(
@@ -46,7 +50,7 @@ class AttachDiskDialog(FormDialog):
         form.addRow("Read-only:", self._read_only)
         form.addRow("Discard:", self._discard)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> AttachDiskPayload | None:
         disk_id = self._disk.selected_id()
         if disk_id is None:
             self.show_error("Pick a disk.")

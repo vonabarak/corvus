@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
+from corvus_client import Client
 from corvus_test_harness.cases import SingleNodeCase
 from corvus_test_harness.inner import open_client
 from corvus_test_harness.postgres import psql, wait_for_postgres
@@ -99,7 +100,7 @@ class DatabaseMigrationCase(SingleNodeCase):
             + shlex.quote(invocation)
         ).stdout.decode()
 
-    def _connect(self):
+    def _connect(self) -> Client:
         return open_client(
             self.node.relay,
             cert_dir=self.node._client_cert_dir,
@@ -108,7 +109,7 @@ class DatabaseMigrationCase(SingleNodeCase):
             boot_timeout_sec=60,
         )
 
-    def test_01_upgrade_version_2_and_restart(self):
+    def test_01_upgrade_version_2_and_restart(self) -> None:
         self._prepare(historical=True)
         assert self._sql("SELECT version FROM schema_version") == "2"
         insert = (
@@ -146,7 +147,7 @@ class DatabaseMigrationCase(SingleNodeCase):
         assert "is current; skipping migrations" in self._logs()
         assert self._sql("SELECT COUNT(*) FROM drive") == "3"
 
-    def test_02_fresh_creation(self):
+    def test_02_fresh_creation(self) -> None:
         self._prepare(historical=False)
         self._start()
         with self._connect() as client:
@@ -156,7 +157,7 @@ class DatabaseMigrationCase(SingleNodeCase):
         assert "migrated from version" not in self._logs()
         assert self._sql("SELECT version FROM schema_version") == "4"
 
-    def test_03_retired_migration_refuses_startup(self):
+    def test_03_retired_migration_refuses_startup(self) -> None:
         self._prepare(historical=True)
         self._sql("UPDATE schema_version SET version = 1")
         before = self._sql("SELECT * FROM drive")

@@ -69,7 +69,7 @@ import gc
 import threading
 from collections import deque
 from collections.abc import Coroutine
-from typing import Any, cast
+from typing import Generic, TypeVar, cast
 
 import capnp
 
@@ -93,6 +93,8 @@ _GC_INTERVAL_SEC = 0.25
 # enough to keep cyclic garbage from accumulating across a long test
 # run.
 _GC_FULL_INTERVAL_SEC = 5.0
+
+T = TypeVar("T")
 
 
 # Process-global guard around `gc.disable()`. Multiple `SyncRunloop`
@@ -124,7 +126,7 @@ def _release_gc_disable() -> None:
             gc.enable()
 
 
-class _RawFuture:
+class _RawFuture(Generic[T]):
     """A minimal, allocation-light single-shot result barrier.
 
     Replaces `concurrent.futures.Future` on the sync-call path. The
@@ -143,10 +145,10 @@ class _RawFuture:
     def __init__(self) -> None:
         self._lock = _thread.allocate_lock()
         self._lock.acquire()
-        self._result: Any = None
+        self._result: T | None = None
         self._exception: BaseException | None = None
 
-    def set_result(self, value: Any) -> None:
+    def set_result(self, value: T) -> None:
         self._result = value
         self._lock.release()
 
@@ -177,7 +179,7 @@ class _RawFuture:
         self._exception = exc
         self._lock.release()
 
-    def result(self) -> Any:
+    def result(self) -> T:
         # Block until the writer releases.
         self._lock.acquire()
         # Lock is now ours; release immediately so subsequent reads
@@ -185,7 +187,7 @@ class _RawFuture:
         self._lock.release()
         if self._exception is not None:
             raise self._exception
-        return self._result
+        return cast(T, self._result)
 
 
 class SyncRunloop:
@@ -213,7 +215,7 @@ class SyncRunloop:
         # GIL-atomic in CPython so no explicit lock is needed, and they
         # don't allocate on the common path (only when crossing the
         # internal 64-slot block boundary).
-        self._drop_queue: deque[Any] = deque()
+        self._drop_queue: deque[object] = deque()
         self._thread = threading.Thread(
             target=self._serve, daemon=True, name="corvus-runloop"
         )
@@ -233,7 +235,7 @@ class SyncRunloop:
         try:
             asyncio.set_event_loop(self._loop)
 
-            async def park():
+            async def park() -> None:
                 # Bind the stop event to *this* loop.
                 self._stop = asyncio.Event()
                 async with capnp.kj_loop():
@@ -311,7 +313,7 @@ class SyncRunloop:
         if not self._stop.is_set():
             self._loop.call_later(_GC_FULL_INTERVAL_SEC, self._gc_full_tick)
 
-    def schedule_drop(self, obj: Any) -> None:
+    def schedule_drop(self, obj: object) -> None:
         """Append `obj` to the cap-drop queue. Thread-safe; safe to
         call from `__del__` during GC. The object's destructor runs
         on the loop thread no later than `_DRAIN_INTERVAL_SEC` after
@@ -329,7 +331,7 @@ class SyncRunloop:
         # the common path.
         self._drop_queue.append(obj)
 
-    def run(self, coro: Coroutine[Any, Any, Any]) -> Any:
+    def run(self, coro: Coroutine[object, object, T]) -> T:
         """Schedule `coro` on the background loop; block until it returns.
 
         Avoids `asyncio.run_coroutine_threadsafe` entirely (which would
@@ -342,9 +344,9 @@ class SyncRunloop:
             raise RuntimeError("SyncRunloop is closed")
 
         loop = self._loop
-        fut = _RawFuture()
+        fut: _RawFuture[T] = _RawFuture()
 
-        def _on_done(task: asyncio.Future) -> None:
+        def _on_done(task: asyncio.Future[T]) -> None:
             # Runs on the loop thread.
             if task.cancelled():
                 fut.set_exception(asyncio.CancelledError())
@@ -370,7 +372,7 @@ class SyncRunloop:
                 self._gc_claimed = False
             return
 
-        fut = _RawFuture()
+        fut: _RawFuture[None] = _RawFuture()
         loop = self._loop
 
         def _signal() -> None:

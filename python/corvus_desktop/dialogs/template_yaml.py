@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QWidget
 
 from ..widgets.yaml_editor import YamlEditor
@@ -83,4 +81,3 @@ class TemplateYamlDialog(QDialog):
 
 
 # Keep an attribute on the module so callers can introspect / override.
-_: Any = _TEMPLATE_SKELETON

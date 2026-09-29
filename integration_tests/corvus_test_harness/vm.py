@@ -41,13 +41,45 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from types import TracebackType
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
+from corvus_client._sync.vm import SyncVm
+from typing_extensions import NotRequired, Self
 
 if TYPE_CHECKING:
     from .cases import IntegrationTestCase
     from .ssh import SshResult, VmShell
+
+
+class _DriveOptions(TypedDict):
+    disk_ref: int | str
+    interface: NotRequired[str | None]
+    media: NotRequired[str | None]
+    read_only: NotRequired[bool]
+    cache_type: NotRequired[str | None]
+    discard: NotRequired[bool]
+
+
+class _NetIfOptions(TypedDict, total=False):
+    type: str | None
+    host_device: str | None
+    mac_address: str | None
+    network_ref: int | str | None
+
+
+class _SharedDirOptions(TypedDict):
+    path: str
+    tag: str
+    cache: NotRequired[str | None]
+    read_only: NotRequired[bool]
+
+
+class _CloudInitOptions(TypedDict, total=False):
+    user_data: str | None
+    network_config: str | None
+    inject_ssh_keys: bool
 
 
 class Vm:
@@ -115,9 +147,9 @@ class Vm:
         name: str | None = None,
     ) -> None:
         self.case = case
-        self.client = case.client
+        self.client = case.clients[0]
         self.name: str = name or self._derive_name()
-        self.cap = None
+        self._cap: SyncVm | None = None
         self._overlay_created = False
         # Names of SSH keys this VM registered with the inner daemon
         # (so cleanup can drop them on __exit__).
@@ -125,7 +157,18 @@ class Vm:
 
     # ---- public API --------------------------------------------------------
 
-    def __enter__(self) -> Vm:
+    @property
+    def cap(self) -> SyncVm:
+        """The VM capability after entering the context manager."""
+        if self._cap is None:
+            raise RuntimeError("VM capability is unavailable before __enter__")
+        return self._cap
+
+    @cap.setter
+    def cap(self, value: SyncVm | None) -> None:
+        self._cap = value
+
+    def __enter__(self) -> Self:
         images = self.case.register_base_images()
         base_disk = images.get(self.base_image_key)
         if base_disk is None:
@@ -143,7 +186,7 @@ class Vm:
             # reaps it without the test having to chase it down.
             self.client.disks.create_overlay(self.name, base_disk, ephemeral=True)
             self._overlay_created = True
-            self.cap = self.client.vms.create(
+            cap = self.client.vms.create(
                 self.name,
                 cpu_count=self.cpu_count,
                 ram_mb=self.ram_mb,
@@ -153,34 +196,40 @@ class Vm:
                 cloud_init=self.cloud_init,
                 reboot_quirk=self.reboot_quirk,
             )
+            self._cap = cap
             # `vms.create` produces a bare VM record; drives, network
             # interfaces, SSH keys, cloud-init, and virtiofs shared
             # directories are attached afterward via the per-resource
             # cap methods.
             for drive in self._drives():
-                self.cap.attach_disk(**drive)
+                cap.attach_disk(**drive)
             for net_if in self._net_ifs():
-                self.cap.add_net_if(**net_if)
+                cap.add_net_if(**net_if)
             for shared in self._shared_dirs():
-                self.cap.add_shared_dir(**shared)
+                cap.add_shared_dir(**shared)
             for key_name, public_key in self._ssh_keys_to_attach():
                 self.client.ssh_keys.create(key_name, public_key)
                 self._registered_ssh_keys.append(key_name)
-                self.cap.attach_ssh_key(key_name)
+                cap.attach_ssh_key(key_name)
             ci_cfg = self._cloud_init_config()
             if ci_cfg is not None:
-                self.client.cloud_init.set(self.cap.show().id, **ci_cfg)
-            self.cap.start(wait=self.wait_for_qga)
+                self.client.cloud_init.set(cap.show().id, **ci_cfg)
+            cap.start(wait=self.wait_for_qga)
             self._post_start()
         except BaseException:
             self.__exit__(None, None, None)
             raise
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         # Idempotent, best-effort cleanup. Mirror of
         # `Topology.finalize` (`topology.py:111`).
-        if self.cap is not None:
+        if self._cap is not None:
             # Use `reset` rather than `stop` for teardown: it's a
             # hard kill (`Handlers/Vm.hs:handleVmReset` SIGTERMs
             # qemu and synchronously sets status=stopped) and works
@@ -192,14 +241,14 @@ class Vm:
             # graceful shutdown path call `vm.stop` themselves; the
             # __exit__ just guarantees the VM goes away.
             try:
-                self.cap.reset()
+                self._cap.reset()
             except Exception:
                 pass
             try:
-                self.cap.delete()
+                self._cap.delete()
             except Exception:
                 pass
-            self.cap = None
+            self._cap = None
         if self._overlay_created:
             # If vm.delete ran successfully the overlay (which we
             # registered as ephemeral) is already gone; if it didn't
@@ -224,13 +273,13 @@ class Vm:
         no-op. Subclasses use this to register additional disks with
         the inner daemon (e.g. OVMF for UEFI)."""
 
-    def _drives(self) -> list[dict]:
+    def _drives(self) -> list[_DriveOptions]:
         """Return the list of `vm.attach_disk` kwarg dicts to call
         after VM create. Default: one virtio drive on the overlay.
         UEFI subclass appends pflash entries for OVMF code+vars."""
         return [{"disk_ref": self.name, "interface": "virtio"}]
 
-    def _net_ifs(self) -> list[dict]:
+    def _net_ifs(self) -> list[_NetIfOptions]:
         """Return the list of `vm.add_net_if` kwarg dicts to call
         after drives are attached. Default: a single user-mode NIC
         so VMs have outbound networking (DNS, internet) out of the
@@ -241,7 +290,7 @@ class Vm:
         for SSH-over-IP."""
         return [{"type": "user"}]
 
-    def _shared_dirs(self) -> list[dict]:
+    def _shared_dirs(self) -> list[_SharedDirOptions]:
         """Return the list of `vm.add_shared_dir` kwarg dicts to call
         after the drives are attached and before `vm.start`. Default
         empty. Tests that need virtiofs override this — typically with
@@ -262,7 +311,7 @@ class Vm:
         authorized_keys at first boot."""
         return []
 
-    def _cloud_init_config(self) -> dict | None:
+    def _cloud_init_config(self) -> _CloudInitOptions | None:
         """Return a dict of kwargs for `client.cloud_init.set()`
         (`user_data`, `network_config`, `inject_ssh_keys`), or `None`
         to skip the call. Default `None`."""
@@ -313,6 +362,7 @@ class VmSsh(Vm):
         self.shell: VmShell | None = None
 
     def _post_start(self) -> None:
+        assert self.cap is not None
         try:
             self.shell = self.case.vm_shell(
                 self.cap,
@@ -323,6 +373,7 @@ class VmSsh(Vm):
             # Missing key / no vsock_cid — surface as a skip so the
             # test doesn't fail noisily on an unsupported host.
             pytest.skip(str(e))
+        assert self.shell is not None
         self.shell.wait_ready(timeout_sec=self.ssh_ready_timeout_sec)
 
     def _ssh_private_key_path(self) -> Path:
@@ -336,7 +387,12 @@ class VmSsh(Vm):
 
         return HOST_ALPINE_KEY_PATH
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         # Drop the ControlMaster before tearing down the VM so the
         # vm-side sshd session closes cleanly; the base class then
         # stops + deletes the VM.
@@ -348,9 +404,12 @@ class VmSsh(Vm):
             self.shell = None
         super().__exit__(exc_type, exc, tb)
 
-    def run(self, command: str, **kw) -> SshResult:
+    def run(
+        self, command: str, *, timeout_sec: float = 60.0, check: bool = True
+    ) -> SshResult:
         """Run a shell command in the guest over the open SSH session."""
-        return self.shell.run(command, **kw)
+        assert self.shell is not None
+        return self.shell.run(command, timeout_sec=timeout_sec, check=check)
 
 
 class VmUefi(VmSsh):
@@ -396,7 +455,7 @@ class VmUefi(VmSsh):
             self._vars_overlay, "ovmf-vars", ephemeral=True
         )
 
-    def _drives(self) -> list[dict]:
+    def _drives(self) -> list[_DriveOptions]:
         return super()._drives() + [
             {
                 "disk_ref": self._code_overlay,
@@ -463,7 +522,7 @@ class VmWindows(Vm):
             self._vars_overlay, "ovmf-vars", ephemeral=True
         )
 
-    def _drives(self) -> list[dict]:
+    def _drives(self) -> list[_DriveOptions]:
         return super()._drives() + [
             {
                 "disk_ref": self._code_overlay,
@@ -579,7 +638,7 @@ class VmCloudInit(VmSsh):
     def _ssh_keys_to_attach(self) -> list[tuple[str, str]]:
         return [(self._primary_key_name(), self.public_key)] + self.extra_keys
 
-    def _net_ifs(self) -> list[dict]:
+    def _net_ifs(self) -> list[_NetIfOptions]:
         # User-mode (SLIRP) network with a hostfwd that maps a unique
         # node-side TCP port to the guest's sshd. The daemon's
         # `Qemu/Command.hs::netdevArgs` accepts SLIRP options via
@@ -592,10 +651,11 @@ class VmCloudInit(VmSsh):
             }
         ]
 
-    def _cloud_init_config(self) -> dict:
+    def _cloud_init_config(self) -> _CloudInitOptions:
         return {"inject_ssh_keys": True}
 
     def _post_start(self) -> None:
+        assert self.cap is not None
         try:
             self.shell = self.case.vm_shell(
                 self.cap,
@@ -605,9 +665,15 @@ class VmCloudInit(VmSsh):
             )
         except RuntimeError as e:
             pytest.skip(str(e))
+        assert self.shell is not None
         self.shell.wait_ready(timeout_sec=self.ssh_ready_timeout_sec)
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         try:
             super().__exit__(exc_type, exc, tb)
         finally:

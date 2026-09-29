@@ -24,6 +24,7 @@ import secrets
 import pytest
 from corvus_client import CorvusError
 from corvus_test_harness import SingleNodeCase, VmSsh
+from corvus_test_harness.vm import _SharedDirOptions
 
 
 def _uniq(stem: str) -> str:
@@ -40,7 +41,7 @@ class TestVirtiofs(SingleNodeCase):
 
     # ---- port: bidirectional read+write -----------------------------------
 
-    def test_virtiofs_bidirectional(self):
+    def test_virtiofs_bidirectional(self) -> None:
         """Host (node) writes a file under a shared dir; guest reads
         it through virtiofs. Guest writes under the same dir; host
         reads it back. Round-trip both ways through the same tag."""
@@ -51,7 +52,7 @@ class TestVirtiofs(SingleNodeCase):
         try:
 
             class _Bidi(VmSsh):
-                def _shared_dirs(_self):
+                def _shared_dirs(_self) -> list[_SharedDirOptions]:
                     return [{"path": outer_path, "tag": "share"}]
 
             with _Bidi(self) as vm:
@@ -72,14 +73,14 @@ class TestVirtiofs(SingleNodeCase):
             # After the with block: VM is torn down by VmSsh.
             # The guest write should have been persisted on the
             # node's directory.
-            r = self.node.run(f"cat {outer_path}/guest-file.txt")
-            assert r.stdout.decode().strip() == guest_marker
+            host_result = self.node.run(f"cat {outer_path}/guest-file.txt")
+            assert host_result.stdout.decode().strip() == guest_marker
         finally:
             self.node.run(f"rm -rf {outer_path}", check=False)
 
     # ---- port: missing-path error surfaces via subtask --------------------
 
-    def test_shared_dir_missing_path_fails(self):
+    def test_shared_dir_missing_path_fails(self) -> None:
         """Adding a shared dir whose host path does not exist must
         cause `vm.start` to fail. After the Phase 4 VM-abstraction
         refactor virtiofsd is spawned inline by the agent's
@@ -150,7 +151,7 @@ class TestVirtiofs(SingleNodeCase):
 
     # ---- new: two simultaneous shared dirs --------------------------------
 
-    def test_two_shared_dirs_both_mountable(self):
+    def test_two_shared_dirs_both_mountable(self) -> None:
         """Two `add_shared_dir` calls with distinct tags: both should
         appear on `vm.show().shared_dirs`, both should be mountable
         inside the guest with their respective tags, and writes
@@ -165,7 +166,7 @@ class TestVirtiofs(SingleNodeCase):
         try:
 
             class _Two(VmSsh):
-                def _shared_dirs(_self):
+                def _shared_dirs(_self) -> list[_SharedDirOptions]:
                     return [
                         {"path": path_a, "tag": "share-a"},
                         {"path": path_b, "tag": "share-b"},
@@ -219,7 +220,7 @@ class TestVirtiofs(SingleNodeCase):
 
     # ---- new: read-only shared dir blocks writes --------------------------
 
-    def test_shared_dir_read_only_blocks_writes(self):
+    def test_shared_dir_read_only_blocks_writes(self) -> None:
         """`add_shared_dir(..., read_only=True)` exposes the host
         directory to the guest as read-only. Reads must work; writes
         must fail (EROFS / "Read-only file system")."""
@@ -230,7 +231,7 @@ class TestVirtiofs(SingleNodeCase):
         try:
 
             class _Ro(VmSsh):
-                def _shared_dirs(_self):
+                def _shared_dirs(_self) -> list[_SharedDirOptions]:
                     return [
                         {"path": ro_path, "tag": "ro", "read_only": True},
                     ]
@@ -281,7 +282,7 @@ class TestVirtiofs(SingleNodeCase):
 
     # ---- new: cache mode plumbs through to virtiofsd ----------------------
 
-    def test_cache_mode_plumbs_to_virtiofsd(self):
+    def test_cache_mode_plumbs_to_virtiofsd(self) -> None:
         """`add_shared_dir(..., cache="always")` lands on virtiofsd's
         argv as ``--cache=always``. The default (``auto``) is exercised
         implicitly by every other test in this file; this test pins
@@ -301,7 +302,7 @@ class TestVirtiofs(SingleNodeCase):
         try:
 
             class _Cached(VmSsh):
-                def _shared_dirs(_self):
+                def _shared_dirs(_self) -> list[_SharedDirOptions]:
                     return [
                         {"path": path, "tag": "cached", "cache": "always"},
                     ]

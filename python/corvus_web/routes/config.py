@@ -8,9 +8,17 @@ the SPA so it never has to hard-code values that drift.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TypedDict
 
 from fastapi import APIRouter
+
+
+class ConfigResponse(TypedDict):
+    drive_interfaces: list[str]
+    drive_media: list[str]
+    cache_types: list[str]
+    transitions: dict[str, list[str]]
+
 
 router = APIRouter(tags=["config"])
 
@@ -56,7 +64,7 @@ _TRANSITIONS: dict[str, list[str]] = {
 
 
 @router.get("")
-async def get_config() -> dict[str, Any]:
+async def get_config() -> ConfigResponse:
     """Return configuration data the frontend needs to stay in sync
     with the daemon: valid enum values and the lifecycle transition
     table."""

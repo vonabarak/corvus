@@ -45,6 +45,7 @@ import time
 
 import pytest
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
+from corvus_test_harness.vm import _NetIfOptions
 
 pytestmark = pytest.mark.timeout(300)
 
@@ -191,7 +192,7 @@ class TestComponentRestart(SingleNodeCase):
     # ----------------------------------------------------------------
     # Baseline
 
-    def test_baseline_all_healthy(self):
+    def test_baseline_all_healthy(self) -> None:
         """Before any restart, everything talks. Anchors the rest."""
 
         self._fresh_status_must_work("baseline")
@@ -199,7 +200,7 @@ class TestComponentRestart(SingleNodeCase):
     # ----------------------------------------------------------------
     # Single-component restarts
 
-    def test_restart_nodeagent_daemon_survives(self):
+    def test_restart_nodeagent_daemon_survives(self) -> None:
         """Bouncing nodeagent must not take down the daemon.
 
         This is the original bug: prior to the fix, restarting
@@ -222,7 +223,7 @@ class TestComponentRestart(SingleNodeCase):
             f"restart (PID {daemon_pid_before} → {daemon_pid_after})"
         )
 
-    def test_restart_nodeagent_recovers_running_vm(self):
+    def test_restart_nodeagent_recovers_running_vm(self) -> None:
         """A running VM is re-started after nodeagent loses its QEMU state.
 
         Nodeagent cleanup deliberately terminates its QEMU children on a
@@ -276,7 +277,7 @@ class TestComponentRestart(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_restart_netd_daemon_survives(self):
+    def test_restart_netd_daemon_survives(self) -> None:
         """Bouncing netd must not take down the daemon. Same
         symmetry as the nodeagent case; the daemon's per-node
         supervisor holds independent dials to each agent. PID
@@ -291,7 +292,7 @@ class TestComponentRestart(SingleNodeCase):
             f"restart (PID {daemon_pid_before} → {daemon_pid_after})"
         )
 
-    def test_restart_daemon_agents_survive(self):
+    def test_restart_daemon_agents_survive(self) -> None:
         """Bouncing the daemon: the agents must remain up, and the
         daemon must come back and re-dial them.
 
@@ -323,7 +324,7 @@ class TestComponentRestart(SingleNodeCase):
 
         self._fresh_status_must_work("after daemon restart")
 
-    def test_shutdown_rpc_preserves_agent_owned_running_state(self):
+    def test_shutdown_rpc_preserves_agent_owned_running_state(self) -> None:
         """A public graceful shutdown stops only the daemon and restores its
         view of a live managed VM/network after an explicit start.
 
@@ -343,7 +344,7 @@ class TestComponentRestart(SingleNodeCase):
             network.start()
 
             class _ManagedVm(VmSsh):
-                def _net_ifs(self):
+                def _net_ifs(self) -> list[_NetIfOptions]:
                     return [{"type": "managed", "network_ref": network_name}]
 
             with _ManagedVm(self, name=f"shutdown-vm-{secrets.token_hex(3)}") as vm:
@@ -417,7 +418,7 @@ class TestComponentRestart(SingleNodeCase):
     # ----------------------------------------------------------------
     # Compound restarts — repeated bounces, alternating order.
 
-    def test_alternating_restarts(self):
+    def test_alternating_restarts(self) -> None:
         """A handful of bounces in alternating order. Catches
         accumulating leaks (descriptors, threads, stale
         supervisor registrations) that a single restart wouldn't

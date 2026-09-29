@@ -41,6 +41,7 @@ import pytest
 from corvus_client.types import BuildPipelineEnd
 from corvus_test_harness import InstallerImageReady, SingleNodeCase
 from corvus_test_harness.host_binary import REPO_ROOT
+from corvus_test_harness.outer import Crv
 
 import yaml as yamlmod
 
@@ -52,7 +53,7 @@ _BUILD_YAML = REPO_ROOT / "yaml" / "corvus-test-installer" / "corvus-test-instal
 
 class TestBuildInstaller(SingleNodeCase):
     @pytest.fixture(scope="class", autouse=True)
-    def _installer_image_present(self, crv):
+    def _installer_image_present(self, crv: Crv) -> None:
         """Fail fast if the synthetic-installer ISO isn't registered.
 
         Mirrors `image_ready` for `corvus-test-node`: the bake
@@ -62,7 +63,7 @@ class TestBuildInstaller(SingleNodeCase):
         """
         InstallerImageReady.ensure(crv)
 
-    def test_installer_strategy_roundtrip(self):
+    def test_installer_strategy_roundtrip(self) -> None:
         """Synthetic installer bakes; marker survives the publish."""
         marker_uuid = uuid.uuid4().hex
         target_token = secrets.token_hex(4)

@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from types import TracebackType
 
+from .. import types as t
+from .._async.streams import ByteStream, GuestAgentSubscription, VmStatsSubscription
+from .._async.vm import AsyncVm, AsyncVmManager
+from .._runloop import SyncRunloop
 from ._resource import LoopBoundResource
 
 
@@ -17,12 +23,12 @@ class SyncByteStream:
     the runloop thread.
     """
 
-    def __init__(self, async_stream, runloop):
+    def __init__(self, async_stream: ByteStream, runloop: SyncRunloop) -> None:
         self._a = async_stream
         self._rl = runloop
 
     def read(self, *, timeout: float | None = None) -> bytes | None:
-        async def _go():
+        async def _go() -> bytes | None:
             if timeout is None:
                 return await self._a.read()
             try:
@@ -38,10 +44,15 @@ class SyncByteStream:
     def close(self) -> None:
         self._rl.run(self._a.close())
 
-    def __enter__(self):
+    def __enter__(self) -> SyncByteStream:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
 
@@ -52,80 +63,150 @@ class SyncGuestAgentSubscription:
     garbage collection) tears down the daemon-side subscriber slot.
     """
 
-    def __init__(self, async_sub, runloop):
+    def __init__(
+        self,
+        async_sub: GuestAgentSubscription | VmStatsSubscription,
+        runloop: SyncRunloop,
+    ) -> None:
         self._a = async_sub
         self._rl = runloop
 
     def close(self) -> None:
         self._rl.run(self._a.close())
 
-    def __enter__(self):
+    def __enter__(self) -> SyncGuestAgentSubscription:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
 
 class SyncVmManager:
-    def __init__(self, async_mgr, runloop):
+    def __init__(self, async_mgr: AsyncVmManager, runloop: SyncRunloop) -> None:
         self._a = async_mgr
         self._rl = runloop
 
-    def list(self):
+    def list(self) -> list[t.VmInfo]:
         return self._rl.run(self._a.list())
 
-    def get(self, ref, *, by_name: bool = False):
+    def get(self, ref: int | str, *, by_name: bool = False) -> SyncVm:
         return SyncVm(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
-    def create(self, name: str, **kwargs):
-        return SyncVm(self._rl.run(self._a.create(name, **kwargs)), self._rl)
+    def create(
+        self,
+        name: str,
+        *,
+        node: str | None = None,
+        cpu_count: int = 1,
+        ram_mb: int = 1024,
+        description: str | None = None,
+        headless: bool = False,
+        guest_agent: bool = False,
+        tpm: bool = False,
+        cloud_init: bool = False,
+        autostart: bool = False,
+        reboot_quirk: bool = False,
+        cpu_model: str = "host",
+    ) -> SyncVm:
+        return SyncVm(
+            self._rl.run(
+                self._a.create(
+                    name,
+                    node=node,
+                    cpu_count=cpu_count,
+                    ram_mb=ram_mb,
+                    description=description,
+                    headless=headless,
+                    guest_agent=guest_agent,
+                    tpm=tpm,
+                    cloud_init=cloud_init,
+                    autostart=autostart,
+                    reboot_quirk=reboot_quirk,
+                    cpu_model=cpu_model,
+                )
+            ),
+            self._rl,
+        )
 
 
 class SyncVm(LoopBoundResource):
-    def __init__(self, async_vm, runloop):
+    def __init__(self, async_vm: AsyncVm, runloop: SyncRunloop) -> None:
         self._a = async_vm
         self._rl = runloop
 
     # queries
-    def show(self):
+    def show(self) -> t.VmDetails:
         return self._rl.run(self._a.show())
 
     # lifecycle
-    def start(self, *, wait: bool = False):
+    def start(self, *, wait: bool = False) -> str:
         return self._rl.run(self._a.start(wait=wait))
 
-    def stop(self, *, wait: bool = False, timeout_sec: int = 300):
+    def stop(self, *, wait: bool = False, timeout_sec: int = 300) -> str:
         return self._rl.run(self._a.stop(wait=wait, timeout_sec=timeout_sec))
 
-    def pause(self):
+    def pause(self) -> str:
         return self._rl.run(self._a.pause())
 
-    def reset(self):
+    def reset(self) -> str:
         return self._rl.run(self._a.reset())
 
-    def save(self, *, wait: bool = False):
+    def save(self, *, wait: bool = False) -> str:
         return self._rl.run(self._a.save(wait=wait))
 
-    def edit(self, **kwargs):
-        return self._rl.run(self._a.edit(**kwargs))
+    def edit(
+        self,
+        *,
+        name: str | None = None,
+        cpu_count: int | None = None,
+        ram_mb: int | None = None,
+        description: str | None = None,
+        headless: bool | None = None,
+        guest_agent: bool | None = None,
+        tpm: bool | None = None,
+        cloud_init: bool | None = None,
+        autostart: bool | None = None,
+        reboot_quirk: bool | None = None,
+        cpu_model: str | None = None,
+    ) -> None:
+        self._rl.run(
+            self._a.edit(
+                name=name,
+                cpu_count=cpu_count,
+                ram_mb=ram_mb,
+                description=description,
+                headless=headless,
+                guest_agent=guest_agent,
+                tpm=tpm,
+                cloud_init=cloud_init,
+                autostart=autostart,
+                reboot_quirk=reboot_quirk,
+                cpu_model=cpu_model,
+            )
+        )
 
-    def delete(self, *, keep_disks: bool = False, force: bool = False):
+    def delete(self, *, keep_disks: bool = False, force: bool = False) -> None:
         return self._rl.run(self._a.delete(keep_disks=keep_disks, force=force))
 
-    def migrate(self, to_node_ref) -> int:
+    def migrate(self, to_node_ref: int | str) -> int:
         return self._rl.run(self._a.migrate(to_node_ref))
 
     # cloud-init / view / guest exec / hotkeys
-    def cloud_init(self):
+    def cloud_init(self) -> t.CloudInitInfo:
         return self._rl.run(self._a.cloud_init())
 
-    def view_grant(self):
+    def view_grant(self) -> t.ViewGrant:
         return self._rl.run(self._a.view_grant())
 
-    def guest_exec(self, command: str):
+    def guest_exec(self, command: str) -> t.GuestExecResult:
         return self._rl.run(self._a.guest_exec(command))
 
-    def send_ctrl_alt_del(self):
+    def send_ctrl_alt_del(self) -> None:
         return self._rl.run(self._a.send_ctrl_alt_del())
 
     def serial_console(self) -> SyncByteStream:
@@ -139,7 +220,7 @@ class SyncVm(LoopBoundResource):
         async_stream = self._rl.run(self._a.serial_console())
         return SyncByteStream(async_stream, self._rl)
 
-    def serial_console_flush(self):
+    def serial_console_flush(self) -> None:
         return self._rl.run(self._a.serial_console_flush())
 
     def hmp_monitor(self) -> SyncByteStream:
@@ -155,10 +236,12 @@ class SyncVm(LoopBoundResource):
         async_stream = self._rl.run(self._a.hmp_monitor())
         return SyncByteStream(async_stream, self._rl)
 
-    def hmp_monitor_flush(self):
+    def hmp_monitor_flush(self) -> None:
         return self._rl.run(self._a.hmp_monitor_flush())
 
-    def subscribe_guest_agent(self, on_event):
+    def subscribe_guest_agent(
+        self, on_event: Callable[[t.GuestAgentStatus], None]
+    ) -> SyncGuestAgentSubscription:
         """Subscribe to guest-agent push events from the daemon.
 
         `on_event` is a **sync** callable invoked once per
@@ -171,65 +254,113 @@ class SyncVm(LoopBoundResource):
         let it go out of scope) to unsubscribe.
         """
 
-        async def _bridge(ev):
+        async def _bridge(ev: t.GuestAgentStatus) -> None:
             on_event(ev)
 
         async_sub = self._rl.run(self._a.subscribe_guest_agent(_bridge))
         return SyncGuestAgentSubscription(async_sub, self._rl)
 
-    def subscribe_stats(self, on_event):
+    def subscribe_stats(
+        self, on_event: Callable[[t.VmStats], None]
+    ) -> SyncGuestAgentSubscription:
         """Subscribe to per-VM resource-stats push events (~10s cadence).
 
         See `subscribe_guest_agent` for the threading caveat: the
         `on_event` callback runs on the runloop thread, not on the
         caller's thread."""
 
-        async def _bridge(ev):
+        async def _bridge(ev: t.VmStats) -> None:
             on_event(ev)
 
         async_sub = self._rl.run(self._a.subscribe_stats(_bridge))
         return SyncGuestAgentSubscription(async_sub, self._rl)
 
-    def get_stats_history(self) -> list:
+    def get_stats_history(self) -> list[t.VmStats]:
         """One-shot fetch of the daemon's stats ring (up to 60
         samples, oldest first)."""
         return self._rl.run(self._a.get_stats_history())
 
     # drives
-    def attach_disk(self, disk_ref, **kwargs):
-        return self._rl.run(self._a.attach_disk(disk_ref, **kwargs))
+    def attach_disk(
+        self,
+        disk_ref: int | str,
+        *,
+        interface: str | None = None,
+        media: str | None = None,
+        read_only: bool = False,
+        cache_type: str | None = None,
+        discard: bool = False,
+    ) -> int:
+        return self._rl.run(
+            self._a.attach_disk(
+                disk_ref,
+                interface=interface,
+                media=media,
+                read_only=read_only,
+                cache_type=cache_type,
+                discard=discard,
+            )
+        )
 
-    def detach_disk(self, drive_id: int):
+    def detach_disk(self, drive_id: int) -> None:
         return self._rl.run(self._a.detach_disk(drive_id))
 
-    def detach_disk_by_name(self, disk_name: str):
+    def detach_disk_by_name(self, disk_name: str) -> None:
         return self._rl.run(self._a.detach_disk_by_name(disk_name))
 
     # network ifs
-    def add_net_if(self, **kwargs):
-        return self._rl.run(self._a.add_net_if(**kwargs))
+    def add_net_if(
+        self,
+        *,
+        type: str | None = None,
+        host_device: str | None = None,
+        mac_address: str | None = None,
+        network_ref: int | str | None = None,
+    ) -> int:
+        return self._rl.run(
+            self._a.add_net_if(
+                type=type,
+                host_device=host_device,
+                mac_address=mac_address,
+                network_ref=network_ref,
+            )
+        )
 
-    def remove_net_if(self, net_if_id: int):
+    def remove_net_if(self, net_if_id: int) -> None:
         return self._rl.run(self._a.remove_net_if(net_if_id))
 
-    def list_net_ifs(self):
+    def list_net_ifs(self) -> list[t.NetIfInfo]:
         return self._rl.run(self._a.list_net_ifs())
 
     # shared dirs
-    def add_shared_dir(self, path: str, tag: str, **kwargs):
-        return self._rl.run(self._a.add_shared_dir(path, tag, **kwargs))
+    def add_shared_dir(
+        self,
+        path: str,
+        tag: str,
+        *,
+        cache: str | None = None,
+        read_only: bool = False,
+    ) -> int:
+        return self._rl.run(
+            self._a.add_shared_dir(
+                path,
+                tag,
+                cache=cache,
+                read_only=read_only,
+            )
+        )
 
-    def remove_shared_dir(self, shared_dir_id: int):
+    def remove_shared_dir(self, shared_dir_id: int) -> None:
         return self._rl.run(self._a.remove_shared_dir(shared_dir_id))
 
-    def list_shared_dirs(self):
+    def list_shared_dirs(self) -> list[t.SharedDirInfo]:
         return self._rl.run(self._a.list_shared_dirs())
 
     # VM-scoped full-machine snapshots
-    def snapshot_create(self, name: str):
+    def snapshot_create(self, name: str) -> t.VmSnapshotInfo:
         return self._rl.run(self._a.snapshot_create(name))
 
-    def snapshot_list(self):
+    def snapshot_list(self) -> list[t.VmSnapshotInfo]:
         return self._rl.run(self._a.snapshot_list())
 
     def snapshot_rollback(self, name: str) -> None:
@@ -239,11 +370,11 @@ class SyncVm(LoopBoundResource):
         self._rl.run(self._a.snapshot_delete(name))
 
     # ssh keys
-    def attach_ssh_key(self, key_ref):
+    def attach_ssh_key(self, key_ref: int | str) -> None:
         return self._rl.run(self._a.attach_ssh_key(key_ref))
 
-    def detach_ssh_key(self, key_ref):
+    def detach_ssh_key(self, key_ref: int | str) -> None:
         return self._rl.run(self._a.detach_ssh_key(key_ref))
 
-    def list_ssh_keys(self):
+    def list_ssh_keys(self) -> list[t.SshKeyInfo]:
         return self._rl.run(self._a.list_ssh_keys())

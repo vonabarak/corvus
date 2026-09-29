@@ -8,13 +8,13 @@ VM-create dropdown."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import NodeNotFound
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -25,7 +25,7 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
 @router.get("")
-async def list_nodes(client: ClientDep) -> list[dict[str, Any]]:
+async def list_nodes(client: ClientDep) -> list[JsonObject]:
     """Mirrors ``crv node list``. Returns the full NodeInfo set: name,
     host, admin state, capacity snapshot (CPU / RAM / storage / load),
     netd status."""
@@ -33,7 +33,7 @@ async def list_nodes(client: ClientDep) -> list[dict[str, Any]]:
 
 
 @router.get("/{node_id}")
-async def get_node(node_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_node(node_id: int, client: ClientDep) -> JsonObject:
     """Node detail. Adds kernel_release, agent_version, full load
     average vector, and the base_path on top of the list view."""
     try:

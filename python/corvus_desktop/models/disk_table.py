@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from corvus_client.types import DiskImageInfo
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    Qt,
+)
 
 _INVALID_PARENT: QModelIndex = QModelIndex()
 
@@ -38,7 +42,7 @@ class DiskTableModel(QAbstractTableModel):
         "Ephemeral",
     )
 
-    def __init__(self, parent: Any = None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._disks: list[DiskImageInfo] = []
 
@@ -69,7 +73,7 @@ class DiskTableModel(QAbstractTableModel):
         section: int,
         orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | None:
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
@@ -82,7 +86,7 @@ class DiskTableModel(QAbstractTableModel):
         self,
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | int | None:
         if not index.isValid():
             return None
         disk = self.disk_at(index.row())

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from corvus_client.types import SshKeyInfo
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    Qt,
+)
 
 _INVALID_PARENT: QModelIndex = QModelIndex()
 
@@ -31,7 +35,7 @@ class SshKeyTableModel(QAbstractTableModel):
     COL_ATTACHED = 2
     COLS: tuple[str, ...] = ("Name", "Public key", "Attached to")
 
-    def __init__(self, parent: Any = None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._keys: list[SshKeyInfo] = []
 
@@ -60,7 +64,7 @@ class SshKeyTableModel(QAbstractTableModel):
         section: int,
         orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | None:
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
@@ -73,7 +77,7 @@ class SshKeyTableModel(QAbstractTableModel):
         self,
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | int | None:
         if not index.isValid():
             return None
         key = self.key_at(index.row())

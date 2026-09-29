@@ -28,11 +28,11 @@ import time
 from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError
 from corvus_client.types import VmStats
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, FastAPI, Response
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
@@ -43,9 +43,13 @@ from prometheus_client import (
 
 from ..deps import get_client
 
+if TYPE_CHECKING:
+    from corvus_client import AsyncClient
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 # How often the background task refreshes the cache. Matches the
 # agent's StatusPoller cadence so we don't sample faster than the
@@ -103,7 +107,7 @@ def get_cache() -> _MetricsCache:
     return _cache
 
 
-async def start_metrics_poller(app) -> asyncio.Task:  # type: ignore[no-untyped-def]
+async def start_metrics_poller(app: FastAPI) -> asyncio.Task[None]:
     """Spawn the background polling task. Returns the task so the
     lifespan can cancel it on shutdown."""
 
@@ -118,7 +122,7 @@ async def start_metrics_poller(app) -> asyncio.Task:  # type: ignore[no-untyped-
     return asyncio.create_task(loop(), name="corvus-web-metrics-poller")
 
 
-async def _refresh_once(client) -> None:  # type: ignore[no-untyped-def]
+async def _refresh_once(client: AsyncClient) -> None:
     now = time.time()
     # Refresh per-node observations first; if a node's agent has
     # disconnected the daemon returns the most recent observation
@@ -180,7 +184,7 @@ async def _refresh_once(client) -> None:  # type: ignore[no-untyped-def]
 
 @router.get("/metrics", response_class=Response)
 async def metrics(
-    client: Annotated[Any, Depends(get_client)],
+    client: ClientDep,
 ) -> Response:
     """Render the Prometheus exposition format from the in-memory
     cache. The dependency on ``get_client`` is unused at request
@@ -352,7 +356,7 @@ def _jiffies_to_seconds(stats: VmStats) -> float:
     return stats.cpu_jiffies_total / stats.clk_tck
 
 
-def _set_counter(metric: Any, value: float) -> None:
+def _set_counter(metric: Counter, value: float) -> None:
     """The agent emits monotonic counters; mirror them into the
     prometheus_client Counter without going through inc(). Using
     the private ``_value.set`` is the documented pattern for
@@ -379,7 +383,7 @@ def _fresh_nodes(cache: _MetricsCache, now: float) -> Iterator[_CachedNode]:
 # Lifespan helpers (called from corvus_web/app.py)
 
 
-async def shutdown_metrics_poller(task: asyncio.Task | None) -> None:
+async def shutdown_metrics_poller(task: asyncio.Task[None] | None) -> None:
     """Cancel the poller task started by `start_metrics_poller`.
     No-ops if `task is None` (poller never started)."""
     if task is None:

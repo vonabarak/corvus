@@ -12,10 +12,14 @@ Callers who must address a digit-only name use `by_name=True`.
 
 from __future__ import annotations
 
+import capnp
+
 from . import _schema
 
 
-def entity_ref(value: int | str, *, by_name: bool = False):
+def entity_ref(
+    value: int | str, *, by_name: bool = False
+) -> capnp.lib.capnp._DynamicStructBuilder:
     """Build an EntityRef message ready to pass as a cap method arg.
 
     - `int` → `EntityRef.id`

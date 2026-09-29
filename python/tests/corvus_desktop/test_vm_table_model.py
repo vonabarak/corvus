@@ -95,6 +95,10 @@ def test_headless_flag(model: VmTableModel) -> None:
 def test_vm_at_round_trip(model: VmTableModel) -> None:
     vms = [_vm(vm_id=i, name=f"v{i}") for i in (1, 3, 5)]
     model.set_vms(vms)
-    assert model.vm_at(0).name == "v1"
-    assert model.vm_at(2).name == "v5"
+    first = model.vm_at(0)
+    second = model.vm_at(2)
+    assert first is not None
+    assert second is not None
+    assert first.name == "v1"
+    assert second.name == "v5"
     assert model.vm_at(7) is None

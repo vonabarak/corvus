@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import TemplateDetails
 from PySide6.QtCore import Signal
@@ -112,7 +112,7 @@ class TemplateDetailWidget(QWidget):
             label.setText("—")
         self._drives_table.setRowCount(0)
 
-    def _on_detail(self, info: Any) -> None:
+    def _on_detail(self, info: TemplateDetails) -> None:
         if not isinstance(info, TemplateDetails) or info.id != self._template_id:
             return
         self._template_name = info.name
@@ -163,7 +163,11 @@ class TemplateDetailWidget(QWidget):
         dlg = TemplateInstantiateDialog(self._bridge, self._template_name, self)
         if dlg.exec():
             p = dlg.payload()
-            self._bridge.template_instantiate(self._template_id, p["name"], p["node"])
+            self._bridge.template_instantiate(
+                self._template_id,
+                p["name"],
+                str(p["node"]) if p["node"] is not None else None,
+            )
 
     def _on_edit(self) -> None:
         if self._template_id is None:

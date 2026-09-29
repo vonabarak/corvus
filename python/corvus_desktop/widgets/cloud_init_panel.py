@@ -6,7 +6,7 @@ read-only YAML editors and offers Edit (replace) / Delete actions.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 from corvus_client.types import CloudInitInfo
 from PySide6.QtWidgets import (
@@ -27,6 +27,12 @@ from .yaml_editor import YamlEditor
 
 if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
+
+
+class CloudInitPayload(TypedDict):
+    user_data: str | None
+    network_config: str | None
+    inject_ssh_keys: bool
 
 
 class _CloudInitEditDialog(QDialog):
@@ -62,7 +68,7 @@ class _CloudInitEditDialog(QDialog):
         layout.addWidget(self._inject_ssh_keys)
         layout.addWidget(buttons)
 
-    def payload(self) -> dict[str, Any]:
+    def payload(self) -> CloudInitPayload:
         return {
             "user_data": self._user_data.text() or None,
             "network_config": self._network_config.text() or None,
@@ -124,7 +130,7 @@ class CloudInitPanel(QWidget):
 
     # ---------------------------------------------------- bridge slots
 
-    def _on_cloud_init(self, vm_id: int, info: Any) -> None:
+    def _on_cloud_init(self, vm_id: int, info: CloudInitInfo) -> None:
         if vm_id != self._vm_id:
             return
         if isinstance(info, CloudInitInfo):

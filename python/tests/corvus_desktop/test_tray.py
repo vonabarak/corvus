@@ -8,17 +8,21 @@ events from the bridge into a single ``showMessage`` call.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import cast
 
+import pytest
 from corvus_client.types import (
     TaskProgressFinished,
     TaskProgressProgress,
     TaskProgressStarted,
 )
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.widgets import tray as tray_mod
 from corvus_desktop.widgets.tray import DesktopTray
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 
 class _MockBridge(QObject):
@@ -30,7 +34,9 @@ class _MockBridge(QObject):
 
 
 class _FakeActivated:
-    def connect(self, _slot: Any) -> None:
+    def connect(
+        self, _slot: Callable[[QSystemTrayIcon.ActivationReason], None]
+    ) -> None:
         pass
 
 
@@ -46,19 +52,21 @@ def _make_fake_tray(calls: list[tuple[str, str]]) -> type:
             {"Information": 0, "Warning": 1},
         )
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        def __init__(self, *args: QIcon | QObject, **kwargs: QIcon | QObject) -> None:
             self.activated = _FakeActivated()
 
         def setToolTip(self, _t: str) -> None:
             pass
 
-        def setContextMenu(self, _m: Any) -> None:
+        def setContextMenu(self, _m: QMenu) -> None:
             pass
 
         def show(self) -> None:
             pass
 
-        def showMessage(self, title: str, body: str, *_args: Any) -> None:
+        def showMessage(
+            self, title: str, body: str, *_args: QSystemTrayIcon.MessageIcon | int
+        ) -> None:
             calls.append((title, body))
 
         @staticmethod
@@ -68,15 +76,17 @@ def _make_fake_tray(calls: list[tuple[str, str]]) -> type:
     return _FakeTray
 
 
-def test_tray_constructs_without_crashing(qapp: Any) -> None:
+def test_tray_constructs_without_crashing(qapp: QApplication) -> None:
     """Even on an offscreen QPA (no real tray), construction must
     not raise and the tray attribute is None."""
     bridge = _MockBridge()
-    desktop_tray = DesktopTray(bridge, qapp)
+    desktop_tray = DesktopTray(cast(CorvusBridge, bridge), qapp)
     assert isinstance(desktop_tray, DesktopTray)
 
 
-def test_tray_notifies_on_finished_event(qapp: Any, monkeypatch: Any) -> None:
+def test_tray_notifies_on_finished_event(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Bypass the platform probe so the tray actually constructs a
     QSystemTrayIcon, then capture showMessage calls."""
 
@@ -85,7 +95,7 @@ def test_tray_notifies_on_finished_event(qapp: Any, monkeypatch: Any) -> None:
     monkeypatch.setattr(tray_mod, "QSystemTrayIcon", _make_fake_tray(calls))
 
     bridge = _MockBridge()
-    DesktopTray(bridge, qapp)
+    DesktopTray(cast(CorvusBridge, bridge), qapp)
 
     # Non-final events do nothing.
     bridge.task_event.emit(
@@ -105,7 +115,9 @@ def test_tray_notifies_on_finished_event(qapp: Any, monkeypatch: Any) -> None:
     assert calls[0][1] == "ok"
 
 
-def test_tray_skips_low_stakes_vm_actions(qapp: Any, monkeypatch: Any) -> None:
+def test_tray_skips_low_stakes_vm_actions(
+    qapp: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ctrl+Alt+Del shouldn't pop a notification — too low-stakes."""
 
     monkeypatch.setattr(tray_mod, "system_tray_supported", lambda: True)
@@ -113,7 +125,7 @@ def test_tray_skips_low_stakes_vm_actions(qapp: Any, monkeypatch: Any) -> None:
     monkeypatch.setattr(tray_mod, "QSystemTrayIcon", _make_fake_tray(calls))
 
     bridge = _MockBridge()
-    DesktopTray(bridge, qapp)
+    DesktopTray(cast(CorvusBridge, bridge), qapp)
     bridge.vm_action_completed.emit(1, "send_ctrl_alt_del", "")
     assert calls == []
 

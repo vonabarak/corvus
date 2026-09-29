@@ -31,11 +31,18 @@ Usage:
 
 from __future__ import annotations
 
+import ssl
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
+from typing import TypeVar
 
 import capnp
+from corvus_client._runloop import SyncRunloop
 from corvus_client._schema import netagent as NETAGENT_SCHEMA
+
+_Result = TypeVar("_Result")
 
 
 @dataclass(frozen=True)
@@ -64,7 +71,7 @@ class TapInfo:
     up_state: str
 
 
-def _decode_network_info(info) -> NetworkInfo:
+def _decode_network_info(info: capnp.lib.capnp._DynamicStructReader) -> NetworkInfo:
     spec = info.spec
     return NetworkInfo(
         name=spec.name,
@@ -77,7 +84,7 @@ def _decode_network_info(info) -> NetworkInfo:
     )
 
 
-def _decode_tap_info(info) -> TapInfo:
+def _decode_tap_info(info: capnp.lib.capnp._DynamicStructReader) -> TapInfo:
     spec = info.spec
     return TapInfo(
         name=spec.name,
@@ -97,7 +104,13 @@ class NetdClient:
     connection.
     """
 
-    def __init__(self, rl, stream, agent_cap, session_cap):
+    def __init__(
+        self,
+        rl: SyncRunloop,
+        stream: object,
+        agent_cap: capnp.lib.capnp._DynamicCapabilityClient,
+        session_cap: capnp.lib.capnp._DynamicCapabilityClient,
+    ) -> None:
         self._rl = rl
         self._stream = stream
         self._agent = agent_cap
@@ -108,7 +121,7 @@ class NetdClient:
         cls,
         host: str,
         port: int,
-        rl,
+        rl: SyncRunloop,
         *,
         owner: str = "test",
         cert_dir: Path | None = None,
@@ -126,8 +139,12 @@ class NetdClient:
         against an agent started with ``--no-tls``.
         """
 
-        async def _open():
-            kwargs = {}
+        async def _open() -> tuple[
+            object,
+            capnp.lib.capnp._DynamicCapabilityClient,
+            capnp.lib.capnp._DynamicCapabilityClient,
+        ]:
+            kwargs: dict[str, ssl.SSLContext | str | None] = {}
             if cert_dir is not None:
                 # Local import to avoid a hard dep on
                 # corvus_client._tls at module import time; the
@@ -163,7 +180,12 @@ class NetdClient:
     def __enter__(self) -> NetdClient:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     def close(self) -> None:
@@ -176,7 +198,7 @@ class NetdClient:
                 except Exception:
                     pass
 
-    def __del__(self):
+    def __del__(self) -> None:
         # Mirror of close(); fires if the context manager wasn't used.
         try:
             self.close()
@@ -191,19 +213,21 @@ class NetdClient:
     # `asyncio.get_running_loop()` to attach the promise. Constructing
     # the coroutine inside an `async def` ensures the pycapnp call
     # happens on the loop thread.
-    def _call(self, _async_fn):
+    def _call(
+        self, _async_fn: Callable[[], Coroutine[object, object, _Result]]
+    ) -> _Result:
         return self._rl.run(_async_fn())
 
     # ---- NetAgent (top-level) --------------------------------------------
 
     def ping(self) -> None:
-        async def go():
+        async def go() -> None:
             await self._agent.ping()
 
         self._call(go)
 
     def version(self) -> VersionInfo:
-        async def go():
+        async def go() -> VersionInfo:
             info = (await self._agent.version()).info
             return VersionInfo(
                 semver=info.semver,
@@ -214,8 +238,8 @@ class NetdClient:
 
     # ---- Session: networks ------------------------------------------------
 
-    def apply_network(self, spec) -> NetworkInfo:
-        async def go():
+    def apply_network(self, spec: dict[str, object]) -> NetworkInfo:
+        async def go() -> NetworkInfo:
             return _decode_network_info((await self._sess.applyNetwork(spec=spec)).info)
 
         return self._call(go)
@@ -223,13 +247,13 @@ class NetdClient:
     def delete_network(self, name: str) -> None:
         # Positional: pycapnp clashes if `name=` is passed as kwarg
         # (`name` is internal to the call descriptor).
-        async def go():
+        async def go() -> None:
             await self._sess.deleteNetwork(name)
 
         self._call(go)
 
     def list_networks(self) -> list[NetworkInfo]:
-        async def go():
+        async def go() -> list[NetworkInfo]:
             return [
                 _decode_network_info(n)
                 for n in (await self._sess.listNetworks()).networks
@@ -239,20 +263,20 @@ class NetdClient:
 
     # ---- Session: TAPs ----------------------------------------------------
 
-    def apply_tap(self, spec) -> TapInfo:
-        async def go():
+    def apply_tap(self, spec: dict[str, object]) -> TapInfo:
+        async def go() -> TapInfo:
             return _decode_tap_info((await self._sess.applyTap(spec=spec)).info)
 
         return self._call(go)
 
     def delete_tap(self, name: str) -> None:
-        async def go():
+        async def go() -> None:
             await self._sess.deleteTap(name)
 
         self._call(go)
 
     def list_taps(self) -> list[TapInfo]:
-        async def go():
+        async def go() -> list[TapInfo]:
             return [_decode_tap_info(t) for t in (await self._sess.listTaps()).taps]
 
         return self._call(go)
@@ -260,7 +284,7 @@ class NetdClient:
     # ---- Session: kernel knobs -------------------------------------------
 
     def set_ip_forwarding(self, enabled: bool, family: str) -> None:
-        async def go():
+        async def go() -> None:
             await self._sess.setIpForwarding(enabled=enabled, family=family)
 
         self._call(go)

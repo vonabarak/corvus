@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtWidgets import QFormLayout, QLineEdit, QWidget
 
 from ..widgets.entity_combo import EntityCombo
 from .form_dialog import FormDialog
+from .payload_types import TemplateInstantiatePayload
 
 if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
 
 
 class TemplateInstantiateDialog(FormDialog):
+    def payload(self) -> TemplateInstantiatePayload:
+        return cast(TemplateInstantiatePayload, super().payload())
+
     def __init__(
         self,
         bridge: CorvusBridge,
@@ -38,7 +42,7 @@ class TemplateInstantiateDialog(FormDialog):
         form.addRow("VM name:", self._vm_name)
         form.addRow("Node:", self._node)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> TemplateInstantiatePayload | None:
         name = self._vm_name.text().strip()
         if not name:
             self.show_error("VM name is required.")

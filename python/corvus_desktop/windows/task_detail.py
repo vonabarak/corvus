@@ -14,7 +14,7 @@ Lifecycle:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import (
     TaskInfo,
@@ -23,6 +23,7 @@ from corvus_client.types import (
     TaskProgressStarted,
 )
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
@@ -129,7 +130,7 @@ class TaskDetailWidget(QWidget):
 
     # ---------------------------------------------------- slots
 
-    def _on_detail(self, info: Any) -> None:
+    def _on_detail(self, info: TaskInfo) -> None:
         """Populate fields from the static :class:`TaskInfo` record.
 
         Always runs on set_task_id; for live / running tasks the
@@ -152,7 +153,11 @@ class TaskDetailWidget(QWidget):
             self._progress.setValue(1)
             self._progress.setFormat(info.result)
 
-    def _on_event(self, task_id: int, event: Any) -> None:
+    def _on_event(
+        self,
+        task_id: int,
+        event: TaskProgressStarted | TaskProgressProgress | TaskProgressFinished,
+    ) -> None:
         if task_id != self._task_id:
             return  # event for a different task — ignore
         if isinstance(event, TaskProgressStarted):
@@ -268,7 +273,7 @@ class _AutoSizingPlainTextEdit(QPlainTextEdit):
     def minimumSizeHint(self) -> QSize:
         return QSize(0, self.fontMetrics().lineSpacing() + 8)
 
-    def resizeEvent(self, event: Any) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._lock_height_to_content()
 

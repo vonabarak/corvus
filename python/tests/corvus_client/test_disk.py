@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
-from corvus_client import DiskNotFound
+from corvus_client import AsyncClient, DiskNotFound
 
 from ._helpers import with_client
 from .conftest import _bin_search
 
 
-def test_disk_create_show_delete(daemon_socket):
+def test_disk_create_show_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-disk-1", size_mb=64)
         info = await disk.show()
         assert info.name == "py-disk-1"
@@ -37,11 +38,11 @@ def test_disk_create_show_delete(daemon_socket):
     run(go)
 
 
-def test_disk_create_with_custom_directory_path(daemon_socket):
+def test_disk_create_with_custom_directory_path(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
     name = "py-disk-custom-path"
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create(name, size_mb=16, path="custom-create/")
         try:
             info = await disk.show()
@@ -53,7 +54,7 @@ def test_disk_create_with_custom_directory_path(daemon_socket):
     run(go)
 
 
-def test_cli_disk_create_with_custom_directory_path(daemon_socket):
+def test_cli_disk_create_with_custom_directory_path(daemon_socket: Path) -> None:
     name = "cli-disk-custom-path"
     env = os.environ | {"CORVUS_SOCKET": str(daemon_socket)}
     result = subprocess.run(
@@ -76,7 +77,7 @@ def test_cli_disk_create_with_custom_directory_path(daemon_socket):
 
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.get(name)
         try:
             info = await disk.show()
@@ -88,10 +89,10 @@ def test_cli_disk_create_with_custom_directory_path(daemon_socket):
     run(go)
 
 
-def test_disk_overlay_and_clone(daemon_socket):
+def test_disk_overlay_and_clone(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         base = await c.disks.create("py-base", size_mb=64)
         base_info = await base.show()
 
@@ -117,10 +118,10 @@ def test_disk_overlay_and_clone(daemon_socket):
     run(go)
 
 
-def test_snapshot_create_and_delete(daemon_socket):
+def test_snapshot_create_and_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-snap-base", size_mb=64)
         s1 = await disk.snapshot_create("first")
         s1_info = await s1.show()

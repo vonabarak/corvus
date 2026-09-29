@@ -10,32 +10,33 @@ the CLI already covers and aren't on the v1 critical path.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError, DiskNotFound, SnapshotNotFound
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
+    from corvus_client._async.disk import AsyncSnapshot
 
 router = APIRouter(prefix="/disks", tags=["disks"])
 
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
-class ResizeBody(BaseModel):
+class ResizeBody(BaseModel):  # type: ignore[explicit-any]
     new_size_mb: int = Field(..., gt=0, description="New disk size in MB (must grow).")
 
 
-class SnapshotCreateBody(BaseModel):
+class SnapshotCreateBody(BaseModel):  # type: ignore[explicit-any]
     name: str = Field(..., min_length=1, description="Snapshot tag (unique per disk).")
 
 
-class DiskCreateBody(BaseModel):
+class DiskCreateBody(BaseModel):  # type: ignore[explicit-any]
     """Mirrors corvus_client.AsyncDiskManager.create. Allocates a fresh
     image on the picked node's base_path (or scheduler choice).
     """
@@ -60,7 +61,7 @@ class DiskCreateBody(BaseModel):
     )
 
 
-class DiskOverlayBody(BaseModel):
+class DiskOverlayBody(BaseModel):  # type: ignore[explicit-any]
     """Create a qcow2 overlay over an existing disk image. The overlay
     lands on the same node(s) as its backing image."""
 
@@ -73,7 +74,7 @@ class DiskOverlayBody(BaseModel):
     ephemeral: bool = False
 
 
-class DiskCloneBody(BaseModel):
+class DiskCloneBody(BaseModel):  # type: ignore[explicit-any]
     """Deep-copy an existing image to a new disk record. The clone is
     placed on the source's node; ``path`` overrides the default
     ``<basePath>/<new_name>.<ext>`` destination."""
@@ -84,7 +85,7 @@ class DiskCloneBody(BaseModel):
     ephemeral: bool = False
 
 
-class DiskImportUrlBody(BaseModel):
+class DiskImportUrlBody(BaseModel):  # type: ignore[explicit-any]
     """Download a disk image from an HTTP URL onto the selected node.
     Runs asynchronously; the response includes a task id
     the frontend can watch on /tasks/{id}."""
@@ -101,7 +102,7 @@ class DiskImportUrlBody(BaseModel):
 
 
 @router.get("")
-async def list_disks(client: ClientDep) -> list[dict[str, Any]]:
+async def list_disks(client: ClientDep) -> list[JsonObject]:
     """Mirrors ``crv disk list``. Returns every registered disk with
     its placements, attached-VMs summary, backing-image link, and
     ephemeral flag."""
@@ -109,7 +110,7 @@ async def list_disks(client: ClientDep) -> list[dict[str, Any]]:
 
 
 @router.get("/{disk_id}")
-async def get_disk(disk_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_disk(disk_id: int, client: ClientDep) -> JsonObject:
     """Disk detail. Same payload as the list entry — the daemon's
     DiskImageInfo is already the full picture."""
     try:
@@ -131,7 +132,7 @@ def _ref_to_int_or_str(ref: str) -> int | str:
 
 
 @router.post("")
-async def create_disk(body: DiskCreateBody, client: ClientDep) -> dict[str, Any]:
+async def create_disk(body: DiskCreateBody, client: ClientDep) -> JsonObject:
     """Allocate a blank disk image."""
     try:
         disk = await client.disks.create(
@@ -148,7 +149,7 @@ async def create_disk(body: DiskCreateBody, client: ClientDep) -> dict[str, Any]
 
 
 @router.post("/overlay")
-async def create_overlay(body: DiskOverlayBody, client: ClientDep) -> dict[str, Any]:
+async def create_overlay(body: DiskOverlayBody, client: ClientDep) -> JsonObject:
     """Create a qcow2 overlay over an existing backing image."""
     try:
         disk = await client.disks.create_overlay(
@@ -163,7 +164,7 @@ async def create_overlay(body: DiskOverlayBody, client: ClientDep) -> dict[str, 
 
 
 @router.post("/clone")
-async def clone_disk(body: DiskCloneBody, client: ClientDep) -> dict[str, Any]:
+async def clone_disk(body: DiskCloneBody, client: ClientDep) -> JsonObject:
     """Deep-copy a disk image."""
     try:
         disk = await client.disks.clone(
@@ -227,7 +228,7 @@ async def delete_disk(disk_id: int, client: ClientDep) -> dict[str, str]:
 
 
 @router.get("/{disk_id}/snapshots")
-async def list_snapshots(disk_id: int, client: ClientDep) -> list[dict[str, Any]]:
+async def list_snapshots(disk_id: int, client: ClientDep) -> list[JsonObject]:
     """List qcow2 snapshots inside the disk."""
     try:
         disk = await client.disks.get(disk_id)
@@ -239,7 +240,7 @@ async def list_snapshots(disk_id: int, client: ClientDep) -> list[dict[str, Any]
 @router.post("/{disk_id}/snapshots")
 async def create_snapshot(
     disk_id: int, body: SnapshotCreateBody, client: ClientDep
-) -> dict[str, Any]:
+) -> JsonObject:
     """Take a snapshot. Returns the resulting SnapshotInfo."""
     try:
         disk = await client.disks.get(disk_id)
@@ -249,7 +250,9 @@ async def create_snapshot(
     return to_dict(await snap.show())
 
 
-async def _get_snapshot(client: AsyncClient, disk_id: int, snap_id: int):  # type: ignore[no-untyped-def]
+async def _get_snapshot(
+    client: AsyncClient, disk_id: int, snap_id: int
+) -> AsyncSnapshot:
     """Helper: resolve (disk_id, snap_id) -> AsyncSnapshot, raising
     404 for either step."""
     try:

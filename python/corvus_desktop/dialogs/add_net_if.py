@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtWidgets import QComboBox, QFormLayout, QLineEdit, QWidget
 
 from ..widgets.entity_combo import EntityCombo
 from .form_dialog import FormDialog
+from .payload_types import AddNetIfPayload
 
 if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
@@ -17,6 +18,9 @@ _TYPES = ("user", "tap", "bridge", "macvtap", "managed")
 
 
 class AddNetIfDialog(FormDialog):
+    def payload(self) -> AddNetIfPayload:
+        return cast(AddNetIfPayload, super().payload())
+
     def __init__(self, bridge: CorvusBridge, parent: QWidget | None = None) -> None:
         self._type = QComboBox()
         for t in _TYPES:
@@ -39,7 +43,7 @@ class AddNetIfDialog(FormDialog):
         form.addRow("MAC:", self._mac)
         form.addRow("Network:", self._network)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> AddNetIfPayload | None:
         return {
             "type": self._type.currentText(),
             "host_device": self._host_device.text().strip() or None,

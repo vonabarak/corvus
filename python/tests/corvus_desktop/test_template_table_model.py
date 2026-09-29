@@ -73,6 +73,10 @@ def test_display_values(model: TemplateTableModel) -> None:
 
 def test_template_at_round_trip(model: TemplateTableModel) -> None:
     model.set_templates([_t(tid=i, name=f"t{i}") for i in (3, 4)])
-    assert model.template_at(0).name == "t3"
-    assert model.template_at(1).name == "t4"
+    first = model.template_at(0)
+    second = model.template_at(1)
+    assert first is not None
+    assert second is not None
+    assert first.name == "t3"
+    assert second.name == "t4"
     assert model.template_at(9) is None

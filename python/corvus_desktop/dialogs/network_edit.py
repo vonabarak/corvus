@@ -7,15 +7,19 @@ with current values.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from corvus_client.types import NetworkInfo
 from PySide6.QtWidgets import QCheckBox, QFormLayout, QLineEdit, QWidget
 
-from .form_dialog import FormDialog
+from .form_dialog import FormDialog, FormPayload
+from .payload_types import NetworkEditPayload
 
 
 class NetworkEditDialog(FormDialog):
+    def payload(self) -> NetworkEditPayload:
+        return cast(NetworkEditPayload, super().payload())
+
     def __init__(self, network: NetworkInfo, parent: QWidget | None = None) -> None:
         self._original = network
         self._subnet = QLineEdit(network.subnet)
@@ -33,13 +37,13 @@ class NetworkEditDialog(FormDialog):
         form.addRow("NAT:", self._nat)
         form.addRow("Autostart:", self._autostart)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> FormPayload | None:
         subnet = self._subnet.text().strip()
         if "/" not in subnet:
             self.show_error("Subnet must be a CIDR string, e.g. 10.42.0.0/24.")
             return None
         # Send only the changed fields — None means "leave alone".
-        payload: dict[str, Any] = {}
+        payload: dict[str, str | int | bool | None] = {}
         if subnet != self._original.subnet:
             payload["subnet"] = subnet
         if self._dhcp.isChecked() != self._original.dhcp:

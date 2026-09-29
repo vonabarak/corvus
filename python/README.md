@@ -18,7 +18,7 @@ Both faces share the same async core, so feature parity is automatic.
 The package isn't on PyPI yet. From a checkout:
 
 ```sh
-pip install -e ./python
+pip install -e .
 ```
 
 Dependencies: `pycapnp >= 2.2.0`, `PyYAML >= 6.0`.
@@ -26,6 +26,25 @@ Dependencies: `pycapnp >= 2.2.0`, `PyYAML >= 6.0`.
 The `.capnp` schema files ship inside the package
 (`corvus_client/schema/`). To work against the live source tree, point
 `CORVUS_SCHEMA_DIR` at `<repo>/schema/`.
+
+The wheel includes a `py.typed` marker. Mypy and other PEP 561 checkers can
+use the annotations on `Client`, `AsyncClient`, their managers, resource
+wrappers, and the dataclasses in `corvus_client.types`. For example:
+
+```python
+from corvus_client import Client
+from corvus_client.types import VmDetails
+
+with Client(unix_socket="/run/corvus/corvus.sock") as client:
+    details: VmDetails = client.vms.get("web-1").show()
+    client.vms.create("worker", ram_mb=2048)  # checked keyword arguments
+```
+
+Build/apply streams yield typed event dataclasses followed by a
+`("task_id", int)` tuple; use `isinstance(item, tuple)` before accessing
+event fields. Async subscription callbacks receive typed event dataclasses.
+`client.daemon` and `entity_ref()` expose the raw, dynamic pycapnp boundary;
+they are not part of the typed wrapper API.
 
 ## Sync example
 

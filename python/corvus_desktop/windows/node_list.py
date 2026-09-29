@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import NodeInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -68,10 +69,10 @@ class NodeListWidget(QWidget):
         if dlg.exec():
             self._bridge.node_create(**dlg.payload())
 
-    def _on_nodes(self, nodes: Any) -> None:
+    def _on_nodes(self, nodes: list[NodeInfo]) -> None:
         self._model.set_nodes(nodes)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         node = self._model.node_at(index.row())
         if node is not None:
             self.node_activated.emit(node.id)

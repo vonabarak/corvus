@@ -121,9 +121,9 @@ From the repo root:
 make integration-tests
 ```
 
-The target builds the Haskell project, creates `integration_tests/.venv` if
-needed, installs the root package with the `harness` extra, and runs pytest
-against `integration_tests/tests`.
+The target builds the Haskell project, creates the shared root `.venv` with
+system site packages if needed, installs the root package with the `harness`
+and `desktop` extras, and runs pytest against `integration_tests/tests`.
 
 Run a subset:
 
@@ -149,8 +149,8 @@ and one worker per 3 GiB of `MemAvailable`, taking the smaller budget.
 Direct pytest runs are useful for debugging:
 
 ```sh
-integration_tests/.venv/bin/pytest integration_tests/tests/test_vm_lifecycle.py -v
-integration_tests/.venv/bin/pytest integration_tests/tests -v -k TestDisk -s
+.venv/bin/pytest integration_tests/tests/test_vm_lifecycle.py -v
+.venv/bin/pytest integration_tests/tests -v -k TestDisk -s
 ```
 
 The repo pytest config uses `--dist=loadscope`. See [Writing tests](#writing-tests)

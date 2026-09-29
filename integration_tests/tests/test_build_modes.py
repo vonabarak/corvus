@@ -28,6 +28,7 @@ import secrets
 import textwrap
 
 import pytest
+from corvus_client import Client
 from corvus_client.exceptions import CorvusError
 from corvus_client.types import BuildPipelineEnd
 from corvus_test_harness import SingleNodeCase
@@ -49,7 +50,7 @@ _BAKE_TEMPLATE = textwrap.dedent("""
 """).strip()
 
 
-def _drop_build_orphans(client) -> None:
+def _drop_build_orphans(client: Client) -> None:
     """Reap every ``__build_*`` VM in the inner daemon.
 
     Helper for tests that exercise ``cleanup: onSuccess`` or
@@ -66,7 +67,7 @@ def _drop_build_orphans(client) -> None:
                 pass
 
 
-def _run_pipeline(client, yaml_text: str) -> BuildPipelineEnd:
+def _run_pipeline(client: Client, yaml_text: str) -> BuildPipelineEnd:
     """Drive a build pipeline to its terminal event and return it."""
     end = None
     for ev in client.build_stream_text(yaml_text):
@@ -81,7 +82,7 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- ifExists: error (default) ---------------------------------------
 
-    def test_target_ifexists_error_aborts_before_bake(self):
+    def test_target_ifexists_error_aborts_before_bake(self) -> None:
         """A pre-existing target disk with ``ifExists: error``
         (the default) fails the pre-bake check immediately — no
         ``__build_*`` VM is ever created, and the daemon's error
@@ -136,7 +137,7 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- ifExists: overwrite, attach-blocked path ------------------------
 
-    def test_target_ifexists_overwrite_refused_when_attached(self):
+    def test_target_ifexists_overwrite_refused_when_attached(self) -> None:
         """``ifExists: overwrite`` refuses to delete a disk that's
         still attached to a VM — the daemon names the offending VM
         and tells the user to detach or delete it first."""
@@ -208,7 +209,7 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- ifExists: overwrite, success path -------------------------------
 
-    def test_target_ifexists_overwrite_replaces_disk(self):
+    def test_target_ifexists_overwrite_replaces_disk(self) -> None:
         """``ifExists: overwrite`` against an unattached disk
         replaces it with a freshly-baked artifact.  The new disk's
         id may differ — overwrite deletes the old row and the
@@ -268,7 +269,7 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- cleanup: onSuccess (failure → keep) -----------------------------
 
-    def test_cleanup_onsuccess_keeps_bake_vm_on_failure(self):
+    def test_cleanup_onsuccess_keeps_bake_vm_on_failure(self) -> None:
         """``cleanup: onSuccess`` + failing provisioner leaves the
         bake VM behind for inspection.  Test asserts the orphan
         exists and reaps it explicitly so the suite doesn't leak."""
@@ -318,7 +319,7 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- cleanup: never (failure → keep) ---------------------------------
 
-    def test_cleanup_never_keeps_bake_vm_on_failure(self):
+    def test_cleanup_never_keeps_bake_vm_on_failure(self) -> None:
         """``cleanup: never`` leaves the bake VM behind regardless
         of outcome.  Equivalent to ``onSuccess`` on the failure
         path but documents the explicit ``never`` opt-in path
@@ -361,7 +362,7 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- apply step inside pipeline -------------------------------------
 
-    def test_apply_step_inside_pipeline(self):
+    def test_apply_step_inside_pipeline(self) -> None:
         """A pipeline interleaving ``apply:`` and ``build:`` steps
         runs both end-to-end.
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from corvus_client.types import VmDetails
 from PySide6.QtWidgets import (
@@ -14,10 +14,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .form_dialog import FormDialog
+from .form_dialog import FormDialog, FormPayload
+from .payload_types import VmEditPayload
 
 
 class VmEditDialog(FormDialog):
+    def payload(self) -> VmEditPayload:
+        return cast(VmEditPayload, super().payload())
+
     def __init__(self, vm: VmDetails, parent: QWidget | None = None) -> None:
         self._original = vm
         self._name = QLineEdit(vm.name)
@@ -58,10 +62,10 @@ class VmEditDialog(FormDialog):
         form.addRow("Autostart:", self._autostart)
         form.addRow("Reboot quirk:", self._reboot_quirk)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> FormPayload | None:
         # Send only changed fields — daemon's edit() treats None as
         # "leave alone".
-        payload: dict[str, Any] = {}
+        payload: dict[str, str | int | bool | None] = {}
         if self._name.text() != self._original.name:
             payload["name"] = self._name.text()
         if self._cpu.value() != self._original.cpu_count:

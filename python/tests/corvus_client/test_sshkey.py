@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from corvus_client import SshKeyNotFound
+from corvus_client import AsyncClient, SshKeyNotFound
 
 from ._helpers import with_client
 
 SAMPLE_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIClvxsxlcOg+G5d9G2qZIDPyAVlcgVuJqJg corvus-test"
 
 
-def test_ssh_key_create_show_delete(daemon_socket):
+def test_ssh_key_create_show_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         key = await c.ssh_keys.create("py-key-1", SAMPLE_PUBKEY)
         info = await key.show()
         assert info.name == "py-key-1"

@@ -41,7 +41,7 @@ def _render(exc: CorvusError) -> tuple[int, dict[str, object]]:
     decoded ``(status, body)`` pair so assertions read naturally."""
     status = _corvus_error_status(exc)
     response = JSONResponse(status_code=status, content={"detail": str(exc)})
-    return response.status_code, json.loads(response.body)
+    return response.status_code, json.loads(bytes(response.body))
 
 
 @pytest.mark.parametrize(

@@ -21,13 +21,16 @@ the daemon is supposed to guarantee.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Iterator
 
 import pytest
-from corvus_client import ServerError
-from corvus_test_harness import OneDaemonTwoNodesCase, TwoDaemonsCase
+from corvus_client import Client, ServerError
+from corvus_client._sync.vm import SyncVm
+from corvus_client.types import NodeDetails
+from corvus_test_harness import OneDaemonTwoNodesCase, TestNode, TwoDaemonsCase
 
 
-def _qemu_count(node, vm_name: str) -> int:
+def _qemu_count(node: TestNode, vm_name: str) -> int:
     """Count qemu-system processes on `node` whose argv mentions
     `vm_name`.
 
@@ -48,7 +51,9 @@ def _qemu_count(node, vm_name: str) -> int:
     return sum(1 for line in out.splitlines() if line.strip())
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -57,7 +62,7 @@ def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) ->
     raise AssertionError(f"{msg} (waited {timeout_sec}s)")
 
 
-def _retry_start(vm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
+def _retry_start(vm: SyncVm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
     """`vm.start()` tolerant of 'nodeagent unavailable' for a freshly
     registered remote node.
 
@@ -80,7 +85,7 @@ def _retry_start(vm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
 
 
 class TestTwoIndependentDaemons(TwoDaemonsCase):
-    def test_status_on_both(self):
+    def test_status_on_both(self) -> None:
         """Two inner daemons start, both answer status() independently."""
         info_a = self.client_alpha.status()
         info_b = self.client_beta.status()
@@ -101,7 +106,7 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
     beta.
     """
 
-    def test_vm_lands_on_chosen_node(self):
+    def test_vm_lands_on_chosen_node(self) -> None:
         # The harness's deploy step already captured beta's outer
         # IP into the cert SAN; reuse that value here to register
         # beta with alpha's daemon.
@@ -200,7 +205,13 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
                 pass
 
 
-def _wait_for_node_field(client, node_name: str, predicate, *, timeout_sec: float):
+def _wait_for_node_field(
+    client: Client,
+    node_name: str,
+    predicate: Callable[[NodeDetails], bool],
+    *,
+    timeout_sec: float,
+) -> NodeDetails:
     """Poll ``client.nodes.get(node_name).show()`` until ``predicate(details)``
     returns True. Returns the last-fetched details on success; raises
     ``AssertionError`` with the last snapshot on timeout."""
@@ -242,7 +253,7 @@ class TestNetdReachability(OneDaemonTwoNodesCase):
     """
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self):
+    def _register_beta(self) -> Iterator[None]:
         """Register beta with alpha and wait until alpha's supervisor
         successfully dials beta's netd. Teardown drops the node
         row so each test class leaves a clean daemon state."""
@@ -293,7 +304,7 @@ class TestNetdReachability(OneDaemonTwoNodesCase):
             except Exception:
                 pass
 
-    def test_netd_stop_flips_connected_to_false(self):
+    def test_netd_stop_flips_connected_to_false(self) -> None:
         """Stopping ``corvus-netd`` on beta makes alpha's daemon
         report ``netd_connected = False`` for beta within ~120 s.
 
@@ -373,7 +384,7 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
     """
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self):
+    def _register_beta(self) -> Iterator[None]:
         client = self.client_alpha
         beta_name = self.node_beta.short_name
         beta_ip = self.node_beta.outer_ip
@@ -411,7 +422,7 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
             except Exception:
                 pass
 
-    def test_admin_state_online_is_sticky_across_pushes(self):
+    def test_admin_state_online_is_sticky_across_pushes(self) -> None:
         """Flip beta to draining, then back to online; assert
         ``admin_state`` stays ``online`` across ~30 s of agent
         pushes (3+ push cycles at the default 10 s cadence)."""

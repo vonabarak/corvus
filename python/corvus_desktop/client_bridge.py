@@ -44,19 +44,81 @@ import threading
 from collections.abc import Coroutine
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 import capnp
 from corvus_client._async.client import AsyncClient
 from corvus_client._async.disk import AsyncDiskManager
+from corvus_client._async.streams import (
+    ByteStream,
+    GuestAgentSubscription,
+    TaskProgressSubscription,
+    VmStatsSubscription,
+)
 from corvus_client.exceptions import CorvusError
+from corvus_client.types import (
+    GuestAgentStatus,
+    TaskProgressFinished,
+    TaskProgressProgress,
+    TaskProgressStarted,
+    VmStats,
+)
 from PySide6.QtCore import QObject, Signal
+from typing_extensions import Unpack
 
 import yaml
 
 from .cli import DesktopConfig
 
 logger = logging.getLogger("corvus_desktop.bridge")
+
+
+class _ClientKwargs(TypedDict, total=False):
+    unix_socket: str
+    host: str
+    port: int
+    tls: bool
+    cert_dir: Path
+
+
+class _VmCreateKwargs(TypedDict, total=False):
+    name: str
+    node: str | None
+    cpu_count: int
+    ram_mb: int
+    description: str | None
+    headless: bool
+    guest_agent: bool
+    tpm: bool
+    cloud_init: bool
+    autostart: bool
+    reboot_quirk: bool
+    cpu_model: str
+
+
+class _VmEditKwargs(TypedDict, total=False):
+    name: str | None
+    cpu_count: int | None
+    ram_mb: int | None
+    description: str | None
+    headless: bool | None
+    guest_agent: bool | None
+    tpm: bool | None
+    cloud_init: bool | None
+    autostart: bool | None
+    reboot_quirk: bool | None
+    cpu_model: str | None
+
+
+class _NodeEditKwargs(TypedDict, total=False):
+    name: str | None
+    host: str | None
+    node_agent_port: int | None
+    net_agent_port: int | None
+    base_path: str | None
+    description: str | None
+    admin_state: str | None
+    netd_disabled: bool | None
 
 
 def _friendly_error(err: BaseException) -> str:
@@ -190,14 +252,14 @@ class CorvusBridge(QObject):
         # Task subscriptions, keyed by task id. Owned exclusively by
         # the worker thread; mutated only from inside coroutines that
         # run on the worker loop. The GUI never reads or writes this.
-        self._task_subs: dict[int, Any] = {}
+        self._task_subs: dict[int, TaskProgressSubscription] = {}
         # Serial sessions: (ByteStream, pump_task). Same ownership rule.
-        self._serial_streams: dict[int, tuple[Any, asyncio.Task[Any]]] = {}
+        self._serial_streams: dict[int, tuple[ByteStream, asyncio.Task[None]]] = {}
         # HMP monitor sessions (same pattern as serial).
-        self._hmp_streams: dict[int, tuple[Any, asyncio.Task[Any]]] = {}
+        self._hmp_streams: dict[int, tuple[ByteStream, asyncio.Task[None]]] = {}
         # VM stats / guest-agent subscriptions keyed by vm id.
-        self._stats_subs: dict[int, Any] = {}
-        self._guest_agent_subs: dict[int, Any] = {}
+        self._stats_subs: dict[int, VmStatsSubscription] = {}
+        self._guest_agent_subs: dict[int, GuestAgentSubscription] = {}
         # Task ids the GUI wants restored on resume (set when the app
         # is paused via :meth:`pause_subscriptions`). Read & written
         # only from the worker thread inside the pause/resume coros.
@@ -433,11 +495,11 @@ class CorvusBridge(QObject):
 
     # ---------------------------------------------------- VM editing slots
 
-    def vm_create(self, **kwargs: Any) -> None:
+    def vm_create(self, **kwargs: Unpack[_VmCreateKwargs]) -> None:
         """Create a VM. Accepts the AsyncVmManager.create kwarg surface."""
         self._enqueue(self._do_vm_create(kwargs))
 
-    def vm_edit(self, vm_id: int, **kwargs: Any) -> None:
+    def vm_edit(self, vm_id: int, **kwargs: Unpack[_VmEditKwargs]) -> None:
         """Patch a VM. Only non-``None`` kwargs are sent."""
         self._enqueue(self._do_vm_edit(vm_id, kwargs))
 
@@ -623,7 +685,7 @@ class CorvusBridge(QObject):
             )
         )
 
-    def node_edit(self, node_id: int, **kwargs: Any) -> None:
+    def node_edit(self, node_id: int, **kwargs: Unpack[_NodeEditKwargs]) -> None:
         self._enqueue(self._do_node_edit(node_id, kwargs))
 
     def node_drain(self, node_id: int) -> None:
@@ -704,7 +766,7 @@ class CorvusBridge(QObject):
 
     # ----------------------------------------------------------- internals
 
-    def _enqueue(self, coro: Coroutine[Any, Any, None]) -> None:
+    def _enqueue(self, coro: Coroutine[object, object, None]) -> None:
         """Push a coroutine onto the worker loop from any thread.
 
         If the bridge isn't connected yet (or has shut down), surface
@@ -765,10 +827,10 @@ class CorvusBridge(QObject):
             logger.exception("bridge: unexpected error during lifespan")
             self.connection_failed.emit(f"{type(e).__name__}: {e}")
 
-    def _client_kwargs(self) -> dict[str, Any]:
+    def _client_kwargs(self) -> _ClientKwargs:
         """Translate :class:`DesktopConfig` into AsyncClient kwargs."""
         c = self._config
-        kwargs: dict[str, Any] = {}
+        kwargs: _ClientKwargs = {}
         if c.daemon_unix_socket is not None:
             kwargs["unix_socket"] = c.daemon_unix_socket
         else:
@@ -837,7 +899,9 @@ class CorvusBridge(QObject):
             # duplicate events. Quietly collapse.
             return
 
-        async def _emit(event: Any) -> None:
+        async def _emit(
+            event: TaskProgressStarted | TaskProgressProgress | TaskProgressFinished,
+        ) -> None:
             # Runs on the worker thread; the signal hop marshals to
             # the GUI thread automatically.
             self.task_event.emit(task_id, event)
@@ -1367,7 +1431,7 @@ class CorvusBridge(QObject):
 
     # ------------------------------------------------------------ VM editing
 
-    async def _do_vm_create(self, kwargs: dict[str, Any]) -> None:
+    async def _do_vm_create(self, kwargs: _VmCreateKwargs) -> None:
         client = self._client
         if client is None:
             self.operation_failed.emit("vm_create", "not connected")
@@ -1379,7 +1443,7 @@ class CorvusBridge(QObject):
             return
         self.vm_edit_completed.emit(0, "create")
 
-    async def _do_vm_edit(self, vm_id: int, kwargs: dict[str, Any]) -> None:
+    async def _do_vm_edit(self, vm_id: int, kwargs: _VmEditKwargs) -> None:
         client = self._client
         if client is None:
             self.operation_failed.emit("vm_edit", "not connected")
@@ -1809,7 +1873,7 @@ class CorvusBridge(QObject):
             return
         self.node_action_completed.emit(0, "create")
 
-    async def _do_node_edit(self, node_id: int, kwargs: dict[str, Any]) -> None:
+    async def _do_node_edit(self, node_id: int, kwargs: _NodeEditKwargs) -> None:
         client = self._client
         if client is None:
             self.operation_failed.emit("node_edit", "not connected")
@@ -1902,8 +1966,8 @@ class CorvusBridge(QObject):
         try:
             doc = yaml.safe_load(yaml_text)
             if isinstance(doc, dict) and isinstance(doc.get("pipeline"), list):
-                uploads: list[dict[str, Any]] = []
-                rest: list[Any] = []
+                uploads: list[dict[str, object]] = []
+                rest: list[object] = []
                 seen_non_upload = False
                 for step in doc["pipeline"]:
                     if isinstance(step, dict) and isinstance(step.get("upload"), dict):
@@ -1940,13 +2004,22 @@ class CorvusBridge(QObject):
                         source_path = Path(source)
                         if not source_path.is_absolute():
                             source_path = root / source_path
+                        path = upload.get("path")
+                        ephemeral = upload.get("ephemeral", True)
+                        node = upload.get("node")
+                        if path is not None and not isinstance(path, str):
+                            raise ValueError("upload.path must be a string")
+                        if not isinstance(ephemeral, bool):
+                            raise ValueError("upload.ephemeral must be a boolean")
+                        if node is not None and not isinstance(node, (int, str)):
+                            raise ValueError("upload.node must be a name or id")
                         await disks.upload_from_file(
                             name,
                             source_path,
                             format=format,
-                            path=upload.get("path"),
-                            ephemeral=upload.get("ephemeral", True),
-                            node=upload.get("node"),
+                            path=path,
+                            ephemeral=ephemeral,
+                            node=node,
                             overwrite=upload.get("ifExists") == "overwrite",
                         )
                     doc["pipeline"] = rest
@@ -1977,7 +2050,7 @@ class CorvusBridge(QObject):
         if vm_id in self._stats_subs:
             return
 
-        async def _emit(sample: Any) -> None:
+        async def _emit(sample: VmStats) -> None:
             self.vm_stats_event.emit(vm_id, sample)
 
         try:
@@ -2030,7 +2103,7 @@ class CorvusBridge(QObject):
         if vm_id in self._guest_agent_subs:
             return
 
-        async def _emit(status: Any) -> None:
+        async def _emit(status: GuestAgentStatus) -> None:
             self.guest_agent_event.emit(vm_id, status)
 
         try:
@@ -2113,7 +2186,7 @@ class CorvusBridge(QObject):
             pass
         self.hmp_closed.emit(vm_id, "closed")
 
-    async def _hmp_pump(self, vm_id: int, stream: Any) -> None:
+    async def _hmp_pump(self, vm_id: int, stream: ByteStream) -> None:
         try:
             while True:
                 chunk = await stream.read()
@@ -2129,7 +2202,7 @@ class CorvusBridge(QObject):
             self._hmp_streams.pop(vm_id, None)
             self.hmp_closed.emit(vm_id, f"error: {e}")
 
-    async def _serial_pump(self, vm_id: int, stream: Any) -> None:
+    async def _serial_pump(self, vm_id: int, stream: ByteStream) -> None:
         """Read from the daemon and emit chunks to the GUI.
 
         Coalesces small reads up to 4 KiB or 16 ms before emitting so

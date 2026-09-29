@@ -56,8 +56,9 @@ import os
 import secrets
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from corvus_test_harness import (
@@ -69,8 +70,14 @@ from corvus_test_harness import (
     check_outer_version,
 )
 from corvus_test_harness.cases import IntegrationTestCase, state_for
-from xdist.scheduler.loadscope import LoadScopeScheduling
-from xdist.workermanage import WorkerController
+from corvus_test_harness.outer import JsonObject
+from pluggy import Result
+
+if TYPE_CHECKING:
+    from corvus_test_harness.xdist_types import LoadScopeScheduling, WorkerController
+else:
+    from xdist.scheduler.loadscope import LoadScopeScheduling
+    from xdist.workermanage import WorkerController
 
 import yaml as _yaml
 
@@ -96,7 +103,7 @@ def crv() -> Crv:
 
 
 @pytest.fixture(scope="session")
-def _nested_kvm_ok():
+def _nested_kvm_ok() -> None:
     status = check_nested_kvm()
     if not status.available:
         pytest.skip(
@@ -106,7 +113,7 @@ def _nested_kvm_ok():
 
 
 @pytest.fixture(scope="session")
-def outer_version(crv: Crv, _nested_kvm_ok) -> dict:
+def outer_version(crv: Crv, _nested_kvm_ok: object) -> JsonObject:
     """Confirm the outer daemon is reachable and report its version."""
     return check_outer_version(crv)
 
@@ -118,7 +125,7 @@ def host_binary() -> HostBinary:
 
 
 @pytest.fixture(scope="session")
-def image_ready(crv: Crv, outer_version) -> ImageReady:
+def image_ready(crv: Crv, outer_version: JsonObject) -> ImageReady:
     """Ensure the integration-test image + template are applied."""
     return ImageReady.ensure(crv)
 
@@ -140,7 +147,7 @@ def session_test_network(
     tmp_path_factory: pytest.TempPathFactory,
     worker_id: str,
     crv: Crv,
-    outer_version: dict,
+    outer_version: JsonObject,
 ) -> Iterator[str]:
     """One Corvus managed network shared by every test-node across
     every xdist worker in a single pytest invocation.
@@ -162,7 +169,7 @@ def session_test_network(
     When pytest runs without xdist, `worker_id == "master"` and we
     take a trivial single-process create/delete path.
     """
-    base_temp = tmp_path_factory.getbasetemp()
+    base_temp: Path = tmp_path_factory.getbasetemp()
     root = base_temp if worker_id == "master" else base_temp.parent
     global _SESSION_TEST_NETWORK_ROOT
     _SESSION_TEST_NETWORK_ROOT = root
@@ -327,10 +334,14 @@ def _flock(path: str) -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 
-def _is_class_based(item: pytest.Item) -> bool:
-    """True if `item` belongs to an IntegrationTestCase subclass."""
-    cls = getattr(item, "cls", None)
-    return isinstance(cls, type) and issubclass(cls, IntegrationTestCase)
+def _test_class(item: pytest.Item) -> type[IntegrationTestCase] | None:
+    """Return the integration-test class behind a collected pytest function."""
+    if not isinstance(item, pytest.Function):
+        return None
+    cls = item.cls
+    if isinstance(cls, type) and issubclass(cls, IntegrationTestCase):
+        return cls
+    return None
 
 
 def _lineno(item: pytest.Item) -> int:
@@ -360,8 +371,9 @@ def pytest_collection_modifyitems(
     by_class: dict[type, list[pytest.Item]] = {}
     standalone: list[pytest.Item] = []
     for item in items:
-        if _is_class_based(item):
-            by_class.setdefault(item.cls, []).append(item)
+        cls = _test_class(item)
+        if cls is not None:
+            by_class.setdefault(cls, []).append(item)
         else:
             standalone.append(item)
 
@@ -538,7 +550,9 @@ class _LoadScopeShutdownSingleton(LoadScopeScheduling):
                 self._reschedule(node)
 
 
-def pytest_xdist_make_scheduler(config, log):
+def pytest_xdist_make_scheduler(
+    config: pytest.Config, log: object
+) -> _LoadScopeShutdownSingleton | None:
     """Register our LoadScope variant for --dist=loadscope runs."""
     if config.getvalue("dist") == "loadscope":
         return _LoadScopeShutdownSingleton(config, log)
@@ -546,7 +560,9 @@ def pytest_xdist_make_scheduler(config, log):
 
 
 @pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item: pytest.Item, call):
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[object]
+) -> Generator[None, Result[pytest.TestReport], None]:
     """Record the first failing/erroring method on its class state.
 
     We watch all three phases (setup / call / teardown). Tests that
@@ -557,9 +573,10 @@ def pytest_runtest_makereport(item: pytest.Item, call):
     report = outcome.get_result()
     if report.failed:
         _mark_session_test_network_failed()
-    if not _is_class_based(item) or not report.failed:
+    cls = _test_class(item)
+    if cls is None or not report.failed:
         return
-    state = state_for(item.cls)
+    state = state_for(cls)
     if state.first_failure is None:
         state.first_failure = item.name
 
@@ -572,11 +589,12 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     `state.setup_failed = True` and returns without raising; we surface
     that here as a uniform skip per method.
     """
-    if not _is_class_based(item):
+    cls = _test_class(item)
+    if cls is None:
         return
-    state = state_for(item.cls)
+    state = state_for(cls)
     if state.setup_failed:
-        reason = f"class fixture setup failed for {item.cls.__qualname__}"
+        reason = f"class fixture setup failed for {cls.__qualname__}"
         if state.setup_error:
             reason = f"{reason}: {state.setup_error}"
         pytest.skip(reason)

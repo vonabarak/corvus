@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from corvus_client import AsyncClient
+
 from ._helpers import with_client
 
 
-def test_task_list_after_disk_create(daemon_socket):
+def test_task_list_after_disk_create(daemon_socket: Path) -> None:
     """Every mutating call (here `disks.create`) creates a Task row.
 
     We verify the manager can list/get/filter without asserting on
@@ -14,7 +18,7 @@ def test_task_list_after_disk_create(daemon_socket):
     """
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-task-disk", size_mb=32)
         disk_info = await disk.show()
         tasks = await c.tasks.list(subsystem="disk")
@@ -35,11 +39,11 @@ def test_task_list_after_disk_create(daemon_socket):
     run(go)
 
 
-def test_task_cancel_dispatches(daemon_socket):
+def test_task_cancel_dispatches(daemon_socket: Path) -> None:
     """`tasks.cancel` dispatches even when the target has already finished."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-task-cancel", size_mb=32)
         info = await disk.show()
         task = next(

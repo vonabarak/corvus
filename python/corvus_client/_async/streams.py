@@ -12,12 +12,33 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from typing import Literal, Protocol, TypeAlias
+
+import capnp
 
 from .. import _schema
+from .. import types as t
 from . import _convert as conv
 
 _END = object()  # sentinel pushed onto queues when the daemon ends a stream
+
+_ByteQueueItem: TypeAlias = tuple[Literal["write"], bytes] | tuple[Literal["end"], None]
+_BuildQueueItem: TypeAlias = (
+    tuple[Literal["event"], t.BuildEvent] | tuple[Literal["end"], None]
+)
+_ApplyQueueItem: TypeAlias = (
+    tuple[Literal["event"], t.ApplyEvent] | tuple[Literal["end"], None]
+)
+
+
+class _ByteStreamResponse(Protocol):
+    input: capnp.lib.capnp._DynamicCapabilityClient
+
+
+class _ByteStreamMethod(Protocol):
+    def __call__(
+        self, *, sink: _ByteSinkServer, **kwargs: object
+    ) -> Awaitable[_ByteStreamResponse]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -25,16 +46,16 @@ _END = object()  # sentinel pushed onto queues when the daemon ends a stream
 # ---------------------------------------------------------------------------
 
 
-class _ByteSinkServer(_schema.streams.ByteSink.Server):
+class _ByteSinkServer(_schema.streams.ByteSink.Server):  # type: ignore[misc,name-defined]
     """Receive bytes from the daemon and forward them to a queue."""
 
-    def __init__(self, queue: asyncio.Queue[Any]):
+    def __init__(self, queue: asyncio.Queue[_ByteQueueItem]) -> None:
         self._q = queue
 
-    async def write(self, chunk, _context):
+    async def write(self, chunk: bytes, _context: object) -> None:
         await self._q.put(("write", bytes(chunk)))
 
-    async def end(self, _context):
+    async def end(self, _context: object) -> None:
         await self._q.put(("end", None))
 
 
@@ -43,14 +64,16 @@ class _ByteSinkServer(_schema.streams.ByteSink.Server):
 # ---------------------------------------------------------------------------
 
 
-class _BuildEventSinkServer(_schema.streams.BuildEventSink.Server):
-    def __init__(self, queue: asyncio.Queue[Any]):
+class _BuildEventSinkServer(_schema.streams.BuildEventSink.Server):  # type: ignore[misc,name-defined]
+    def __init__(self, queue: asyncio.Queue[_BuildQueueItem]) -> None:
         self._q = queue
 
-    async def push(self, event, _context):
+    async def push(
+        self, event: capnp.lib.capnp._DynamicStructReader, _context: object
+    ) -> None:
         await self._q.put(("event", conv.build_event(event)))
 
-    async def end(self, _context):
+    async def end(self, _context: object) -> None:
         await self._q.put(("end", None))
 
 
@@ -59,14 +82,16 @@ class _BuildEventSinkServer(_schema.streams.BuildEventSink.Server):
 # ---------------------------------------------------------------------------
 
 
-class _ApplyEventSinkServer(_schema.streams.ApplyEventSink.Server):
-    def __init__(self, queue: asyncio.Queue[Any]):
+class _ApplyEventSinkServer(_schema.streams.ApplyEventSink.Server):  # type: ignore[misc,name-defined]
+    def __init__(self, queue: asyncio.Queue[_ApplyQueueItem]) -> None:
         self._q = queue
 
-    async def push(self, event, _context):
+    async def push(
+        self, event: capnp.lib.capnp._DynamicStructReader, _context: object
+    ) -> None:
         await self._q.put(("event", conv.apply_event(event)))
 
-    async def end(self, _context):
+    async def end(self, _context: object) -> None:
         await self._q.put(("end", None))
 
 
@@ -75,11 +100,15 @@ class _ApplyEventSinkServer(_schema.streams.ApplyEventSink.Server):
 # ---------------------------------------------------------------------------
 
 
-class _GuestAgentStatusSinkServer(_schema.streams.GuestAgentStatusSink.Server):
-    def __init__(self, callback: Callable[[Any], Awaitable[None]]):
+class _GuestAgentStatusSinkServer(_schema.streams.GuestAgentStatusSink.Server):  # type: ignore[misc,name-defined]
+    def __init__(
+        self, callback: Callable[[t.GuestAgentStatus], Awaitable[None]]
+    ) -> None:
         self._cb = callback
 
-    async def push(self, status, _context):
+    async def push(
+        self, status: capnp.lib.capnp._DynamicStructReader, _context: object
+    ) -> None:
         await self._cb(conv.guest_agent_status(status))
 
 
@@ -87,11 +116,13 @@ class _GuestAgentStatusSinkServer(_schema.streams.GuestAgentStatusSink.Server):
 # VM stats sink (live resource-consumption updates)
 
 
-class _VmStatsSinkServer(_schema.vm.VmStatsSink.Server):
-    def __init__(self, callback: Callable[[Any], Awaitable[None]]):
+class _VmStatsSinkServer(_schema.vm.VmStatsSink.Server):  # type: ignore[misc,name-defined]
+    def __init__(self, callback: Callable[[t.VmStats], Awaitable[None]]) -> None:
         self._cb = callback
 
-    async def onStats(self, stats, _context):
+    async def onStats(
+        self, stats: capnp.lib.capnp._DynamicStructReader, _context: object
+    ) -> None:
         await self._cb(conv.vm_stats(stats))
 
 
@@ -100,11 +131,15 @@ class _VmStatsSinkServer(_schema.vm.VmStatsSink.Server):
 # ---------------------------------------------------------------------------
 
 
-class _TaskProgressSinkServer(_schema.streams.TaskProgressSink.Server):
-    def __init__(self, callback: Callable[[Any], Awaitable[None]]):
+class _TaskProgressSinkServer(_schema.streams.TaskProgressSink.Server):  # type: ignore[misc,name-defined]
+    def __init__(
+        self, callback: Callable[[t.TaskProgressEvent], Awaitable[None]]
+    ) -> None:
         self._cb = callback
 
-    async def push(self, event, _context):
+    async def push(
+        self, event: capnp.lib.capnp._DynamicStructReader, _context: object
+    ) -> None:
         await self._cb(conv.task_progress_event(event))
 
 
@@ -114,10 +149,10 @@ class _TaskProgressSinkServer(_schema.streams.TaskProgressSink.Server):
 
 
 async def stream_apply_events(
-    daemon,
+    daemon: capnp.lib.capnp._DynamicCapabilityClient,
     yaml: str,
     skip_existing: bool = False,
-) -> AsyncIterator[Any]:
+) -> AsyncIterator[t.ApplyStreamItem]:
     """Yield ApplyEvent dataclasses, then a final ``('task_id', N)`` tuple.
 
     Mirrors :func:`stream_build_events`. The daemon takes the
@@ -137,7 +172,7 @@ async def stream_apply_events(
             else:
                 ...  # ApplyEvent dataclass
     """
-    queue: asyncio.Queue[Any] = asyncio.Queue()
+    queue: asyncio.Queue[_ApplyQueueItem] = asyncio.Queue()
     sink = _ApplyEventSinkServer(queue)
     promise = daemon.apply(
         yaml=yaml,
@@ -146,24 +181,24 @@ async def stream_apply_events(
         sink=sink,
     )
     while True:
-        kind, _payload = await queue.get()
-        if kind == "event":
-            yield _payload
+        item = await queue.get()
+        if item[0] == "event":
+            yield item[1]
             continue
-        if kind == "end":
+        if item[0] == "end":
             break
     resp = await promise
     yield ("task_id", resp.taskId)
 
 
 async def stream_build_events(
-    daemon,
+    daemon: capnp.lib.capnp._DynamicCapabilityClient,
     yaml: str,
     *,
     use_cache: bool = False,
     build_cache: bool = False,
     rebuild_from: int = 0,
-) -> AsyncIterator[Any]:
+) -> AsyncIterator[t.BuildStreamItem]:
     """Yield BuildEvent dataclasses, then a final `('task_id', N)` tuple.
 
     Usage:
@@ -179,7 +214,7 @@ async def stream_build_events(
     layer on top of the YAML's own ``useCache:`` / ``buildCache:``
     fields (OR semantics). Default off for all three.
     """
-    queue: asyncio.Queue[Any] = asyncio.Queue()
+    queue: asyncio.Queue[_BuildQueueItem] = asyncio.Queue()
     sink = _BuildEventSinkServer(queue)
     promise = daemon.build(
         yaml=yaml,
@@ -192,11 +227,11 @@ async def stream_build_events(
     # by calling sink.end(); we then await the original build() promise
     # for the task id and yield it as the last item.
     while True:
-        kind, payload = await queue.get()
-        if kind == "event":
-            yield payload
+        item = await queue.get()
+        if item[0] == "event":
+            yield item[1]
             continue
-        if kind == "end":
+        if item[0] == "end":
             break
     resp = await promise
     yield ("task_id", resp.taskId)
@@ -210,7 +245,9 @@ class GuestAgentSubscription:
     handle cap is dropped on the client side.
     """
 
-    def __init__(self, handle, sink):
+    def __init__(
+        self, handle: capnp.lib.capnp._DynamicCapabilityClient, sink: object
+    ) -> None:
         self._handle = handle
         self._sink = sink  # keep alive
 
@@ -224,7 +261,8 @@ class TaskProgressSubscription(GuestAgentSubscription):
 
 
 async def subscribe_guest_agent(
-    vm_cap, on_event: Callable[[Any], Awaitable[None]]
+    vm_cap: capnp.lib.capnp._DynamicCapabilityClient,
+    on_event: Callable[[t.GuestAgentStatus], Awaitable[None]],
 ) -> GuestAgentSubscription:
     sink = _GuestAgentStatusSinkServer(on_event)
     resp = await vm_cap.subscribeGuestAgent(sink=sink)
@@ -239,7 +277,8 @@ class VmStatsSubscription(GuestAgentSubscription):
 
 
 async def subscribe_stats(
-    vm_cap, on_event: Callable[[Any], Awaitable[None]]
+    vm_cap: capnp.lib.capnp._DynamicCapabilityClient,
+    on_event: Callable[[t.VmStats], Awaitable[None]],
 ) -> VmStatsSubscription:
     sink = _VmStatsSinkServer(on_event)
     resp = await vm_cap.subscribeStats(sink=sink)
@@ -247,9 +286,9 @@ async def subscribe_stats(
 
 
 async def subscribe_task_progress(
-    task_mgr_cap,
+    task_mgr_cap: capnp.lib.capnp._DynamicCapabilityClient,
     task_id: int,
-    on_event: Callable[[Any], Awaitable[None]],
+    on_event: Callable[[t.TaskProgressEvent], Awaitable[None]],
 ) -> TaskProgressSubscription:
     sink = _TaskProgressSinkServer(on_event)
     resp = await task_mgr_cap.subscribe(taskId=task_id, sink=sink)
@@ -270,16 +309,20 @@ class ByteStream:
     signal end-of-input.
     """
 
-    def __init__(self, input_cap, inbound_queue: asyncio.Queue[Any]):
+    def __init__(
+        self,
+        input_cap: capnp.lib.capnp._DynamicCapabilityClient,
+        inbound_queue: asyncio.Queue[_ByteQueueItem],
+    ) -> None:
         self._input = input_cap
         self._q = inbound_queue
         self._closed_in = False
 
     async def read(self) -> bytes | None:
-        kind, payload = await self._q.get()
-        if kind == "end":
+        item = await self._q.get()
+        if item[0] == "end":
             return None
-        return payload
+        return item[1]
 
     async def write(self, chunk: bytes) -> None:
         if self._closed_in:
@@ -297,13 +340,13 @@ class ByteStream:
                 pass
 
 
-async def open_byte_stream(method, **kwargs) -> ByteStream:
+async def open_byte_stream(method: _ByteStreamMethod, **kwargs: object) -> ByteStream:
     """Open a bidirectional byte-pipe via the given cap method.
 
     `method` is e.g. `vm_cap.serialConsole` or `vm_cap.hmpMonitor`.
     The caller passes the sink and the daemon returns the input cap.
     """
-    queue: asyncio.Queue[Any] = asyncio.Queue()
+    queue: asyncio.Queue[_ByteQueueItem] = asyncio.Queue()
     sink = _ByteSinkServer(queue)
     resp = await method(sink=sink, **kwargs)
     return ByteStream(resp.input, queue)

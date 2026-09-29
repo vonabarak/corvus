@@ -6,7 +6,7 @@ into the stdout / stderr / exit-code panes.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import GuestExecResult
 from PySide6.QtCore import Qt
@@ -86,7 +86,7 @@ class GuestExecDialog(QDialog):
         self._run_btn.setEnabled(False)
         self._bridge.vm_guest_exec(self._vm_id, cmd)
 
-    def _on_result(self, vm_id: int, result: Any) -> None:
+    def _on_result(self, vm_id: int, result: GuestExecResult) -> None:
         if vm_id != self._vm_id:
             return
         self._run_btn.setEnabled(True)

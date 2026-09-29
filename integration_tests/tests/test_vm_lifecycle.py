@@ -21,23 +21,28 @@ import time
 
 import pytest
 from corvus_client import VmNotFound
+from corvus_client._sync.vm import SyncByteStream, SyncVm
 from corvus_test_harness import (
     HOST_ALPINE_KEY_PATH,
     SingleNodeCase,
     Vm,
+    VmShell,
     VmSsh,
     VmUefi,
     probe_spice_link,
 )
+from corvus_test_harness.vm import _NetIfOptions
 
 
-def _mem_total_kb(shell) -> int:
+def _mem_total_kb(shell: VmShell) -> int:
     """Parse /proc/meminfo's MemTotal in kB via the vm's SSH shell."""
     out = shell.run("awk '/^MemTotal:/{print $2}' /proc/meminfo").stdout
     return int(out.strip())
 
 
-def _drain_serial_until(stream, needle: bytes, *, timeout: float) -> bytes:
+def _drain_serial_until(
+    stream: SyncByteStream, needle: bytes, *, timeout: float
+) -> bytes:
     """Read from a `serial_console()` stream until `needle` appears.
 
     Mirrors `test_serial_console.py::_drain_until`. Kept inline
@@ -70,7 +75,7 @@ class _VmLifecycleBase(SingleNodeCase):
 
     def _wait_status(
         self,
-        vm,
+        vm: SyncVm,
         target: str,
         *,
         timeout_sec: float = 60.0,
@@ -92,7 +97,7 @@ class _VmLifecycleBase(SingleNodeCase):
 
     def _observe_transitions(
         self,
-        vm,
+        vm: SyncVm,
         target: str,
         *,
         timeout_sec: float = 90.0,
@@ -150,7 +155,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
     eight cheap tests.
     """
 
-    def test_inner_daemon_reachable(self):
+    def test_inner_daemon_reachable(self) -> None:
         """Smoke test: the inner daemon answers `status()` after first boot.
 
         Implicitly verifies every layer of the harness:
@@ -166,7 +171,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         assert info.uptime_seconds >= 0
         assert info.protocol_version > 0
 
-    def test_two_status_calls(self):
+    def test_two_status_calls(self) -> None:
         """Two `status()` calls in a row.
 
         Pinpoint test: if the first works and the second aborts (or
@@ -179,7 +184,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         assert info1.version == info2.version
         assert info2.uptime_seconds >= info1.uptime_seconds
 
-    def test_vms_list(self):
+    def test_vms_list(self) -> None:
         """`vms.list()` exercises two cap calls but neither passes a
         struct param nor returns a capability:
 
@@ -199,7 +204,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         # interference.
         assert isinstance(vms, list)
 
-    def test_create_vm(self):
+    def test_create_vm(self) -> None:
         """The inner daemon can create + list its own VMs.
 
         Sanity check that the inner Corvus's database (node-side
@@ -221,7 +226,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         with pytest.raises(VmNotFound):
             self.client.vms.get("doubly-nested")
 
-    def test_cpu_model_defaults_to_host(self):
+    def test_cpu_model_defaults_to_host(self) -> None:
         """`vms.create` without an explicit `cpu_model` lands at
         the documented default `"host"`. The CLI exposes this for
         operators who prefer raw guest performance over cross-host
@@ -235,7 +240,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         finally:
             vm.delete()
 
-    def test_cpu_model_round_trip_qemu64(self):
+    def test_cpu_model_round_trip_qemu64(self) -> None:
         """Operator-supplied `cpu_model="qemu64"` round-trips
         through create → show → edit → show. Proves the field
         threads through the CLI/RPC/wire/DB plumbing end-to-end,
@@ -256,7 +261,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         finally:
             vm.delete()
 
-    def test_edit_noop(self):
+    def test_edit_noop(self) -> None:
         """vm.edit() with no fields set.
 
         Sends an empty VmEditParams (all `hasX` flags False). Pinpoints
@@ -276,7 +281,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         assert details.ram_mb == 256
         vm.delete()
 
-    def test_edit_after_show(self):
+    def test_edit_after_show(self) -> None:
         """vm.show() then vm.edit() — diagnostic: does a no-op cap call
         'warm up' the cap before a struct-parameter call against it?
         """
@@ -292,7 +297,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         assert details.ram_mb == 512
         vm.delete()
 
-    def test_edit_via_get(self):
+    def test_edit_via_get(self) -> None:
         """Create VM, then `get` a fresh Vm cap by name, then edit on it.
 
         Diagnostic: maybe the abort is specific to the cap returned by
@@ -312,7 +317,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         assert fresh.show().ram_mb == 512
         fresh.delete()
 
-    def test_edit_persists(self):
+    def test_edit_persists(self) -> None:
         """Edits via the inner daemon round-trip through its Postgres."""
         vm = self.client.vms.create(
             "edit-target",
@@ -331,7 +336,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
 class TestVmBootBasics(_VmLifecycleBase):
     """Basic guest lifecycle: one boot per method."""
 
-    def test_vm(self):
+    def test_vm(self) -> None:
         """Full vm lifecycle with SSH-driven assertions.
 
         The default `VmSsh` boots a **headless, BIOS** Alpine
@@ -348,7 +353,7 @@ class TestVmBootBasics(_VmLifecycleBase):
         """
 
         class _VmSshWithUserNic(VmSsh):
-            def _net_ifs(self):
+            def _net_ifs(self) -> list[_NetIfOptions]:
                 return [{"type": "user"}]
 
         with _VmSshWithUserNic(self) as vm:
@@ -370,9 +375,9 @@ class TestVmBootBasics(_VmLifecycleBase):
             # QGA exec mirrors the SSH path — same command, different
             # transport. Catches regressions where one path works
             # and the other doesn't.
-            r = vm.cap.guest_exec("uname -s")
-            assert r.exit_code == 0
-            assert r.stdout.strip() == "Linux"
+            guest_result = vm.cap.guest_exec("uname -s")
+            assert guest_result.exit_code == 0
+            assert guest_result.stdout.strip() == "Linux"
 
             # BIOS guest has no EFI variables; efibootmgr exits
             # non-zero with a "no EFI" diagnostic. The `; true`
@@ -402,8 +407,9 @@ class TestVmBootBasics(_VmLifecycleBase):
             hc1 = hc0
             while time.monotonic() < deadline:
                 time.sleep(2.0)
-                hc1 = vm.cap.show().last_healthcheck
-                if hc1 is not None and hc1 > hc0:
+                next_healthcheck = vm.cap.show().last_healthcheck
+                if next_healthcheck is not None and next_healthcheck > hc0:
+                    hc1 = next_healthcheck
                     break
             assert hc1 > hc0, (
                 f"last_healthcheck didn't advance within 30s; "
@@ -432,7 +438,7 @@ class TestVmBootBasics(_VmLifecycleBase):
                 "the daemon"
             )
 
-    def test_status_transitions_through_starting_and_stopping(self):
+    def test_status_transitions_through_starting_and_stopping(self) -> None:
         """The DB-observable VM status must pass through `starting`
         before reaching `running`, and through `stopping` before
         reaching `stopped`.
@@ -494,7 +500,7 @@ class TestVmBootBasics(_VmLifecycleBase):
                 f"'stopping' should appear before 'stopped'. Got: {stop_seq!r}"
             )
 
-    def test_start_async_without_guest_agent(self):
+    def test_start_async_without_guest_agent(self) -> None:
         """Without QGA the daemon transitions stopped → running
         immediately after qemu spawn — no `starting` step.
 
@@ -514,7 +520,7 @@ class TestVmBootBasics(_VmLifecycleBase):
         with _AsyncStartNoQga(self) as vm:
             self._wait_status(vm.cap, "running", timeout_sec=30)
 
-    def test_reset_fences_late_no_qga_start_completion(self):
+    def test_reset_fences_late_no_qga_start_completion(self) -> None:
         """A reset immediately after optimistic no-QGA ``running`` must
         remain stopped when the delayed start RPC finishes.
 
@@ -544,7 +550,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             assert details.error_message is None, details
             assert details.spice_port is None, details
 
-    def test_uefi_vm_lists_efi_boot_entries(self):
+    def test_uefi_vm_lists_efi_boot_entries(self) -> None:
         """UEFI-booted Alpine guest exposes EFI variables and at
         least one BootXXXX entry."""
         with VmUefi(self) as vm:
@@ -552,7 +558,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             assert r.exit_code == 0
             assert "Boot" in r.stdout
 
-    def test_resource_stats_populated_after_two_polls(self):
+    def test_resource_stats_populated_after_two_polls(self) -> None:
         """The agent's StatusPoller pushes a VmStats sample every
         ~10 s; after two cycles the daemon's cache should have a
         non-zero sample and `vm.show().stats` should expose it.
@@ -562,7 +568,7 @@ class TestVmBootBasics(_VmLifecycleBase):
         import time
 
         class _StatsVm(VmSsh):
-            def _net_ifs(self):
+            def _net_ifs(self) -> list[_NetIfOptions]:
                 # User-mode NIC so the agent has *some* tap to sample
                 # (we don't assert on net counters specifically — too
                 # racy for a smoke test — but the populated drives
@@ -597,7 +603,7 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
     """Edits that require a stop / edit / start cycle — two boots
     per method, so this class lands its own worker."""
 
-    def test_headless_swap_cycle(self):
+    def test_headless_swap_cycle(self) -> None:
         """Headless ↔ non-headless edit cycle on the same VM.
 
         Non-headless half: VM gets `-vga …`, the kernel sees a
@@ -667,7 +673,7 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
                 data = _drain_serial_until(stream, b"login:", timeout=60.0)
                 assert b"login:" in data
 
-    def test_cpu_and_ram_edit_round_trip(self):
+    def test_cpu_and_ram_edit_round_trip(self) -> None:
         """Boot, read nproc + MemTotal, stop, edit cpu_count+ram_mb,
         boot again, re-read and confirm the values changed.
 
@@ -706,7 +712,7 @@ class TestVmTpm(_VmLifecycleBase):
     """swtpm supervision, QEMU wiring, and destructive disable semantics."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _swtpm_present(self, _class_topology):
+    def _swtpm_present(self, _class_topology: object) -> None:
         """Fail early when a cached test-node predates the TPM recipe."""
         r = self.nodes[0].run("command -v swtpm", check=False)
         if r.returncode != 0:
@@ -717,7 +723,7 @@ class TestVmTpm(_VmLifecycleBase):
                 f"(probe stdout={r.stdout!r}, stderr={r.stderr!r})"
             )
 
-    def test_tpm_helper_and_state_lifecycle(self):
+    def test_tpm_helper_and_state_lifecycle(self) -> None:
         class _TpmVm(Vm):
             tpm = True
 
@@ -773,7 +779,7 @@ class TestVmTpm(_VmLifecycleBase):
 class TestVmPauseResetPowerOff(_VmLifecycleBase):
     """Pause / resume / reset / guest-initiated poweroff scenarios."""
 
-    def test_pause_resume_reset_stop(self):
+    def test_pause_resume_reset_stop(self) -> None:
         """Combined exercise of all four VM lifecycle actions:
         `vm.pause()`, resume via `vm.start()`, `vm.reset()`, and
         graceful `vm.stop(wait=True)`.
@@ -853,7 +859,7 @@ class TestVmPauseResetPowerOff(_VmLifecycleBase):
             vm.cap.stop(wait=True)
             self._wait_status(vm.cap, "stopped", timeout_sec=10)
 
-    def test_start_after_guest_initiated_poweroff(self):
+    def test_start_after_guest_initiated_poweroff(self) -> None:
         """``vm.start()`` works after the guest powers itself off.
 
         Regression for: the agent's @handleVmStart@ returned the
@@ -932,7 +938,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
     ``_RebootQuirkVm`` / ``_NoQuirkVm`` mixin pattern and the
     QEMU-pid scrape helper, so they live together."""
 
-    def test_reboot_quirk_restart_on_guest_reboot(self):
+    def test_reboot_quirk_restart_on_guest_reboot(self) -> None:
         """With ``reboot_quirk=True``, a guest-initiated reboot
         bounces QEMU transparently.
 
@@ -1013,7 +1019,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 "within 120s, or boot_id did not change"
             )
 
-    def test_reboot_quirk_does_not_restart_on_daemon_stop(self):
+    def test_reboot_quirk_does_not_restart_on_daemon_stop(self) -> None:
         """With ``reboot_quirk=True``, ``vm.stop()`` from the
         daemon still actually stops the VM. The auto-restart is
         suppressed when the agent observes a stop intent.
@@ -1043,7 +1049,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                     f"initiated stop — quirk-suppression failed"
                 )
 
-    def test_reboot_quirk_qemu_pid_changes_on_reboot(self):
+    def test_reboot_quirk_qemu_pid_changes_on_reboot(self) -> None:
         """With ``reboot_quirk=True`` a guest-initiated reboot must
         replace the underlying QEMU process — the agent's reaper
         ``-no-reboot`` + re-spawn path is the whole point of the
@@ -1093,7 +1099,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 f"the reboot-quirk reaper did not re-spawn"
             )
 
-    def test_no_reboot_quirk_qemu_pid_unchanged_on_reboot(self):
+    def test_no_reboot_quirk_qemu_pid_unchanged_on_reboot(self) -> None:
         """Without ``reboot_quirk``, a guest-initiated reboot keeps
         the same QEMU process — QEMU resets the machine in place,
         so the host-level pid is preserved.

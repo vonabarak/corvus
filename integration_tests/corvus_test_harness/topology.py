@@ -35,6 +35,8 @@ import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
+from typing import ClassVar
 
 from corvus_client import Client
 
@@ -79,6 +81,8 @@ class NoDaemonOnNodeError(RuntimeError):
 class TestNode:
     """One orchestrator node, paired with its host-side relay + the
     pycapnp client to the node's inner daemon."""
+
+    __test__: ClassVar[bool] = False  # A harness handle, not a pytest test class.
 
     name: str
     short_name: str
@@ -172,7 +176,7 @@ class TestNode:
         timeout_sec: float = 60.0,
         check: bool = True,
         user: str = "corvus",
-    ) -> subprocess.CompletedProcess:
+    ) -> subprocess.CompletedProcess[bytes]:
         """Run `command` on this node via SSH-over-VSOCK.
 
         Returns the raw `subprocess.CompletedProcess`; stdout/stderr
@@ -244,7 +248,12 @@ class Topology:
         self._stack.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         # Treat any exception inside the with-block as "tests failed,
         # leak the nodes for inspection". Callers that need to distinguish
         # "with-block raised" from "test method later failed" should
@@ -454,7 +463,7 @@ class Topology:
         node_name = f"{RESOURCE_PREFIX}-{self.class_name}-{self.run_id}-{short_name}"
         overlay_name = f"{node_name}-rootfs"
 
-        shared_dirs: list[dict] = [
+        shared_dirs: list[dict[str, object]] = [
             {
                 "path": str(self.host_binary.bin_dir),
                 "tag": "corvus_host",

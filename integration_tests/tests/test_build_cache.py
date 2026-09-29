@@ -27,20 +27,33 @@ from __future__ import annotations
 
 import secrets
 import textwrap
+from collections.abc import Iterable
+from typing import TypedDict
 
 import pytest
-from corvus_client import DiskNotFound
+from corvus_client import Client, DiskNotFound
 from corvus_client.types import (
+    BuildEvent,
     BuildPipelineEnd,
     BuildStepCacheHit,
     BuildStepCacheRestore,
     BuildStepCacheStore,
     BuildStepEnd,
     BuildStepStart,
+    BuildStreamItem,
 )
 from corvus_test_harness import SingleNodeCase
 
 pytestmark = pytest.mark.timeout(3600)
+
+
+class _ClassifiedEvents(TypedDict):
+    starts: list[BuildStepStart]
+    ends: list[BuildStepEnd]
+    hits: list[BuildStepCacheHit]
+    stores: list[BuildStepCacheStore]
+    restores: list[BuildStepCacheRestore]
+    pipeline_end: BuildPipelineEnd | None
 
 
 _BAKE_TEMPLATE = textwrap.dedent("""
@@ -106,11 +119,11 @@ def _three_step_pipeline(
     """).strip()
 
 
-def _bake_vms(client) -> list[str]:
+def _bake_vms(client: Client) -> list[str]:
     return [v.name for v in client.vms.list() if v.name.startswith("__build_")]
 
 
-def _bake_target_disk(client, artifact_name: str) -> str:
+def _bake_target_disk(client: Client, artifact_name: str) -> str:
     """The bake VM's writable target disk for ``artifact_name``.
 
     With ``strategy: overlay`` (this file's template definition),
@@ -130,17 +143,19 @@ def _bake_target_disk(client, artifact_name: str) -> str:
     assert len(vm_matches) == 1, [v.name for v in vm_matches]
     details = client.vms.get(vm_matches[0].id).show()
     assert details.drives, "bake VM has no drives"
-    return details.drives[0].disk_image.name
+    disk_image = details.drives[0].disk_image
+    assert disk_image is not None
+    return disk_image.name
 
 
-def _cache_snapshots(client, disk_name: str) -> list[str]:
+def _cache_snapshots(client: Client, disk_name: str) -> list[str]:
     """Names of the ``cache-*`` qcow2 internal snapshots on a disk."""
     disk = client.disks.get(disk_name, by_name=True)
     return [s.name for s in disk.snapshot_list() if s.name.startswith("cache-")]
 
 
-def _collect_events(stream) -> list:
-    out: list = []
+def _collect_events(stream: Iterable[BuildStreamItem]) -> list[BuildEvent]:
+    out: list[BuildEvent] = []
     for ev in stream:
         if isinstance(ev, tuple):
             continue
@@ -148,7 +163,7 @@ def _collect_events(stream) -> list:
     return out
 
 
-def _classify(events) -> dict:
+def _classify(events: Iterable[BuildEvent]) -> _ClassifiedEvents:
     return {
         "starts": [e for e in events if isinstance(e, BuildStepStart)],
         "ends": [e for e in events if isinstance(e, BuildStepEnd)],
@@ -162,7 +177,7 @@ def _classify(events) -> dict:
 
 
 class TestBuildCache(SingleNodeCase):
-    def test_cache_prime_reuse_and_partial_reuse(self):
+    def test_cache_prime_reuse_and_partial_reuse(self) -> None:
         """End-to-end exercise of the cache write + read paths.
 
         Three sub-builds against the same artifact name (``ifExists:
@@ -273,7 +288,7 @@ class TestBuildCache(SingleNodeCase):
                 pass
             tpl.delete()
 
-    def test_rebuild_prunes_stale_tail_keeping_one_snapshot_per_step(self):
+    def test_rebuild_prunes_stale_tail_keeping_one_snapshot_per_step(self) -> None:
         """Post-success invariant: after a build with ``--build-cache``,
         the number of ``cache-*`` qcow2 internal snapshots on the bake
         VM's target disk equals the number of provisioner steps in the
@@ -409,7 +424,7 @@ class TestBuildCache(SingleNodeCase):
                 pass
             tpl.delete()
 
-    def test_cache_falls_back_to_fresh_when_cached_vm_is_deleted(self):
+    def test_cache_falls_back_to_fresh_when_cached_vm_is_deleted(self) -> None:
         """Stale cache rows: cached VM deleted out-of-band.
 
         After priming the cache, the operator runs ``crv vm delete``
@@ -479,7 +494,7 @@ class TestBuildCache(SingleNodeCase):
                 pass
             tpl.delete()
 
-    def test_memory_mode_preserves_kernel_state_across_cache_resume(self):
+    def test_memory_mode_preserves_kernel_state_across_cache_resume(self) -> None:
         """The whole reason ``cacheMode: memory`` exists: a file in
         tmpfs (``/tmp``) created in step 2 must still be there when
         step 3 runs from a cache resume. Disk mode would lose it —

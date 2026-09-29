@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any
+from typing import cast
 
 import pytest
 from corvus_client.types import (
@@ -25,6 +25,7 @@ from corvus_client.types import (
     VmDetails,
     VmInfo,
 )
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.windows.disk_detail import DiskDetailWidget
 from corvus_desktop.windows.disk_list import DiskListWidget
 from corvus_desktop.windows.main_window import MainWindow
@@ -33,7 +34,7 @@ from corvus_desktop.windows.task_list import TaskListWidget
 from corvus_desktop.windows.vm_detail import VmDetailWidget
 from corvus_desktop.windows.vm_list import VmListWidget
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QProgressBar, QTableView
+from PySide6.QtWidgets import QApplication, QProgressBar, QTableView
 
 
 class _MockBridge(QObject):
@@ -92,7 +93,7 @@ class _MockBridge(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.status_calls = 0
-        self.task_list_calls: list[dict[str, Any]] = []
+        self.task_list_calls: list[dict[str, str | int | bool | None]] = []
         self.subscribed: list[int] = []
         self.unsubscribed: list[int] = []
         self.vm_list_calls = 0
@@ -178,11 +179,15 @@ class _MockBridge(QObject):
     def request_network_detail(self, network_id: int) -> None:
         self.network_detail_calls.append(network_id)
 
-    def network_create(self, name: str, subnet: str, **kwargs: Any) -> None: ...
+    def network_create(
+        self, name: str, subnet: str, **kwargs: str | int | bool | None
+    ) -> None: ...
     def network_start(self, network_id: int) -> None: ...
     def network_stop(self, network_id: int, *, force: bool = False) -> None: ...
     def network_delete(self, network_id: int) -> None: ...
-    def network_edit(self, network_id: int, **kwargs: Any) -> None: ...
+    def network_edit(
+        self, network_id: int, **kwargs: str | int | bool | None
+    ) -> None: ...
     def ssh_key_create(self, name: str, public_key: str) -> None: ...
     def ssh_key_delete(self, key_id: int) -> None: ...
 
@@ -196,46 +201,87 @@ class _MockBridge(QObject):
     ) -> None: ...
 
     def request_cloud_init(self, vm_id: int) -> None: ...
-    def cloud_init_set(self, vm_id: int, **kwargs: Any) -> None: ...
+    def cloud_init_set(self, vm_id: int, **kwargs: str | int | bool | None) -> None: ...
     def cloud_init_delete(self, vm_id: int) -> None: ...
 
     def apply_yaml(self, yaml_text: str, *, skip_existing: bool = False) -> None: ...
 
-    def vm_create(self, **kwargs: Any) -> None: ...
-    def vm_edit(self, vm_id: int, **kwargs: Any) -> None: ...
+    def vm_create(self, **kwargs: str | int | bool | None) -> None: ...
+    def vm_edit(self, vm_id: int, **kwargs: str | int | bool | None) -> None: ...
     def vm_delete(self, vm_id: int, *, keep_disks: bool = False) -> None: ...
-    def vm_attach_disk(self, vm_id: int, disk_ref: Any, **kwargs: Any) -> None: ...
+    def vm_attach_disk(
+        self,
+        vm_id: int,
+        disk_ref: str | int | bool | None,
+        **kwargs: str | int | bool | None,
+    ) -> None: ...
     def vm_detach_disk(self, vm_id: int, drive_id: int) -> None: ...
-    def vm_add_net_if(self, vm_id: int, **kwargs: Any) -> None: ...
+    def vm_add_net_if(self, vm_id: int, **kwargs: str | int | bool | None) -> None: ...
     def vm_remove_net_if(self, vm_id: int, net_if_id: int) -> None: ...
-    def vm_attach_ssh_key(self, vm_id: int, key_ref: Any) -> None: ...
-    def vm_detach_ssh_key(self, vm_id: int, key_ref: Any) -> None: ...
+    def vm_attach_ssh_key(
+        self, vm_id: int, key_ref: str | int | bool | None
+    ) -> None: ...
+    def vm_detach_ssh_key(
+        self, vm_id: int, key_ref: str | int | bool | None
+    ) -> None: ...
     def vm_add_shared_dir(
-        self, vm_id: int, path: str, tag: str, **kwargs: Any
+        self, vm_id: int, path: str, tag: str, **kwargs: str | int | bool | None
     ) -> None: ...
     def vm_remove_shared_dir(self, vm_id: int, shared_dir_id: int) -> None: ...
     def request_vm_shared_dirs(self, vm_id: int) -> None: ...
     def vm_guest_exec(self, vm_id: int, command: str) -> None: ...
 
-    def disk_create(self, name: str, size_mb: int, **kwargs: Any) -> None: ...
-    def disk_register(self, name: str, file_path: str, **kwargs: Any) -> None: ...
-    def disk_overlay(self, name: str, backing_disk_ref: Any, **kwargs: Any) -> None: ...
-    def disk_clone(self, source_ref: Any, new_name: str, **kwargs: Any) -> None: ...
-    def disk_import_url(self, name: str, url: str, **kwargs: Any) -> None: ...
-    def disk_rebase(self, disk_id: int, new_backing_disk_ref: Any) -> None: ...
+    def disk_create(
+        self, name: str, size_mb: int, **kwargs: str | int | bool | None
+    ) -> None: ...
+    def disk_register(
+        self, name: str, file_path: str, **kwargs: str | int | bool | None
+    ) -> None: ...
+    def disk_overlay(
+        self,
+        name: str,
+        backing_disk_ref: str | int | bool | None,
+        **kwargs: str | int | bool | None,
+    ) -> None: ...
+    def disk_clone(
+        self,
+        source_ref: str | int | bool | None,
+        new_name: str,
+        **kwargs: str | int | bool | None,
+    ) -> None: ...
+    def disk_import_url(
+        self, name: str, url: str, **kwargs: str | int | bool | None
+    ) -> None: ...
+    def disk_rebase(
+        self, disk_id: int, new_backing_disk_ref: str | int | bool | None
+    ) -> None: ...
     def disk_flatten(self, disk_id: int) -> None: ...
-    def disk_copy(self, disk_id: int, to_node_ref: Any, **kwargs: Any) -> None: ...
-    def disk_move(self, disk_id: int, to_node_ref: Any, **kwargs: Any) -> None: ...
+    def disk_copy(
+        self,
+        disk_id: int,
+        to_node_ref: str | int | bool | None,
+        **kwargs: str | int | bool | None,
+    ) -> None: ...
+    def disk_move(
+        self,
+        disk_id: int,
+        to_node_ref: str | int | bool | None,
+        **kwargs: str | int | bool | None,
+    ) -> None: ...
 
     def request_node_list(self) -> None: ...
     def request_node_detail(self, node_id: int) -> None: ...
-    def node_create(self, **kwargs: Any) -> None: ...
-    def node_edit(self, node_id: int, **kwargs: Any) -> None: ...
+    def node_create(self, **kwargs: str | int | bool | None) -> None: ...
+    def node_edit(self, node_id: int, **kwargs: str | int | bool | None) -> None: ...
     def node_drain(self, node_id: int) -> None: ...
     def node_delete(self, node_id: int) -> None: ...
-    def vm_migrate(self, vm_id: int, to_node_ref: Any) -> None: ...
-    def network_attach_node(self, network_id: int, node_ref: Any) -> None: ...
-    def network_detach_node(self, network_id: int, node_ref: Any) -> None: ...
+    def vm_migrate(self, vm_id: int, to_node_ref: str | int | bool | None) -> None: ...
+    def network_attach_node(
+        self, network_id: int, node_ref: str | int | bool | None
+    ) -> None: ...
+    def network_detach_node(
+        self, network_id: int, node_ref: str | int | bool | None
+    ) -> None: ...
 
     def build_run(self, yaml_text: str, base_dir: str | None = None) -> None: ...
 
@@ -261,43 +307,53 @@ def bridge() -> _MockBridge:
 
 
 @pytest.fixture
-def task_list_widget(qapp: Any, bridge: _MockBridge) -> Iterator[TaskListWidget]:
-    widget = TaskListWidget(bridge)
+def task_list_widget(
+    qapp: QApplication, bridge: _MockBridge
+) -> Iterator[TaskListWidget]:
+    widget = TaskListWidget(cast(CorvusBridge, bridge))
     yield widget
     widget.deleteLater()
 
 
 @pytest.fixture
-def task_detail_widget(qapp: Any, bridge: _MockBridge) -> Iterator[TaskDetailWidget]:
-    widget = TaskDetailWidget(bridge)
+def task_detail_widget(
+    qapp: QApplication, bridge: _MockBridge
+) -> Iterator[TaskDetailWidget]:
+    widget = TaskDetailWidget(cast(CorvusBridge, bridge))
     yield widget
     widget.deleteLater()
 
 
 @pytest.fixture
-def vm_list_widget(qapp: Any, bridge: _MockBridge) -> Iterator[VmListWidget]:
-    widget = VmListWidget(bridge)
+def vm_list_widget(qapp: QApplication, bridge: _MockBridge) -> Iterator[VmListWidget]:
+    widget = VmListWidget(cast(CorvusBridge, bridge))
     yield widget
     widget.deleteLater()
 
 
 @pytest.fixture
-def vm_detail_widget(qapp: Any, bridge: _MockBridge) -> Iterator[VmDetailWidget]:
-    widget = VmDetailWidget(bridge)
+def vm_detail_widget(
+    qapp: QApplication, bridge: _MockBridge
+) -> Iterator[VmDetailWidget]:
+    widget = VmDetailWidget(cast(CorvusBridge, bridge))
     yield widget
     widget.deleteLater()
 
 
 @pytest.fixture
-def disk_list_widget(qapp: Any, bridge: _MockBridge) -> Iterator[DiskListWidget]:
-    widget = DiskListWidget(bridge)
+def disk_list_widget(
+    qapp: QApplication, bridge: _MockBridge
+) -> Iterator[DiskListWidget]:
+    widget = DiskListWidget(cast(CorvusBridge, bridge))
     yield widget
     widget.deleteLater()
 
 
 @pytest.fixture
-def disk_detail_widget(qapp: Any, bridge: _MockBridge) -> Iterator[DiskDetailWidget]:
-    widget = DiskDetailWidget(bridge)
+def disk_detail_widget(
+    qapp: QApplication, bridge: _MockBridge
+) -> Iterator[DiskDetailWidget]:
+    widget = DiskDetailWidget(cast(CorvusBridge, bridge))
     yield widget
     widget.deleteLater()
 
@@ -561,8 +617,10 @@ def test_vm_detail_clear_closes_serial(
 # ---------------------------------------------------------- MainWindow
 
 
-def test_main_window_constructs_and_shows(qapp: Any, bridge: _MockBridge) -> None:
-    win = MainWindow(bridge, target="/tmp/socket")
+def test_main_window_constructs_and_shows(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    win = MainWindow(cast(CorvusBridge, bridge), target="/tmp/socket")
     try:
         win.show()
         bridge.task_list_calls.clear()
@@ -576,9 +634,9 @@ def test_main_window_constructs_and_shows(qapp: Any, bridge: _MockBridge) -> Non
 
 
 def test_main_window_opens_task_detail_on_activation(
-    qapp: Any, bridge: _MockBridge
+    qapp: QApplication, bridge: _MockBridge
 ) -> None:
-    win = MainWindow(bridge, target="/tmp/socket")
+    win = MainWindow(cast(CorvusBridge, bridge), target="/tmp/socket")
     try:
         win._task_list.task_activated.emit(123)
         assert win._stack.currentIndex() == MainWindow.PAGE_TASK_DETAIL
@@ -591,9 +649,9 @@ def test_main_window_opens_task_detail_on_activation(
 
 
 def test_main_window_opens_vm_detail_on_activation(
-    qapp: Any, bridge: _MockBridge
+    qapp: QApplication, bridge: _MockBridge
 ) -> None:
-    win = MainWindow(bridge, target="/tmp/socket")
+    win = MainWindow(cast(CorvusBridge, bridge), target="/tmp/socket")
     try:
         win._vm_list.vm_activated.emit(55)
         assert win._stack.currentIndex() == MainWindow.PAGE_VM_DETAIL
@@ -702,9 +760,9 @@ def test_disk_detail_delete_action_signals_back(
 
 
 def test_main_window_opens_disk_detail_on_activation(
-    qapp: Any, bridge: _MockBridge
+    qapp: QApplication, bridge: _MockBridge
 ) -> None:
-    win = MainWindow(bridge, target="/tmp/socket")
+    win = MainWindow(cast(CorvusBridge, bridge), target="/tmp/socket")
     try:
         win._disk_list.disk_activated.emit(77)
         assert win._stack.currentIndex() == MainWindow.PAGE_DISK_DETAIL

@@ -24,6 +24,7 @@ import time
 from corvus_test_harness import SingleNodeCase, VmSsh
 from corvus_test_harness.runner import NodeShellRunner
 from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from corvus_test_harness.vm import _NetIfOptions
 
 # Alpine test image puts the sole NIC on eth0.
 GUEST_NIC = "eth0"
@@ -39,7 +40,9 @@ INTERNET_TARGET = "1.1.1.1"
 DNS_TARGET = "example.com"
 
 
-def _wait_for_lease(vm, *, timeout_sec: float = 30.0, poll_sec: float = 1.0) -> str:
+def _wait_for_lease(
+    vm: VmSsh, *, timeout_sec: float = 30.0, poll_sec: float = 1.0
+) -> str:
     """Poll inside the guest until eth0 has a 192.168.92.x lease."""
     deadline = time.monotonic() + timeout_sec
     last = ""
@@ -62,7 +65,7 @@ def _wait_for_lease(vm, *, timeout_sec: float = 30.0, poll_sec: float = 1.0) -> 
 
 
 def _ping_with_retry(
-    vm,
+    vm: VmSsh,
     target: str,
     *,
     attempts: int = 3,
@@ -93,7 +96,7 @@ class _VdeVm(VmSsh):
     """Inner VM with a single VDE NIC attached to the test-node's
     on-host vde_switch UNIX socket. SSH still rides over VSOCK."""
 
-    def _net_ifs(self):
+    def _net_ifs(self) -> list[_NetIfOptions]:
         return [
             {
                 "type": "vde",
@@ -108,7 +111,7 @@ class TestVdeNetworking(SingleNodeCase):
 
     NODES = ("vde",)
 
-    def test_two_vms_full_connectivity(self):
+    def test_two_vms_full_connectivity(self) -> None:
         suffix = secrets.token_hex(3)
         with (
             _VdeVm(self, name=f"vde-a-{suffix}") as vm_a,
@@ -149,7 +152,7 @@ class TestVdeNetworking(SingleNodeCase):
             for vm in (vm_a, vm_b):
                 vm.run(f"nslookup {DNS_TARGET}")
 
-    def test_node_list_shows_netd_disabled(self):
+    def test_node_list_shows_netd_disabled(self) -> None:
         """After stopping the netd agent and marking the inner node
         as netd-disabled, ``crv node list`` (run on the test-node
         against its own daemon) reports the node's NETD column as

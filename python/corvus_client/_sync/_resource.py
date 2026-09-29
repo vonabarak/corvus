@@ -34,7 +34,7 @@ class LoopBoundResource:
       * `_rl` — the owning `SyncRunloop`.
     """
 
-    def __del__(self):
+    def __del__(self) -> None:
         # __del__ runs during garbage collection; keep it
         # allocation-minimal. Anything heavier than the dict-pop
         # below risks reentering pycapnp's C-level finalizers in a

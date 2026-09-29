@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import capnp
+
 from .. import _schema
+from .. import types as t
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -10,16 +13,16 @@ from . import _convert as conv
 
 @translate_errors
 class AsyncSshKeyManager:
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.sshKeys()).mgr
         return self._mgr
 
-    async def list(self):
+    async def list(self) -> list[t.SshKeyInfo]:
         mgr = await self._ensure()
         resp = await mgr.list()
         return [conv.ssh_key_info(k) for k in resp.keys]
@@ -40,10 +43,10 @@ class AsyncSshKeyManager:
 
 @translate_errors
 class AsyncSshKey:
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
-    async def show(self):
+    async def show(self) -> t.SshKeyInfo:
         resp = await self._cap.show()
         return conv.ssh_key_info(resp.info)
 

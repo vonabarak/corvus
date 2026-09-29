@@ -16,7 +16,7 @@ TEST_PUB_KEY = (
 
 
 class TestSshKeyLifecycle(SingleNodeCase):
-    def test_create_attach_detach_and_delete_key(self):
+    def test_create_attach_detach_and_delete_key(self) -> None:
         token = secrets.token_hex(4)
         key_name = f"ssh-lifecycle-{token}"
         vm_name = f"ssh-lifecycle-vm-{token}"

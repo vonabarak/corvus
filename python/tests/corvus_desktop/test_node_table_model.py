@@ -89,6 +89,10 @@ def test_netd_disabled_marker(model: NodeTableModel) -> None:
 
 def test_node_at_round_trip(model: NodeTableModel) -> None:
     model.set_nodes([_node(node_id=i, name=f"n{i}") for i in (1, 2)])
-    assert model.node_at(0).name == "n1"
-    assert model.node_at(1).name == "n2"
+    first = model.node_at(0)
+    second = model.node_at(1)
+    assert first is not None
+    assert second is not None
+    assert first.name == "n1"
+    assert second.name == "n2"
     assert model.node_at(9) is None

@@ -6,9 +6,12 @@ manager cap only (no per-config resource cap).
 
 from __future__ import annotations
 
+import capnp
+
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
+from ..types import CloudInitInfo
 from . import _convert as conv
 
 
@@ -17,7 +20,7 @@ def _build_cloud_init_info(
     user_data: str | None,
     network_config: str | None,
     inject_ssh_keys: bool,
-):
+) -> capnp.lib.capnp._DynamicStructBuilder:
     info = _schema.cloudinit.CloudInitInfo.new_message()
     if user_data is not None:
         info.hasUserData = True
@@ -31,11 +34,11 @@ def _build_cloud_init_info(
 
 @translate_errors
 class AsyncCloudInitManager:
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.cloudInit()).mgr
         return self._mgr
@@ -58,7 +61,7 @@ class AsyncCloudInitManager:
         )
         await mgr.set(params=params)
 
-    async def get(self, vm_ref: int | str):
+    async def get(self, vm_ref: int | str) -> CloudInitInfo:
         mgr = await self._ensure()
         resp = await mgr.get(vmRef=entity_ref(vm_ref))
         return conv.cloud_init_info(resp.config)

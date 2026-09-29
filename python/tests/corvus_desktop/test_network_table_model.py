@@ -86,6 +86,10 @@ def test_peer_count(model: NetworkTableModel) -> None:
 
 def test_network_at_round_trip(model: NetworkTableModel) -> None:
     model.set_networks([_net(net_id=i, name=f"n{i}") for i in (3, 7)])
-    assert model.network_at(0).name == "n3"
-    assert model.network_at(1).name == "n7"
+    first = model.network_at(0)
+    second = model.network_at(1)
+    assert first is not None
+    assert second is not None
+    assert first.name == "n3"
+    assert second.name == "n7"
     assert model.network_at(9) is None

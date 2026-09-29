@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import NetworkInfo
 from PySide6.QtCore import Signal
@@ -123,7 +123,7 @@ class NetworkDetailWidget(QWidget):
 
     # ---------------------------------------------------- bridge slots
 
-    def _on_detail(self, info: Any) -> None:
+    def _on_detail(self, info: NetworkInfo) -> None:
         if not isinstance(info, NetworkInfo) or info.id != self._network_id:
             return
         self._network = info

@@ -88,7 +88,7 @@ _CODE_TO_EXC = {
 }
 
 
-def test_code_map_matches_schema_enum():
+def test_code_map_matches_schema_enum() -> None:
     # The `ErrorCode` enum in schema/enums.capnp is the single source
     # of truth; the client's _CODE_MAP must cover exactly its snake_case
     # tokens (guards against Haskell/Python drift).
@@ -107,7 +107,9 @@ def test_code_map_matches_schema_enum():
 
 
 @pytest.mark.parametrize("code,expected", sorted(_CODE_TO_EXC.items()))
-def test_translate_codes_to_typed_exceptions(code, expected):
+def test_translate_codes_to_typed_exceptions(
+    code: str, expected: type[CorvusError]
+) -> None:
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}{code} :: something went wrong"))
     assert isinstance(out, expected)
     assert isinstance(out, CorvusError)
@@ -115,7 +117,7 @@ def test_translate_codes_to_typed_exceptions(code, expected):
     assert str(out) == "something went wrong"
 
 
-def test_translate_strips_remote_envelope():
+def test_translate_strips_remote_envelope() -> None:
     exc = _fake_kj(f"{ENVELOPE}vm_not_found :: VM 'web-1' not found")
     out = translate_kj_exception(exc)
     # The exception's str() should be the bare daemon message, not the
@@ -124,7 +126,7 @@ def test_translate_strips_remote_envelope():
     assert isinstance(out, VmNotFound)
 
 
-def test_vm_not_running_and_headless_stay_in_the_vmruntime_family():
+def test_vm_not_running_and_headless_stay_in_the_vmruntime_family() -> None:
     # corvus_web catches VmRunning for HTTP 409; the split codes must
     # stay in that family so the gateway keeps working.
     out = translate_kj_exception(
@@ -139,7 +141,7 @@ def test_vm_not_running_and_headless_stay_in_the_vmruntime_family():
     assert isinstance(out, VmRunning)
 
 
-def test_translate_invalid_transition_extracts_status_and_reason():
+def test_translate_invalid_transition_extracts_status_and_reason() -> None:
     # The daemon's `statusOrThrow` in Corvus.Rpc.Vm emits the message
     # part in this exact format; the translator must extract both halves
     # so the UI can tell the operator which state the VM is in AND why
@@ -157,7 +159,7 @@ def test_translate_invalid_transition_extracts_status_and_reason():
     assert "Network 'corvus' is not running" in str(out)
 
 
-def test_translate_invalid_transition_from_various_states():
+def test_translate_invalid_transition_from_various_states() -> None:
     # The daemon's lower-case enumToText covers every VmStatus
     # constructor; spot-check a few that operators commonly hit.
     for status in ("running", "starting", "saving", "loading", "migrating"):
@@ -170,14 +172,14 @@ def test_translate_invalid_transition_from_various_states():
         assert out.status == status
 
 
-def test_translate_ambiguous_ref():
+def test_translate_ambiguous_ref() -> None:
     msg = "VM 'shared' is ambiguous: 2 matches across nodes; use the numeric id"
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}ambiguous_ref :: {msg}"))
     assert isinstance(out, AmbiguousRef)
     assert str(out) == msg
 
 
-def test_message_with_delimiter_round_trips():
+def test_message_with_delimiter_round_trips() -> None:
     # A message that itself contains the delimiter must survive: the
     # split happens on the first delimiter after the known code.
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}vm_not_found :: a :: b :: c"))
@@ -185,7 +187,7 @@ def test_message_with_delimiter_round_trips():
     assert str(out) == "a :: b :: c"
 
 
-def test_translate_unknown_code_degrades_to_server_error():
+def test_translate_unknown_code_degrades_to_server_error() -> None:
     # New daemon, old client: the code is not in the client's map, so
     # the whole message is kept as the body of a generic error.
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}totally_unknown :: VM not found"))
@@ -193,14 +195,14 @@ def test_translate_unknown_code_degrades_to_server_error():
     assert str(out) == "totally_unknown :: VM not found"
 
 
-def test_translate_legacy_message_degrades_to_server_error():
+def test_translate_legacy_message_degrades_to_server_error() -> None:
     # Old daemon (no code prefix): the entire message is the body.
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}VM 'web-1' not found"))
     assert isinstance(out, ServerError)
     assert str(out) == "VM 'web-1' not found"
 
 
-def test_translate_unknown_message_degrades_to_server_error():
+def test_translate_unknown_message_degrades_to_server_error() -> None:
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}something weird"))
     assert isinstance(out, ServerError)
     assert str(out) == "something weird"

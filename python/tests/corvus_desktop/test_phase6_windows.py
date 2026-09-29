@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any
+from typing import cast
 
 import pytest
 from corvus_client.types import (
@@ -13,6 +13,7 @@ from corvus_client.types import (
     SshKeyInfo,
     VmAttachment,
 )
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.dialogs.network_create import NetworkCreateDialog
 from corvus_desktop.dialogs.network_edit import NetworkEditDialog
 from corvus_desktop.dialogs.ssh_key_add import SshKeyAddDialog
@@ -21,7 +22,7 @@ from corvus_desktop.windows.network_list import NetworkListWidget
 from corvus_desktop.windows.ssh_key_detail import SshKeyDetailWidget
 from corvus_desktop.windows.ssh_key_list import SshKeyListWidget
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QTableView
+from PySide6.QtWidgets import QApplication, QTableView
 
 
 class _MockBridge(QObject):
@@ -45,11 +46,11 @@ class _MockBridge(QObject):
         self.network_detail_calls: list[int] = []
         self.ssh_key_creates: list[dict[str, str]] = []
         self.ssh_key_deletes: list[int] = []
-        self.network_creates: list[dict[str, Any]] = []
+        self.network_creates: list[dict[str, str | int | bool | None]] = []
         self.network_starts: list[int] = []
         self.network_stops: list[tuple[int, bool]] = []
         self.network_deletes: list[int] = []
-        self.network_edits: list[tuple[int, dict[str, Any]]] = []
+        self.network_edits: list[tuple[int, dict[str, str | int | bool | None]]] = []
 
     def request_ssh_key_list(self) -> None:
         self.ssh_key_list_calls += 1
@@ -66,7 +67,9 @@ class _MockBridge(QObject):
     def request_network_detail(self, network_id: int) -> None:
         self.network_detail_calls.append(network_id)
 
-    def network_create(self, name: str, subnet: str, **kwargs: Any) -> None:
+    def network_create(
+        self, name: str, subnet: str, **kwargs: str | int | bool | None
+    ) -> None:
         self.network_creates.append({"name": name, "subnet": subnet, **kwargs})
 
     def request_node_list(self) -> None: ...
@@ -80,7 +83,7 @@ class _MockBridge(QObject):
     def network_delete(self, network_id: int) -> None:
         self.network_deletes.append(network_id)
 
-    def network_edit(self, network_id: int, **kwargs: Any) -> None:
+    def network_edit(self, network_id: int, **kwargs: str | int | bool | None) -> None:
         self.network_edits.append((network_id, kwargs))
 
 
@@ -92,7 +95,7 @@ def bridge() -> _MockBridge:
 # --------------------------------------------------------- dialog payloads
 
 
-def test_ssh_key_add_dialog_validates(qapp: Any) -> None:
+def test_ssh_key_add_dialog_validates(qapp: QApplication) -> None:
     dlg = SshKeyAddDialog()
     # blank name → rejects
     dlg._name.setText("")
@@ -114,8 +117,10 @@ def test_ssh_key_add_dialog_validates(qapp: Any) -> None:
     assert payload == {"name": "ws", "public_key": "ssh-ed25519 AAAA bob@host"}
 
 
-def test_network_create_dialog_validates(qapp: Any, bridge: _MockBridge) -> None:
-    dlg = NetworkCreateDialog(bridge)
+def test_network_create_dialog_validates(
+    qapp: QApplication, bridge: _MockBridge
+) -> None:
+    dlg = NetworkCreateDialog(cast(CorvusBridge, bridge))
     dlg._name.setText("")
     dlg._subnet.setText("10.0.0.0/24")
     assert dlg.result_payload() is None
@@ -139,7 +144,7 @@ def test_network_create_dialog_validates(qapp: Any, bridge: _MockBridge) -> None
     }
 
 
-def test_network_edit_dialog_returns_only_changes(qapp: Any) -> None:
+def test_network_edit_dialog_returns_only_changes(qapp: QApplication) -> None:
     net = NetworkInfo(
         id=1,
         name="lab",
@@ -163,29 +168,31 @@ def test_network_edit_dialog_returns_only_changes(qapp: Any) -> None:
 
 
 @pytest.fixture
-def ssh_list(qapp: Any, bridge: _MockBridge) -> Iterator[SshKeyListWidget]:
-    w = SshKeyListWidget(bridge)
+def ssh_list(qapp: QApplication, bridge: _MockBridge) -> Iterator[SshKeyListWidget]:
+    w = SshKeyListWidget(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 
 
 @pytest.fixture
-def ssh_detail(qapp: Any, bridge: _MockBridge) -> Iterator[SshKeyDetailWidget]:
-    w = SshKeyDetailWidget(bridge)
+def ssh_detail(qapp: QApplication, bridge: _MockBridge) -> Iterator[SshKeyDetailWidget]:
+    w = SshKeyDetailWidget(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 
 
 @pytest.fixture
-def net_list(qapp: Any, bridge: _MockBridge) -> Iterator[NetworkListWidget]:
-    w = NetworkListWidget(bridge)
+def net_list(qapp: QApplication, bridge: _MockBridge) -> Iterator[NetworkListWidget]:
+    w = NetworkListWidget(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 
 
 @pytest.fixture
-def net_detail(qapp: Any, bridge: _MockBridge) -> Iterator[NetworkDetailWidget]:
-    w = NetworkDetailWidget(bridge)
+def net_detail(
+    qapp: QApplication, bridge: _MockBridge
+) -> Iterator[NetworkDetailWidget]:
+    w = NetworkDetailWidget(cast(CorvusBridge, bridge))
     yield w
     w.deleteLater()
 

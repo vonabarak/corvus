@@ -7,10 +7,10 @@ import secrets
 import shlex
 import textwrap
 import time
-from typing import Any
 
 import pytest
 from corvus_client import VmNotFound
+from corvus_client.types import TaskProgressEvent
 from corvus_test_harness import SingleNodeCase, WebGateway
 from websockets.exceptions import ConnectionClosedOK
 from websockets.sync.client import connect as ws_connect
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.timeout(180)
 
 
 class TestTaskCancellation(SingleNodeCase):
-    def test_cancel_apply_cancels_active_import_and_keeps_prior_disk(self):
+    def test_cancel_apply_cancels_active_import_and_keeps_prior_disk(self) -> None:
         token = secrets.token_hex(4)
         keep_name = f"cancel-keep-{token}"
         import_name = f"cancel-import-{token}"
@@ -83,7 +83,7 @@ class TestTaskCancellation(SingleNodeCase):
             # apply action has been scheduled.
             _, parent_id = self.client.apply(yaml_body, wait=False)
             assert parent_id is not None
-            events: list[Any] = []
+            events: list[TaskProgressEvent] = []
             sub = self.client.tasks.subscribe(parent_id, events.append)
             child = None
             try:

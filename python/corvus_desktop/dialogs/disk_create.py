@@ -8,7 +8,7 @@ caller routes to the matching ``CorvusBridge.disk_*`` slot based on
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -31,6 +31,57 @@ if TYPE_CHECKING:
 
 
 _FORMATS = ("qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx")
+
+
+class BlankDiskPayload(TypedDict):
+    mode: Literal["blank"]
+    name: str
+    size_mb: int
+    format: str
+    node: int | None
+    ephemeral: bool
+
+
+class OverlayDiskPayload(TypedDict):
+    mode: Literal["overlay"]
+    name: str
+    backing_disk_ref: int
+    ephemeral: bool
+
+
+class CloneDiskPayload(TypedDict):
+    mode: Literal["clone"]
+    source_ref: int
+    new_name: str
+    path: str | None
+    ephemeral: bool
+
+
+class RegisterDiskPayload(TypedDict):
+    mode: Literal["register"]
+    name: str
+    file_path: str
+    format: str
+    node: int | None
+    ephemeral: bool
+
+
+class ImportUrlDiskPayload(TypedDict):
+    mode: Literal["import_url"]
+    name: str
+    url: str
+    format: str
+    node: int | None
+    ephemeral: bool
+
+
+DiskPayload = (
+    BlankDiskPayload
+    | OverlayDiskPayload
+    | CloneDiskPayload
+    | RegisterDiskPayload
+    | ImportUrlDiskPayload
+)
 
 
 def _format_combo(default: str = "qcow2") -> QComboBox:
@@ -63,7 +114,7 @@ class _BlankTab(QWidget):
         form.addRow("Node:", self.node)
         form.addRow("Ephemeral:", self.ephemeral)
 
-    def payload(self) -> dict[str, Any] | None:
+    def payload(self) -> BlankDiskPayload | None:
         if not self.name.text().strip():
             return None
         return {
@@ -91,13 +142,14 @@ class _OverlayTab(QWidget):
         form.addRow("Backing disk:", self.backing)
         form.addRow("Ephemeral:", self.ephemeral)
 
-    def payload(self) -> dict[str, Any] | None:
-        if not self.name.text().strip() or self.backing.selected_id() is None:
+    def payload(self) -> OverlayDiskPayload | None:
+        backing_id = self.backing.selected_id()
+        if not self.name.text().strip() or backing_id is None:
             return None
         return {
             "mode": "overlay",
             "name": self.name.text().strip(),
-            "backing_disk_ref": self.backing.selected_id(),
+            "backing_disk_ref": backing_id,
             "ephemeral": self.ephemeral.isChecked(),
         }
 
@@ -120,12 +172,13 @@ class _CloneTab(QWidget):
         form.addRow("Path:", self.path)
         form.addRow("Ephemeral:", self.ephemeral)
 
-    def payload(self) -> dict[str, Any] | None:
-        if self.source.selected_id() is None or not self.new_name.text().strip():
+    def payload(self) -> CloneDiskPayload | None:
+        source_id = self.source.selected_id()
+        if source_id is None or not self.new_name.text().strip():
             return None
         return {
             "mode": "clone",
-            "source_ref": self.source.selected_id(),
+            "source_ref": source_id,
             "new_name": self.new_name.text().strip(),
             "path": self.path.text().strip() or None,
             "ephemeral": self.ephemeral.isChecked(),
@@ -152,7 +205,7 @@ class _RegisterTab(QWidget):
         form.addRow("Node:", self.node)
         form.addRow("Ephemeral:", self.ephemeral)
 
-    def payload(self) -> dict[str, Any] | None:
+    def payload(self) -> RegisterDiskPayload | None:
         if not self.name.text().strip() or not self.file_path.text().strip():
             return None
         return {
@@ -185,7 +238,7 @@ class _ImportUrlTab(QWidget):
         form.addRow("Node:", self.node)
         form.addRow("Ephemeral:", self.ephemeral)
 
-    def payload(self) -> dict[str, Any] | None:
+    def payload(self) -> ImportUrlDiskPayload | None:
         if not self.name.text().strip() or not self.url.text().strip():
             return None
         return {
@@ -233,16 +286,22 @@ class DiskCreateDialog(QDialog):
         layout.addWidget(self._error)
         layout.addWidget(buttons)
 
-        self._cached: dict[str, Any] = {}
+        self._cached: DiskPayload | None = None
 
     def _on_accept(self) -> None:
         tab = self._tabs.currentWidget()
-        payload = getattr(tab, "payload", lambda: None)()
+        if isinstance(
+            tab, (_BlankTab, _OverlayTab, _CloneTab, _RegisterTab, _ImportUrlTab)
+        ):
+            payload = tab.payload()
+        else:
+            payload = None
         if payload is None:
             self._error.setText("Please fill in the required fields.")
             return
         self._cached = payload
         self.accept()
 
-    def payload(self) -> dict[str, Any]:
+    def payload(self) -> DiskPayload:
+        assert self._cached is not None
         return self._cached

@@ -43,4 +43,4 @@ def psql(shell: NodeShell, sql: str, *, db: str = "corvus") -> str:
     out = shell.run(
         f"sudo -u postgres psql -d {shlex.quote(db)} -tA -v ON_ERROR_STOP=1 -c {shlex.quote(sql)}"
     )
-    return out.stdout.decode("utf-8", errors="replace").strip()
+    return str(out.stdout.decode("utf-8", errors="replace")).strip()

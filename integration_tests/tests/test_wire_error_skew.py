@@ -31,7 +31,7 @@ def _fake_kj(description: str) -> capnp.KjException:
 class TestWireErrorSkew:
     """Test graceful degradation with version skew."""
 
-    def test_new_daemon_new_client_full_structured_codes(self):
+    def test_new_daemon_new_client_full_structured_codes(self) -> None:
         """New daemon (v2+) emits codes, new client parses them correctly."""
         # Daemon emits: "vm_not_found :: VM 'web-1' not found"
         exc = _fake_kj(f"{ENVELOPE}vm_not_found :: VM 'web-1' not found")
@@ -41,7 +41,7 @@ class TestWireErrorSkew:
         assert isinstance(translated, VmNotFound)
         assert str(translated) == "VM 'web-1' not found"
 
-    def test_new_daemon_old_client_degrades_gracefully(self):
+    def test_new_daemon_old_client_degrades_gracefully(self) -> None:
         """New daemon (v2+) emits codes with prefixed messages.
 
         An old client that uses regex matching (without code parsing) would
@@ -81,7 +81,7 @@ class TestWireErrorSkew:
             "Old client regex still matches the human-readable message part"
         )
 
-    def test_old_daemon_new_client_degrades_to_server_error(self):
+    def test_old_daemon_new_client_degrades_to_server_error(self) -> None:
         """Old daemon (v1) emits plain messages, new client handles gracefully."""
         # Old daemon emits: "VM 'web-1' not found" (no code prefix)
         exc = _fake_kj(f"{ENVELOPE}VM 'web-1' not found")
@@ -91,7 +91,7 @@ class TestWireErrorSkew:
         assert isinstance(translated, ServerError)
         assert str(translated) == "VM 'web-1' not found"
 
-    def test_unknown_code_degrades_to_server_error(self):
+    def test_unknown_code_degrades_to_server_error(self) -> None:
         """Future daemon with new code, current client doesn't know it yet."""
         # Future daemon might emit: "new_error_code :: something happened"
         exc = _fake_kj(f"{ENVELOPE}new_error_code :: something happened")
@@ -102,7 +102,7 @@ class TestWireErrorSkew:
         # The whole message is preserved as the body
         assert str(translated) == "new_error_code :: something happened"
 
-    def test_malformed_code_prefix_degrades_to_server_error(self):
+    def test_malformed_code_prefix_degrades_to_server_error(self) -> None:
         """Malformed wire format degrades gracefully."""
         test_cases = [
             # Missing delimiter
@@ -122,7 +122,7 @@ class TestWireErrorSkew:
                 f"Expected ServerError for {description!r}, got {type(translated).__name__}"
             )
 
-    def test_invalid_transition_preserves_payload(self):
+    def test_invalid_transition_preserves_payload(self) -> None:
         """InvalidTransition still extracts (status, reason) from message."""
         from corvus_client.exceptions import InvalidTransition
 

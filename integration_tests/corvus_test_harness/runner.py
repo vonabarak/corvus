@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import base64
 import shlex
-from collections.abc import Iterable
 
 from corvus_admin.runner import Runner, RunnerError, RunResult
 
@@ -204,4 +203,4 @@ def _safe_basename(path: str) -> str:
 
 # Re-export for callers that want to assert the Runner contract
 # without importing corvus_admin themselves.
-__all__: Iterable[str] = ("NodeShellRunner",)
+__all__: list[str] = ["NodeShellRunner"]

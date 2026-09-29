@@ -40,8 +40,12 @@ from .ssh import HOST_ALPINE_KEY_PATH, VmShell
 from .topology import NodeRole, Topology
 
 if TYPE_CHECKING:
-    from corvus_client import Client
+    from corvus_client import Client, types
+    from corvus_client._sync.vm import SyncVm
 
+    from .host_binary import HostBinary
+    from .images import ImageReady
+    from .outer import Crv
     from .topology import TestNode
 
 
@@ -124,8 +128,13 @@ class IntegrationTestCase:
 
     @pytest.fixture(scope="class", autouse=True)
     def _class_topology(
-        self, request, crv, image_ready, host_binary, session_test_network
-    ):
+        self,
+        request: pytest.FixtureRequest,
+        crv: Crv,
+        image_ready: ImageReady,
+        host_binary: HostBinary,
+        session_test_network: str,
+    ) -> object:
         """Bring up the class-scoped Topology + nodes.
 
         Setup failure is recorded on the class state so the
@@ -384,12 +393,12 @@ class IntegrationTestCase:
 
     def wait_for_task(
         self,
-        client,
+        client: Client,
         task_id: int,
         *,
         timeout_sec: float = 60.0,
         poll_sec: float = 0.5,
-    ):
+    ) -> types.TaskInfo:
         """Block until a daemon task transitions out of `running`.
 
         Used by the async `vm.migrate` / `disks.copy` / `disks.move`
@@ -422,7 +431,7 @@ class IntegrationTestCase:
 
     def vm_shell(
         self,
-        vm,
+        vm: SyncVm,
         *,
         node_index: int = 0,
         host_key_path: Path = HOST_ALPINE_KEY_PATH,
@@ -520,6 +529,14 @@ class OneDaemonTwoNodesCase(IntegrationTestCase):
     @property
     def client_alpha(self) -> Client:
         return self.node_alpha.client()
+
+    @property
+    def alpha_name(self) -> str:
+        return self.node_alpha.short_name
+
+    @property
+    def beta_name(self) -> str:
+        return self.node_beta.short_name
 
 
 class TwoDaemonsCase(IntegrationTestCase):

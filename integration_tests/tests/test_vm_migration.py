@@ -21,17 +21,19 @@ from __future__ import annotations
 import secrets
 import shlex
 import time
+from collections.abc import Callable, Iterator, Sequence
 
 import pytest
-from corvus_client import ServerError
-from corvus_test_harness import OneDaemonTwoNodesCase
+from corvus_client import Client, ServerError
+from corvus_client._sync.vm import SyncVm
+from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
 
 
 def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-def _saved_state_path(client, node_name: str, vm_name: str) -> str:
+def _saved_state_path(client: Client, node_name: str, vm_name: str) -> str:
     """Reproduce the conventional saved-state path the node-agent uses.
 
     Mirrors `Corvus.Node.Runtime.getSavedStateFile` — the daemon
@@ -45,7 +47,7 @@ def _saved_state_path(client, node_name: str, vm_name: str) -> str:
     return f"{base}/{vm_name}/state.qemu.zst"
 
 
-def _file_exists_on(node, path: str) -> bool:
+def _file_exists_on(node: TestNode, path: str) -> bool:
     """SSH into the test node, return True iff `path` exists.
 
     Plain `test -f` returns non-zero when missing — we wrap with
@@ -56,7 +58,7 @@ def _file_exists_on(node, path: str) -> bool:
     return r.stdout.decode("utf-8", errors="replace").strip() == "PRESENT"
 
 
-def _qemu_count(node, vm_name: str) -> int:
+def _qemu_count(node: TestNode, vm_name: str) -> int:
     """Count qemu-system processes on `node` whose argv mentions `vm_name`.
 
     Mirrors the helper in `test_multi_node.py`. The `^qemu-system`
@@ -72,7 +74,9 @@ def _qemu_count(node, vm_name: str) -> int:
     return sum(1 for line in out.splitlines() if line.strip())
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -81,7 +85,7 @@ def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) ->
     raise AssertionError(f"{msg} (waited {timeout_sec}s)")
 
 
-def _retry_start(vm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
+def _retry_start(vm: SyncVm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
     """Tolerate transient 'nodeagent unavailable' on freshly migrated VMs."""
     last: ServerError | None = None
     for _ in range(attempts):
@@ -96,7 +100,9 @@ def _retry_start(vm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
     raise AssertionError(f"vm.start failed after {attempts} attempts: {last}")
 
 
-def _wait_until_node_ready(client, node_name: str, *, timeout_sec: float = 30.0):
+def _wait_until_node_ready(
+    client: Client, node_name: str, *, timeout_sec: float = 30.0
+) -> None:
     """Same supervisor-readiness probe as in test_disk_copy_move.py."""
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
@@ -110,7 +116,9 @@ def _wait_until_node_ready(client, node_name: str, *, timeout_sec: float = 30.0)
         time.sleep(0.5)
 
 
-def _wait_until_node_stats(client, node_name: str, *, timeout_sec: float = 30.0):
+def _wait_until_node_stats(
+    client: Client, node_name: str, *, timeout_sec: float = 30.0
+) -> None:
     """Stricter readiness probe — wait until the agent has pushed a
     full stats snapshot (so `ram_mb_free` is populated). Required by
     tests that depend on the capacity gate refusing (the gate is
@@ -143,10 +151,9 @@ class _MigrationCase(OneDaemonTwoNodesCase):
     # ---- class-scoped setup ------------------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self, request):
-        cls = request.cls
+    def _register_beta(self) -> Iterator[None]:
         client = self.client_alpha
-        beta_name = self.node_beta.short_name
+        beta_name = self.beta_name
         beta_ip = self.node_beta.outer_ip
         try:
             existing = next(
@@ -156,7 +163,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            cls.beta_node = client.nodes.create(
+            beta_node = client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
@@ -164,13 +171,11 @@ class _MigrationCase(OneDaemonTwoNodesCase):
                 description="alpha→beta vm-migration tests",
             )
         else:
-            cls.beta_node = client.nodes.get(beta_name)
-        cls.beta_name = beta_name
-        cls.alpha_name = self.node_alpha.short_name
+            beta_node = client.nodes.get(beta_name)
         _wait_until_node_ready(client, beta_name)
         yield
         try:
-            cls.beta_node.delete()
+            beta_node.delete()
         except Exception:
             pass
 
@@ -199,7 +204,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         *,
         guest_agent: bool = True,
         ephemeral_overlay: bool = False,
-    ):
+    ) -> SyncVm:
         """Build a bootable VM on alpha by creating a qcow2 overlay
         on top of the standard `corvus-test-vm` base image (Alpine
         + qemu-guest-agent + vsock-sshd, baked under the `alpine`
@@ -240,7 +245,9 @@ class TestVmMigration(_MigrationCase):
     :class:`TestVmMigrationBootableGuest` below.
     """
 
-    def _assert_migrate_fails(self, vm, to_node: str, *, message_must_match):
+    def _assert_migrate_fails(
+        self, vm: SyncVm, to_node: str, *, message_must_match: Sequence[str]
+    ) -> None:
         """Drive vm.migrate(to_node) and assert the resulting task
         ends in ``error`` with a message matching any of the
         substrings in ``message_must_match``. Mirrors the
@@ -267,7 +274,7 @@ class TestVmMigration(_MigrationCase):
         cloud_init: bool = False,
         guest_agent: bool = False,
         attach_disk: bool = True,
-    ):
+    ) -> SyncVm:
         """Convenience: create a small disk + a VM on alpha, attach
         the disk, leave the VM in `stopped`. Returns the `Vm`
         client capability.
@@ -288,7 +295,7 @@ class TestVmMigration(_MigrationCase):
 
     # ---- happy paths -------------------------------------------------------
 
-    def test_migrate_preserves_subdirectory_disk_path(self):
+    def test_migrate_preserves_subdirectory_disk_path(self) -> None:
         """A disk whose stored path includes a subdirectory (e.g. a
         baked artifact placed under a target-specific subdir) must
         keep that subdirectory on the destination after migration;
@@ -367,7 +374,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_disk(cloned_disk)
             self._delete_silent_disk(base_disk)
 
-    def test_migrate_with_user_netif(self):
+    def test_migrate_with_user_netif(self) -> None:
         """A VM with a `user`-type NIC migrates successfully and the
         NIC follows."""
         vm_name = _uniq("mig-net")
@@ -385,7 +392,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
-    def test_migrate_enabled_tpm_preserves_state(self):
+    def test_migrate_enabled_tpm_preserves_state(self) -> None:
         """A TPM VM boots on beta with its persistent key intact."""
         vm_name = _uniq("mig-tpm")
         overlay_name = _uniq("mig-tpm-ovl")
@@ -459,7 +466,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(overlay_name)
 
-    def test_migrate_ro_drive_copied_rw_drive_moved(self):
+    def test_migrate_ro_drive_copied_rw_drive_moved(self) -> None:
         """A VM with one r/w boot disk + one r/o data disk migrates:
         the r/w disk's placement moves, the r/o disk's is copied."""
         vm_name = _uniq("mig-mix")
@@ -487,7 +494,7 @@ class TestVmMigration(_MigrationCase):
 
     # ---- refusals ----------------------------------------------------------
 
-    def test_migrate_running_vm_auto_saves(self):
+    def test_migrate_running_vm_auto_saves(self) -> None:
         """A running VM is auto-saved before migrate, then the
         usual disk + state-file transfer runs, and the orchestrator
         auto-starts the VM on the destination so the operator-
@@ -538,7 +545,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
-    def test_migrate_refuses_shared_dir(self):
+    def test_migrate_refuses_shared_dir(self) -> None:
         """A VM with a shared directory can't be migrated."""
         vm_name = _uniq("mig-shdir")
         disk_name = _uniq("mig-shdir-disk")
@@ -554,7 +561,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
-    def test_migrate_refuses_managed_nic(self):
+    def test_migrate_refuses_managed_nic(self) -> None:
         """A VM with a tap/bridge/macvtap NIC can't be migrated.
         We use `type='tap'` with a dummy hostDevice — the daemon's
         add-netif accepts it; the migrate pre-check rejects it."""
@@ -572,7 +579,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
-    def test_migrate_refuses_target_equals_source(self):
+    def test_migrate_refuses_target_equals_source(self) -> None:
         vm_name = _uniq("mig-self")
         disk_name = _uniq("mig-self-disk")
         vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
@@ -586,7 +593,7 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
-    def test_migrate_refuses_undersized_ram(self):
+    def test_migrate_refuses_undersized_ram(self) -> None:
         """A VM whose RAM requirement exceeds beta's free RAM is
         refused. We use an absurdly large ram_mb so the request
         outsizes any plausible nested-VM host.
@@ -625,7 +632,7 @@ class TestVmMigration(_MigrationCase):
         finally:
             self._delete_silent_disk(disk_name)
 
-    def test_migrated_vm_with_cloud_init_boots_on_destination(self):
+    def test_migrated_vm_with_cloud_init_boots_on_destination(self) -> None:
         """A VM created with `cloud_init=True` carries its cloud-init
         ISO across the migration (the daemon's per-VM ISO is a
         normal `DiskImage` row attached r/o, so it follows the
@@ -700,7 +707,7 @@ class TestVmMigration(_MigrationCase):
             # we got that far).
             self._delete_silent_disk(f"{vm_name}-cloud-init")
 
-    def test_migrate_copies_missing_backing_image(self):
+    def test_migrate_copies_missing_backing_image(self) -> None:
         """An overlay-backed VM migrates correctly even when the
         backing image isn't on the destination. PreCheck appends
         the missing ancestor to the migration plan as an ``OpCopy``,
@@ -789,7 +796,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
     """
 
     @pytest.fixture(scope="class", autouse=True)
-    def _stage_alpine_on_beta(self):
+    def _stage_alpine_on_beta(self) -> Iterator[None]:
         # Inherits ``_register_beta`` from ``_MigrationCase``; pytest
         # runs class-scoped fixtures in dependency order, so by the
         # time this fires beta is already registered with the daemon.
@@ -797,7 +804,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
         self.stage_base_images_on(node_index=1)  # beta placement
         yield
 
-    def test_migrate_minimal_vm_and_boot(self):
+    def test_migrate_minimal_vm_and_boot(self) -> None:
         """End-to-end: create a real Alpine VM on alpha, migrate to
         beta, then start the VM on the destination. Asserts the
         guest actually boots (qemu-guest-agent responds to a guest
@@ -850,7 +857,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(overlay_name)
 
-    def test_migrate_clears_vsock_and_spice(self):
+    def test_migrate_clears_vsock_and_spice(self) -> None:
         """A VM that was started once on alpha (allocating its
         VSOCK CID) has that field cleared after migration; the
         next start re-allocates against beta.
@@ -931,7 +938,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(overlay_name)
 
-    def test_migrate_already_saved_vm_round_trip(self):
+    def test_migrate_already_saved_vm_round_trip(self) -> None:
         """Pre-save the VM on alpha, write a sentinel into RAM before
         saving, migrate, then start on beta. The sentinel must
         survive the save+transfer+load round trip on the destination.
@@ -1023,7 +1030,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(overlay_name)
 
-    def test_migrate_running_alpine_vm_auto_saves(self):
+    def test_migrate_running_alpine_vm_auto_saves(self) -> None:
         """Migrate a *running* VM — the daemon auto-saves first as
         a child task, then runs the standard transfer+commit, and
         finally auto-starts the VM on the destination so the
@@ -1088,7 +1095,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(overlay_name)
 
-    def test_migrate_paused_vm_auto_saves(self):
+    def test_migrate_paused_vm_auto_saves(self) -> None:
         """Same as the running case but the VM is paused (QMP stop)
         when migrate fires. Auto-save must still kick in, and the
         post-migrate restore auto-starts the VM on the destination

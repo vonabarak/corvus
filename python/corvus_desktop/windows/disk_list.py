@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import DiskImageInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -69,8 +70,7 @@ class DiskListWidget(QWidget):
         dlg = DiskCreateDialog(self._bridge, self)
         if dlg.exec():
             p = dlg.payload()
-            mode = p["mode"]
-            if mode == "blank":
+            if p["mode"] == "blank":
                 self._bridge.disk_create(
                     p["name"],
                     p["size_mb"],
@@ -78,20 +78,20 @@ class DiskListWidget(QWidget):
                     ephemeral=p["ephemeral"],
                     node=p["node"],
                 )
-            elif mode == "overlay":
+            elif p["mode"] == "overlay":
                 self._bridge.disk_overlay(
                     p["name"],
                     p["backing_disk_ref"],
                     ephemeral=p["ephemeral"],
                 )
-            elif mode == "clone":
+            elif p["mode"] == "clone":
                 self._bridge.disk_clone(
                     p["source_ref"],
                     p["new_name"],
                     path=p["path"],
                     ephemeral=p["ephemeral"],
                 )
-            elif mode == "register":
+            elif p["mode"] == "register":
                 self._bridge.disk_register(
                     p["name"],
                     p["file_path"],
@@ -99,7 +99,7 @@ class DiskListWidget(QWidget):
                     ephemeral=p["ephemeral"],
                     node=p["node"],
                 )
-            elif mode == "import_url":
+            elif p["mode"] == "import_url":
                 self._bridge.disk_import_url(
                     p["name"],
                     p["url"],
@@ -108,10 +108,10 @@ class DiskListWidget(QWidget):
                     node=p["node"],
                 )
 
-    def _on_disks(self, disks: Any) -> None:
+    def _on_disks(self, disks: list[DiskImageInfo]) -> None:
         self._model.set_disks(disks)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         disk = self._model.disk_at(index.row())
         if disk is not None:
             self.disk_activated.emit(disk.id)

@@ -19,6 +19,7 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass
+from types import TracebackType
 
 # The TCP port the inner daemon binds; matches corvus.service
 # inside the test image. Same number is used as the VSOCK port.
@@ -29,7 +30,7 @@ def _find_free_tcp_port() -> int:
     """Ask the kernel for any unused local TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
 @dataclass
@@ -43,7 +44,7 @@ class VsockTcpRelay:
     cid: int
     vsock_port: int
     host_port: int
-    _proc: subprocess.Popen
+    _proc: subprocess.Popen[bytes]
 
     @classmethod
     def start(
@@ -109,7 +110,12 @@ class VsockTcpRelay:
     def __enter__(self) -> VsockTcpRelay:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
 

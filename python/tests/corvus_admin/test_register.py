@@ -5,14 +5,16 @@ its argv to a log file."""
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from corvus_admin import register as register_mod
 
 
 @pytest.fixture()
-def fake_crv(tmp_path, monkeypatch):
+def fake_crv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """A stand-in for ``crv`` that:
 
     * records its argv into ``invocations.log``;
@@ -49,7 +51,9 @@ def fake_crv(tmp_path, monkeypatch):
     return crv, log
 
 
-def test_register_node_calls_crv_add_with_documented_flags(fake_crv):
+def test_register_node_calls_crv_add_with_documented_flags(
+    fake_crv: tuple[Path, Path],
+) -> None:
     _crv, log = fake_crv
     result = register_mod.register_node(
         name="alpha",
@@ -71,7 +75,9 @@ def test_register_node_calls_crv_add_with_documented_flags(fake_crv):
     assert "--description alpha test" in first
 
 
-def test_register_node_surfaces_failure(tmp_path, monkeypatch):
+def test_register_node_surfaces_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """If `crv node add` exits non-zero, register_node must raise
     RegisterError carrying the stderr."""
 
@@ -90,20 +96,22 @@ def test_register_node_surfaces_failure(tmp_path, monkeypatch):
     )
 
 
-def test_register_node_retries_silent_daemon_startup_failure(monkeypatch):
+def test_register_node_retries_silent_daemon_startup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A daemon whose RPC socket is not ready yet reports no stderr."""
 
     calls = 0
 
-    def fake_run(*_args, **_kwargs):
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
         nonlocal calls
         calls += 1
         if calls == 1:
             return subprocess.CompletedProcess([], 1, "", "")
         return subprocess.CompletedProcess([], 0, "", "")
 
-    monkeypatch.setattr(register_mod.shutil, "which", lambda _name: "/fake/crv")
-    monkeypatch.setattr(register_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(shutil, "which", lambda _name: "/fake/crv")
+    monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(
         register_mod, "_poll_show", lambda *_args, **_kwargs: ("", True)
     )
@@ -115,7 +123,9 @@ def test_register_node_retries_silent_daemon_startup_failure(monkeypatch):
     assert result.healthy is True
 
 
-def test_register_returns_unhealthy_when_show_lacks_healthcheck(tmp_path, monkeypatch):
+def test_register_returns_unhealthy_when_show_lacks_healthcheck(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """If `crv node show` never reports a healthcheck within the
     timeout, the result should report healthy=False (rather than
     raising)."""

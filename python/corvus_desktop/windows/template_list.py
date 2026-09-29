@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import TemplateVmInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -68,10 +69,10 @@ class TemplateListWidget(QWidget):
         if dlg.exec():
             self._bridge.template_create(dlg.text())
 
-    def _on_templates(self, templates: Any) -> None:
+    def _on_templates(self, templates: list[TemplateVmInfo]) -> None:
         self._model.set_templates(templates)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         t = self._model.template_at(index.row())
         if t is not None:
             self.template_activated.emit(t.id)

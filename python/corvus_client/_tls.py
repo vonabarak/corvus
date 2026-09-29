@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import ssl
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -182,23 +182,32 @@ def build_client_bundle(
 # Post-handshake CN validation
 
 
-def extract_cn(peercert: dict) -> str | None:
+def extract_cn(peercert: Mapping[str, object]) -> str | None:
     """Pull the CN out of the dict shape :py:meth:`ssl.SSLSocket.getpeercert`
     returns. The dict carries ``subject`` as a tuple of
     ``((('commonName', 'corvus-daemon:...'),),)``-style nested
     tuples; we drill down to the first CN attribute.
     """
 
-    subject = peercert.get("subject") or ()
+    subject = peercert.get("subject")
+    if not isinstance(subject, tuple):
+        return None
     for rdn in subject:
+        if not isinstance(rdn, tuple):
+            continue
         for attr in rdn:
-            if attr and attr[0] in ("commonName", "CN"):
+            if (
+                isinstance(attr, tuple)
+                and len(attr) >= 2
+                and attr[0] in ("commonName", "CN")
+                and isinstance(attr[1], str)
+            ):
                 return attr[1]
     return None
 
 
 def validate_peer_cn(
-    peercert: dict | None,
+    peercert: Mapping[str, object] | None,
     bundle: TlsBundle,
 ) -> None:
     """Raise :class:`CertificateError` if the peer's CN doesn't

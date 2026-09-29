@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import capnp
+
+from .. import types as t
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -14,16 +17,16 @@ if TYPE_CHECKING:
 
 @translate_errors
 class AsyncTemplateManager:
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.templates()).mgr
         return self._mgr
 
-    async def list(self):
+    async def list(self) -> list[t.TemplateVmInfo]:
         mgr = await self._ensure()
         resp = await mgr.list()
         return [conv.template_vm_info(t) for t in resp.templates]
@@ -41,10 +44,10 @@ class AsyncTemplateManager:
 
 @translate_errors
 class AsyncTemplate:
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
-    async def show(self):
+    async def show(self) -> t.TemplateDetails:
         resp = await self._cap.show()
         return conv.template_details(resp.details)
 

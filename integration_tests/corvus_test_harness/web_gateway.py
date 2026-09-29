@@ -37,8 +37,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import TYPE_CHECKING
-from urllib.error import URLError
+from http.client import HTTPResponse
+from typing import TYPE_CHECKING, cast
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ def _find_free_tcp_port() -> int:
     """Pick an unused TCP port on the loopback interface."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
 def _tcp_listen_ready(host: str, port: int) -> bool:
@@ -92,13 +93,13 @@ class WebGateway:
         self._bind_host = bind_host
         self._bind_port = bind_port if bind_port is not None else _find_free_tcp_port()
         self._log_level = log_level
-        self._proc: subprocess.Popen | None = None
+        self._proc: subprocess.Popen[bytes] | None = None
         # corvus-web's stdout + stderr go to this file. We read it
         # back on failure so the diagnostic surfaces in the pytest
         # output instead of disappearing into a dead pipe.
         # Setting Popen(..., stderr=PIPE) would deadlock the child
         # once the pipe buffer fills with debug logging.
-        self._log_file: tempfile._TemporaryFileWrapper | None = None
+        self._log_file: tempfile._TemporaryFileWrapper[bytes] | None = None
 
     # ---- public API --------------------------------------------------------
 
@@ -123,15 +124,17 @@ class WebGateway:
         to inspect headers / status code should call
         :meth:`get_response` instead.
         """
-        with urlopen(self.base_url + path, timeout=timeout_sec) as resp:
+        with cast(
+            HTTPResponse, urlopen(self.base_url + path, timeout=timeout_sec)
+        ) as resp:
             return resp.read().decode("utf-8")
 
-    def get_response(self, path: str, *, timeout_sec: float = 5.0):
+    def get_response(self, path: str, *, timeout_sec: float = 5.0) -> HTTPResponse:
         """Same as :meth:`get` but returns the raw ``HTTPResponse``
         so callers can inspect status + headers. The caller is
         responsible for closing it (use as a context manager)."""
         req = Request(self.base_url + path)
-        return urlopen(req, timeout=timeout_sec)
+        return cast(HTTPResponse, urlopen(req, timeout=timeout_sec))
 
     def wait_for_metrics_warmup(self, *, timeout_sec: float = 30.0) -> None:
         """Block until ``GET /metrics`` returns 200 (not 503).
@@ -151,6 +154,9 @@ class WebGateway:
                     if resp.status == 200:
                         return
                     last_err = f"HTTP {resp.status}"
+            except HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                last_err = f"HTTP {e.code}: {body}"
             except URLError as e:
                 last_err = str(e)
             time.sleep(0.5)

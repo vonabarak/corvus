@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Literal, TypeAlias
 
 # ---------------------------------------------------------------------------
 # Common
@@ -691,7 +692,22 @@ class ApplyEnd:
     message: str | None = None
 
 
-ApplyEvent = (
+BuildEvent: TypeAlias = (
+    BuildLogLine
+    | BuildStepStart
+    | BuildStepOutput
+    | BuildStepEnd
+    | BuildBuildEnd
+    | BuildPipelineEnd
+    | BuildStepCacheHit
+    | BuildStepCacheStore
+    | BuildStepCacheRestore
+)
+
+TaskIdEvent: TypeAlias = tuple[Literal["task_id"], int]
+BuildStreamItem: TypeAlias = BuildEvent | TaskIdEvent
+
+ApplyEvent: TypeAlias = (
     ApplyLogLine
     | ApplyPhaseStart
     | ApplyEntityStart
@@ -701,6 +717,8 @@ ApplyEvent = (
     | ApplyDownloadEnd
     | ApplyEnd
 )
+
+ApplyStreamItem: TypeAlias = ApplyEvent | TaskIdEvent
 
 
 @dataclass(frozen=True)
@@ -732,3 +750,8 @@ class TaskProgressFinished:
     task_id: int
     result: str
     message: str | None = None
+
+
+TaskProgressEvent: TypeAlias = (
+    TaskProgressStarted | TaskProgressProgress | TaskProgressFinished
+)

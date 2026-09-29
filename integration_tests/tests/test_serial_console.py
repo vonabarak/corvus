@@ -32,13 +32,14 @@ import subprocess
 import time
 
 import pytest
+from corvus_client._sync.vm import SyncByteStream
 from corvus_client.exceptions import GuestAgentError, VmHeadless, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 LOGIN_PROMPT = b"login:"
 
 
-def _drain_until(stream, needle: bytes, timeout: float) -> bytes:
+def _drain_until(stream: SyncByteStream, needle: bytes, timeout: float) -> bytes:
     """Read chunks until `needle` appears or `timeout` elapses.
 
     Returns the accumulated bytes. Raises `AssertionError` on timeout
@@ -62,7 +63,7 @@ def _drain_until(stream, needle: bytes, timeout: float) -> bytes:
 class TestSerialConsole(SingleNodeCase):
     """Five phases over one Alpine VM, plus two cheap negative tests."""
 
-    def test_buffer_lifecycle(self):
+    def test_buffer_lifecycle(self) -> None:
         """Replay, capture-while-disconnected, reboot, and stop-cleanup.
 
         Five sequential phases inside a single `with Vm(self) as vm:`
@@ -129,7 +130,7 @@ class TestSerialConsole(SingleNodeCase):
             msg = str(excinfo.value)
             assert "not running" in msg, msg
 
-    def test_rejects_non_headless_vm(self):
+    def test_rejects_non_headless_vm(self) -> None:
         """Daemon refuses serial console for graphical VMs.
 
         The cap method routes through `handleSerialConsole`, whose
@@ -149,7 +150,7 @@ class TestSerialConsole(SingleNodeCase):
                 vm.cap.serial_console()
             assert "no SPICE display" in str(excinfo.value)
 
-    def test_rejects_stopped_vm(self):
+    def test_rejects_stopped_vm(self) -> None:
         """Daemon refuses serial console for stopped VMs.
 
         `handleSerialConsole` rejects on status before reaching the
@@ -173,7 +174,7 @@ class TestSerialConsole(SingleNodeCase):
         finally:
             vm_cap.delete(keep_disks=True)
 
-    def test_view_session_banner(self):
+    def test_view_session_banner(self) -> None:
         """`crv vm view` prints connection banner + keybinding help.
 
         Pure client-side stdout; only an end-to-end subprocess test
@@ -237,7 +238,7 @@ class TestSerialConsole(SingleNodeCase):
         assert "f=flush" in text, text
         assert "?=help" in text, text
 
-    def test_serial_console_login(self):
+    def test_serial_console_login(self) -> None:
         """Log in as `corvus` over the serial console.
 
         Uses the test image's password-based login (corvus:corvus,

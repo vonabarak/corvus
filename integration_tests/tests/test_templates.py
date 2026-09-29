@@ -35,7 +35,7 @@ TEST_PUB_KEY = (
 
 
 class TestTemplates(SingleNodeCase):
-    def test_create_show_instantiate_boot(self):
+    def test_create_show_instantiate_boot(self) -> None:
         """Ports both pre-refactor TemplateIntegrationSpec tests.
 
         One Alpine boot covers: create from YAML, show, list,
@@ -117,7 +117,7 @@ class TestTemplates(SingleNodeCase):
         finally:
             tpl.delete()
 
-    def test_subresources_propagate(self):
+    def test_subresources_propagate(self) -> None:
         """`networkInterfaces` + `sshKeys` flow into the instance.
 
         Pre-refactor spec missed both fields entirely. Verify
@@ -191,7 +191,7 @@ class TestTemplates(SingleNodeCase):
         finally:
             key.delete()
 
-    def test_update_atomic_replace(self):
+    def test_update_atomic_replace(self) -> None:
         """`template.update(yaml)` replaces the row atomically.
 
         Happy path: cpu/ram/description swap lands. Rollback path:
@@ -202,7 +202,9 @@ class TestTemplates(SingleNodeCase):
         name = f"corvus-it-tpl-{token}"
         name_other = f"corvus-it-tpl-other-{token}"
 
-        def body(template_name, *, cpu=1, ram=512, desc=None):
+        def body(
+            template_name: str, *, cpu: int = 1, ram: int = 512, desc: str | None = None
+        ) -> str:
             lines = [
                 f"name: {template_name}",
                 f"cpuCount: {cpu}",
@@ -241,7 +243,7 @@ class TestTemplates(SingleNodeCase):
             tpl.delete()
             other.delete()
 
-    def test_rejects_duplicate_name(self):
+    def test_rejects_duplicate_name(self) -> None:
         """A second `create()` with the same name must fail."""
         token = secrets.token_hex(4)
         name = f"corvus-it-tpl-{token}"
@@ -259,7 +261,7 @@ class TestTemplates(SingleNodeCase):
         finally:
             tpl.delete()
 
-    def test_drive_strategy_matrix(self):
+    def test_drive_strategy_matrix(self) -> None:
         """All four ``TemplateCloneStrategy`` enum values produce a
         valid template + instantiated VM with the right drive shape:
 
@@ -327,7 +329,9 @@ class TestTemplates(SingleNodeCase):
                 try:
                     drives = vm.show().drives
                     assert len(drives) == 1, drives
-                    drive_disk = self.client.disks.get(drives[0].disk_image.id)
+                    disk_image = drives[0].disk_image
+                    assert disk_image is not None
+                    drive_disk = self.client.disks.get(disk_image.id)
                     dinfo = drive_disk.show()
                     if strategy == "direct":
                         assert dinfo.name == base_disk, (
@@ -355,7 +359,7 @@ class TestTemplates(SingleNodeCase):
                 except Exception:
                     pass
 
-    def test_template_with_shared_dirs_propagates_to_vm(self):
+    def test_template_with_shared_dirs_propagates_to_vm(self) -> None:
         """``sharedDirs`` declared on a template flow onto every VM
         instantiated from it — same way ``networkInterfaces`` and
         ``sshKeys`` do (covered by
@@ -421,7 +425,7 @@ class TestTemplates(SingleNodeCase):
         finally:
             self.node.run(f"rm -rf {host_path}", check=False)
 
-    def test_rejects_missing_disk(self):
+    def test_rejects_missing_disk(self) -> None:
         """Template referencing a nonexistent disk fails at create.
 
         Validation lives in `Handlers/Template.hs` before any

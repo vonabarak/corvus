@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp code-metrics python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -45,19 +45,21 @@ capnp:
 # wheel-build's `package-data` glob both see the regenerated `.capnp` files
 # with no extra step.
 
+# Shared environment for Python unit tests and integration tests. System site
+# packages let the tests use host-installed packages such as PySide6.
+venv:
+	python3 -m venv --system-site-packages .venv
+	.venv/bin/python -m pip install --upgrade pip
+	.venv/bin/python -m pip install -q -e '.[harness,desktop,dev]'
+
 # Run BOTH Python pytest suites (corvus_client + corvus_admin) against
 # a real corvus daemon spawned per-test on a temp Unix socket. Both
 # packages share the consolidated /python/tests tree and one editable
 # install at the repo root covers both. The conftest discovers the
 # freshly built daemon from `stack path --local-install-root` — no
 # `make install` required.
-python-test: build
-	@if [ -x python/.venv-corvus-py/bin/pytest ]; then \
-	  python/.venv-corvus-py/bin/pip install --quiet -e . ; \
-	  python/.venv-corvus-py/bin/pytest python/tests -v ; \
-	else \
-	  python3 -m pytest python/tests -v ; \
-	fi
+python-test: build venv
+	PYTHONPATH=python:integration_tests .venv/bin/pytest python/tests -v
 
 # Run the pytest integration test suite (nested VMs; rootful inner
 # Corvus; multi-node). The orchestrator VMs mount the host's
@@ -84,18 +86,13 @@ python-test: build
 #   make integration-tests WORKERS=4
 #   make integration-tests MATCH=test_apply
 #   make integration-tests MATCH="lifecycle and not edit"
-integration-tests: build
-	test -d integration_tests/.venv || python3 -m venv integration_tests/.venv
-	# One editable install at the repo root with the `harness` extra
-	# replaces the three separate installs (corvus_client, corvus_admin,
-	# corvus_test_harness now ship as a single distribution).
-	integration_tests/.venv/bin/pip install -q -e .[harness]
+integration-tests: build venv
 	@workers="$(WORKERS)"; \
 	  if [ -z "$$workers" ]; then \
 	    workers=$$(python3 integration_tests/scripts/detect_workers.py --explain); \
 	  fi; \
 	  echo "integration tests: $$workers parallel workers"; \
-	  integration_tests/.venv/bin/pytest integration_tests/tests -v \
+	  PYTHONPATH=python:integration_tests .venv/bin/pytest integration_tests/tests -v \
 	    $(if $(MATCH),-k "$(MATCH)",-n $$workers)
 
 # Sweep orphan integration-test VMs left behind by aborted test runs.
@@ -234,14 +231,13 @@ dev-node-vm-ssh:
 	  exec ssh -i $(DEV_NODE_SSH_KEY) $(SSH_ARGS) corvus@vsock%$$cid
 
 
-# Python tool resolution: prefer the venv copies when they exist —
-# the venv has the project's runtime deps (pycapnp, pyyaml, click,
-# pytest, types-PyYAML stubs) so mypy resolves third-party types
-# correctly. Falls back to PATH for users who set up tooling
-# globally (e.g. via pipx) and never created the venv.
-MYPY  ?= $(if $(wildcard python/.venv-corvus-py/bin/mypy),python/.venv-corvus-py/bin/mypy,mypy)
-RUFF  ?= $(if $(wildcard python/.venv-corvus-py/bin/ruff),python/.venv-corvus-py/bin/ruff,ruff)
-CORVUS_WEB ?= $(if $(wildcard python/.venv-corvus-py/bin/corvus-web),python/.venv-corvus-py/bin/corvus-web,corvus-web)
+# Lint tools must run through the shared venv's Python, alongside project and
+# test typing dependencies. With --system-site-packages, pip may reuse a host
+# tool package without creating its executable inside .venv/bin.
+# Run `make venv` first; explicit overrides remain possible.
+MYPY ?= .venv/bin/python -m mypy
+RUFF ?= .venv/bin/python -m ruff
+CORVUS_WEB ?= $(if $(wildcard .venv/bin/corvus-web),.venv/bin/corvus-web,corvus-web)
 
 # Format Python (ruff) + Haskell (fourmolu) sources in place. When
 # `frontend/node_modules/` is present (operator has run
@@ -250,13 +246,14 @@ CORVUS_WEB ?= $(if $(wildcard python/.venv-corvus-py/bin/corvus-web),python/.ven
 # touching only the Haskell/Python side doesn't require Node.
 format:
 	$(RUFF) format python integration_tests
+	$(RUFF) check --fix python integration_tests
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-format ; \
 	fi
 
 
-# Read-only verification. Lints Python (ruff check + mypy) and Haskell
+# Read-only verification. Lints Python (ruff check + strict mypy) and Haskell
 # (hlint), plus a `--check` pass of every formatter (Ruff + fourmolu)
 # that exits non-zero if any file would be reformatted. Does NOT edit
 # code — suited for CI / pre-merge gates and pre-push hooks. Run
@@ -269,10 +266,21 @@ lint:
 	$(MAKE) code-metrics
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
-	$(MYPY) python integration_tests
+	$(MAKE) typecheck-core
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-lint ; \
 	fi
+
+# The primary lint environment deliberately omits the large optional Qt
+# runtime.  It still type-checks every non-desktop Python module and the
+# existing integration harness.  Desktop code has its own reproducible gate.
+typecheck-core:
+	$(MYPY) python integration_tests
+
+# Requires `pip install -e '.[harness,desktop]'` so mypy can load PySide6's
+# shipped annotations.  CI runs this in a dedicated job.
+desktop-typecheck:
+	$(MYPY) --config-file mypy-desktop.ini python/corvus_desktop python/tests/corvus_desktop
 
 # Report and enforce size limits for authored Haskell source.
 code-metrics:
@@ -349,6 +357,11 @@ web-lint:
 web-format:
 	cd frontend && $(NPM) run format
 
+web-clean:
+	rm -rf frontend/dist frontend/node_modules
+	rm -rf python/corvus_web/static
+	mkdir -p python/corvus_web/static
+	touch python/corvus_web/static/.gitkeep
 
 # Run the corvus-desktop GUI against the local daemon (same default
 # Unix socket `crv` / `corvus-web` use: $XDG_RUNTIME_DIR/corvus/corvus.sock).
@@ -358,16 +371,10 @@ web-format:
 # Prefers the project venv (corvus-desktop installed editable with
 # the [desktop] extra: `pip install -e .[desktop]`); falls back to
 # PATH for global installs.
-CORVUS_DESKTOP ?= $(if $(wildcard python/.venv-corvus-py/bin/corvus-desktop),python/.venv-corvus-py/bin/corvus-desktop,corvus-desktop)
+CORVUS_DESKTOP ?= $(if $(wildcard .venv/bin/corvus-desktop),.venv/bin/corvus-desktop,corvus-desktop)
 
 desktop-run:
 	$(CORVUS_DESKTOP) --log-level debug $(FLAGS)
-
-web-clean:
-	rm -rf frontend/dist frontend/node_modules
-	rm -rf python/corvus_web/static
-	mkdir -p python/corvus_web/static
-	touch python/corvus_web/static/.gitkeep
 
 
 # Place Haskell binaries on $PATH, install shell completions, and
@@ -529,14 +536,13 @@ release: build
 	#    (see pyproject.toml). Copies land both inside the
 	#    tarball-staged tree AND in release/python/ for upload
 	#    as standalone GitHub Release assets. The `build`
-	#    package is installed into the project venv at
-	#    python/.venv-corvus-py/ (the same venv `make lint` /
-	#    `make python-test` use); create it if missing.
-	@if [ ! -x python/.venv-corvus-py/bin/python3 ]; then \
-	  python3 -m venv python/.venv-corvus-py ; \
+	#    package is installed into the shared project venv at .venv/;
+	#    create it if missing.
+	@if [ ! -x .venv/bin/python3 ]; then \
+	  python3 -m venv .venv ; \
 	fi
-	python/.venv-corvus-py/bin/pip install --quiet --upgrade pip build
-	python/.venv-corvus-py/bin/python3 -m build --sdist --wheel --outdir release/python .
+	.venv/bin/python3 -m pip install --quiet --upgrade pip build
+	.venv/bin/python3 -m build --sdist --wheel --outdir release/python .
 	cp release/python/*.whl release/python/*.tar.gz $(RELEASE_DIR)/python/
 	#
 	# 4. Verbatim source trees: docs, every YAML example, the

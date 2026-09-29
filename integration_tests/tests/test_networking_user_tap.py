@@ -43,8 +43,10 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Callable
 
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
+from corvus_test_harness.vm import _NetIfOptions
 
 # Alpine test image puts its sole NIC on eth0.
 GUEST_NIC = "eth0"
@@ -58,7 +60,9 @@ SLIRP_NAMESERVER = "10.0.2.3"
 SLIRP_SUBNET_PREFIX = "10.0.2."
 
 
-def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
+def _poll_until(
+    cond: Callable[[], bool], *, timeout_sec: float, msg: str, poll_sec: float = 0.5
+) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if cond():
@@ -70,7 +74,7 @@ def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) ->
 class TestUserModeSlirp(SingleNodeCase):
     """``type=user`` (SLIRP) semantics + hostfwd trick."""
 
-    def test_default_user_nic_gets_canonical_slirp_address(self):
+    def test_default_user_nic_gets_canonical_slirp_address(self) -> None:
         """A user-mode NIC lands the guest at 10.0.2.15 with
         gateway 10.0.2.2 — QEMU's documented defaults. Asserts via
         the daemon's QGA poller (which we already trust to surface
@@ -118,7 +122,7 @@ class TestUserModeSlirp(SingleNodeCase):
                 f"resolv.conf missing {SLIRP_NAMESERVER}: {r.stdout!r}"
             )
 
-    def test_slirp_isolates_guest_from_node(self):
+    def test_slirp_isolates_guest_from_node(self) -> None:
         """Inbound from the test node to the guest's SLIRP IP must
         NOT connect. QEMU's user-mode networking is documented as
         having no host route to the guest's RFC1918 SLIRP subnet,
@@ -149,7 +153,7 @@ class TestUserModeSlirp(SingleNodeCase):
                 f"stderr={probe.stderr!r}"
             )
 
-    def test_user_mode_hostfwd_exposes_guest_port_on_node(self):
+    def test_user_mode_hostfwd_exposes_guest_port_on_node(self) -> None:
         """``host_device="hostfwd=tcp:127.0.0.1:<port>-:22"`` makes
         the guest's sshd reachable on the node's loopback. From
         the node, opening a TCP connection to ``127.0.0.1:<port>``
@@ -165,7 +169,7 @@ class TestUserModeSlirp(SingleNodeCase):
         host_port = 40000 + secrets.randbelow(20000)
 
         class _HostFwdVm(VmSsh):
-            def _net_ifs(self):
+            def _net_ifs(self) -> list[_NetIfOptions]:
                 return [
                     {
                         "type": "user",
@@ -244,7 +248,7 @@ class TestRawTapNic(SingleNodeCase):
     can't open the file descriptor when it spawns. The test image
     runs corvus-nodeagent as ``corvus``."""
 
-    def test_vm_attaches_to_preexisting_host_tap(self):
+    def test_vm_attaches_to_preexisting_host_tap(self) -> None:
         node = self.node
         suffix = secrets.token_hex(3)
         tap = f"taptest-{suffix}"
@@ -265,7 +269,7 @@ class TestRawTapNic(SingleNodeCase):
             class _RawTapVm(VmSsh):
                 tap_name = tap
 
-                def _net_ifs(self):
+                def _net_ifs(self) -> list[_NetIfOptions]:
                     return [
                         {
                             "type": "tap",

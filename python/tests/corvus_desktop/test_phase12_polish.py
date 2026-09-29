@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+import shutil
+import subprocess
+from typing import cast
 
 import pytest
 from corvus_client.types import GuestAgentStatus, ViewGrant
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.widgets import spice_launcher
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
 
 class _MockBridge(QObject):
@@ -87,13 +91,15 @@ def bridge() -> _MockBridge:
 # ----------------------------------------------------- SPICE launcher
 
 
-def test_remote_viewer_falls_back_to_dialog(monkeypatch: Any, qapp: Any) -> None:
+def test_remote_viewer_falls_back_to_dialog(
+    monkeypatch: pytest.MonkeyPatch, qapp: QApplication
+) -> None:
     """When remote-viewer isn't on PATH, the launcher pops an info dialog
     rather than crashing."""
-    monkeypatch.setattr(spice_launcher.shutil, "which", lambda _: None)
-    captured: list[tuple[Any, str, str]] = []
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    captured: list[tuple[QWidget | None, str, str]] = []
     monkeypatch.setattr(
-        spice_launcher.QMessageBox,
+        QMessageBox,
         "information",
         lambda parent, title, body: captured.append((parent, title, body)),
     )
@@ -105,17 +111,17 @@ def test_remote_viewer_falls_back_to_dialog(monkeypatch: Any, qapp: Any) -> None
     assert "1234" in captured[0][2]
 
 
-def test_remote_viewer_spawns_when_present(monkeypatch: Any, qapp: Any) -> None:
-    monkeypatch.setattr(
-        spice_launcher.shutil, "which", lambda _: "/usr/bin/remote-viewer"
-    )
+def test_remote_viewer_spawns_when_present(
+    monkeypatch: pytest.MonkeyPatch, qapp: QApplication
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/remote-viewer")
     calls: list[list[str]] = []
 
-    def _fake_popen(argv: list[str]) -> Any:
+    def _fake_popen(argv: list[str]) -> None:
         calls.append(argv)
         return None
 
-    monkeypatch.setattr(spice_launcher.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
     spice_launcher.launch_remote_viewer(
         ViewGrant(host="h", port=1234, password="p", ttl_seconds=60), None
     )
@@ -126,12 +132,12 @@ def test_remote_viewer_spawns_when_present(monkeypatch: Any, qapp: Any) -> None:
 # ----------------------------------------------------- guest-agent badge
 
 
-def test_guest_agent_badge_states(qapp: Any, bridge: _MockBridge) -> None:
+def test_guest_agent_badge_states(qapp: QApplication, bridge: _MockBridge) -> None:
     # Construct a VmDetailWidget — small smoke that the new wiring
     # accepts GuestAgentStatus payloads.
     from corvus_desktop.windows.vm_detail import VmDetailWidget
 
-    w = VmDetailWidget(bridge)
+    w = VmDetailWidget(cast(CorvusBridge, bridge))
     try:
         # Pretend we're viewing VM #5 so the filter passes.
         w._vm_id = 5

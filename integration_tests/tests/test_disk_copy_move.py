@@ -22,10 +22,11 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Callable, Iterable, Iterator
 
 import pytest
-from corvus_client import ServerError
-from corvus_test_harness import OneDaemonTwoNodesCase
+from corvus_client import Client, ServerError
+from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
 
 
 def _uniq(stem: str) -> str:
@@ -39,18 +40,14 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
     # ---- class-scoped setup ------------------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self, request):
+    def _register_beta(self) -> Iterator[None]:
         """Register beta with alpha's daemon for every test in the class.
 
-        Bookkeeping lives on the class object (rather than `self`)
-        because pytest re-instantiates the test class per method. We
-        also leak the registration on test failure (the per-class
-        topology is leaked too — leave the daemon's view consistent
-        with the kept VMs so a developer can inspect with `crv`).
+        The registered capability remains local to this class-scoped
+        fixture while pytest re-instantiates the test class per method.
         """
-        cls = request.cls
         client = self.client_alpha
-        beta_name = self.node_beta.short_name
+        beta_name = self.beta_name
         beta_ip = self.node_beta.outer_ip
         try:
             existing = next(
@@ -60,7 +57,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            cls.beta_node = client.nodes.create(
+            beta_node = client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
@@ -68,9 +65,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
                 description="alpha→beta disk-copy-move tests",
             )
         else:
-            cls.beta_node = client.nodes.get(beta_name)
-        cls.beta_name = beta_name
-        cls.alpha_name = self.node_alpha.short_name
+            beta_node = client.nodes.get(beta_name)
         # The daemon spawns the per-node supervisor when the row is
         # added; on first dial it can take a moment before agent
         # ops are ready.  Poll the agent's status push once instead
@@ -80,7 +75,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         # Best-effort cleanup. Leaks here aren't fatal — the class
         # topology gets torn down at the end of the class anyway.
         try:
-            cls.beta_node.delete()
+            beta_node.delete()
         except Exception:
             pass
 
@@ -104,18 +99,18 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             f"placements: {[p.node.name for p in info.placements]!r}"
         )
 
-    def _file_exists(self, node, path: str) -> bool:
+    def _file_exists(self, node: TestNode, path: str) -> bool:
         r = node.run(f"test -f {path!r}", check=False, timeout_sec=10.0)
         return r.returncode == 0
 
-    def _md5_on(self, node, path: str) -> str:
+    def _md5_on(self, node: TestNode, path: str) -> str:
         r = node.run(f"md5sum {path!r}", check=True, timeout_sec=15.0)
         out = r.stdout.decode("utf-8", errors="replace").strip()
         return out.split()[0]
 
     # ---- happy paths -------------------------------------------------------
 
-    def test_copy_detached_disk(self):
+    def test_copy_detached_disk(self) -> None:
         """Create a small disk on alpha; copy to beta. Both
         placements exist, both files present, bytes identical.
 
@@ -150,7 +145,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(name)
 
-    def test_move_detached_disk(self):
+    def test_move_detached_disk(self) -> None:
         """Create on alpha; move to beta. One placement (beta);
         source file unlinked."""
         name = _uniq("move")
@@ -168,7 +163,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(name)
 
-    def test_copy_allowed_for_ro_attached(self):
+    def test_copy_allowed_for_ro_attached(self) -> None:
         """`copy` of a r/o-attached disk is allowed (and yields two
         placements). `move` of the same disk is rejected by the next
         test; here we only assert the copy path."""
@@ -202,12 +197,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     def _assert_transfer_fails(
         self,
-        op,
+        op: Callable[[str, str], int],
         disk_name: str,
         to_node: str,
         *,
-        message_must_match,
-    ):
+        message_must_match: Iterable[str],
+    ) -> None:
         """Run op(disk_name, to_node) (where op is disks.copy or
         disks.move) and assert the resulting task ends in
         ``error`` whose message contains any substring from
@@ -228,7 +223,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             f"(expected one of: {message_must_match!r})"
         )
 
-    def test_copy_refuses_rw_attached(self):
+    def test_copy_refuses_rw_attached(self) -> None:
         """An r/w-attached disk can only move via `vm.migrate`."""
         disk_name = _uniq("rw-copy")
         vm_name = _uniq("rw-copy-vm")
@@ -256,7 +251,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(disk_name)
 
-    def test_move_refuses_rw_attached(self):
+    def test_move_refuses_rw_attached(self) -> None:
         disk_name = _uniq("rw-move")
         vm_name = _uniq("rw-move-vm")
         self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
@@ -283,7 +278,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(disk_name)
 
-    def test_move_refuses_ro_attached(self):
+    def test_move_refuses_ro_attached(self) -> None:
         """Moving a r/o-attached disk is refused — only `copy` is
         allowed for the read-only case."""
         disk_name = _uniq("ro-move")
@@ -312,7 +307,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(disk_name)
 
-    def test_refuses_destination_already_has_placement(self):
+    def test_refuses_destination_already_has_placement(self) -> None:
         """A second copy to the same node refuses with a placement
         conflict message."""
         name = _uniq("dup")
@@ -329,7 +324,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(name)
 
-    def test_refuses_overlay_missing_backing(self):
+    def test_refuses_overlay_missing_backing(self) -> None:
         """Copying an overlay whose backing image hasn't been staged
         on the destination is refused, with a clear hint message."""
         base_name = _uniq("ovl-base")
@@ -349,7 +344,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(base_name)
 
-    def test_overlay_works_after_staging_chain(self):
+    def test_overlay_works_after_staging_chain(self) -> None:
         """Staging the backing image first, then copying the overlay,
         succeeds — both placements exist on both nodes."""
         base_name = _uniq("chain-base")
@@ -377,7 +372,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(base_name)
 
-    def test_copy_with_backing_chain_stages_all_ancestors(self):
+    def test_copy_with_backing_chain_stages_all_ancestors(self) -> None:
         """``disks.copy(top, beta, with_backing_chain=True)`` walks
         the backing chain and copies every missing ancestor to beta
         before transferring the top overlay. Mirrors vm.migrate's
@@ -426,7 +421,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(base_name)
 
-    def test_refuses_target_not_online(self):
+    def test_refuses_target_not_online(self) -> None:
         """Drain beta, then attempt copy — should refuse. Restore
         beta to `online` before leaving so subsequent tests work."""
         name = _uniq("draining")
@@ -446,7 +441,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(name)
 
-    def test_refuses_target_equals_source(self):
+    def test_refuses_target_equals_source(self) -> None:
         """Copying to the source node is a no-op the daemon refuses
         outright (the planner can't find a non-target placement)."""
         name = _uniq("self")
@@ -478,7 +473,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
     def _beta_base(self) -> str:
         return self.client_alpha.nodes.get(self.beta_name).show().base_path
 
-    def _stage_qcow2(self, node, path: str, size_mb: int = 4) -> None:
+    def _stage_qcow2(self, node: TestNode, path: str, size_mb: int = 4) -> None:
         """Create a real qcow2 file at `path` on `node` (parent
         directory is created if missing)."""
         parent = path.rsplit("/", 1)[0] if "/" in path else "."
@@ -492,7 +487,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
     def _expect_task_error(
         self,
         task_id: int,
-        message_must_match,
+        message_must_match: Iterable[str],
         *,
         timeout_sec: float = 30.0,
     ) -> None:
@@ -510,7 +505,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     # ---- Issue 1: --to-path accepted for copy + move ---------------------
 
-    def test_copy_with_to_path_relative(self):
+    def test_copy_with_to_path_relative(self) -> None:
         """[Issue 1] `to_path="staging/x.qcow2"` lands the copy
         under `<beta.basePath>/staging/`.
 
@@ -534,7 +529,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(name)
 
-    def test_copy_with_to_path_absolute(self):
+    def test_copy_with_to_path_absolute(self) -> None:
         """[Issue 1] An absolute `to_path` is honoured verbatim
         and the placement records the absolute string (which
         `resolveDiskPath` will treat as already-absolute on the
@@ -551,7 +546,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self.node_beta.run(f"rm -f {abs_dest!r}", check=False, timeout_sec=5.0)
             self._delete_silent(name)
 
-    def test_move_with_to_path_relative(self):
+    def test_move_with_to_path_relative(self) -> None:
         """[Issue 1] Move with `to_path`: source row + file gone,
         destination at the requested path."""
         name = _uniq("mv-tp")
@@ -576,7 +571,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     # ---- Issue 2: absolute source path mandates --to-path ----------------
 
-    def test_copy_absolute_source_requires_to_path(self):
+    def test_copy_absolute_source_requires_to_path(self) -> None:
         """[Issue 2] A disk registered with an absolute path
         outside `basePath` cannot be copied without `to_path` —
         the daemon refuses with a clear message naming both
@@ -602,7 +597,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self.node_alpha.run(f"rm -f {abs_src!r}", check=False, timeout_sec=5.0)
 
-    def test_move_absolute_source_requires_to_path(self):
+    def test_move_absolute_source_requires_to_path(self) -> None:
         """[Issue 2] Same property for move."""
         name = _uniq("mv-abs-need")
         abs_src = f"/tmp/abs-{name}.qcow2"
@@ -624,7 +619,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self.node_alpha.run(f"rm -f {abs_src!r}", check=False, timeout_sec=5.0)
 
-    def test_copy_absolute_source_with_to_path_succeeds(self):
+    def test_copy_absolute_source_with_to_path_succeeds(self) -> None:
         """[Issue 2] An absolute source disk *can* be copied as
         long as the operator supplies `--to-path`. The result is a
         clean beta-side placement at the requested path."""
@@ -658,7 +653,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     # ---- Issue 3: relative path preserved across copy/move ----------------
 
-    def test_copy_preserves_relative_subdir(self):
+    def test_copy_preserves_relative_subdir(self) -> None:
         """[Issue 3] A disk stored as `sub/foo.qcow2` on alpha
         ends up at `sub/foo.qcow2` (relative to beta's basePath)
         on beta — not flattened to `foo.qcow2`.
@@ -694,7 +689,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
                 f"rm -rf {self._alpha_base()}/sub", check=False, timeout_sec=5.0
             )
 
-    def test_move_preserves_relative_subdir(self):
+    def test_move_preserves_relative_subdir(self) -> None:
         """[Issue 3] Same property as the copy version, for move."""
         name = _uniq("rel-pres-mv")
         rel = f"sub/{name}.qcow2"
@@ -720,7 +715,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
                 f"rm -rf {self._alpha_base()}/sub", check=False, timeout_sec=5.0
             )
 
-    def test_copy_creates_missing_subdir_on_dest(self):
+    def test_copy_creates_missing_subdir_on_dest(self) -> None:
         """[Issue 3 / agent mkdir] When the destination
         subdirectory does not yet exist on beta, `importFromPeer`
         must `mkdir -p` it before opening the writer. Regression
@@ -764,7 +759,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     # ---- Issue 4: collision guard fires cleanly --------------------------
 
-    def test_copy_to_path_collision_refused(self):
+    def test_copy_to_path_collision_refused(self) -> None:
         """[Issue 4] A second copy targeting the same `to_path`
         on the same node refuses cleanly with an "already in use"
         error — not via a leaked unique-constraint exception."""
@@ -795,7 +790,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self._delete_silent(a)
             self._delete_silent(b)
 
-    def test_move_to_path_collision_refused(self):
+    def test_move_to_path_collision_refused(self) -> None:
         """[Issue 4] Same property for move."""
         a = _uniq("mv-col-a")
         b = _uniq("mv-col-b")
@@ -824,7 +819,9 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self._delete_silent(b)
 
 
-def _wait_until_node_ready(client, node_name: str, *, timeout_sec: float = 30.0):
+def _wait_until_node_ready(
+    client: Client, node_name: str, *, timeout_sec: float = 30.0
+) -> None:
     """Poll until the daemon's per-node supervisor has dialled the
     agent at least once (`last_node_agent_push_at` is set).
 

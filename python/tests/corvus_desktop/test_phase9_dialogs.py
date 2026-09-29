@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
+from corvus_desktop.client_bridge import CorvusBridge
 from corvus_desktop.dialogs.disk_create import DiskCreateDialog, _BlankTab
 from corvus_desktop.dialogs.disk_rebase_copy_move import DiskCopyMoveDialog
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 
 
 class _Bridge(QObject):
@@ -23,9 +25,9 @@ class _Bridge(QObject):
     def request_node_list(self) -> None: ...
 
 
-def test_blank_tab_requires_name(qapp: Any) -> None:
+def test_blank_tab_requires_name(qapp: QApplication) -> None:
     bridge = _Bridge()
-    tab = _BlankTab(bridge)
+    tab = _BlankTab(cast(CorvusBridge, bridge))
     tab.name.setText("")
     assert tab.payload() is None
     tab.name.setText("d1")
@@ -35,9 +37,9 @@ def test_blank_tab_requires_name(qapp: Any) -> None:
     assert p["size_mb"] == 10 * 1024
 
 
-def test_disk_create_dialog_blank_payload(qapp: Any) -> None:
+def test_disk_create_dialog_blank_payload(qapp: QApplication) -> None:
     bridge = _Bridge()
-    dlg = DiskCreateDialog(bridge)
+    dlg = DiskCreateDialog(cast(CorvusBridge, bridge))
     # Blank tab is selected by default.
     dlg._blank.name.setText("d2")
     dlg._on_accept()
@@ -46,17 +48,17 @@ def test_disk_create_dialog_blank_payload(qapp: Any) -> None:
     assert p["name"] == "d2"
 
 
-def test_disk_create_dialog_overlay_requires_backing(qapp: Any) -> None:
+def test_disk_create_dialog_overlay_requires_backing(qapp: QApplication) -> None:
     bridge = _Bridge()
-    dlg = DiskCreateDialog(bridge)
+    dlg = DiskCreateDialog(cast(CorvusBridge, bridge))
     dlg._tabs.setCurrentWidget(dlg._overlay)
     dlg._overlay.name.setText("d3")
     # Backing not selected.
     dlg._on_accept()
-    assert dlg.payload() == {}
+    assert dlg._cached is None
 
 
-def test_copy_dialog_validates_node(qapp: Any) -> None:
+def test_copy_dialog_validates_node(qapp: QApplication) -> None:
     dlg = DiskCopyMoveDialog("copy")
     dlg._to_node.setText("")
     assert dlg.result_payload() is None

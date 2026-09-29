@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import types
+from .._async.disk import AsyncDisk, AsyncDiskManager, AsyncSnapshot
+from .._runloop import SyncRunloop
 from ._resource import LoopBoundResource
 
 
 class SyncDiskManager:
-    def __init__(self, async_mgr, runloop):
+    def __init__(self, async_mgr: AsyncDiskManager, runloop: SyncRunloop) -> None:
         self._a = async_mgr
         self._rl = runloop
 
-    def list(self):
+    def list(self) -> list[types.DiskImageInfo]:
         return self._rl.run(self._a.list())
 
-    def get(self, ref: int | str, *, by_name: bool = False):
+    def get(self, ref: int | str, *, by_name: bool = False) -> SyncDisk:
         return SyncDisk(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
     def create(
@@ -26,7 +30,7 @@ class SyncDiskManager:
         path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
-    ):
+    ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
                 self._a.create(
@@ -50,7 +54,7 @@ class SyncDiskManager:
         backing_disk_ref: int | str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
-    ):
+    ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
                 self._a.register(
@@ -68,11 +72,11 @@ class SyncDiskManager:
     def create_overlay(
         self,
         name: str,
-        backing_disk_ref,
+        backing_disk_ref: int | str,
         *,
         path: str | None = None,
         ephemeral: bool = False,
-    ):
+    ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
                 self._a.create_overlay(
@@ -84,12 +88,12 @@ class SyncDiskManager:
 
     def clone(
         self,
-        source_ref,
+        source_ref: int | str,
         new_name: str,
         *,
         path: str | None = None,
         ephemeral: bool = False,
-    ):
+    ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
                 self._a.clone(source_ref, new_name, path=path, ephemeral=ephemeral)
@@ -97,20 +101,24 @@ class SyncDiskManager:
             self._rl,
         )
 
-    def rebase(self, disk_ref, new_backing_disk_ref, *, unsafe: bool = False):
-        return self._rl.run(
-            self._a.rebase(disk_ref, new_backing_disk_ref, unsafe=unsafe)
-        )
+    def rebase(
+        self,
+        disk_ref: int | str,
+        new_backing_disk_ref: int | str,
+        *,
+        unsafe: bool = False,
+    ) -> None:
+        self._rl.run(self._a.rebase(disk_ref, new_backing_disk_ref, unsafe=unsafe))
 
-    def flatten(self, disk_ref):
+    def flatten(self, disk_ref: int | str) -> None:
         return self._rl.run(self._a.flatten(disk_ref))
 
-    def eject_media(self, drive_id: int):
+    def eject_media(self, drive_id: int) -> None:
         """Eject the media of a CD-ROM drive (drive row id). See
         :meth:`AsyncDiskManager.eject_media`."""
         return self._rl.run(self._a.eject_media(drive_id))
 
-    def change_media(self, drive_id: int, new_disk: int | str):
+    def change_media(self, drive_id: int, new_disk: int | str) -> None:
         """Swap the media of a CD-ROM drive for another disk image.
         See :meth:`AsyncDiskManager.change_media`."""
         return self._rl.run(self._a.change_media(drive_id, new_disk))
@@ -145,7 +153,7 @@ class SyncDiskManager:
         format: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
-    ):
+    ) -> int:
         return self._rl.run(
             self._a.import_(
                 name,
@@ -160,14 +168,14 @@ class SyncDiskManager:
     def upload_from_file(
         self,
         name: str,
-        source: str,
+        source: str | Path,
         *,
         format: str,
         path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
         overwrite: bool = False,
-    ):
+    ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
                 self._a.upload_from_file(
@@ -219,20 +227,20 @@ class SyncDiskManager:
 
 
 class SyncDisk(LoopBoundResource):
-    def __init__(self, async_disk, runloop):
+    def __init__(self, async_disk: AsyncDisk, runloop: SyncRunloop) -> None:
         self._a = async_disk
         self._rl = runloop
 
-    def show(self):
+    def show(self) -> types.DiskImageInfo:
         return self._rl.run(self._a.show())
 
-    def delete(self):
+    def delete(self) -> None:
         return self._rl.run(self._a.delete())
 
-    def refresh(self):
+    def refresh(self) -> types.DiskImageInfo:
         return self._rl.run(self._a.refresh())
 
-    def resize(self, new_size_mb: int):
+    def resize(self, new_size_mb: int) -> None:
         return self._rl.run(self._a.resize(new_size_mb))
 
     def snapshot_create(
@@ -241,7 +249,7 @@ class SyncDisk(LoopBoundResource):
         *,
         quiesce: types.QuiesceMode = types.QuiesceMode.AUTO,
         full_machine: bool = False,
-    ):
+    ) -> SyncSnapshot:
         return SyncSnapshot(
             self._rl.run(
                 self._a.snapshot_create(
@@ -251,28 +259,28 @@ class SyncDisk(LoopBoundResource):
             self._rl,
         )
 
-    def snapshot_list(self):
+    def snapshot_list(self) -> list[types.SnapshotInfo]:
         return self._rl.run(self._a.snapshot_list())
 
-    def snapshot_get(self, ref: int | str, *, by_name: bool = False):
+    def snapshot_get(self, ref: int | str, *, by_name: bool = False) -> SyncSnapshot:
         return SyncSnapshot(
             self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl
         )
 
 
 class SyncSnapshot(LoopBoundResource):
-    def __init__(self, async_snap, runloop):
+    def __init__(self, async_snap: AsyncSnapshot, runloop: SyncRunloop) -> None:
         self._a = async_snap
         self._rl = runloop
 
-    def show(self):
+    def show(self) -> types.SnapshotInfo:
         return self._rl.run(self._a.show())
 
-    def delete(self):
+    def delete(self) -> None:
         return self._rl.run(self._a.delete())
 
-    def rollback(self, *, auto_stop: bool = False):
+    def rollback(self, *, auto_stop: bool = False) -> None:
         return self._rl.run(self._a.rollback(auto_stop=auto_stop))
 
-    def merge(self):
+    def merge(self) -> None:
         return self._rl.run(self._a.merge())

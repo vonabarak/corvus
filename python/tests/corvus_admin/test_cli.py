@@ -6,11 +6,13 @@ test_ca / test_deploy."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from click.testing import CliRunner
 from corvus_admin import cli
 
 
-def test_init_creates_ca_and_emits_admin_cert(tmp_path, xdg_home):
+def test_init_creates_ca_and_emits_admin_cert(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     r = runner.invoke(
@@ -27,7 +29,7 @@ def test_init_creates_ca_and_emits_admin_cert(tmp_path, xdg_home):
     assert "corvus-client:alice" in r.output
 
 
-def test_init_is_idempotent_without_force(tmp_path, xdg_home):
+def test_init_is_idempotent_without_force(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     r1 = runner.invoke(
@@ -45,7 +47,7 @@ def test_init_is_idempotent_without_force(tmp_path, xdg_home):
     assert "already initialised" in r2.output
 
 
-def test_list_reports_issued_certs(tmp_path, xdg_home):
+def test_list_reports_issued_certs(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -57,7 +59,7 @@ def test_list_reports_issued_certs(tmp_path, xdg_home):
     assert "corvus-client:alice" in r.output
 
 
-def test_list_without_init_fails_with_clear_error(tmp_path):
+def test_list_without_init_fails_with_clear_error(tmp_path: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     r = runner.invoke(cli.main, ["list", "--ca-dir", str(admin_dir)])
@@ -65,7 +67,7 @@ def test_list_without_init_fails_with_clear_error(tmp_path):
     assert "No CA" in r.output
 
 
-def test_deploy_client_emits_record(tmp_path, xdg_home):
+def test_deploy_client_emits_record(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -86,7 +88,7 @@ def test_deploy_client_emits_record(tmp_path, xdg_home):
     assert "corvus-client:bob" in r.output
 
 
-def test_renew_client_force(tmp_path, xdg_home):
+def test_renew_client_force(tmp_path: Path, xdg_home: Path) -> None:
     """Renewing a freshly-minted client cert requires --force
     (it's not due for 364 days). With --force the CLI exits 0 and
     overwrites the XDG client cert pair."""
@@ -113,7 +115,7 @@ def test_renew_client_force(tmp_path, xdg_home):
     assert "Renewed client cert corvus-client:alice" in r2.output
 
 
-def test_status_lists_client_record(tmp_path, xdg_home):
+def test_status_lists_client_record(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -134,7 +136,7 @@ def test_status_lists_client_record(tmp_path, xdg_home):
 # Completion
 
 
-def test_completion_bash_emits_click_script():
+def test_completion_bash_emits_click_script() -> None:
     runner = CliRunner()
     r = runner.invoke(cli.main, ["completion", "bash"])
     assert r.exit_code == 0, r.output
@@ -144,7 +146,7 @@ def test_completion_bash_emits_click_script():
     assert "_CORVUS_ADMIN_COMPLETE=bash_complete" in r.output
 
 
-def test_completion_zsh_and_fish_emit_scripts():
+def test_completion_zsh_and_fish_emit_scripts() -> None:
     runner = CliRunner()
     for shell in ("zsh", "fish"):
         r = runner.invoke(cli.main, ["completion", shell])
@@ -152,7 +154,7 @@ def test_completion_zsh_and_fish_emit_scripts():
         assert "_CORVUS_ADMIN_COMPLETE" in r.output
 
 
-def test_completion_rejects_unknown_shell():
+def test_completion_rejects_unknown_shell() -> None:
     runner = CliRunner()
     r = runner.invoke(cli.main, ["completion", "powershell"])
     assert r.exit_code != 0
@@ -164,7 +166,7 @@ def test_completion_rejects_unknown_shell():
 # JSON output
 
 
-def test_list_output_json_is_parseable(tmp_path, xdg_home):
+def test_list_output_json_is_parseable(tmp_path: Path, xdg_home: Path) -> None:
     import json
 
     runner = CliRunner()
@@ -182,7 +184,7 @@ def test_list_output_json_is_parseable(tmp_path, xdg_home):
     assert parsed[0]["cn"] == "corvus-client:alice"
 
 
-def test_status_output_json_is_parseable(tmp_path, xdg_home):
+def test_status_output_json_is_parseable(tmp_path: Path, xdg_home: Path) -> None:
     import json
 
     runner = CliRunner()
@@ -203,7 +205,7 @@ def test_status_output_json_is_parseable(tmp_path, xdg_home):
 # Revoke
 
 
-def test_revoke_removes_record(tmp_path, xdg_home):
+def test_revoke_removes_record(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -220,7 +222,7 @@ def test_revoke_removes_record(tmp_path, xdg_home):
     assert "(no certs issued yet)" in r2.output
 
 
-def test_revoke_unknown_cn_exits_nonzero(tmp_path, xdg_home):
+def test_revoke_unknown_cn_exits_nonzero(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -237,7 +239,7 @@ def test_revoke_unknown_cn_exits_nonzero(tmp_path, xdg_home):
 # Renew sweep (--due)
 
 
-def test_renew_due_finds_nothing_when_all_fresh(tmp_path, xdg_home):
+def test_renew_due_finds_nothing_when_all_fresh(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -251,7 +253,9 @@ def test_renew_due_finds_nothing_when_all_fresh(tmp_path, xdg_home):
     assert "No certs due" in r.output
 
 
-def test_renew_due_with_wide_window_picks_up_freshly_minted_client(tmp_path, xdg_home):
+def test_renew_due_with_wide_window_picks_up_freshly_minted_client(
+    tmp_path: Path, xdg_home: Path
+) -> None:
     """Freshly-minted certs are 365 days out, so --within 400 brings
     them into scope. Combined with --dry-run keeps the filesystem
     untouched while exercising the dispatch path."""
@@ -278,7 +282,7 @@ def test_renew_due_with_wide_window_picks_up_freshly_minted_client(tmp_path, xdg
     assert "1/1 renewed" in r.output
 
 
-def test_renew_due_rejects_subcommand_combo(tmp_path, xdg_home):
+def test_renew_due_rejects_subcommand_combo(tmp_path: Path, xdg_home: Path) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -298,7 +302,9 @@ def test_renew_due_rejects_subcommand_combo(tmp_path, xdg_home):
 # fake_paths). The success path lives in test_deploy.py.
 
 
-def test_deploy_node_conflict_target_and_targets(tmp_path, xdg_home):
+def test_deploy_node_conflict_target_and_targets(
+    tmp_path: Path, xdg_home: Path
+) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(
@@ -321,7 +327,9 @@ def test_deploy_node_conflict_target_and_targets(tmp_path, xdg_home):
     assert "not both" in r.output
 
 
-def test_deploy_node_multi_target_without_allow_shared_cn(tmp_path, xdg_home):
+def test_deploy_node_multi_target_without_allow_shared_cn(
+    tmp_path: Path, xdg_home: Path
+) -> None:
     runner = CliRunner()
     admin_dir = tmp_path / "admin"
     runner.invoke(

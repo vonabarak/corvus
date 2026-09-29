@@ -7,7 +7,7 @@ operator iterates by editing locally or in the browser.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError, TemplateNotFound
 from corvus_client.types import (
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 import yaml as yamllib
 
 from ..deps import get_client
-from ..lib import to_dict
+from ..lib import JsonObject, to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -33,14 +33,14 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
-class InstantiateBody(BaseModel):
+class InstantiateBody(BaseModel):  # type: ignore[explicit-any]
     name: str = Field(..., min_length=1, description="Name for the new VM.")
     node: str | None = Field(
         None, description="Optional node name or id to pin placement to."
     )
 
 
-class TemplateYamlBody(BaseModel):
+class TemplateYamlBody(BaseModel):  # type: ignore[explicit-any]
     """Wrapper for the raw YAML document. POST and PUT both use it.
 
     The daemon parses + validates YAML server-side; bad documents come
@@ -58,8 +58,8 @@ class TemplateYamlBody(BaseModel):
 # the two encoders would silently corrupt round-trips.
 
 
-def _drive_to_dict(d: TemplateDriveInfo) -> dict[str, Any]:
-    out: dict[str, Any] = {
+def _drive_to_dict(d: TemplateDriveInfo) -> JsonObject:
+    out: JsonObject = {
         "interface": d.interface,
         "readOnly": d.read_only,
         "cacheType": d.cache_type,
@@ -77,20 +77,20 @@ def _drive_to_dict(d: TemplateDriveInfo) -> dict[str, Any]:
     return out
 
 
-def _net_if_to_dict(n: TemplateNetIfInfo) -> dict[str, Any]:
-    out: dict[str, Any] = {"type": n.type}
+def _net_if_to_dict(n: TemplateNetIfInfo) -> JsonObject:
+    out: JsonObject = {"type": n.type}
     if n.host_device is not None:
         out["hostDevice"] = n.host_device
     return out
 
 
-def _ssh_key_to_dict(k: TemplateSshKeyInfo) -> dict[str, Any]:
+def _ssh_key_to_dict(k: TemplateSshKeyInfo) -> JsonObject:
     # Match the Haskell encoder: {name: ...} maps, not bare strings.
     return {"name": k.name}
 
 
-def _cloud_init_to_dict(c: CloudInitInfo) -> dict[str, Any]:
-    out: dict[str, Any] = {"injectSshKeys": c.inject_ssh_keys}
+def _cloud_init_to_dict(c: CloudInitInfo) -> JsonObject:
+    out: JsonObject = {"injectSshKeys": c.inject_ssh_keys}
     if c.user_data is not None:
         out["userData"] = c.user_data
     if c.network_config is not None:
@@ -105,7 +105,7 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
     Mirrors templateDetailsToYaml in src/Corvus/Client/Commands/Template/
     Yaml.hs — kept lockstep with that encoder so round-trips through the
     web UI behave identically to ``crv template show -o yaml``."""
-    doc: dict[str, Any] = {
+    doc: JsonObject = {
         "name": t.name,
         "cpuCount": t.cpu_count,
         "ramMb": t.ram_mb,
@@ -128,12 +128,12 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
 
 
 @router.get("")
-async def list_templates(client: ClientDep) -> list[dict[str, Any]]:
+async def list_templates(client: ClientDep) -> list[JsonObject]:
     return [to_dict(t) for t in await client.templates.list()]
 
 
 @router.get("/{template_id}")
-async def get_template(template_id: int, client: ClientDep) -> dict[str, Any]:
+async def get_template(template_id: int, client: ClientDep) -> JsonObject:
     try:
         tmpl = await client.templates.get(template_id)
     except TemplateNotFound as exc:
@@ -155,7 +155,7 @@ async def get_template_yaml(template_id: int, client: ClientDep) -> dict[str, st
 
 
 @router.post("")
-async def create_template(body: TemplateYamlBody, client: ClientDep) -> dict[str, Any]:
+async def create_template(body: TemplateYamlBody, client: ClientDep) -> JsonObject:
     """Create a new template from the YAML document. Returns the
     parsed TemplateDetails so the frontend can route to its detail
     page."""
@@ -169,7 +169,7 @@ async def create_template(body: TemplateYamlBody, client: ClientDep) -> dict[str
 @router.put("/{template_id}")
 async def update_template(
     template_id: int, body: TemplateYamlBody, client: ClientDep
-) -> dict[str, Any]:
+) -> JsonObject:
     """Replace the template's contents with the new YAML. Existing VMs
     instantiated from this template are not modified — the daemon
     only updates the template record itself."""
@@ -188,7 +188,7 @@ async def update_template(
 @router.post("/{template_id}/instantiate")
 async def instantiate_template(
     template_id: int, body: InstantiateBody, client: ClientDep
-) -> dict[str, Any]:
+) -> JsonObject:
     """Create a new VM from the template. Returns the resulting VM's
     detail payload so the frontend can route straight to it."""
     try:

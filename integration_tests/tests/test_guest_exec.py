@@ -49,13 +49,16 @@ from __future__ import annotations
 
 import json
 import secrets
+import subprocess
 
 import pytest
 from corvus_client.exceptions import GuestAgentNotEnabled, VmNotRunning
-from corvus_test_harness import SingleNodeCase, Vm
+from corvus_test_harness import SingleNodeCase, TestNode, Vm
 
 
-def _crv(node, args: str, *, check: bool = False):
+def _crv(
+    node: TestNode, args: str, *, check: bool = False
+) -> subprocess.CompletedProcess[bytes]:
     """Run ``/opt/corvus/bin/crv <args>`` on the test node. Matches
     the helper used by :mod:`test_task_history`; ``check=False`` so
     we can assert on non-zero exit codes from ``crv vm exec``
@@ -73,13 +76,13 @@ class TestGuestExecCli(SingleNodeCase):
     independent."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology):
+    def _install_client_certs(self, _class_topology: object) -> None:
         """``crv`` on the test node needs the host-side client cert
         trio to dial the daemon over mTLS. Mirrors the pattern from
         :mod:`test_task_history`."""
         self.install_node_client_certs()
 
-    def test_exit_code_and_json_output(self):
+    def test_exit_code_and_json_output(self) -> None:
         with Vm(self) as vm:
             vm_id = vm.cap.show().id
             node = self.node
@@ -128,7 +131,7 @@ class TestGuestExecRejections(SingleNodeCase):
     exceptions, not CLI exit codes. Two small VMs, each in its own
     test for clarity; both finish in seconds (no boot needed)."""
 
-    def test_stopped_vm_rejected_with_must_be_running(self):
+    def test_stopped_vm_rejected_with_must_be_running(self) -> None:
         """A stopped VM (never started) has no QEMU process to
         carry the QGA channel; the daemon refuses at the FSM gate.
 
@@ -157,7 +160,7 @@ class TestGuestExecRejections(SingleNodeCase):
         finally:
             vm.delete()
 
-    def test_running_vm_without_qga_rejected(self):
+    def test_running_vm_without_qga_rejected(self) -> None:
         """A running VM whose ``guest_agent`` flag was never enabled
         has no QGA chardev attached; the daemon refuses with the
         ``guest_agent_not_enabled`` wire code, which the client

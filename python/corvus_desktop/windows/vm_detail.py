@@ -9,10 +9,17 @@ Remove control on every Drive / NIC / SSH-key / Shared-dir tab.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Sequence
+from functools import partial
+from typing import TYPE_CHECKING
 
 from corvus_client.types import (
+    DriveInfo,
+    DriveIo,
     GuestAgentStatus,
+    NetIfInfo,
+    NetIo,
+    SharedDirInfo,
     SshKeyInfo,
     ViewGrant,
     VmDetails,
@@ -322,7 +329,7 @@ class VmDetailWidget(QWidget):
 
     # ---------------------------------------------------- bridge slots
 
-    def _on_detail(self, info: Any) -> None:
+    def _on_detail(self, info: VmDetails) -> None:
         if not isinstance(info, VmDetails) or info.id != self._vm_id:
             return
         self._vm_details = info
@@ -364,7 +371,7 @@ class VmDetailWidget(QWidget):
             if action in ("attach_ssh_key", "detach_ssh_key"):
                 self._bridge.request_vm_ssh_keys(self._vm_id)
 
-    def _on_shared_dirs(self, vm_id: int, dirs: Any) -> None:
+    def _on_shared_dirs(self, vm_id: int, dirs: list[SharedDirInfo]) -> None:
         if vm_id != self._vm_id:
             return
         self._fill_shared_dirs(dirs)
@@ -453,7 +460,7 @@ class VmDetailWidget(QWidget):
             self._ssh_table.setCellWidget(
                 row,
                 1,
-                _detach_button("Detach", lambda _v=key.id: self._detach_ssh_key(_v)),
+                _detach_button("Detach", partial(self._detach_ssh_key, key.id)),
             )
         self._ssh_table.resizeColumnsToContents()
 
@@ -634,7 +641,7 @@ class VmDetailWidget(QWidget):
         self._btn_guest_exec.setEnabled(guest_ok)
         self._btn_delete.setEnabled(loaded and self._vm_status == "stopped")
 
-    def _fill_drives(self, drives: Any) -> None:
+    def _fill_drives(self, drives: list[DriveInfo]) -> None:
         self._drives_table.setRowCount(len(drives))
         for row, d in enumerate(drives):
             self._drives_table.setItem(
@@ -649,7 +656,7 @@ class VmDetailWidget(QWidget):
                 row, 4, QTableWidgetItem("yes" if d.read_only else "no")
             )
             self._drives_table.setCellWidget(
-                row, 5, _detach_button("Detach", lambda _v=d.id: self._detach_disk(_v))
+                row, 5, _detach_button("Detach", partial(self._detach_disk, d.id))
             )
         self._drives_table.resizeColumnsToContents()
 
@@ -658,7 +665,7 @@ class VmDetailWidget(QWidget):
             return
         self._bridge.vm_detach_disk(self._vm_id, drive_id)
 
-    def _fill_netifs(self, netifs: Any) -> None:
+    def _fill_netifs(self, netifs: list[NetIfInfo]) -> None:
         self._netifs_table.setRowCount(len(netifs))
         for row, n in enumerate(netifs):
             self._netifs_table.setItem(row, 0, QTableWidgetItem(n.type))
@@ -675,7 +682,7 @@ class VmDetailWidget(QWidget):
             self._netifs_table.setCellWidget(
                 row,
                 4,
-                _detach_button("Remove", lambda _v=n.id: self._remove_net_if(_v)),
+                _detach_button("Remove", partial(self._remove_net_if, n.id)),
             )
         self._netifs_table.resizeColumnsToContents()
 
@@ -684,7 +691,7 @@ class VmDetailWidget(QWidget):
             return
         self._bridge.vm_remove_net_if(self._vm_id, net_if_id)
 
-    def _fill_shared_dirs(self, dirs: Any) -> None:
+    def _fill_shared_dirs(self, dirs: list[SharedDirInfo]) -> None:
         self._shared_table.setRowCount(len(dirs))
         for row, d in enumerate(dirs):
             self._shared_table.setItem(row, 0, QTableWidgetItem(d.path))
@@ -696,7 +703,7 @@ class VmDetailWidget(QWidget):
             self._shared_table.setCellWidget(
                 row,
                 4,
-                _detach_button("Remove", lambda _v=d.id: self._remove_shared_dir(_v)),
+                _detach_button("Remove", partial(self._remove_shared_dir, d.id)),
             )
         self._shared_table.resizeColumnsToContents()
 
@@ -707,7 +714,7 @@ class VmDetailWidget(QWidget):
 
 
 def _table_with_action(
-    table: QTableWidget, action_label: str, action_cb: Any
+    table: QTableWidget, action_label: str, action_cb: Callable[[], None]
 ) -> QWidget:
     """Wrap a table with an action button row below it."""
     container = QWidget()
@@ -723,13 +730,13 @@ def _table_with_action(
     return container
 
 
-def _detach_button(label: str, cb: Any) -> QPushButton:
+def _detach_button(label: str, cb: Callable[[], None]) -> QPushButton:
     btn = QPushButton(label)
     btn.clicked.connect(cb)
     return btn
 
 
-def _sum_drive_delta(curr: Any, prev: Any) -> float:
+def _sum_drive_delta(curr: Sequence[DriveIo], prev: Sequence[DriveIo]) -> float:
     """Total read + write bytes since the previous sample across all
     drives. Matched by ``DriveIo.name`` (new drives or detached ones
     contribute zero rather than spiking the chart)."""
@@ -745,7 +752,7 @@ def _sum_drive_delta(curr: Any, prev: Any) -> float:
     return delta
 
 
-def _sum_net_delta(curr: Any, prev: Any) -> float:
+def _sum_net_delta(curr: Sequence[NetIo], prev: Sequence[NetIo]) -> float:
     """Total rx + tx bytes since the previous sample across all TAPs."""
     prev_by_name = {n.tap_name: n for n in prev}
     delta = 0.0

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import capnp
+
 from .. import _schema
+from .. import types as t
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -12,16 +15,16 @@ from . import _convert as conv
 
 @translate_errors
 class AsyncNetworkManager:
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.networks()).mgr
         return self._mgr
 
-    async def list(self):
+    async def list(self) -> list[t.NetworkInfo]:
         mgr = await self._ensure()
         resp = await mgr.list()
         return [conv.network_info(n) for n in resp.networks]
@@ -79,10 +82,10 @@ class AsyncNetworkManager:
 
 @translate_errors
 class AsyncNetwork:
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
-    async def show(self):
+    async def show(self) -> t.NetworkInfo:
         resp = await self._cap.show()
         return conv.network_info(resp.info)
 

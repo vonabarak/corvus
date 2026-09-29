@@ -87,6 +87,10 @@ def test_small_size_uses_mb(model: DiskTableModel) -> None:
 
 def test_disk_at_round_trip(model: DiskTableModel) -> None:
     model.set_disks([_disk(disk_id=i, name=f"d{i}") for i in (1, 2, 3)])
-    assert model.disk_at(0).name == "d1"
-    assert model.disk_at(2).name == "d3"
+    first = model.disk_at(0)
+    second = model.disk_at(2)
+    assert first is not None
+    assert second is not None
+    assert first.name == "d1"
+    assert second.name == "d3"
     assert model.disk_at(99) is None

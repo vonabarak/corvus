@@ -4,23 +4,25 @@ to in-process logic that doesn't touch sshd."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from corvus_admin import privesc
 from corvus_admin.runner import LocalRunner, RunnerError, for_target
 
 
-def test_for_target_local_returns_local_runner():
+def test_for_target_local_returns_local_runner() -> None:
     runner = for_target("local")
     assert isinstance(runner, LocalRunner)
     assert runner.label == "local"
 
 
-def test_for_target_user_at_host_returns_ssh_runner():
+def test_for_target_user_at_host_returns_ssh_runner() -> None:
     runner = for_target("root@10.0.0.21")
     assert runner.label == "ssh:root@10.0.0.21"
 
 
-def test_copy_bytes_writes_with_requested_mode(tmp_path):
+def test_copy_bytes_writes_with_requested_mode(tmp_path: Path) -> None:
     runner = LocalRunner()
     dest = tmp_path / "out" / "ca.crt"
     runner.mkdir_p(str(dest.parent), mode=0o755)
@@ -30,7 +32,7 @@ def test_copy_bytes_writes_with_requested_mode(tmp_path):
     assert mode == 0o644, f"expected 0644, got {oct(mode)}"
 
 
-def test_copy_bytes_overwrites_existing_file_atomically(tmp_path):
+def test_copy_bytes_overwrites_existing_file_atomically(tmp_path: Path) -> None:
     runner = LocalRunner()
     dest = tmp_path / "x.bin"
     runner.copy_bytes(b"first", str(dest), mode=0o600)
@@ -40,26 +42,26 @@ def test_copy_bytes_overwrites_existing_file_atomically(tmp_path):
     assert mode == 0o600
 
 
-def test_run_returns_stdout_when_captured(tmp_path):
+def test_run_returns_stdout_when_captured(tmp_path: Path) -> None:
     runner = LocalRunner()
     r = runner.run(["printf", "%s", "hi"], capture=True)
     assert r.returncode == 0
     assert r.stdout == "hi"
 
 
-def test_run_raises_runner_error_on_nonzero_exit(tmp_path):
+def test_run_raises_runner_error_on_nonzero_exit(tmp_path: Path) -> None:
     runner = LocalRunner()
     with pytest.raises(RunnerError):
         runner.run(["false"], capture=True)
 
 
-def test_run_does_not_raise_when_check_false(tmp_path):
+def test_run_does_not_raise_when_check_false(tmp_path: Path) -> None:
     runner = LocalRunner()
     r = runner.run(["false"], check=False, capture=True)
     assert r.returncode != 0
 
 
-def test_mkdir_p_is_idempotent(tmp_path):
+def test_mkdir_p_is_idempotent(tmp_path: Path) -> None:
     runner = LocalRunner()
     target = tmp_path / "a" / "b" / "c"
     runner.mkdir_p(str(target), mode=0o755)
@@ -67,7 +69,7 @@ def test_mkdir_p_is_idempotent(tmp_path):
     assert target.is_dir()
 
 
-def test_run_with_sudo_uses_doas_when_injected(tmp_path):
+def test_run_with_sudo_uses_doas_when_injected(tmp_path: Path) -> None:
     """Inject a PrivEsc(tool="doas") and confirm the runner
     prepends ``doas`` rather than ``sudo``. We fake the doas
     binary so the underlying subprocess.run doesn't blow up on a
@@ -91,7 +93,7 @@ def test_run_with_sudo_uses_doas_when_injected(tmp_path):
     assert r.returncode == 0
 
 
-def test_run_with_sudo_raises_when_no_privesc():
+def test_run_with_sudo_raises_when_no_privesc() -> None:
     """If no escalator is available and we still ask for sudo, the
     runner must raise rather than silently dropping the request."""
 
@@ -105,7 +107,9 @@ def test_run_with_sudo_raises_when_no_privesc():
     assert "sudo or doas" in str(exc.value)
 
 
-def test_which_finds_binary_on_path(tmp_path, monkeypatch):
+def test_which_finds_binary_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`Runner.which` returns the absolute path of a binary on the
     runner's $PATH; the deploy step uses this to bake a usable
     `ExecStart=` into the rendered systemd unit."""

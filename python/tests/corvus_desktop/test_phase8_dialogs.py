@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 import pytest
 from corvus_client.types import NamedRef, VmDetails
 from corvus_desktop.dialogs.add_shared_dir import AddSharedDirDialog
 from corvus_desktop.dialogs.vm_create import VmCreateDialog
 from corvus_desktop.dialogs.vm_edit import VmEditDialog
+from PySide6.QtWidgets import QApplication
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def vm_details() -> VmDetails:
     )
 
 
-def test_vm_create_requires_name(qapp: Any) -> None:
+def test_vm_create_requires_name(qapp: QApplication) -> None:
     dlg = VmCreateDialog()
     assert dlg.result_payload() is None  # name blank
     dlg._name.setText("web-1")
@@ -45,12 +45,14 @@ def test_vm_create_requires_name(qapp: Any) -> None:
     assert payload["ram_mb"] == 2048
 
 
-def test_vm_edit_no_changes_returns_none(qapp: Any, vm_details: VmDetails) -> None:
+def test_vm_edit_no_changes_returns_none(
+    qapp: QApplication, vm_details: VmDetails
+) -> None:
     dlg = VmEditDialog(vm_details)
     assert dlg.result_payload() is None
 
 
-def test_vm_edit_returns_diff(qapp: Any, vm_details: VmDetails) -> None:
+def test_vm_edit_returns_diff(qapp: QApplication, vm_details: VmDetails) -> None:
     dlg = VmEditDialog(vm_details)
     dlg._cpu.setValue(4)
     dlg._guest_agent.setChecked(False)  # original True
@@ -59,14 +61,14 @@ def test_vm_edit_returns_diff(qapp: Any, vm_details: VmDetails) -> None:
     assert p == {"cpu_count": 4, "guest_agent": False}
 
 
-def test_vm_edit_can_disable_tpm(qapp: Any, vm_details: VmDetails) -> None:
+def test_vm_edit_can_disable_tpm(qapp: QApplication, vm_details: VmDetails) -> None:
     enabled = VmDetails(**{**vm_details.__dict__, "tpm": True})
     dlg = VmEditDialog(enabled)
     dlg._tpm.setChecked(False)
     assert dlg.result_payload() == {"tpm": False}
 
 
-def test_shared_dir_dialog_validates(qapp: Any) -> None:
+def test_shared_dir_dialog_validates(qapp: QApplication) -> None:
     dlg = AddSharedDirDialog()
     assert dlg.result_payload() is None  # blank
     dlg._path.setText("/srv")

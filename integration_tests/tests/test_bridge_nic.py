@@ -27,13 +27,14 @@ import re
 import secrets
 import time
 
-from corvus_test_harness import SingleNodeCase, VmSsh
+from corvus_test_harness import SingleNodeCase, TestNode, VmSsh
+from corvus_test_harness.vm import _NetIfOptions
 
 # Alpine test image puts its sole NIC on eth0.
 GUEST_NIC = "eth0"
 
 
-def _tap_slaves(node, bridge: str) -> list[str]:
+def _tap_slaves(node: TestNode, bridge: str) -> list[str]:
     """Return the ifnames of every corvus-tap-* enslaved to `bridge`.
 
     Uses `bridge link show master <bridge>` rather than `bridge link
@@ -50,7 +51,9 @@ def _tap_slaves(node, bridge: str) -> list[str]:
     return re.findall(r"\bcorvus-tap-[A-Za-z0-9]+", out)
 
 
-def _wait_for_no_tap_on_bridge(node, bridge: str, *, timeout_sec: float = 15.0) -> None:
+def _wait_for_no_tap_on_bridge(
+    node: TestNode, bridge: str, *, timeout_sec: float = 15.0
+) -> None:
     """Poll until no `corvus-tap-*` is enslaved to `bridge`.
 
     The TAP is reaped asynchronously by the daemon's post-QEMU-exit
@@ -73,7 +76,7 @@ class TestBridgeNic(SingleNodeCase):
 
     NODES = ("bridge-net",)
 
-    def test_vm_attaches_to_preexisting_host_bridge(self):
+    def test_vm_attaches_to_preexisting_host_bridge(self) -> None:
         """Create a bridge by hand, attach a VM with type=bridge,
         verify the kernel topology and L3 reachability, then verify
         the TAP is reaped on VM stop while the bridge survives."""
@@ -96,7 +99,7 @@ class TestBridgeNic(SingleNodeCase):
             class _BridgeVm(VmSsh):
                 bridge_name = bridge
 
-                def _net_ifs(self):
+                def _net_ifs(self) -> list[_NetIfOptions]:
                     return [
                         {
                             "type": "bridge",
@@ -139,7 +142,7 @@ class TestBridgeNic(SingleNodeCase):
         finally:
             node.run(f"sudo ip link delete {bridge}", check=False)
 
-    def test_add_netif_rejects_bridge_without_host_device(self):
+    def test_add_netif_rejects_bridge_without_host_device(self) -> None:
         """The daemon refuses to record a bridge NIC with no
         host-device — the bridge name is required at add time."""
         # `vms.create` returns a VM cap; `add_net_if` raises on

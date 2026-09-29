@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from corvus_client.types import NodeDetails
 from PySide6.QtCore import Signal
@@ -118,7 +118,7 @@ class NodeDetailWidget(QWidget):
         ):
             label.setText("—")
 
-    def _on_detail(self, info: Any) -> None:
+    def _on_detail(self, info: NodeDetails) -> None:
         if not isinstance(info, NodeDetails) or info.id != self._node_id:
             return
         self._node = info

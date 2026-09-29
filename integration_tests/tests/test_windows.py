@@ -34,10 +34,14 @@ import base64
 import secrets
 import threading
 import time
+from datetime import datetime
+from typing import cast
 
 import pytest
 from corvus_client import GuestAgentError, ServerError
+from corvus_client.types import GuestAgentStatus
 from corvus_test_harness import SingleNodeCase, VmWindows
+from corvus_test_harness.vm import _CloudInitOptions, _SharedDirOptions
 
 
 def _ps(script: str) -> str:
@@ -68,7 +72,7 @@ class TestWindows(SingleNodeCase):
 
     # ---- virtiofs helpers --------------------------------------------------
 
-    def _find_share_drive(self, vm) -> str | None:
+    def _find_share_drive(self, vm: VmWindows) -> str | None:
         """Return the drive letter of the virtio-fs mount, or `None`.
 
         Cheap-first strategy: enumerate FileSystem PSDrives and probe
@@ -100,7 +104,7 @@ class TestWindows(SingleNodeCase):
         time.sleep(10)
         return self._probe_existing_drives(vm)
 
-    def _probe_existing_drives(self, vm) -> str | None:
+    def _probe_existing_drives(self, vm: VmWindows) -> str | None:
         """Enumerate FileSystem PSDrives and return the first one
         whose root holds the sentinel `from-host.txt`. Does not
         touch VirtioFsSvc — safe to call repeatedly.
@@ -127,7 +131,7 @@ class TestWindows(SingleNodeCase):
                 return letter
         return None
 
-    def _raise_share_diagnostic(self, vm) -> None:
+    def _raise_share_diagnostic(self, vm: VmWindows) -> None:
         """Gather every diagnostic we have on virtiofs state in the
         guest and raise `AssertionError` with the lot. Called when
         `_find_share_drive` has returned `None` even after a reset.
@@ -200,7 +204,7 @@ class TestWindows(SingleNodeCase):
     # ---- tests -------------------------------------------------------------
 
     @pytest.mark.timeout(2500)
-    def test_lifecycle_cloud_init_and_shared_directory(self):
+    def test_lifecycle_cloud_init_and_shared_directory(self) -> None:
         """All Windows properties covered in a single VM boot.
 
         Folds together what used to be `test_lifecycle_and_cloud_init`
@@ -228,7 +232,7 @@ class TestWindows(SingleNodeCase):
             # docstring).
             reboot_quirk = True
 
-            def _cloud_init_config(_self):
+            def _cloud_init_config(_self) -> _CloudInitOptions:
                 user_data = (
                     "#ps1_sysnative\r\n"
                     f"Set-Content -Path C:\\corvus-marker.txt "
@@ -236,7 +240,7 @@ class TestWindows(SingleNodeCase):
                 )
                 return {"user_data": user_data}
 
-            def _shared_dirs(_self):
+            def _shared_dirs(_self) -> list[_SharedDirOptions]:
                 return [{"path": share_path, "tag": "winshare"}]
 
         try:
@@ -248,10 +252,10 @@ class TestWindows(SingleNodeCase):
                 # validate at the end of phase 3 so the 1b budget
                 # overlaps with the unavoidable wait instead of
                 # stacking on top of it.
-                hc_events: list = []
+                hc_events: list[datetime | None] = []
                 hc_lock = threading.Lock()
 
-                def _on_status(ev):
+                def _on_status(ev: GuestAgentStatus) -> None:
                     with hc_lock:
                         hc_events.append(ev.last_healthcheck)
 
@@ -388,7 +392,7 @@ class TestWindows(SingleNodeCase):
                     find_deadline = time.monotonic() + 5 * 60.0
                     while time.monotonic() < find_deadline:
                         try:
-                            drive = self._find_share_drive(vm)
+                            drive = self._find_share_drive(cast(VmWindows, vm))
                         except Exception:
                             drive = None
                         if drive is not None:
@@ -396,7 +400,7 @@ class TestWindows(SingleNodeCase):
                         time.sleep(15)
 
                     if drive is None:
-                        self._raise_share_diagnostic(vm)
+                        self._raise_share_diagnostic(cast(VmWindows, vm))
                     assert drive is not None
 
                     # Read host-written content from inside the guest.

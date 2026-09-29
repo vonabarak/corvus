@@ -8,13 +8,27 @@ request/response wrappers.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, cast
+
+import capnp
+
 from .. import _schema
+from .. import types as t
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
 
+if TYPE_CHECKING:
+    from .streams import ByteStream, GuestAgentSubscription, VmStatsSubscription
 
-def _set_optional(builder, has_field: str, value_field: str, value):
+
+def _set_optional(
+    builder: capnp.lib.capnp._DynamicStructBuilder,
+    has_field: str,
+    value_field: str,
+    value: object | None,
+) -> None:
     """Helper for `VmEditParams`-style `hasX` / `X` pairs."""
     if value is not None:
         setattr(builder, has_field, True)
@@ -25,16 +39,16 @@ def _set_optional(builder, has_field: str, value_field: str, value):
 class AsyncVmManager:
     """Wrapper for the `VmManager` cap returned by `Daemon.vms()`."""
 
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.vms()).mgr
         return self._mgr
 
-    async def list(self):
+    async def list(self) -> list[t.VmInfo]:
         mgr = await self._ensure()
         resp = await mgr.list()
         return [conv.vm_info(v) for v in resp.vms]
@@ -96,12 +110,12 @@ class AsyncVmManager:
 class AsyncVm:
     """Wrapper for the `Vm` resource cap."""
 
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
     # ---- queries ----------------------------------------------------------
 
-    async def show(self):
+    async def show(self) -> t.VmDetails:
         resp = await self._cap.show()
         return conv.vm_details(resp.details)
 
@@ -184,19 +198,19 @@ class AsyncVm:
         params = _schema.vm.VmMigrateParams.new_message()
         params.toNodeRef = entity_ref(to_node_ref)
         resp = await self._cap.migrate(params=params)
-        return resp.taskId
+        return cast(int, resp.taskId)
 
     # ---- cloud-init / view / guest exec / hotkeys -------------------------
 
-    async def cloud_init(self):
+    async def cloud_init(self) -> t.CloudInitInfo:
         resp = await self._cap.cloudInit()
         return conv.cloud_init_info(resp.config)
 
-    async def view_grant(self):
+    async def view_grant(self) -> t.ViewGrant:
         resp = await self._cap.viewGrant()
         return conv.view_grant(resp.grant)
 
-    async def guest_exec(self, command: str):
+    async def guest_exec(self, command: str) -> t.GuestExecResult:
         resp = await self._cap.guestExec(command=command)
         return conv.guest_exec_result(resp.result)
 
@@ -213,7 +227,7 @@ class AsyncVm:
 
     # ---- streaming endpoints ---------------------------------------------
 
-    async def serial_console(self):
+    async def serial_console(self) -> ByteStream:
         """Open a bidirectional serial console.
 
         Returns a `ByteStream`; use `read()` for daemon-to-client bytes
@@ -223,13 +237,15 @@ class AsyncVm:
 
         return await open_byte_stream(self._cap.serialConsole)
 
-    async def hmp_monitor(self):
+    async def hmp_monitor(self) -> ByteStream:
         """Open a bidirectional HMP monitor session (returns a `ByteStream`)."""
         from .streams import open_byte_stream
 
         return await open_byte_stream(self._cap.hmpMonitor)
 
-    async def subscribe_guest_agent(self, on_event):
+    async def subscribe_guest_agent(
+        self, on_event: Callable[[t.GuestAgentStatus], Awaitable[None]]
+    ) -> GuestAgentSubscription:
         """Subscribe to guest-agent state push events.
 
         `on_event` is an async callable invoked with each
@@ -240,7 +256,9 @@ class AsyncVm:
 
         return await subscribe_guest_agent(self._cap, on_event)
 
-    async def subscribe_stats(self, on_event):
+    async def subscribe_stats(
+        self, on_event: Callable[[t.VmStats], Awaitable[None]]
+    ) -> VmStatsSubscription:
         """Subscribe to live resource-stats push events (~10s cadence).
 
         `on_event` is an async callable invoked with each `VmStats`.
@@ -251,7 +269,7 @@ class AsyncVm:
 
         return await subscribe_stats(self._cap, on_event)
 
-    async def get_stats_history(self) -> list:
+    async def get_stats_history(self) -> list[t.VmStats]:
         """Fetch the daemon's ring buffer for this VM (up to 60
         samples, oldest first). Empty when the VM is stopped or
         has not been polled yet."""
@@ -283,7 +301,7 @@ class AsyncVm:
             params.cacheType = cache_type
         params.discard = discard
         resp = await self._cap.attachDisk(params=params)
-        return resp.driveId
+        return cast(int, resp.driveId)
 
     async def detach_disk(self, drive_id: int) -> None:
         await self._cap.detachDisk(driveId=drive_id)
@@ -322,12 +340,12 @@ class AsyncVm:
         if network_ref is not None:
             params.networkRef = entity_ref(network_ref)
         resp = await self._cap.addNetIf(params=params)
-        return resp.netIfId
+        return cast(int, resp.netIfId)
 
     async def remove_net_if(self, net_if_id: int) -> None:
         await self._cap.removeNetIf(netIfId=net_if_id)
 
-    async def list_net_ifs(self):
+    async def list_net_ifs(self) -> list[t.NetIfInfo]:
         resp = await self._cap.listNetIfs()
         return [conv.net_if_info(n) for n in resp.netIfs]
 
@@ -348,18 +366,18 @@ class AsyncVm:
             params.cache = cache
         params.readOnly = read_only
         resp = await self._cap.addSharedDir(params=params)
-        return resp.sharedDirId
+        return cast(int, resp.sharedDirId)
 
     async def remove_shared_dir(self, shared_dir_id: int) -> None:
         await self._cap.removeSharedDir(sharedDirId=shared_dir_id)
 
-    async def list_shared_dirs(self):
+    async def list_shared_dirs(self) -> list[t.SharedDirInfo]:
         resp = await self._cap.listSharedDirs()
         return [conv.shared_dir_info(s) for s in resp.sharedDirs]
 
     # ---- VM-scoped full-machine snapshots ---------------------------------
 
-    async def snapshot_create(self, name: str):
+    async def snapshot_create(self, name: str) -> t.VmSnapshotInfo:
         """Create a VM-scoped full-machine snapshot.
 
         Atomically snapshots every writable qcow2 disk attached to
@@ -372,7 +390,7 @@ class AsyncVm:
         resp = await req.send()
         return conv.vm_snapshot_info(resp.info)
 
-    async def snapshot_list(self):
+    async def snapshot_list(self) -> list[t.VmSnapshotInfo]:
         resp = await self._cap.snapshotList()
         return [conv.vm_snapshot_info(s) for s in resp.snapshots]
 
@@ -401,6 +419,6 @@ class AsyncVm:
     async def detach_ssh_key(self, key_ref: int | str) -> None:
         await self._cap.detachSshKey(keyRef=entity_ref(key_ref))
 
-    async def list_ssh_keys(self):
+    async def list_ssh_keys(self) -> list[t.SshKeyInfo]:
         resp = await self._cap.listSshKeys()
         return [conv.ssh_key_info(k) for k in resp.keys]

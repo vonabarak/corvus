@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 from PySide6.QtWidgets import QFormLayout, QLineEdit, QPlainTextEdit, QWidget
 
 from .form_dialog import FormDialog
+from .payload_types import SshKeyAddPayload
 
 
 class SshKeyAddDialog(FormDialog):
     """Name + public-key textarea. Validates non-empty fields."""
+
+    def payload(self) -> SshKeyAddPayload:
+        return cast(SshKeyAddPayload, super().payload())
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self._name = QLineEdit()
@@ -26,7 +30,7 @@ class SshKeyAddDialog(FormDialog):
         form.addRow("Name:", self._name)
         form.addRow("Public key:", self._public_key)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> SshKeyAddPayload | None:
         name = self._name.text().strip()
         pubkey = self._public_key.toPlainText().strip()
         if not name:

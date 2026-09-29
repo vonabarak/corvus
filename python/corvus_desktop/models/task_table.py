@@ -8,10 +8,15 @@ just renders a snapshot fed by ``CorvusBridge.task_list_ready``.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from corvus_client.types import TaskInfo
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    Qt,
+)
 
 # Module-level sentinel so ``rowCount(parent=...)`` / ``columnCount(parent=...)``
 # can keep the Qt default-argument shape without violating B008 (no QObject
@@ -73,7 +78,7 @@ class TaskTableModel(QAbstractTableModel):
         "Client",
     )
 
-    def __init__(self, parent: Any = None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._tasks: list[TaskInfo] = []
 
@@ -107,7 +112,7 @@ class TaskTableModel(QAbstractTableModel):
         section: int,
         orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | None:
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
@@ -120,7 +125,7 @@ class TaskTableModel(QAbstractTableModel):
         self,
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> str | int | None:
         if not index.isValid():
             return None
         task = self.task_at(index.row())
@@ -138,7 +143,7 @@ class TaskTableModel(QAbstractTableModel):
 
     # --------------------------------------------------------- internals
 
-    def _display(self, task: TaskInfo, col: int) -> Any:
+    def _display(self, task: TaskInfo, col: int) -> str | int | None:
         if col == self.COL_ID:
             return task.id
         if col == self.COL_STARTED:

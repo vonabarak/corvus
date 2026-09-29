@@ -24,6 +24,7 @@ import subprocess
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -96,7 +97,7 @@ def _pick_free_port() -> int:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        return cast(int, s.getsockname()[1])
     finally:
         s.close()
 
@@ -115,7 +116,7 @@ def _read_log_tail(log_path: Path) -> str:
 def _wait_for_tcp(
     host: str,
     port: int,
-    proc: subprocess.Popen,
+    proc: subprocess.Popen[bytes],
     log_path: Path,
     *,
     timeout: float = 15.0,
@@ -210,7 +211,7 @@ def _drop_db(name: str) -> None:
 
 def _wait_for_socket(
     sock_path: Path,
-    proc: subprocess.Popen,
+    proc: subprocess.Popen[bytes],
     log_path: Path,
     *,
     timeout: float = 15.0,
@@ -298,7 +299,7 @@ def _ensure_self_node(sock: Path, agent_port: int) -> None:
 
 
 @pytest.fixture(scope="module")
-def daemon_socket(tmp_path_factory) -> Iterator[Path]:
+def daemon_socket(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     suffix = secrets.token_hex(4)
     sock_dir = tmp_path_factory.mktemp(f"corvus-{suffix}")
     sock = sock_dir / "corvus.sock"
@@ -324,8 +325,8 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
     env["HOME"] = str(fake_home)
     agent_port = _pick_free_port()
 
-    agent_proc: subprocess.Popen | None = None
-    daemon_proc: subprocess.Popen | None = None
+    agent_proc: subprocess.Popen[bytes] | None = None
+    daemon_proc: subprocess.Popen[bytes] | None = None
     try:
         # Phase 4 routes all disk / cloud-init / VM-lifecycle ops
         # through corvus-nodeagent; the daemon errors out with

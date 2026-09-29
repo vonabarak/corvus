@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
+
+import capnp
 
 from .. import _schema, types
 from .._entityref import entity_ref
@@ -12,16 +15,16 @@ from . import _convert as conv
 
 @translate_errors
 class AsyncDiskManager:
-    def __init__(self, daemon):
+    def __init__(self, daemon: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._daemon = daemon
         self._mgr = None
 
-    async def _ensure(self):
+    async def _ensure(self) -> capnp.lib.capnp._DynamicCapabilityClient:
         if self._mgr is None:
             self._mgr = (await self._daemon.disks()).mgr
         return self._mgr
 
-    async def list(self):
+    async def list(self) -> list[types.DiskImageInfo]:
         mgr = await self._ensure()
         resp = await mgr.list()
         return [conv.disk_image_info(d) for d in resp.disks]
@@ -240,7 +243,7 @@ class AsyncDiskManager:
         # `import` is a Python keyword; pycapnp uses the schema name verbatim
         # as a method on the cap, so we call it through getattr.
         resp = await getattr(mgr, "import")(params=params)
-        return resp.taskId
+        return cast(int, resp.taskId)
 
     async def upload_from_file(
         self,
@@ -312,7 +315,7 @@ class AsyncDiskManager:
             params.toPath = to_path
         params.withBackingChain = with_backing_chain
         resp = await mgr.copy(params=params)
-        return resp.taskId
+        return cast(int, resp.taskId)
 
     async def move(
         self,
@@ -341,22 +344,22 @@ class AsyncDiskManager:
             params.toPath = to_path
         params.withBackingChain = with_backing_chain
         resp = await mgr.move(params=params)
-        return resp.taskId
+        return cast(int, resp.taskId)
 
 
 @translate_errors
 class AsyncDisk:
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
-    async def show(self):
+    async def show(self) -> types.DiskImageInfo:
         resp = await self._cap.show()
         return conv.disk_image_info(resp.info)
 
     async def delete(self) -> None:
         await self._cap.delete()
 
-    async def refresh(self):
+    async def refresh(self) -> types.DiskImageInfo:
         resp = await self._cap.refresh()
         return conv.disk_image_info(resp.info)
 
@@ -394,7 +397,7 @@ class AsyncDisk:
         resp = await req.send()
         return AsyncSnapshot(resp.snapshot)
 
-    async def snapshot_list(self):
+    async def snapshot_list(self) -> list[types.SnapshotInfo]:
         resp = await self._cap.snapshotList()
         return [conv.snapshot_info(s) for s in resp.snapshots]
 
@@ -407,10 +410,10 @@ class AsyncDisk:
 
 @translate_errors
 class AsyncSnapshot:
-    def __init__(self, cap):
+    def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
-    async def show(self):
+    async def show(self) -> types.SnapshotInfo:
         resp = await self._cap.show()
         return conv.snapshot_info(resp.info)
 

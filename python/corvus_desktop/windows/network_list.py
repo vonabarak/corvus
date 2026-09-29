@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Signal
+from corvus_client.types import NetworkInfo
+from PySide6.QtCore import QModelIndex, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -71,16 +72,16 @@ class NetworkListWidget(QWidget):
             self._bridge.network_create(
                 p["name"],
                 p["subnet"],
-                node=p["node"],
+                node=str(p["node"]) if p["node"] is not None else None,
                 dhcp=p["dhcp"],
                 nat=p["nat"],
                 autostart=p["autostart"],
             )
 
-    def _on_networks(self, networks: Any) -> None:
+    def _on_networks(self, networks: list[NetworkInfo]) -> None:
         self._model.set_networks(networks)
 
-    def _on_double_click(self, index: Any) -> None:
+    def _on_double_click(self, index: QModelIndex) -> None:
         net = self._model.network_at(index.row())
         if net is not None:
             self.network_activated.emit(net.id)

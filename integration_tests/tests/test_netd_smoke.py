@@ -32,7 +32,7 @@ from collections.abc import Iterator
 
 import capnp
 import pytest
-from corvus_test_harness import NetdClient, SingleNodeCase
+from corvus_test_harness import NetdClient, SingleNodeCase, TestNode
 from corvus_test_harness.cases import state_for
 from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH
 
@@ -47,10 +47,10 @@ NETD_NODE_PORT = 9877
 def _pick_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
-def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen:
+def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen[bytes]:
     socat = shutil.which("socat")
     ssh = shutil.which("ssh")
     if not socat or not ssh:
@@ -93,7 +93,7 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen:
     raise RuntimeError(f"ssh port forward never ready on 127.0.0.1:{host_port}")
 
 
-def _close_port_forward(proc: subprocess.Popen) -> None:
+def _close_port_forward(proc: subprocess.Popen[bytes]) -> None:
     if proc.poll() is not None:
         return
     proc.terminate()
@@ -120,7 +120,7 @@ def _network_spec(
     dhcp_lease: str = "12h",
     dhcp_domain: str = "",
     dhcp_host_dns: bool = True,
-):
+) -> dict[str, object]:
     return {
         "name": name,
         "cidr": cidr,
@@ -170,7 +170,7 @@ print({0: 'NOERROR', 1: 'FORMERR', 2: 'SERVFAIL', 3: 'NXDOMAIN',
 """
 
 
-def _dns_rcode(node, target_ip: str, qname: str) -> str:
+def _dns_rcode(node: TestNode, target_ip: str, qname: str) -> str:
     """Send a DNS A query to ``target_ip:53`` from ``node`` and
     return the response RCODE as a string."""
     cmd = f"python3 -c {shlex.quote(_DNS_QUERY_PY)} {shlex.quote(target_ip)} {shlex.quote(qname)}"
@@ -188,7 +188,10 @@ class TestNetdDeclarative(SingleNodeCase):
     NODES = ("netd",)
 
     @pytest.fixture(scope="class")
-    def netd_endpoint(self, request) -> Iterator[tuple[str, int]]:
+    def netd_endpoint(
+        self, request: pytest.FixtureRequest
+    ) -> Iterator[tuple[str, int]]:
+        assert request.cls is not None
         state = state_for(request.cls)
         if state.topology is None:
             pytest.skip("class topology not initialised; upstream fixture failed")
@@ -201,7 +204,11 @@ class TestNetdDeclarative(SingleNodeCase):
             _close_port_forward(forward)
 
     @pytest.fixture
-    def agent(self, netd_endpoint, tmp_path_factory) -> Iterator[NetdClient]:
+    def agent(
+        self,
+        netd_endpoint: tuple[str, int],
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> Iterator[NetdClient]:
         """One fresh agent connection + session per test method.
 
         netd's CN-prefix check requires the peer to present a
@@ -223,10 +230,12 @@ class TestNetdDeclarative(SingleNodeCase):
 
     # -- Liveness / version --------------------------------------------------
 
-    def test_ping(self, agent):
+    def test_ping(self, agent: NetdClient) -> None:
         agent.ping()
 
-    def test_version_advertises_declarative_capabilities(self, agent):
+    def test_version_advertises_declarative_capabilities(
+        self, agent: NetdClient
+    ) -> None:
         info = agent.version()
         assert info.semver.startswith("0.")
         assert set(info.capabilities) == {
@@ -238,7 +247,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
     # -- Networks ------------------------------------------------------------
 
-    def test_apply_network_creates_bridge_in_kernel(self, agent):
+    def test_apply_network_creates_bridge_in_kernel(self, agent: NetdClient) -> None:
         """applyNetwork puts a real bridge in the node's host netns."""
         name = "corvus-br-a"
         node = self.node
@@ -254,7 +263,7 @@ class TestNetdDeclarative(SingleNodeCase):
         assert b"10.191.0.1/24" in addr.stdout
         agent.delete_network(name)
 
-    def test_apply_network_is_idempotent(self, agent):
+    def test_apply_network_is_idempotent(self, agent: NetdClient) -> None:
         """Two applyNetwork calls with the same spec → bridge MAC unchanged."""
         name = "corvus-br-b"
         node = self.node
@@ -270,7 +279,7 @@ class TestNetdDeclarative(SingleNodeCase):
         )
         agent.delete_network(name)
 
-    def test_apply_network_reconciles_cidr_change(self, agent):
+    def test_apply_network_reconciles_cidr_change(self, agent: NetdClient) -> None:
         """Updating CIDR with applyNetwork swaps the IP in place."""
         name = "corvus-br-c"
         node = self.node
@@ -283,7 +292,7 @@ class TestNetdDeclarative(SingleNodeCase):
         assert b"10.189.0.1/24" not in addr.stdout
         agent.delete_network(name)
 
-    def test_apply_network_nat_installs_masquerade(self, agent):
+    def test_apply_network_nat_installs_masquerade(self, agent: NetdClient) -> None:
         """applyNetwork with nat.enabled adds a masquerade rule."""
         name = "corvus-br-n"
         subnet = "10.188.0.0/24"
@@ -297,7 +306,7 @@ class TestNetdDeclarative(SingleNodeCase):
         assert subnet.encode() in table.stdout or b"10.188.0.1" in table.stdout
         agent.delete_network(name)
 
-    def test_apply_network_dhcp_spawns_dnsmasq(self, agent):
+    def test_apply_network_dhcp_spawns_dnsmasq(self, agent: NetdClient) -> None:
         """applyNetwork with dhcp.enabled spawns dnsmasq."""
         name = "corvus-br-d"
         node = self.node
@@ -316,7 +325,7 @@ class TestNetdDeclarative(SingleNodeCase):
         assert proc.returncode == 0, "dnsmasq not found for the bridge"
         agent.delete_network(name)
 
-    def test_delete_network_tears_down_everything(self, agent):
+    def test_delete_network_tears_down_everything(self, agent: NetdClient) -> None:
         """deleteNetwork removes bridge, NAT rule, and dnsmasq."""
         name = "corvus-br-x"
         node = self.node
@@ -340,7 +349,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
     # -- TAPs ----------------------------------------------------------------
 
-    def test_apply_tap_requires_known_bridge(self, agent):
+    def test_apply_tap_requires_known_bridge(self, agent: NetdClient) -> None:
         """applyTap against an unknown bridge fails fast."""
         with pytest.raises(capnp.KjException):
             agent.apply_tap(
@@ -352,7 +361,7 @@ class TestNetdDeclarative(SingleNodeCase):
                 }
             )
 
-    def test_apply_tap_creates_persistent_tap(self, agent):
+    def test_apply_tap_creates_persistent_tap(self, agent: NetdClient) -> None:
         """applyTap creates a persistent TAP with the requested owner uid."""
         bridge = "corvus-br-tp"
         tap = "corvus-tap-tp"
@@ -373,7 +382,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
     # -- Kernel knobs --------------------------------------------------------
 
-    def test_set_ip_forwarding_toggles_proc(self, agent):
+    def test_set_ip_forwarding_toggles_proc(self, agent: NetdClient) -> None:
         node = self.node
         before = node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
 
@@ -392,7 +401,7 @@ class TestNetdDeclarative(SingleNodeCase):
     # -- DNS-on-bridge -------------------------------------------------------
 
     @staticmethod
-    def _resolved_running(node) -> bool:
+    def _resolved_running(node: TestNode) -> bool:
         """systemd-resolved present + active on the test node.
 
         The agent's HostDns module no-ops when /run/systemd/resolve/
@@ -400,7 +409,7 @@ class TestNetdDeclarative(SingleNodeCase):
         """
         return node.run("test -d /run/systemd/resolve", check=False).returncode == 0
 
-    def test_apply_network_no_domain_keeps_dns_off(self, agent):
+    def test_apply_network_no_domain_keeps_dns_off(self, agent: NetdClient) -> None:
         """Default behaviour: DHCP on, domain empty → port 0 (DNS off).
 
         Operators upgrading without setting a domain see the same
@@ -434,7 +443,7 @@ class TestNetdDeclarative(SingleNodeCase):
         finally:
             agent.delete_network(name)
 
-    def test_apply_network_domain_turns_on_dns_zone(self, agent):
+    def test_apply_network_domain_turns_on_dns_zone(self, agent: NetdClient) -> None:
         """DHCP + domain → dnsmasq answers <hostname>.<domain> from leases.
 
         Verifies the full DNS-server contract:
@@ -495,7 +504,7 @@ class TestNetdDeclarative(SingleNodeCase):
         finally:
             agent.delete_network(name)
 
-    def test_per_bridge_lease_files_are_isolated(self, agent):
+    def test_per_bridge_lease_files_are_isolated(self, agent: NetdClient) -> None:
         """Two concurrent networks → two distinct lease files.
 
         Pre-fix this was the latent multi-network bug: both dnsmasqs
@@ -538,7 +547,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
     # -- Host-side systemd-resolved drop-in ----------------------------------
 
-    def test_host_dns_binds_resolved_per_link(self, agent):
+    def test_host_dns_binds_resolved_per_link(self, agent: NetdClient) -> None:
         """`hostDns=true` configures per-link systemd-resolved state.
 
         The agent sets the bridge's per-link DNS server, routing
@@ -590,7 +599,7 @@ class TestNetdDeclarative(SingleNodeCase):
             if dns_after.returncode == 0:
                 assert bridge_ip.encode() not in dns_after.stdout
 
-    def test_host_dns_opt_out_skips_routing(self, agent):
+    def test_host_dns_opt_out_skips_routing(self, agent: NetdClient) -> None:
         """`hostDns=false` keeps dnsmasq's DNS side on but skips the per-link config.
 
         Operators who run their own host-side resolver (or just don't
@@ -630,7 +639,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
     # -- Cleanup-on-shutdown -------------------------------------------------
 
-    def test_shutdown_cleanup_removes_everything(self, agent):
+    def test_shutdown_cleanup_removes_everything(self, agent: NetdClient) -> None:
         """`systemctl stop` runs cleanup; corvus-* resources go away.
 
         Stops the node's own corvus-netd.service in-place (the inner

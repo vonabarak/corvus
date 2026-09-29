@@ -8,7 +8,7 @@ phase; Phase 10 swaps in a node combo) and optional destination path.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -19,12 +19,16 @@ from PySide6.QtWidgets import (
 
 from ..widgets.entity_combo import EntityCombo
 from .form_dialog import FormDialog
+from .payload_types import DiskCopyMovePayload, DiskRebasePayload
 
 if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
 
 
 class DiskRebaseDialog(FormDialog):
+    def payload(self) -> DiskRebasePayload:
+        return cast(DiskRebasePayload, super().payload())
+
     def __init__(self, bridge: CorvusBridge, parent: QWidget | None = None) -> None:
         self._backing = EntityCombo(
             bridge.request_disk_list,
@@ -36,16 +40,20 @@ class DiskRebaseDialog(FormDialog):
     def build_form(self, form: QFormLayout) -> None:
         form.addRow("New backing:", self._backing)
 
-    def result_payload(self) -> dict[str, Any] | None:
-        if self._backing.selected_id() is None:
+    def result_payload(self) -> DiskRebasePayload | None:
+        backing_id = self._backing.selected_id()
+        if backing_id is None:
             self.show_error("Pick a backing disk.")
             return None
-        return {"new_backing_disk_ref": self._backing.selected_id()}
+        return {"new_backing_disk_ref": backing_id}
 
 
 class DiskCopyMoveDialog(FormDialog):
     """One class drives both `copy` and `move` — the mode just changes
     the title + the bridge slot the caller invokes."""
+
+    def payload(self) -> DiskCopyMovePayload:
+        return cast(DiskCopyMovePayload, super().payload())
 
     def __init__(
         self,
@@ -70,7 +78,7 @@ class DiskCopyMoveDialog(FormDialog):
         form.addRow("To path:", self._to_path)
         form.addRow("", self._with_backing)
 
-    def result_payload(self) -> dict[str, Any] | None:
+    def result_payload(self) -> DiskCopyMovePayload | None:
         node = self._to_node.text().strip()
         if not node:
             self.show_error("Destination node is required.")

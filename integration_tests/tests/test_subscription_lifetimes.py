@@ -46,7 +46,9 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 
+from corvus_client.types import GuestAgentStatus, VmStats
 from corvus_test_harness import SingleNodeCase, Vm
 
 
@@ -58,7 +60,7 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
 
     def _drain(
         self,
-        events: list,
+        events: list[GuestAgentStatus],
         *,
         target: int,
         timeout_sec: float,
@@ -77,17 +79,17 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
             f"only received {len(events)}/{target} events within {timeout_sec}s"
         )
 
-    def test_subscription_delivers_pushes(self):
+    def test_subscription_delivers_pushes(self) -> None:
         """The simplest contract: ``subscribe_guest_agent`` actually
         receives events on the agent's poll cadence. The
         ``StatusPoller`` interval is 10 s; we allow 30 s (one boot
         plus three windows) so a slow nested-KVM host doesn't
         flake."""
         with Vm(self) as vm:
-            received: list = []
+            received: list[GuestAgentStatus] = []
             lock = threading.Lock()
 
-            def on_event(ev):
+            def on_event(ev: GuestAgentStatus) -> None:
                 with lock:
                     received.append(ev)
 
@@ -103,16 +105,18 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
             finally:
                 sub.close()
 
-    def test_two_subscribers_receive_independently(self):
+    def test_two_subscribers_receive_independently(self) -> None:
         """Two subscribers to the same VM both see pushes — fan-out
         per sink, not "first one wins"."""
         with Vm(self) as vm:
-            a_events: list = []
-            b_events: list = []
+            a_events: list[GuestAgentStatus] = []
+            b_events: list[GuestAgentStatus] = []
             lock = threading.Lock()
 
-            def make_handler(target):
-                def on_event(ev):
+            def make_handler(
+                target: list[GuestAgentStatus],
+            ) -> Callable[[GuestAgentStatus], None]:
+                def on_event(ev: GuestAgentStatus) -> None:
                     with lock:
                         target.append(ev)
 
@@ -127,7 +131,7 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
                 sub_a.close()
                 sub_b.close()
 
-    def test_dropping_one_subscriber_does_not_starve_the_other(self):
+    def test_dropping_one_subscriber_does_not_starve_the_other(self) -> None:
         """The daemon's per-VM subscriber list is keyed by handle
         identity. Closing one handle must prune ONLY that handle —
         the other survivor continues to receive events on schedule.
@@ -137,8 +141,8 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
         broken (e.g. closing one truncated the list), B would
         also stop."""
         with Vm(self) as vm:
-            a_events: list = []
-            b_events: list = []
+            a_events: list[GuestAgentStatus] = []
+            b_events: list[GuestAgentStatus] = []
             lock = threading.Lock()
 
             sub_a = vm.cap.subscribe_guest_agent(
@@ -167,7 +171,7 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
                 sub_a.close()
                 sub_b.close()
 
-    def test_close_does_not_raise(self):
+    def test_close_does_not_raise(self) -> None:
         """``close()`` runs without error and is idempotent.
 
         Stronger contract — "the daemon stops pushing to a closed
@@ -190,10 +194,10 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
         work pending a deterministic cap-release path on the
         Python side."""
         with Vm(self) as vm:
-            events: list = []
+            events: list[GuestAgentStatus] = []
             lock = threading.Lock()
 
-            def on_event(ev):
+            def on_event(ev: GuestAgentStatus) -> None:
                 with lock:
                     events.append(ev)
 
@@ -203,7 +207,7 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
             # Idempotent: second close shouldn't raise.
             sub.close()
 
-    def test_stats_subscribers_fan_out_and_survive_close(self):
+    def test_stats_subscribers_fan_out_and_survive_close(self) -> None:
         """Live VM-statistics samples fan out, and closing one sink leaves
         the other receiving later decoded samples.
 
@@ -214,18 +218,20 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
         Python-side ``close()``.
         """
         with Vm(self) as vm:
-            a_events: list = []
-            b_events: list = []
+            a_events: list[VmStats] = []
+            b_events: list[VmStats] = []
             lock = threading.Lock()
 
-            def make_handler(target):
-                def on_event(sample):
+            def make_handler(target: list[VmStats]) -> Callable[[VmStats], None]:
+                def on_event(sample: VmStats) -> None:
                     with lock:
                         target.append(sample)
 
                 return on_event
 
-            def drain(target, *, target_count: int, timeout_sec: float) -> None:
+            def drain(
+                target: list[VmStats], *, target_count: int, timeout_sec: float
+            ) -> None:
                 deadline = time.monotonic() + timeout_sec
                 while time.monotonic() < deadline:
                     with lock:

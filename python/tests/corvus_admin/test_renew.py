@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 
 import pytest
 from corvus_admin import ca, deploy, store
@@ -11,12 +12,14 @@ from corvus_admin.runner import LocalRunner
 
 
 @pytest.fixture()
-def initialised_store(admin_store):
+def initialised_store(admin_store: store.AdminStore) -> store.AdminStore:
     ca.init_ca(admin_store)
     return admin_store
 
 
-def test_renew_daemon_reuses_existing_uuid(initialised_store, fake_paths):
+def test_renew_daemon_reuses_existing_uuid(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     """After a deploy + renew, the daemon CN UUID must be stable."""
 
     runner = LocalRunner()
@@ -28,7 +31,9 @@ def test_renew_daemon_reuses_existing_uuid(initialised_store, fake_paths):
     )
 
 
-def test_renew_node_uses_stored_ip(initialised_store, fake_paths):
+def test_renew_node_uses_stored_ip(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     """renew_node picks the IP up from the issued record so the
     operator doesn't have to remember it."""
 
@@ -42,7 +47,9 @@ def test_renew_node_uses_stored_ip(initialised_store, fake_paths):
     assert rec.ip == "10.0.0.21"
 
 
-def test_renew_refuses_when_not_due(initialised_store, fake_paths):
+def test_renew_refuses_when_not_due(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     """A freshly-minted cert isn't due for renewal; the default
     refusal must surface as RenewError (and as a non-zero exit
     from the CLI, exercised in test_cli)."""
@@ -53,7 +60,9 @@ def test_renew_refuses_when_not_due(initialised_store, fake_paths):
         deploy.renew_daemon(initialised_store, target="local")
 
 
-def test_renew_proceeds_when_force(initialised_store, fake_paths):
+def test_renew_proceeds_when_force(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
     runner = LocalRunner()
     deploy.deploy_daemon(initialised_store, runner, listen_ip="127.0.0.1")
     # force=True bypasses the not-due-yet check.
@@ -61,7 +70,7 @@ def test_renew_proceeds_when_force(initialised_store, fake_paths):
     assert plan.role == ca.ROLE_DAEMON
 
 
-def test_needs_renewal_within_window(initialised_store):
+def test_needs_renewal_within_window(initialised_store: store.AdminStore) -> None:
     rec = store.IssuedRecord(
         cn="corvus-daemon:abc",
         role=ca.ROLE_DAEMON,
@@ -78,7 +87,7 @@ def test_needs_renewal_within_window(initialised_store):
     assert deploy.needs_renewal(rec, now=late) is True
 
 
-def test_runner_label_to_target_round_trips():
+def test_runner_label_to_target_round_trips() -> None:
     assert deploy.runner_label_to_target("local") == "local"
     assert deploy.runner_label_to_target("ssh:root@10.0.0.1") == "root@10.0.0.1"
     # Client deploys store something like "local:/path/..." in
@@ -88,17 +97,20 @@ def test_runner_label_to_target_round_trips():
         deploy.runner_label_to_target("local:/foo")
 
 
-def test_find_record_raises_when_missing(initialised_store):
+def test_find_record_raises_when_missing(initialised_store: store.AdminStore) -> None:
     with pytest.raises(deploy.RenewError):
         deploy.find_record(initialised_store, role=ca.ROLE_DAEMON)
 
 
-def test_renew_client_remints_into_xdg(initialised_store, fake_paths, xdg_home):
+def test_renew_client_remints_into_xdg(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path], xdg_home: Path
+) -> None:
     """The admin's local client cert deploy path is reused by
     renew_client; the XDG file is overwritten with the new
     material."""
 
     first_rec = deploy.deploy_client(initialised_store, name="alice")
+    assert first_rec is not None
     first_cert = (xdg_home / "corvus" / "corvus-client.crt").read_bytes()
     deploy.renew_client(initialised_store, name="alice", force=True)
     second_cert = (xdg_home / "corvus" / "corvus-client.crt").read_bytes()

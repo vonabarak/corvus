@@ -6,9 +6,9 @@ and renders the result (one section per entity type) on success.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from corvus_client.types import ApplyResult
+from corvus_client.types import ApplyCreated, ApplyResult
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -113,7 +113,7 @@ class ApplyWidget(QWidget):
             skip_existing=self._skip_existing.isChecked(),
         )
 
-    def _on_apply_completed(self, result: Any, task_id: int) -> None:
+    def _on_apply_completed(self, result: ApplyResult, task_id: int) -> None:
         self._apply_btn.setEnabled(True)
         self._last_task_id = task_id
         if isinstance(result, ApplyResult):
@@ -186,7 +186,7 @@ class _GroupList(QGroupBox):
     def clear(self) -> None:
         self._content.setText("(none)")
 
-    def populate(self, items: Any) -> None:
+    def populate(self, items: list[ApplyCreated]) -> None:
         if not items:
             self.clear()
             return

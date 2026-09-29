@@ -31,10 +31,13 @@ image after pulling this commit:
 from __future__ import annotations
 
 import shlex
+import subprocess
 import sys
 import time
+from collections.abc import Iterator
 
 import pytest
+from corvus_test_harness import Crv, HostBinary, ImageReady, TestNode
 from corvus_test_harness.cases import IntegrationTestCase, state_for
 from corvus_test_harness.topology import NodeRole, Topology
 
@@ -53,13 +56,13 @@ NODE_USER = "corvus"
 
 
 def _run(
-    node,
+    node: TestNode,
     cmd: str,
     *,
     user: str = NODE_USER,
     check: bool = True,
     timeout_sec: float = 120.0,
-):
+) -> subprocess.CompletedProcess[bytes]:
     """``node.run`` wrapper that decodes stdout/stderr and exposes
     both via a small dataclass so assertions read cleanly."""
 
@@ -85,13 +88,13 @@ def _user_env_prefix() -> str:
 
 
 def _shrun(
-    node,
+    node: TestNode,
     body: str,
     *,
     user: str = NODE_USER,
     check: bool = True,
     timeout_sec: float = 120.0,
-):
+) -> subprocess.CompletedProcess[bytes]:
     """Run a multi-line shell snippet with the user env prefix."""
 
     full = _user_env_prefix() + body
@@ -122,8 +125,13 @@ class TestQuickstart(IntegrationTestCase):
 
     @pytest.fixture(scope="class", autouse=True)
     def _class_topology(
-        self, request, crv, image_ready, host_binary, session_test_network
-    ):
+        self,
+        request: pytest.FixtureRequest,
+        crv: Crv,
+        image_ready: ImageReady,
+        host_binary: HostBinary,
+        session_test_network: str,
+    ) -> Iterator[None]:
         """Bring up the bare node + install corvus-admin from source.
 
         Differs from the default :class:`IntegrationTestCase`
@@ -138,6 +146,7 @@ class TestQuickstart(IntegrationTestCase):
         """
 
         cls = request.cls
+        assert cls is not None
         state = state_for(cls)
         topology: Topology | None = None
         try:
@@ -194,12 +203,12 @@ class TestQuickstart(IntegrationTestCase):
                     sys.stderr.flush()
 
     @property
-    def node(self):
+    def node(self) -> TestNode:
         return self.nodes[0]
 
     # ---- Tests ---------------------------------------------------------
 
-    def test_01_all_required_binaries_on_path(self):
+    def test_01_all_required_binaries_on_path(self) -> None:
         """Every executable quickstart needs resolves via ``which``."""
 
         for binary in (
@@ -215,7 +224,7 @@ class TestQuickstart(IntegrationTestCase):
                 f"{binary!r} not on $PATH (stderr: {cp.stderr.decode().strip()})"
             )
 
-    def test_02_quickstart_succeeds(self):
+    def test_02_quickstart_succeeds(self) -> None:
         """``corvus-admin quickstart`` runs to completion on a fresh node.
 
         Bump the healthcheck timeout: the test-node VM's user-systemd
@@ -237,7 +246,7 @@ class TestQuickstart(IntegrationTestCase):
             f"--- stderr ---\n{cp.stderr.decode(errors='replace')}"
         )
 
-    def test_03_daemon_user_service_active(self):
+    def test_03_daemon_user_service_active(self) -> None:
         cp = _shrun(
             self.node,
             "systemctl --user is-active corvus.service",
@@ -249,7 +258,7 @@ class TestQuickstart(IntegrationTestCase):
             f"stderr: {cp.stderr.decode().strip()!r}"
         )
 
-    def test_04_nodeagent_user_service_active(self):
+    def test_04_nodeagent_user_service_active(self) -> None:
         cp = _shrun(
             self.node,
             "systemctl --user is-active corvus-nodeagent.service",
@@ -261,7 +270,7 @@ class TestQuickstart(IntegrationTestCase):
             f"stderr: {cp.stderr.decode().strip()!r}"
         )
 
-    def test_05_netd_system_service_active(self):
+    def test_05_netd_system_service_active(self) -> None:
         cp = _shrun(
             self.node,
             "systemctl is-active corvus-netd.service",
@@ -273,7 +282,7 @@ class TestQuickstart(IntegrationTestCase):
             f"stderr: {cp.stderr.decode().strip()!r}"
         )
 
-    def test_06_crv_status_works(self):
+    def test_06_crv_status_works(self) -> None:
         """The CLI talks to the user-mode daemon via its Unix
         socket (no TCP listener on a quickstart install)."""
 
@@ -287,7 +296,7 @@ class TestQuickstart(IntegrationTestCase):
         # tolerate cosmetic changes.
         assert cp.stdout, "crv status returned empty stdout"
 
-    def test_07_python_client_works_via_unix_socket(self):
+    def test_07_python_client_works_via_unix_socket(self) -> None:
         """``corvus_client.Client`` connects over the same socket."""
 
         snippet = (
@@ -308,7 +317,7 @@ class TestQuickstart(IntegrationTestCase):
         out = cp.stdout.decode().strip()
         assert "protocol_version" in out, f"unexpected output: {out!r}"
 
-    def test_08_quickstart_registered_self_node(self):
+    def test_08_quickstart_registered_self_node(self) -> None:
         """``corvus-admin quickstart`` should have run ``crv node add``
         for the self node — verify the daemon has a row for it."""
 
@@ -326,7 +335,7 @@ class TestQuickstart(IntegrationTestCase):
 # Bootstrap
 
 
-def _bootstrap_node(node):
+def _bootstrap_node(node: TestNode) -> None:
     """One-time per-class prep: enable linger, ensure pip, install
     corvus from the mounted source tree.
 

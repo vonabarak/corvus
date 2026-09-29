@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TypeVar
 
 import capnp
@@ -17,11 +18,13 @@ from corvus_client._async.client import AsyncClient
 T = TypeVar("T")
 
 
-def with_client(socket_path) -> Callable[[Callable[[AsyncClient], Awaitable[T]]], T]:
+def with_client(
+    socket_path: Path,
+) -> Callable[[Callable[[AsyncClient], Awaitable[T]]], T]:
     """Return a runner: pass an async function `(client) -> result`."""
 
     def _run(fn: Callable[[AsyncClient], Awaitable[T]]) -> T:
-        async def _main():
+        async def _main() -> T:
             async with capnp.kj_loop():
                 async with AsyncClient(unix_socket=str(socket_path)) as c:
                     return await fn(c)

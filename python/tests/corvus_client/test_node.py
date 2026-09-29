@@ -15,18 +15,20 @@ through the second node).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from corvus_client import NodeInUse, NodeNotFound, ServerError
+from corvus_client import AsyncClient, NodeInUse, NodeNotFound, ServerError
 
 from ._helpers import with_client
 
 
-def test_self_node_is_visible_after_fixture(daemon_socket):
+def test_self_node_is_visible_after_fixture(daemon_socket: Path) -> None:
     """The fixture's '_ensure_self_node' helper installs a row;
     list it back through the manager and verify the shape."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         nodes = await c.nodes.list()
         names = [n.name for n in nodes]
         assert "self" in names, names
@@ -42,10 +44,10 @@ def test_self_node_is_visible_after_fixture(daemon_socket):
     run(go)
 
 
-def test_node_show_returns_full_details(daemon_socket):
+def test_node_show_returns_full_details(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         n = await c.nodes.get("self", by_name=True)
         details = await n.show()
         assert details.name == "self"
@@ -59,12 +61,12 @@ def test_node_show_returns_full_details(daemon_socket):
     run(go)
 
 
-def test_node_create_then_delete_round_trip(daemon_socket):
+def test_node_create_then_delete_round_trip(daemon_socket: Path) -> None:
     """A second node row coexists with 'self' and tears down
     cleanly when no resources reference it."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         n = await c.nodes.create(
             "beta",
             "10.0.0.99",
@@ -87,10 +89,10 @@ def test_node_create_then_delete_round_trip(daemon_socket):
     run(go)
 
 
-def test_node_edit_renames_and_updates_admin_state(daemon_socket):
+def test_node_edit_renames_and_updates_admin_state(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         n = await c.nodes.create(
             "edit-me", "10.0.0.50", node_agent_port=19000, net_agent_port=19001
         )
@@ -114,11 +116,11 @@ def test_node_edit_renames_and_updates_admin_state(daemon_socket):
     run(go)
 
 
-def test_node_drain_marks_admin_state(daemon_socket):
+def test_node_drain_marks_admin_state(daemon_socket: Path) -> None:
     """`drain` is the shortcut for admin_state='draining'."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         n = await c.nodes.create(
             "drain-me", "10.0.0.51", node_agent_port=19002, net_agent_port=19003
         )
@@ -130,12 +132,12 @@ def test_node_drain_marks_admin_state(daemon_socket):
     run(go)
 
 
-def test_node_delete_refuses_while_referenced(daemon_socket):
+def test_node_delete_refuses_while_referenced(daemon_socket: Path) -> None:
     """The DB-level refusal: a node with at least one VM / network /
     disk placement can't be deleted until the references are gone."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         n = await c.nodes.create(
             "refd",
             "10.0.0.52",
@@ -158,10 +160,10 @@ def test_node_delete_refuses_while_referenced(daemon_socket):
     run(go)
 
 
-def test_get_nonexistent_node_raises_node_not_found(daemon_socket):
+def test_get_nonexistent_node_raises_node_not_found(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         with pytest.raises(NodeNotFound):
             await c.nodes.get("does-not-exist", by_name=True)
 
@@ -173,14 +175,14 @@ def test_get_nonexistent_node_raises_node_not_found(daemon_socket):
 # ---------------------------------------------------------------------------
 
 
-def test_vm_create_without_node_uses_scheduler(daemon_socket):
+def test_vm_create_without_node_uses_scheduler(daemon_socket: Path) -> None:
     """Omitting node= lets the scheduler pick. The fixture has only
     one online node with a reachable nodeagent ('self'), so the
     scheduler always picks that one — and the resulting VM row
     carries that node's id."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         nodes = await c.nodes.list()
         self_id = next(n.id for n in nodes if n.name == "self")
 
@@ -200,12 +202,12 @@ def test_vm_create_without_node_uses_scheduler(daemon_socket):
     run(go)
 
 
-def test_disk_create_without_node_uses_scheduler(daemon_socket):
+def test_disk_create_without_node_uses_scheduler(daemon_socket: Path) -> None:
     """The disk gets a single 'DiskImagePlacement' on the
     scheduler-picked node."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-disk-sched", size_mb=1)
         try:
             info = await disk.show()
@@ -234,10 +236,10 @@ def test_disk_create_without_node_uses_scheduler(daemon_socket):
 # disk isn't.
 
 
-def test_network_create_without_node_uses_scheduler(daemon_socket):
+def test_network_create_without_node_uses_scheduler(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         net = await c.networks.create("py-net-sched", subnet="10.66.2.0/24")
         try:
             # NetworkInfo doesn't yet surface the node id (Phase 4
@@ -253,13 +255,13 @@ def test_network_create_without_node_uses_scheduler(daemon_socket):
     run(go)
 
 
-def test_cross_node_disk_attach_is_refused(daemon_socket):
+def test_cross_node_disk_attach_is_refused(daemon_socket: Path) -> None:
     """Same-node invariant: attaching a disk whose placement is on
     node A to a VM living on node B must be refused with a clear
     'not present on node …' error."""
     run = with_client(daemon_socket)
 
-    async def go(c):
+    async def go(c: AsyncClient) -> None:
         # Persist a second node row (no live agent on its port —
         # we never actually drive anything through it, the test
         # just exercises the DB-level cross-node refusal).
