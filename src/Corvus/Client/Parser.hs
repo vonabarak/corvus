@@ -17,6 +17,7 @@ module Corvus.Client.Parser
 where
 
 import Corvus.Client.Parser.Apply (applyCommand)
+import Corvus.Client.Parser.AudioDevice (audioDeviceCommandParser)
 import Corvus.Client.Parser.Build (buildCommand)
 import Corvus.Client.Parser.CloudInit (cloudInitCommandParser)
 import Corvus.Client.Parser.Disk (diskCommandParser)
@@ -95,6 +96,9 @@ commandParser =
         <> command
           "shared-dir"
           (info sharedDirCommandParser (progDesc "Shared directory management commands"))
+        <> command
+          "audio-device"
+          (info audioDeviceCommandParser (progDesc "VM audio device management commands"))
         <> command
           "template"
           (info templateCommandParser (progDesc "Template management commands"))

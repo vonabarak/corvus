@@ -116,6 +116,13 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
         "drives": [_drive_to_dict(d) for d in t.drives],
         "networkInterfaces": [_net_if_to_dict(n) for n in t.net_ifs],
         "sshKeys": [_ssh_key_to_dict(k) for k in t.ssh_keys],
+        "sharedDirs": [
+            {"path": d.path, "tag": d.tag, "cache": d.cache, "readOnly": d.read_only}
+            for d in t.shared_dirs
+        ],
+        "audioDevices": [
+            {"backend": d.backend, "options": d.options} for d in t.audio_devices
+        ],
     }
     if t.description is not None:
         doc["description"] = t.description

@@ -14,6 +14,7 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from corvus_client.types import (
+    AudioDeviceInfo,
     DriveInfo,
     DriveIo,
     GuestAgentStatus,
@@ -30,6 +31,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -224,6 +226,14 @@ class VmDetailWidget(QWidget):
             self._shared_table, "+ Add shared dir", self._on_add_shared_dir
         )
 
+        self._audio_table = QTableWidget(0, 3)
+        self._audio_table.setHorizontalHeaderLabels(["Backend", "Options", ""])
+        self._audio_table.verticalHeader().setVisible(False)
+        self._audio_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        audio_pane = _table_with_action(
+            self._audio_table, "+ Add audio card", self._on_add_audio_device
+        )
+
         self._serial = SerialConsoleWidget()
         self._serial.input_bytes.connect(self._on_serial_input)
         self._hmp = SerialConsoleWidget()
@@ -239,6 +249,7 @@ class VmDetailWidget(QWidget):
         self._tabs.addTab(netifs_pane, "Network")
         self._tabs.addTab(ssh_pane, "SSH keys")
         self._tabs.addTab(shared_pane, "Shared dirs")
+        self._tabs.addTab(audio_pane, "Audio")
         self._tabs.addTab(self._cloud_init, "Cloud-init")
         self._tabs.addTab(self._serial, "Serial console")
         self._tabs.addTab(self._hmp, "HMP monitor")
@@ -324,6 +335,7 @@ class VmDetailWidget(QWidget):
         self._netifs_table.setRowCount(0)
         self._ssh_table.setRowCount(0)
         self._shared_table.setRowCount(0)
+        self._audio_table.setRowCount(0)
         self._refresh_actions()
         self._tabs.setCurrentIndex(0)
 
@@ -344,6 +356,7 @@ class VmDetailWidget(QWidget):
         self._error.setText(info.error_message or "")
         self._fill_drives(info.drives)
         self._fill_netifs(info.net_ifs)
+        self._fill_audio_devices(info.audio_devices)
         # SSH keys: VmDetails doesn't carry the list directly; the
         # daemon attaches them as part of `Vm.listSshKeys`. For now we
         # surface the empty table — Phase 12 can subscribe properly.
@@ -582,6 +595,64 @@ class VmDetailWidget(QWidget):
                 cache=p["cache"],
                 read_only=p["read_only"],
             )
+
+    def _audio_params(
+        self, backend: str = "spice", options: str = ""
+    ) -> tuple[str, str] | None:
+        selected, ok = QInputDialog.getItem(
+            self,
+            "Audio backend",
+            "Backend",
+            ["spice", "pulse", "pipewire"],
+            ["spice", "pulse", "pipewire"].index(backend),
+            False,
+        )
+        if not ok:
+            return None
+        value, ok = QInputDialog.getText(
+            self,
+            "Audio options",
+            "Comma-separated QEMU key=value options",
+            text=options,
+        )
+        return (selected, value) if ok else None
+
+    def _on_add_audio_device(self) -> None:
+        if self._vm_id is None or self._vm_status != "stopped":
+            return
+        params = self._audio_params()
+        if params is not None:
+            self._bridge.vm_add_audio_device(self._vm_id, *params)
+
+    def _on_edit_audio_device(self, device: AudioDeviceInfo) -> None:
+        if self._vm_id is None or self._vm_status != "stopped":
+            return
+        params = self._audio_params(device.backend, device.options)
+        if params is not None:
+            self._bridge.vm_edit_audio_device(self._vm_id, device.id, *params)
+
+    def _on_remove_audio_device(self, device_id: int) -> None:
+        if self._vm_id is not None and self._vm_status == "stopped":
+            self._bridge.vm_remove_audio_device(self._vm_id, device_id)
+
+    def _fill_audio_devices(self, devices: list[AudioDeviceInfo]) -> None:
+        self._audio_table.setRowCount(len(devices))
+        for row, device in enumerate(devices):
+            self._audio_table.setItem(row, 0, QTableWidgetItem(device.backend))
+            self._audio_table.setItem(row, 1, QTableWidgetItem(device.options))
+            actions = QWidget()
+            layout = QHBoxLayout(actions)
+            layout.setContentsMargins(0, 0, 0, 0)
+            for label, callback in (
+                ("Edit", partial(self._on_edit_audio_device, device)),
+                ("Remove", partial(self._on_remove_audio_device, device.id)),
+            ):
+                button = QPushButton(label)
+                button.setEnabled(self._vm_status == "stopped")
+                button.clicked.connect(callback)
+                layout.addWidget(button)
+            self._audio_table.setCellWidget(row, 2, actions)
+        self._audio_table.resizeColumnsToContents()
 
     def _on_tab_changed(self, index: int) -> None:
         widget = self._tabs.widget(index)

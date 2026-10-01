@@ -167,6 +167,10 @@ data Command
     SharedDirRemove !Text !Text
   | -- | List shared directories for VM
     SharedDirList !Text
+  | AudioDeviceAdd !Text !Text !Text
+  | AudioDeviceEdit !Text !Int64 !Text !Text
+  | AudioDeviceRemove !Text !Int64
+  | AudioDeviceList !Text
   | -- Network interface commands
 
     -- | Add network interface to VM (vmRef, type, hostDevice, mac, networkRef)

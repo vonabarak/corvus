@@ -9,6 +9,7 @@ module Corvus.Protocol.Vm
   ( VmInfo (..)
   , DriveInfo (..)
   , NetIfInfo (..)
+  , AudioDeviceInfo (..)
   , VmDetails (..)
   , VmStats (..)
   , DriveIo (..)
@@ -18,7 +19,7 @@ module Corvus.Protocol.Vm
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
+import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -84,6 +85,16 @@ data NetIfInfo = NetIfInfo
   }
   deriving (Eq, Show, Generic)
 
+data AudioDeviceInfo = AudioDeviceInfo
+  { adiId :: !Int64
+  , adiBackend :: !AudioBackend
+  , adiOptions :: !Text
+  }
+  deriving (Eq, Show, Generic)
+
+instance ToJSON AudioDeviceInfo where
+  toJSON = genericToJSON innerOptions
+
 -- | Full VM details
 data VmDetails = VmDetails
   { vdId :: !Int64
@@ -98,6 +109,7 @@ data VmDetails = VmDetails
   , vdDescription :: !(Maybe Text)
   , vdDrives :: ![DriveInfo]
   , vdNetIfs :: ![NetIfInfo]
+  , vdAudioDevices :: ![AudioDeviceInfo]
   , vdHeadless :: !Bool
   , vdMonitorSocket :: !Text
   -- ^ Path to HMP monitor socket

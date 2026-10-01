@@ -25,7 +25,7 @@ where
 
 import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
-import Corvus.Schema.Template (TemplateYaml)
+import Corvus.Schema.Template (TemplateAudioDeviceYaml, TemplateYaml)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
@@ -237,6 +237,7 @@ data ApplyVm = ApplyVm
   , avDrives :: [ApplyDrive]
   , avNetworkInterfaces :: [ApplyNetIf]
   , avSharedDirs :: [ApplySharedDir]
+  , avAudioDevices :: [TemplateAudioDeviceYaml]
   , avSshKeys :: [Text]
   , avAutostart :: Bool
   , avRebootQuirk :: Bool
@@ -264,6 +265,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "drives" .!= []
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sharedDirs" .!= []
+      <*> o .:? "audioDevices" .!= []
       <*> o .:? "sshKeys" .!= []
       <*> o .:? "autostart" .!= False
       <*> o .:? "rebootQuirk" .!= False

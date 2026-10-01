@@ -32,6 +32,7 @@ import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Corvus.Action (runAction, runActionAsync, runActionAsyncWithId)
+import Corvus.Handlers.AudioDevice (AudioDeviceAdd (..), AudioDeviceEdit (..), AudioDeviceRemove (..), handleAudioDeviceList)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
 import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
@@ -76,7 +77,8 @@ import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
 import Corvus.Wire.Common (ViewGrant (..), toCapnpViewGrant)
 import Corvus.Wire.Enums
-  ( fromCapnpCacheType
+  ( fromCapnpAudioBackend
+  , fromCapnpCacheType
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpNetInterfaceType
@@ -86,7 +88,7 @@ import Corvus.Wire.Enums
 import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.SharedDir (toCapnpSharedDirInfo)
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
-import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo, toCapnpVmSnapshotInfo, zeroVmStats)
+import Corvus.Wire.Vm (toCapnpAudioDeviceInfo, toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo, toCapnpVmSnapshotInfo, zeroVmStats)
 import Data.Foldable (toList)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -128,6 +130,13 @@ instance CGVm.VmManager'server_ VmManagerCap where
   vmManager'create (VmManagerCap st sup cn) =
     handleParsed $ \CGVm.VmManager'create'params {params = CGVm.VmCreateParams {..}} -> do
       nodeRef' <- capnpRefToRef node
+      parsedAudioDevices <-
+        traverse
+          ( \CGVm.AudioDeviceParams {CGVm.backend = audioBackend, CGVm.options = audioOptions} -> do
+              parsedBackend <- enumOrThrow (fromCapnpAudioBackend audioBackend)
+              pure (parsedBackend, audioOptions)
+          )
+          audioDevices
       let act =
             VmCreate
               { vcrName = name
@@ -142,6 +151,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrAutostart = autostart
               , vcrRebootQuirk = rebootQuirk
               , vcrCpuModel = cpuModel
+              , vcrAudioDevices = parsedAudioDevices
               }
       resp <- runAction st cn act
       case resp of
@@ -164,6 +174,32 @@ data VmCap = VmCap
 instance SomeServer VmCap
 
 instance CGVm.Vm'server_ VmCap where
+  vm'addAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'addAudioDevice'params {CGVm.params = CGVm.AudioDeviceParams {..}} -> do
+    backend' <- enumOrThrow (fromCapnpAudioBackend backend)
+    resp <- runAction st cn (AudioDeviceAdd eid backend' options)
+    case resp of
+      RespAudioDeviceAdded aid -> pure CGVm.Vm'addAudioDevice'results {CGVm.audioDeviceId = aid}
+      _ -> throwError resp
+
+  vm'editAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'editAudioDevice'params {CGVm.audioDeviceId = aid, CGVm.params = CGVm.AudioDeviceParams {..}} -> do
+    backend' <- enumOrThrow (fromCapnpAudioBackend backend)
+    resp <- runAction st cn (AudioDeviceEdit eid aid backend' options)
+    case resp of
+      RespAudioDeviceOk -> pure CGVm.Vm'editAudioDevice'results
+      _ -> throwError resp
+
+  vm'removeAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeAudioDevice'params {CGVm.audioDeviceId = aid} -> do
+    resp <- runAction st cn (AudioDeviceRemove eid aid)
+    case resp of
+      RespAudioDeviceOk -> pure CGVm.Vm'removeAudioDevice'results
+      _ -> throwError resp
+
+  vm'listAudioDevices (VmCap st _ eid _) = handleParsed $ \_ -> do
+    resp <- handleAudioDeviceList st eid
+    case resp of
+      RespAudioDeviceList devices -> pure CGVm.Vm'listAudioDevices'results {CGVm.audioDevices = map toCapnpAudioDeviceInfo devices}
+      _ -> throwError resp
+
   vm'show (VmCap st _ eid cn) = handleParsed $ \_ -> do
     detResp <- handleVmShow st eid
     case detResp of

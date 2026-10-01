@@ -39,6 +39,7 @@ module Corvus.Model
   , CacheType (..)
   , NetInterfaceType (..)
   , SharedDirCache (..)
+  , AudioBackend (..)
   , TemplateCloneStrategy (..)
 
     -- * Network entity
@@ -50,6 +51,8 @@ module Corvus.Model
     -- * Shared directory entity
   , SharedDir (..)
   , SharedDirId
+  , AudioDevice (..)
+  , AudioDeviceId
 
     -- * SSH key entities
   , SshKey (..)
@@ -68,6 +71,8 @@ module Corvus.Model
   , TemplateSshKeyId
   , TemplateSharedDir (..)
   , TemplateSharedDirId
+  , TemplateAudioDevice (..)
+  , TemplateAudioDeviceId
 
     -- * Task entity
   , Task (..)
@@ -410,6 +415,30 @@ instance PersistField SharedDirCache where
   fromPersistValue = enumFromPersistValue
 
 instance PersistFieldSql SharedDirCache where
+  sqlType _ = SqlString
+
+data AudioBackend = AudioPulse | AudioPipewire | AudioSpice
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance EnumText AudioBackend where
+  enumTypeName = "AudioBackend"
+  enumMapping =
+    [ (AudioPulse, "pulse")
+    , (AudioPipewire, "pipewire")
+    , (AudioSpice, "spice")
+    ]
+
+instance FromJSON AudioBackend where
+  parseJSON = parseEnumJSON
+
+instance ToJSON AudioBackend where
+  toJSON = toEnumJSON
+
+instance PersistField AudioBackend where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+
+instance PersistFieldSql AudioBackend where
   sqlType _ = SqlString
 
 --------------------------------------------------------------------------------
@@ -761,6 +790,12 @@ SharedDir
     UniqueSharedDirTag vmId tag
     deriving Show Eq Generic
 
+AudioDevice
+    vmId VmId
+    backend AudioBackend
+    options Text default=''
+    deriving Show Eq Generic
+
 SshKey
     name Text
     publicKey Text
@@ -829,6 +864,12 @@ TemplateSharedDir
     cache SharedDirCache
     readOnly Bool default=false
     UniqueTemplateSharedDirTag templateId tag
+    deriving Show Eq Generic
+
+TemplateAudioDevice
+    templateId TemplateVmId
+    backend AudioBackend
+    options Text default=''
     deriving Show Eq Generic
 
 Task

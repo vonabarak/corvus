@@ -32,6 +32,7 @@ import Control.Monad (void)
 import Corvus.Client.Capnp.Connection (CapnpConnection, withCapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Apply
+import Corvus.Client.Commands.AudioDevice
 import Corvus.Client.Commands.Build
 import Corvus.Client.Commands.CloudInit
 import Corvus.Client.Commands.Disk
@@ -223,6 +224,10 @@ runCommand opts = do
           Right cache -> handleSharedDirAdd fmt conn vmRef path tag cache readOnly
       SharedDirRemove vmRef sharedDirRef -> handleSharedDirRemove fmt conn vmRef sharedDirRef
       SharedDirList vmRef -> handleSharedDirList fmt tableOpts conn vmRef
+      AudioDeviceAdd vmRef backend options -> handleAudioDeviceAdd fmt conn vmRef backend options
+      AudioDeviceEdit vmRef aid backend options -> handleAudioDeviceEdit fmt conn vmRef aid backend options
+      AudioDeviceRemove vmRef aid -> handleAudioDeviceRemove fmt conn vmRef aid
+      AudioDeviceList vmRef -> handleAudioDeviceList fmt tableOpts conn vmRef
       -- Network interface commands
       NetIfAdd vmRef ifaceTypeStr hostDevice macAddress mNetworkRef -> do
         case parseNetInterfaceType ifaceTypeStr of

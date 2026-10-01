@@ -139,7 +139,7 @@ instance (C.HasTypeId VmDetails) where
     typeId  = 12709035652582668216
 instance (C.TypedStruct VmDetails) where
     numStructWords  = 7
-    numStructPtrs  = 13
+    numStructPtrs  = 14
 instance (C.Allocate VmDetails) where
     type AllocHint VmDetails = ()
     new _ = C.newTypedStruct
@@ -177,7 +177,8 @@ data instance C.Parsed VmDetails
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,cpuModel :: (RP.Parsed Basics.Text)
         ,stats :: (RP.Parsed VmStats)
-        ,tpm :: (RP.Parsed Std_.Bool)}
+        ,tpm :: (RP.Parsed Std_.Bool)
+        ,audioDevices :: (RP.Parsed (R.List AudioDeviceInfo))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDetails))
 deriving instance (Std_.Eq (C.Parsed VmDetails))
@@ -209,7 +210,8 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #node raw_)
                             <*> (GH.parseField #cpuModel raw_)
                             <*> (GH.parseField #stats raw_)
-                            <*> (GH.parseField #tpm raw_))
+                            <*> (GH.parseField #tpm raw_)
+                            <*> (GH.parseField #audioDevices raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
     marshalInto raw_ VmDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -240,6 +242,7 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #cpuModel cpuModel raw_)
         (GH.encodeField #stats stats raw_)
         (GH.encodeField #tpm tpm raw_)
+        (GH.encodeField #audioDevices audioDevices raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmDetails Std_.Int64) where
@@ -298,6 +301,8 @@ instance (GH.HasField "stats" GH.Slot VmDetails VmStats) where
     fieldByLabel  = (GH.ptrField 12)
 instance (GH.HasField "tpm" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 21 2 1 0)
+instance (GH.HasField "audioDevices" GH.Slot VmDetails (R.List AudioDeviceInfo)) where
+    fieldByLabel  = (GH.ptrField 13)
 data VmStats 
 type instance (R.ReprFor VmStats) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStats) where
@@ -643,6 +648,81 @@ instance (GH.HasField "readOnly" GH.Slot SharedDirInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 1 1 0)
 instance (GH.HasField "pid" GH.Slot SharedDirInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 1 32 0)
+data AudioDeviceParams 
+type instance (R.ReprFor AudioDeviceParams) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId AudioDeviceParams) where
+    typeId  = 17335897422829847955
+instance (C.TypedStruct AudioDeviceParams) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate AudioDeviceParams) where
+    type AllocHint AudioDeviceParams = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc AudioDeviceParams (C.Parsed AudioDeviceParams))
+instance (C.AllocateList AudioDeviceParams) where
+    type ListAllocHint AudioDeviceParams = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc AudioDeviceParams (C.Parsed AudioDeviceParams))
+data instance C.Parsed AudioDeviceParams
+    = AudioDeviceParams 
+        {backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
+        ,options :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed AudioDeviceParams))
+deriving instance (Std_.Eq (C.Parsed AudioDeviceParams))
+instance (C.Parse AudioDeviceParams (C.Parsed AudioDeviceParams)) where
+    parse raw_ = (AudioDeviceParams <$> (GH.parseField #backend raw_)
+                                    <*> (GH.parseField #options raw_))
+instance (C.Marshal AudioDeviceParams (C.Parsed AudioDeviceParams)) where
+    marshalInto raw_ AudioDeviceParams{..} = (do
+        (GH.encodeField #backend backend raw_)
+        (GH.encodeField #options options raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "backend" GH.Slot AudioDeviceParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend) where
+    fieldByLabel  = (GH.dataField 0 0 16 0)
+instance (GH.HasField "options" GH.Slot AudioDeviceParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data AudioDeviceInfo 
+type instance (R.ReprFor AudioDeviceInfo) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId AudioDeviceInfo) where
+    typeId  = 16023273263806812604
+instance (C.TypedStruct AudioDeviceInfo) where
+    numStructWords  = 2
+    numStructPtrs  = 1
+instance (C.Allocate AudioDeviceInfo) where
+    type AllocHint AudioDeviceInfo = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc AudioDeviceInfo (C.Parsed AudioDeviceInfo))
+instance (C.AllocateList AudioDeviceInfo) where
+    type ListAllocHint AudioDeviceInfo = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc AudioDeviceInfo (C.Parsed AudioDeviceInfo))
+data instance C.Parsed AudioDeviceInfo
+    = AudioDeviceInfo 
+        {id :: (RP.Parsed Std_.Int64)
+        ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
+        ,options :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed AudioDeviceInfo))
+deriving instance (Std_.Eq (C.Parsed AudioDeviceInfo))
+instance (C.Parse AudioDeviceInfo (C.Parsed AudioDeviceInfo)) where
+    parse raw_ = (AudioDeviceInfo <$> (GH.parseField #id raw_)
+                                  <*> (GH.parseField #backend raw_)
+                                  <*> (GH.parseField #options raw_))
+instance (C.Marshal AudioDeviceInfo (C.Parsed AudioDeviceInfo)) where
+    marshalInto raw_ AudioDeviceInfo{..} = (do
+        (GH.encodeField #id id raw_)
+        (GH.encodeField #backend backend raw_)
+        (GH.encodeField #options options raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "id" GH.Slot AudioDeviceInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "backend" GH.Slot AudioDeviceInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend) where
+    fieldByLabel  = (GH.dataField 0 1 16 0)
+instance (GH.HasField "options" GH.Slot AudioDeviceInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
 data VmSnapshotInfo 
 type instance (R.ReprFor VmSnapshotInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSnapshotInfo) where
@@ -704,7 +784,7 @@ instance (C.HasTypeId VmCreateParams) where
     typeId  = 12441806447859270163
 instance (C.TypedStruct VmCreateParams) where
     numStructWords  = 2
-    numStructPtrs  = 4
+    numStructPtrs  = 5
 instance (C.Allocate VmCreateParams) where
     type AllocHint VmCreateParams = ()
     new _ = C.newTypedStruct
@@ -726,7 +806,8 @@ data instance C.Parsed VmCreateParams
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,cpuModel :: (RP.Parsed Basics.Text)
-        ,tpm :: (RP.Parsed Std_.Bool)}
+        ,tpm :: (RP.Parsed Std_.Bool)
+        ,audioDevices :: (RP.Parsed (R.List AudioDeviceParams))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmCreateParams))
 deriving instance (Std_.Eq (C.Parsed VmCreateParams))
@@ -742,7 +823,8 @@ instance (C.Parse VmCreateParams (C.Parsed VmCreateParams)) where
                                  <*> (GH.parseField #node raw_)
                                  <*> (GH.parseField #rebootQuirk raw_)
                                  <*> (GH.parseField #cpuModel raw_)
-                                 <*> (GH.parseField #tpm raw_))
+                                 <*> (GH.parseField #tpm raw_)
+                                 <*> (GH.parseField #audioDevices raw_))
 instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
     marshalInto raw_ VmCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -757,6 +839,7 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
         (GH.encodeField #tpm tpm raw_)
+        (GH.encodeField #audioDevices audioDevices raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
@@ -783,6 +866,8 @@ instance (GH.HasField "cpuModel" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "tpm" GH.Slot VmCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 5 1 1 0)
+instance (GH.HasField "audioDevices" GH.Slot VmCreateParams (R.List AudioDeviceParams)) where
+    fieldByLabel  = (GH.ptrField 4)
 data VmEditParams 
 type instance (R.ReprFor VmEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmEditParams) where
@@ -1347,9 +1432,13 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'save) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'getStatsHistory) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'subscribeStats) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'snapshotDelete) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'snapshotDelete) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'addAudioDevice) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'editAudioDevice) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'removeAudioDevice) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'listAudioDevices) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1420,6 +1509,14 @@ class (Vm'server_ s_) where
     vm'subscribeStats _ = GH.methodUnimplemented
     vm'snapshotDelete :: s_ -> (GH.MethodHandler Vm'snapshotDelete'params Vm'snapshotDelete'results)
     vm'snapshotDelete _ = GH.methodUnimplemented
+    vm'addAudioDevice :: s_ -> (GH.MethodHandler Vm'addAudioDevice'params Vm'addAudioDevice'results)
+    vm'addAudioDevice _ = GH.methodUnimplemented
+    vm'editAudioDevice :: s_ -> (GH.MethodHandler Vm'editAudioDevice'params Vm'editAudioDevice'results)
+    vm'editAudioDevice _ = GH.methodUnimplemented
+    vm'removeAudioDevice :: s_ -> (GH.MethodHandler Vm'removeAudioDevice'params Vm'removeAudioDevice'results)
+    vm'removeAudioDevice _ = GH.methodUnimplemented
+    vm'listAudioDevices :: s_ -> (GH.MethodHandler Vm'listAudioDevices'params Vm'listAudioDevices'results)
+    vm'listAudioDevices _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1490,6 +1587,14 @@ instance (GH.HasMethod "subscribeStats" Vm Vm'subscribeStats'params Vm'subscribe
     methodByLabel  = (GH.Method 17269745093196220462 33)
 instance (GH.HasMethod "snapshotDelete" Vm Vm'snapshotDelete'params Vm'snapshotDelete'results) where
     methodByLabel  = (GH.Method 17269745093196220462 34)
+instance (GH.HasMethod "addAudioDevice" Vm Vm'addAudioDevice'params Vm'addAudioDevice'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 35)
+instance (GH.HasMethod "editAudioDevice" Vm Vm'editAudioDevice'params Vm'editAudioDevice'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 36)
+instance (GH.HasMethod "removeAudioDevice" Vm Vm'removeAudioDevice'params Vm'removeAudioDevice'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 37)
+instance (GH.HasMethod "listAudioDevices" Vm Vm'listAudioDevices'params Vm'listAudioDevices'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 38)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -3475,6 +3580,236 @@ instance (C.Parse Vm'snapshotDelete'results (C.Parsed Vm'snapshotDelete'results)
     parse raw_ = (Std_.pure Vm'snapshotDelete'results)
 instance (C.Marshal Vm'snapshotDelete'results (C.Parsed Vm'snapshotDelete'results)) where
     marshalInto _raw (Vm'snapshotDelete'results) = (Std_.pure ())
+data Vm'addAudioDevice'params 
+type instance (R.ReprFor Vm'addAudioDevice'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'addAudioDevice'params) where
+    typeId  = 16269168383390024503
+instance (C.TypedStruct Vm'addAudioDevice'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Vm'addAudioDevice'params) where
+    type AllocHint Vm'addAudioDevice'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'addAudioDevice'params (C.Parsed Vm'addAudioDevice'params))
+instance (C.AllocateList Vm'addAudioDevice'params) where
+    type ListAllocHint Vm'addAudioDevice'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'addAudioDevice'params (C.Parsed Vm'addAudioDevice'params))
+data instance C.Parsed Vm'addAudioDevice'params
+    = Vm'addAudioDevice'params 
+        {params :: (RP.Parsed AudioDeviceParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'addAudioDevice'params))
+deriving instance (Std_.Eq (C.Parsed Vm'addAudioDevice'params))
+instance (C.Parse Vm'addAudioDevice'params (C.Parsed Vm'addAudioDevice'params)) where
+    parse raw_ = (Vm'addAudioDevice'params <$> (GH.parseField #params raw_))
+instance (C.Marshal Vm'addAudioDevice'params (C.Parsed Vm'addAudioDevice'params)) where
+    marshalInto raw_ Vm'addAudioDevice'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot Vm'addAudioDevice'params AudioDeviceParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data Vm'addAudioDevice'results 
+type instance (R.ReprFor Vm'addAudioDevice'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'addAudioDevice'results) where
+    typeId  = 12070905151454600467
+instance (C.TypedStruct Vm'addAudioDevice'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'addAudioDevice'results) where
+    type AllocHint Vm'addAudioDevice'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'addAudioDevice'results (C.Parsed Vm'addAudioDevice'results))
+instance (C.AllocateList Vm'addAudioDevice'results) where
+    type ListAllocHint Vm'addAudioDevice'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'addAudioDevice'results (C.Parsed Vm'addAudioDevice'results))
+data instance C.Parsed Vm'addAudioDevice'results
+    = Vm'addAudioDevice'results 
+        {audioDeviceId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'addAudioDevice'results))
+deriving instance (Std_.Eq (C.Parsed Vm'addAudioDevice'results))
+instance (C.Parse Vm'addAudioDevice'results (C.Parsed Vm'addAudioDevice'results)) where
+    parse raw_ = (Vm'addAudioDevice'results <$> (GH.parseField #audioDeviceId raw_))
+instance (C.Marshal Vm'addAudioDevice'results (C.Parsed Vm'addAudioDevice'results)) where
+    marshalInto raw_ Vm'addAudioDevice'results{..} = (do
+        (GH.encodeField #audioDeviceId audioDeviceId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "audioDeviceId" GH.Slot Vm'addAudioDevice'results Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Vm'editAudioDevice'params 
+type instance (R.ReprFor Vm'editAudioDevice'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'editAudioDevice'params) where
+    typeId  = 14946865667307605783
+instance (C.TypedStruct Vm'editAudioDevice'params) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Vm'editAudioDevice'params) where
+    type AllocHint Vm'editAudioDevice'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'editAudioDevice'params (C.Parsed Vm'editAudioDevice'params))
+instance (C.AllocateList Vm'editAudioDevice'params) where
+    type ListAllocHint Vm'editAudioDevice'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'editAudioDevice'params (C.Parsed Vm'editAudioDevice'params))
+data instance C.Parsed Vm'editAudioDevice'params
+    = Vm'editAudioDevice'params 
+        {audioDeviceId :: (RP.Parsed Std_.Int64)
+        ,params :: (RP.Parsed AudioDeviceParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'editAudioDevice'params))
+deriving instance (Std_.Eq (C.Parsed Vm'editAudioDevice'params))
+instance (C.Parse Vm'editAudioDevice'params (C.Parsed Vm'editAudioDevice'params)) where
+    parse raw_ = (Vm'editAudioDevice'params <$> (GH.parseField #audioDeviceId raw_)
+                                            <*> (GH.parseField #params raw_))
+instance (C.Marshal Vm'editAudioDevice'params (C.Parsed Vm'editAudioDevice'params)) where
+    marshalInto raw_ Vm'editAudioDevice'params{..} = (do
+        (GH.encodeField #audioDeviceId audioDeviceId raw_)
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "audioDeviceId" GH.Slot Vm'editAudioDevice'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "params" GH.Slot Vm'editAudioDevice'params AudioDeviceParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data Vm'editAudioDevice'results 
+type instance (R.ReprFor Vm'editAudioDevice'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'editAudioDevice'results) where
+    typeId  = 14860942268955979093
+instance (C.TypedStruct Vm'editAudioDevice'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'editAudioDevice'results) where
+    type AllocHint Vm'editAudioDevice'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'editAudioDevice'results (C.Parsed Vm'editAudioDevice'results))
+instance (C.AllocateList Vm'editAudioDevice'results) where
+    type ListAllocHint Vm'editAudioDevice'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'editAudioDevice'results (C.Parsed Vm'editAudioDevice'results))
+data instance C.Parsed Vm'editAudioDevice'results
+    = Vm'editAudioDevice'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'editAudioDevice'results))
+deriving instance (Std_.Eq (C.Parsed Vm'editAudioDevice'results))
+instance (C.Parse Vm'editAudioDevice'results (C.Parsed Vm'editAudioDevice'results)) where
+    parse raw_ = (Std_.pure Vm'editAudioDevice'results)
+instance (C.Marshal Vm'editAudioDevice'results (C.Parsed Vm'editAudioDevice'results)) where
+    marshalInto _raw (Vm'editAudioDevice'results) = (Std_.pure ())
+data Vm'removeAudioDevice'params 
+type instance (R.ReprFor Vm'removeAudioDevice'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'removeAudioDevice'params) where
+    typeId  = 13967805948589905156
+instance (C.TypedStruct Vm'removeAudioDevice'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'removeAudioDevice'params) where
+    type AllocHint Vm'removeAudioDevice'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'removeAudioDevice'params (C.Parsed Vm'removeAudioDevice'params))
+instance (C.AllocateList Vm'removeAudioDevice'params) where
+    type ListAllocHint Vm'removeAudioDevice'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'removeAudioDevice'params (C.Parsed Vm'removeAudioDevice'params))
+data instance C.Parsed Vm'removeAudioDevice'params
+    = Vm'removeAudioDevice'params 
+        {audioDeviceId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'removeAudioDevice'params))
+deriving instance (Std_.Eq (C.Parsed Vm'removeAudioDevice'params))
+instance (C.Parse Vm'removeAudioDevice'params (C.Parsed Vm'removeAudioDevice'params)) where
+    parse raw_ = (Vm'removeAudioDevice'params <$> (GH.parseField #audioDeviceId raw_))
+instance (C.Marshal Vm'removeAudioDevice'params (C.Parsed Vm'removeAudioDevice'params)) where
+    marshalInto raw_ Vm'removeAudioDevice'params{..} = (do
+        (GH.encodeField #audioDeviceId audioDeviceId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "audioDeviceId" GH.Slot Vm'removeAudioDevice'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Vm'removeAudioDevice'results 
+type instance (R.ReprFor Vm'removeAudioDevice'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'removeAudioDevice'results) where
+    typeId  = 10383460426034783463
+instance (C.TypedStruct Vm'removeAudioDevice'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'removeAudioDevice'results) where
+    type AllocHint Vm'removeAudioDevice'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'removeAudioDevice'results (C.Parsed Vm'removeAudioDevice'results))
+instance (C.AllocateList Vm'removeAudioDevice'results) where
+    type ListAllocHint Vm'removeAudioDevice'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'removeAudioDevice'results (C.Parsed Vm'removeAudioDevice'results))
+data instance C.Parsed Vm'removeAudioDevice'results
+    = Vm'removeAudioDevice'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'removeAudioDevice'results))
+deriving instance (Std_.Eq (C.Parsed Vm'removeAudioDevice'results))
+instance (C.Parse Vm'removeAudioDevice'results (C.Parsed Vm'removeAudioDevice'results)) where
+    parse raw_ = (Std_.pure Vm'removeAudioDevice'results)
+instance (C.Marshal Vm'removeAudioDevice'results (C.Parsed Vm'removeAudioDevice'results)) where
+    marshalInto _raw (Vm'removeAudioDevice'results) = (Std_.pure ())
+data Vm'listAudioDevices'params 
+type instance (R.ReprFor Vm'listAudioDevices'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'listAudioDevices'params) where
+    typeId  = 16746031911500135762
+instance (C.TypedStruct Vm'listAudioDevices'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'listAudioDevices'params) where
+    type AllocHint Vm'listAudioDevices'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'listAudioDevices'params (C.Parsed Vm'listAudioDevices'params))
+instance (C.AllocateList Vm'listAudioDevices'params) where
+    type ListAllocHint Vm'listAudioDevices'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'listAudioDevices'params (C.Parsed Vm'listAudioDevices'params))
+data instance C.Parsed Vm'listAudioDevices'params
+    = Vm'listAudioDevices'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'listAudioDevices'params))
+deriving instance (Std_.Eq (C.Parsed Vm'listAudioDevices'params))
+instance (C.Parse Vm'listAudioDevices'params (C.Parsed Vm'listAudioDevices'params)) where
+    parse raw_ = (Std_.pure Vm'listAudioDevices'params)
+instance (C.Marshal Vm'listAudioDevices'params (C.Parsed Vm'listAudioDevices'params)) where
+    marshalInto _raw (Vm'listAudioDevices'params) = (Std_.pure ())
+data Vm'listAudioDevices'results 
+type instance (R.ReprFor Vm'listAudioDevices'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'listAudioDevices'results) where
+    typeId  = 18145934067043012394
+instance (C.TypedStruct Vm'listAudioDevices'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Vm'listAudioDevices'results) where
+    type AllocHint Vm'listAudioDevices'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'listAudioDevices'results (C.Parsed Vm'listAudioDevices'results))
+instance (C.AllocateList Vm'listAudioDevices'results) where
+    type ListAllocHint Vm'listAudioDevices'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'listAudioDevices'results (C.Parsed Vm'listAudioDevices'results))
+data instance C.Parsed Vm'listAudioDevices'results
+    = Vm'listAudioDevices'results 
+        {audioDevices :: (RP.Parsed (R.List AudioDeviceInfo))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'listAudioDevices'results))
+deriving instance (Std_.Eq (C.Parsed Vm'listAudioDevices'results))
+instance (C.Parse Vm'listAudioDevices'results (C.Parsed Vm'listAudioDevices'results)) where
+    parse raw_ = (Vm'listAudioDevices'results <$> (GH.parseField #audioDevices raw_))
+instance (C.Marshal Vm'listAudioDevices'results (C.Parsed Vm'listAudioDevices'results)) where
+    marshalInto raw_ Vm'listAudioDevices'results{..} = (do
+        (GH.encodeField #audioDevices audioDevices raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "audioDevices" GH.Slot Vm'listAudioDevices'results (R.List AudioDeviceInfo)) where
+    fieldByLabel  = (GH.ptrField 0)
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

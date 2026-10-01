@@ -327,13 +327,53 @@ instance (GH.HasField "cache" GH.Slot TemplateSharedDirInfo Capnp.Gen.ById.Xbf9b
     fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "readOnly" GH.Slot TemplateSharedDirInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 1 1 0)
+data TemplateAudioDeviceInfo 
+type instance (R.ReprFor TemplateAudioDeviceInfo) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId TemplateAudioDeviceInfo) where
+    typeId  = 12746200957177966751
+instance (C.TypedStruct TemplateAudioDeviceInfo) where
+    numStructWords  = 2
+    numStructPtrs  = 1
+instance (C.Allocate TemplateAudioDeviceInfo) where
+    type AllocHint TemplateAudioDeviceInfo = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc TemplateAudioDeviceInfo (C.Parsed TemplateAudioDeviceInfo))
+instance (C.AllocateList TemplateAudioDeviceInfo) where
+    type ListAllocHint TemplateAudioDeviceInfo = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc TemplateAudioDeviceInfo (C.Parsed TemplateAudioDeviceInfo))
+data instance C.Parsed TemplateAudioDeviceInfo
+    = TemplateAudioDeviceInfo 
+        {id :: (RP.Parsed Std_.Int64)
+        ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
+        ,options :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed TemplateAudioDeviceInfo))
+deriving instance (Std_.Eq (C.Parsed TemplateAudioDeviceInfo))
+instance (C.Parse TemplateAudioDeviceInfo (C.Parsed TemplateAudioDeviceInfo)) where
+    parse raw_ = (TemplateAudioDeviceInfo <$> (GH.parseField #id raw_)
+                                          <*> (GH.parseField #backend raw_)
+                                          <*> (GH.parseField #options raw_))
+instance (C.Marshal TemplateAudioDeviceInfo (C.Parsed TemplateAudioDeviceInfo)) where
+    marshalInto raw_ TemplateAudioDeviceInfo{..} = (do
+        (GH.encodeField #id id raw_)
+        (GH.encodeField #backend backend raw_)
+        (GH.encodeField #options options raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "id" GH.Slot TemplateAudioDeviceInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "backend" GH.Slot TemplateAudioDeviceInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend) where
+    fieldByLabel  = (GH.dataField 0 1 16 0)
+instance (GH.HasField "options" GH.Slot TemplateAudioDeviceInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
 data TemplateDetails 
 type instance (R.ReprFor TemplateDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDetails) where
     typeId  = 15861980235634274923
 instance (C.TypedStruct TemplateDetails) where
     numStructWords  = 4
-    numStructPtrs  = 7
+    numStructPtrs  = 8
 instance (C.Allocate TemplateDetails) where
     type AllocHint TemplateDetails = ()
     new _ = C.newTypedStruct
@@ -360,7 +400,8 @@ data instance C.Parsed TemplateDetails
         ,sshKeys :: (RP.Parsed (R.List TemplateSshKeyInfo))
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,sharedDirs :: (RP.Parsed (R.List TemplateSharedDirInfo))
-        ,tpm :: (RP.Parsed Std_.Bool)}
+        ,tpm :: (RP.Parsed Std_.Bool)
+        ,audioDevices :: (RP.Parsed (R.List TemplateAudioDeviceInfo))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateDetails))
 deriving instance (Std_.Eq (C.Parsed TemplateDetails))
@@ -381,7 +422,8 @@ instance (C.Parse TemplateDetails (C.Parsed TemplateDetails)) where
                                   <*> (GH.parseField #sshKeys raw_)
                                   <*> (GH.parseField #rebootQuirk raw_)
                                   <*> (GH.parseField #sharedDirs raw_)
-                                  <*> (GH.parseField #tpm raw_))
+                                  <*> (GH.parseField #tpm raw_)
+                                  <*> (GH.parseField #audioDevices raw_))
 instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
     marshalInto raw_ TemplateDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -401,6 +443,7 @@ instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #sharedDirs sharedDirs raw_)
         (GH.encodeField #tpm tpm raw_)
+        (GH.encodeField #audioDevices audioDevices raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateDetails Std_.Int64) where
@@ -437,6 +480,8 @@ instance (GH.HasField "sharedDirs" GH.Slot TemplateDetails (R.List TemplateShare
     fieldByLabel  = (GH.ptrField 6)
 instance (GH.HasField "tpm" GH.Slot TemplateDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 5 2 1 0)
+instance (GH.HasField "audioDevices" GH.Slot TemplateDetails (R.List TemplateAudioDeviceInfo)) where
+    fieldByLabel  = (GH.ptrField 7)
 data TemplateManager 
 type instance (R.ReprFor TemplateManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TemplateManager) where

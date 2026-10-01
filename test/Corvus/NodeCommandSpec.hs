@@ -3,7 +3,7 @@
 module Corvus.NodeCommandSpec (spec) where
 
 import Corvus.Node.Command (buildQemuCommandFromSpec)
-import Corvus.Node.VmSpec (VmDriveSpec (..), VmSpec (..))
+import Corvus.Node.VmSpec (VmAudioDeviceSpec (..), VmDriveSpec (..), VmSpec (..))
 import Corvus.Qemu.Config (defaultQemuConfig)
 import Test.Hspec
 
@@ -24,6 +24,7 @@ baseSpec =
     , vsDrives = []
     , vsNetIfs = []
     , vsSharedDirs = []
+    , vsAudioDevices = []
     , vsWaitForGuestAgentMs = 0
     , vsRebootQuirk = False
     , vsSpiceBindAddr = "127.0.0.1"
@@ -73,6 +74,20 @@ scsiDrive =
 
 spec :: Spec
 spec = describe "buildQemuCommandFromSpec" $ do
+  it "creates independent duplex cards for each audio backend" $ do
+    let devices =
+          [ VmAudioDeviceSpec 11 "pulse" "server=192.0.2.10,out.name=sink,in.name=mic"
+          , VmAudioDeviceSpec 12 "pipewire" "out.name=desk,in.name=desk-mic"
+          , VmAudioDeviceSpec 13 "spice" ""
+          ]
+        args = qemuArgs baseSpec {vsAudioDevices = devices, vsHeadless = False, vsSpicePort = Just 5901}
+    args `shouldContain` ["-audiodev", "pa,id=audio11,server=192.0.2.10,out.name=sink,in.name=mic"]
+    args `shouldContain` ["-audiodev", "pipewire,id=audio12,out.name=desk,in.name=desk-mic"]
+    args `shouldContain` ["-audiodev", "spice,id=audio13"]
+    args `shouldContain` ["-device", "hda-micro,bus=hda11.0,audiodev=audio11"]
+    args `shouldContain` ["-device", "hda-micro,bus=hda12.0,audiodev=audio12"]
+    args `shouldContain` ["-device", "hda-micro,bus=hda13.0,audiodev=audio13"]
+
   it "omits every TPM argument when TPM is disabled" $ do
     let args = qemuArgs baseSpec
     args `shouldNotContain` ["-tpmdev"]

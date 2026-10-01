@@ -65,6 +65,7 @@ A template is defined by a single YAML document. The same schema is accepted by 
 | `networkInterfaces` | list | no | `[]` | Network interface definitions. |
 | `sshKeys` | list | no | `[]` | SSH key references. Requires `cloudInit: true`. |
 | `sharedDirs` | list | no | `[]` | Virtiofs shared-directory definitions (see below). |
+| `audioDevices` | list | no | `[]` | Sound cards, each with `backend` and optional `options` (see [VM audio](vm-audio.md)). |
 
 ### Drive Fields
 

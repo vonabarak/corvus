@@ -45,8 +45,8 @@ staticResponses =
 spec :: Spec
 spec = do
   describe "allErrorCodes" $ do
-    it "has exactly 28 codes, matching the schema enum" $
-      length allErrorCodes `shouldBe` 28
+    it "has exactly 29 codes, matching the schema enum" $
+      length allErrorCodes `shouldBe` 29
     it "produces 28 distinct snake_case tokens" $
       length (nub [errorCodeText code | code <- allErrorCodes])
         `shouldBe` length allErrorCodes

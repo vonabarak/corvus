@@ -102,6 +102,7 @@ getVmDetails config vmId = do
     Just vm -> do
       drives <- selectList [M.DriveVmId ==. key] [Asc M.DriveId]
       netIfs <- selectList [M.NetworkInterfaceVmId ==. key] []
+      audioDevices <- selectList [M.AudioDeviceVmId ==. key] [Asc M.AudioDeviceId]
       -- Look up the node name for display. Sentinel on a missing
       -- row (race against a node delete) matches 'listVms'.
       mNode <- get (vmNodeId vm)
@@ -145,6 +146,10 @@ getVmDetails config vmId = do
             , vdDescription = vmDescription vm
             , vdDrives = driveInfos
             , vdNetIfs = netIfInfos
+            , vdAudioDevices =
+                [ AudioDeviceInfo (fromSqlKey audioId) (M.audioDeviceBackend audioDevice) (M.audioDeviceOptions audioDevice)
+                | Entity audioId audioDevice <- audioDevices
+                ]
             , vdHeadless = vmHeadless vm
             , vdMonitorSocket = T.pack monitorSock
             , vdSpicePort = vmSpicePort vm

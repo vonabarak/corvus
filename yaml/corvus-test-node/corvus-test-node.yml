@@ -86,9 +86,11 @@ pipeline:
                 || echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf
 
               cat > /etc/portage/package.use/corvus <<'EOF'
-              app-emulation/qemu spice usb usbredir virtfs passt vde
+              app-emulation/qemu spice pipewire pulseaudio usb usbredir virtfs passt vde
               net-libs/gnutls pkcs11 tools
               dev-db/postgresql python uuid xml
+              media-libs/libpulse -X -gtk -glib
+              media-video/pipewire -X -zeroconf -v4l -bluetooth pulseaudio sound-server
               EOF
 
               cat > /etc/portage/package.accept_keywords/corvus <<'EOF'
@@ -105,6 +107,7 @@ pipeline:
               emerge --noreplace --usepkg \
                 net-misc/socat \
                 app-emulation/qemu \
+                media-video/pipewire \
                 app-crypt/swtpm \
                 net-misc/vde \
                 net-dns/dnsmasq \

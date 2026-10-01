@@ -65,6 +65,12 @@ struct TemplateSharedDirInfo {
   readOnly @4 :Bool;
 }
 
+struct TemplateAudioDeviceInfo {
+  id      @0 :Int64;
+  backend @1 :Enums.AudioBackend;
+  options @2 :Text;
+}
+
 struct TemplateDetails {
   id              @0  :Int64;
   name            @1  :Text;
@@ -83,6 +89,7 @@ struct TemplateDetails {
   rebootQuirk     @14 :Bool;
   sharedDirs      @15 :List(TemplateSharedDirInfo);
   tpm             @16 :Bool;
+  audioDevices    @17 :List(TemplateAudioDeviceInfo);
 }
 
 # ---------------------------------------------------------------------

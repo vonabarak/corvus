@@ -123,9 +123,18 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.get("migration-vm").show().name == "migration-vm"
-        assert "migrated from version 2 to 4" in self._logs()
-        assert self._sql("SELECT version FROM schema_version") == "4"
+        assert "migrated from version 2 to 5" in self._logs()
+        assert self._sql("SELECT version FROM schema_version") == "5"
         assert self._sql("SELECT id, disk_image_id FROM drive") == "1|1"
+        self._sql(
+            "INSERT INTO audio_device (vm_id, backend, options) "
+            "VALUES (1, 'pulse', 'server=192.0.2.10,out.name=speakers,in.name=mic')"
+        )
+        assert self._sql("SELECT COUNT(*) FROM audio_device WHERE vm_id = 1") == "1"
+        with pytest.raises(subprocess.CalledProcessError):
+            self._sql(
+                "INSERT INTO audio_device (vm_id, backend, options) VALUES (999, 'spice', '')"
+            )
         self._sql(insert + ";" + insert)
         assert (
             self._sql("SELECT COUNT(*) FROM drive WHERE disk_image_id IS NULL") == "2"
@@ -153,9 +162,9 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.list() == []
-        assert "Created database schema at version 4" in self._logs()
+        assert "Created database schema at version 5" in self._logs()
         assert "migrated from version" not in self._logs()
-        assert self._sql("SELECT version FROM schema_version") == "4"
+        assert self._sql("SELECT version FROM schema_version") == "5"
 
     def test_03_retired_migration_refuses_startup(self) -> None:
         self._prepare(historical=True)

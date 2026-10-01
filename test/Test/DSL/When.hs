@@ -471,7 +471,7 @@ whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM Response
 whenVmCreate name cpuCount ramMb description =
   -- Empty node ref triggers the scheduler, which picks the
   -- seeded 'test-node' (DB id 1).
-  withState (\st -> runAction st "alice" (VmHandlers.VmCreate name "" cpuCount ramMb description False False False False False False ""))
+  withState (\st -> runAction st "alice" (VmHandlers.VmCreate name "" cpuCount ramMb description False False False False False False "" []))
 
 whenVmDelete :: Int64 -> TestM Response
 whenVmDelete vmId =

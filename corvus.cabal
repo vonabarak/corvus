@@ -261,10 +261,14 @@ library
       Corvus.Client.Capnp.Rpc.Stream
       Corvus.Client.Capnp.Rpc.Task
       Corvus.Client.Capnp.Rpc.Vm
+      Corvus.Client.Commands.AudioDevice
       Corvus.Client.Commands.Network
+      Corvus.Client.Parser.AudioDevice
       Corvus.Database.Migrations
       Corvus.Database.Migrations.V003
       Corvus.Database.Migrations.V004
+      Corvus.Database.Migrations.V005
+      Corvus.Handlers.AudioDevice
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck

@@ -131,6 +131,13 @@ class SharedDirInfo:
 
 
 @dataclass(frozen=True)
+class AudioDeviceInfo:
+    id: int
+    backend: str
+    options: str
+
+
+@dataclass(frozen=True)
 class VmDetails:
     id: int
     name: str
@@ -150,6 +157,7 @@ class VmDetails:
     drives: list[DriveInfo] = field(default_factory=list)
     net_ifs: list[NetIfInfo] = field(default_factory=list)
     shared_dirs: list[SharedDirInfo] = field(default_factory=list)
+    audio_devices: list[AudioDeviceInfo] = field(default_factory=list)
     description: str | None = None
     spice_port: int | None = None
     vsock_cid: int | None = None
@@ -481,6 +489,13 @@ class TemplateSharedDirInfo:
 
 
 @dataclass(frozen=True)
+class TemplateAudioDeviceInfo:
+    id: int
+    backend: str
+    options: str
+
+
+@dataclass(frozen=True)
 class TemplateDetails:
     id: int
     name: str
@@ -496,6 +511,7 @@ class TemplateDetails:
     net_ifs: list[TemplateNetIfInfo] = field(default_factory=list)
     ssh_keys: list[TemplateSshKeyInfo] = field(default_factory=list)
     shared_dirs: list[TemplateSharedDirInfo] = field(default_factory=list)
+    audio_devices: list[TemplateAudioDeviceInfo] = field(default_factory=list)
     description: str | None = None
     cloud_init_config: CloudInitInfo | None = None
 

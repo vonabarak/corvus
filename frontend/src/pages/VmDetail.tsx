@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -12,7 +13,17 @@ import {
   Terminal as TerminalIcon,
   Trash2,
 } from "lucide-react";
-import { deleteVm, getVm, vmAction, type VmAction, type VmDetails } from "@/api/vms";
+import {
+  addAudioDevice,
+  editAudioDevice,
+  removeAudioDevice,
+  deleteVm,
+  getVm,
+  vmAction,
+  type AudioDeviceInfo,
+  type VmAction,
+  type VmDetails,
+} from "@/api/vms";
 import { getVmCloudInit, type CloudInitInfo } from "@/api/templates";
 import { useWebSocketJson } from "@/hooks/useWebSocketJson";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +119,115 @@ function DeleteButton({ vm }: { vm: VmDetails }) {
       <Trash2 className="h-3.5 w-3.5" />
       Delete
     </Button>
+  );
+}
+
+function AudioDevicesCard({ vm }: { vm: VmDetails }) {
+  const queryClient = useQueryClient();
+  const [backend, setBackend] = useState<AudioDeviceInfo["backend"]>("spice");
+  const [options, setOptions] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body = { backend, options };
+      if (editingId === null) await addAudioDevice(vm.id, body);
+      else await editAudioDevice(vm.id, editingId, body);
+    },
+    onSuccess: () => {
+      setEditingId(null);
+      setOptions("");
+      queryClient.invalidateQueries({ queryKey: ["vm", vm.id] });
+    },
+    onError: (e) =>
+      toast.error("Audio device update failed", { description: (e as Error).message }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => removeAudioDevice(vm.id, id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vm", vm.id] }),
+    onError: (e) =>
+      toast.error("Audio device removal failed", { description: (e as Error).message }),
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Audio devices</CardTitle>
+        <CardDescription>
+          Playback and microphone. Changes require a stopped VM and take effect on next start. SPICE
+          audio uses a native client for microphone input.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {vm.audio_devices.map((device) => (
+          <div key={device.id} className="flex items-center gap-3 text-sm">
+            <span className="font-medium">
+              #{device.id} {device.backend}
+            </span>
+            <code className="flex-1 break-all">{device.options || "default"}</code>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={vm.status !== "stopped"}
+              onClick={() => {
+                setEditingId(device.id);
+                setBackend(device.backend);
+                setOptions(device.options);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={vm.status !== "stopped" || remove.isPending}
+              onClick={() => remove.mutate(device.id)}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            mutation.mutate();
+          }}
+        >
+          <select
+            aria-label="Audio backend"
+            className="rounded border bg-background p-2 text-sm"
+            value={backend}
+            onChange={(event) => setBackend(event.target.value as AudioDeviceInfo["backend"])}
+          >
+            <option value="spice">SPICE</option>
+            <option value="pulse">PulseAudio</option>
+            <option value="pipewire">PipeWire</option>
+          </select>
+          <input
+            aria-label="Audio options"
+            className="min-w-52 flex-1 rounded border bg-background p-2 text-sm"
+            placeholder="server=host,out.name=sink,in.name=source"
+            value={options}
+            onChange={(event) => setOptions(event.target.value)}
+          />
+          <Button size="sm" type="submit" disabled={vm.status !== "stopped" || mutation.isPending}>
+            {editingId === null ? "Add" : "Save"}
+          </Button>
+          {editingId !== null && (
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setEditingId(null);
+                setOptions("");
+              }}
+            >
+              Cancel
+            </Button>
+          )}
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -277,6 +397,8 @@ export default function VmDetail() {
       <DrivesCard vm={vm} />
 
       <NetIfsCard vm={vm} />
+
+      <AudioDevicesCard vm={vm} />
 
       <SshKeysCard vmId={vm.id} />
 

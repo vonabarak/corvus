@@ -14,6 +14,7 @@ where
 import Corvus.Protocol
   ( CloudInitInfo (..)
   , NamedRef (..)
+  , TemplateAudioDeviceInfo (..)
   , TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
@@ -48,6 +49,7 @@ templateDetailsToValue t =
     , "networkInterfaces" .= map netIfToValue (tvdNetIfs t)
     , "sshKeys" .= map sshKeyToValue (tvdSshKeys t)
     , "sharedDirs" .= map sharedDirToValue (tvdSharedDirs t)
+    , "audioDevices" .= map audioDeviceToValue (tvdAudioDevices t)
     ]
       ++ catMaybes
         [ optPair "description" (tvdDescription t)
@@ -93,6 +95,9 @@ sharedDirToValue sd =
     , "readOnly" .= tvsdiReadOnly sd
     ]
 
+audioDeviceToValue :: TemplateAudioDeviceInfo -> Value
+audioDeviceToValue device = object ["backend" .= tvadiBackend device, "options" .= tvadiOptions device]
+
 cloudInitInfoToValue :: CloudInitInfo -> Value
 cloudInitInfoToValue ci =
   object $
@@ -131,4 +136,5 @@ skeletonTemplateYaml =
   \    sizeMb: 8192      # for create, clone, overlay strategies\n\
   \networkInterfaces: []\n\
   \sshKeys: []\n\
-  \sharedDirs: []        # list of {path, tag, cache, readOnly} entries\n"
+  \sharedDirs: []        # list of {path, tag, cache, readOnly} entries\n\
+  \audioDevices: []     # list of {backend: spice|pulse|pipewire, options: ''} entries\n"

@@ -11,6 +11,7 @@ import Control.Monad (filterM, forM_, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Action
+import Corvus.Handlers.AudioDevice (validateAudioOptions)
 import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForVm)
@@ -62,9 +63,10 @@ handleVmCreate
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel (empty == "host")
+  -> [(AudioBackend, Text)]
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 =
-  case validateName "VM" name of
+handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices =
+  case validateName "VM" name >> mapM_ (validateAudioOptions . snd) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
       let pool = ssDbPool state
@@ -97,6 +99,11 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             case eVmId of
               Left err -> pure $ RespError err
               Right vmId -> do
+                runSqlPool
+                  ( forM_ audioDevices $ \(backend, options) ->
+                      insert_ (AudioDevice (toSqlKey vmId) backend options)
+                  )
+                  pool
                 -- Bump the scheduler's in-memory reservation so the
                 -- next 'pickNodeForVm' call (within the same daemon,
                 -- before the agent's next stats push) doesn't
@@ -119,6 +126,10 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             Left (RefNotFound _ _) -> pure RespNodeNotFound
             Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
             Right nidRaw -> placeOn (M.toSqlKey nidRaw)
+  where
+    validateBackends
+      | headless && any ((== AudioSpice) . fst) audioDevices = Left "SPICE audio requires a graphical VM"
+      | otherwise = Right ()
 
 -- | Handle VM delete command. Reaps ephemeral disks attached to the
 -- VM (cloud-init ISOs, template-instantiated disks) unless 'keepDisks'
@@ -284,6 +295,7 @@ data VmCreate = VmCreate
   , vcrAutostart :: Bool
   , vcrRebootQuirk :: Bool
   , vcrCpuModel :: Text
+  , vcrAudioDevices :: [(AudioBackend, Text)]
   -- ^ QEMU @-cpu@ model. Empty == use the daemon default
   -- ('host'); see the schema field comment on
   -- @schema/vm.capnp::VmInfo.cpuModel@ for the
@@ -309,6 +321,7 @@ instance Action VmCreate where
       (vcrAutostart a)
       (vcrRebootQuirk a)
       (vcrCpuModel a)
+      (vcrAudioDevices a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64

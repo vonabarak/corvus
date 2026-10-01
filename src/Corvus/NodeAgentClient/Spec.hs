@@ -72,16 +72,17 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
     Just vm -> do
       basePath <- getEffectiveBasePath config
       let vmNode = vmNodeId vm
-      (drives, netIfs, sharedDirs) <-
+      (drives, netIfs, sharedDirs, audioDevices) <-
         runSqlPool
           ( do
               ds <- selectList [M.DriveVmId ==. vmKey] [Asc M.DriveId]
               nIfs <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
               sds <- selectList [M.SharedDirVmId ==. vmKey] []
+              ads <- selectList [M.AudioDeviceVmId ==. vmKey] [Asc M.AudioDeviceId]
               -- For every drive: load both the DiskImage row and
               -- its per-node placement on this VM's node.
               dimg <- mapM (fetchDriveWithImage vmNode) ds
-              pure (dimg, nIfs, sds)
+              pure (dimg, nIfs, sds, ads)
           )
           pool
       -- For each managed/bridge NIC, ask netd to allocate a
@@ -117,6 +118,7 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
                   , VS.vsDrives = driveSpecs
                   , VS.vsNetIfs = netIfSpecs
                   , VS.vsSharedDirs = sharedDirSpecs
+                  , VS.vsAudioDevices = map encodeAudioDeviceSpec audioDevices
                   , VS.vsWaitForGuestAgentMs =
                       if vmGuestAgent vm then waitMs else 0
                   , VS.vsRebootQuirk = vmRebootQuirk vm
@@ -143,6 +145,14 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
                     VS.vsStartPaused = False
                   }
           pure (Right spec)
+
+encodeAudioDeviceSpec :: Entity M.AudioDevice -> VS.VmAudioDeviceSpec
+encodeAudioDeviceSpec (Entity audioId audioDevice) =
+  VS.VmAudioDeviceSpec
+    { VS.vasAudioDeviceId = fromSqlKey audioId
+    , VS.vasBackend = enumToText (M.audioDeviceBackend audioDevice)
+    , VS.vasOptions = M.audioDeviceOptions audioDevice
+    }
 
 -- | Load the 'DiskImage' row and the per-node placement
 -- ('DiskImageNode'.filePath) each 'Drive' references.

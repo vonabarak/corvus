@@ -611,6 +611,13 @@ struct VmSpec {
   # Daemon-owned fence for a cold-start command and the runtime it admits.
   lifecycleRevision @20 :Int64;
   runtimeGeneration @21 :Int64;
+  audioDevices @22 :List(VmAudioDeviceSpec);
+}
+
+struct VmAudioDeviceSpec {
+  audioDeviceId @0 :Int64;
+  backend       @1 :Enums.AudioBackend;
+  options       @2 :Text;
 }
 
 struct VmDriveSpec {

@@ -401,6 +401,7 @@ vms:
     drives: [...]              # Optional. List of attached drives.
     networkInterfaces: [...]   # Optional. List of network interfaces.
     sharedDirs: [...]          # Optional. List of virtiofs shared directories.
+    audioDevices: [...]        # Optional. List of {backend, options} sound cards.
     sshKeys: [...]             # Optional. List of SSH key names to attach.
 ```
 
@@ -580,6 +581,9 @@ templates:
         tag: <virtiofs-tag>
         cache: <always|auto|never>  # Optional. Default: auto.
         readOnly: <bool>              # Optional. Default: false.
+    audioDevices:               # Optional. Same fields as VM-level audioDevices above.
+      - backend: <pulse|pipewire|spice>
+        options: <comma-separated QEMU key=value options>  # Optional.
 ```
 
 Templates are created **after** SSH keys, disks, networks, and VMs so they can

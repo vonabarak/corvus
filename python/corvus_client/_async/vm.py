@@ -8,7 +8,7 @@ request/response wrappers.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, cast
 
 import capnp
@@ -73,6 +73,7 @@ class AsyncVmManager:
         autostart: bool = False,
         reboot_quirk: bool = False,
         cpu_model: str = "host",
+        audio_devices: Sequence[tuple[str, str]] | None = None,
     ) -> AsyncVm:
         """Create a bare VM record.
 
@@ -102,6 +103,11 @@ class AsyncVmManager:
         params.autostart = autostart
         params.rebootQuirk = reboot_quirk
         params.cpuModel = cpu_model
+        if audio_devices:
+            devices = params.init("audioDevices", len(audio_devices))
+            for device, (backend, options) in zip(devices, audio_devices, strict=True):
+                device.backend = backend
+                device.options = options
         resp = await mgr.create(params=params)
         return AsyncVm(resp.vm)
 
@@ -374,6 +380,30 @@ class AsyncVm:
     async def list_shared_dirs(self) -> list[t.SharedDirInfo]:
         resp = await self._cap.listSharedDirs()
         return [conv.shared_dir_info(s) for s in resp.sharedDirs]
+
+    # ---- audio devices ----------------------------------------------------
+
+    async def add_audio_device(self, backend: str, options: str = "") -> int:
+        params = _schema.vm.AudioDeviceParams.new_message()
+        params.backend = backend
+        params.options = options
+        resp = await self._cap.addAudioDevice(params=params)
+        return cast(int, resp.audioDeviceId)
+
+    async def edit_audio_device(
+        self, audio_device_id: int, backend: str, options: str = ""
+    ) -> None:
+        params = _schema.vm.AudioDeviceParams.new_message()
+        params.backend = backend
+        params.options = options
+        await self._cap.editAudioDevice(audioDeviceId=audio_device_id, params=params)
+
+    async def remove_audio_device(self, audio_device_id: int) -> None:
+        await self._cap.removeAudioDevice(audioDeviceId=audio_device_id)
+
+    async def list_audio_devices(self) -> list[t.AudioDeviceInfo]:
+        resp = await self._cap.listAudioDevices()
+        return [conv.audio_device_info(device) for device in resp.audioDevices]
 
     # ---- VM-scoped full-machine snapshots ---------------------------------
 

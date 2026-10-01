@@ -43,6 +43,12 @@ export interface TemplateSharedDirInfo {
   read_only: boolean;
 }
 
+export interface TemplateAudioDeviceInfo {
+  id: number;
+  backend: "pulse" | "pipewire" | "spice";
+  options: string;
+}
+
 export interface CloudInitInfo {
   user_data: string | null;
   network_config: string | null;
@@ -64,6 +70,7 @@ export interface TemplateDetails {
   net_ifs: TemplateNetIfInfo[];
   ssh_keys: TemplateSshKeyInfo[];
   shared_dirs: TemplateSharedDirInfo[];
+  audio_devices: TemplateAudioDeviceInfo[];
   description: string | null;
   cloud_init_config: CloudInitInfo | null;
 }

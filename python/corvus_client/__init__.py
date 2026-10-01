@@ -14,6 +14,7 @@ from ._entityref import entity_ref
 from ._sync.client import Client
 from .exceptions import (
     AmbiguousRef,
+    AudioDeviceNotFound,
     BadEnvelope,
     ConnectError,
     CorvusError,
@@ -52,6 +53,7 @@ from .types import QuiesceMode
 __all__ = [
     "AmbiguousRef",
     "AsyncClient",
+    "AudioDeviceNotFound",
     "BadEnvelope",
     "Client",
     "ConnectError",

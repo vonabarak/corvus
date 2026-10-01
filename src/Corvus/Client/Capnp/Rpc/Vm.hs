@@ -41,6 +41,10 @@ module Corvus.Client.Capnp.Rpc.Vm
   , rpcSharedDirAdd
   , rpcSharedDirRemove
   , rpcSharedDirList
+  , rpcAudioDeviceAdd
+  , rpcAudioDeviceEdit
+  , rpcAudioDeviceRemove
+  , rpcAudioDeviceList
 
     -- * Network interface (per-VM)
   , rpcNetIfAdd
@@ -81,7 +85,8 @@ import Control.Exception (SomeException, try)
 import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model
-  ( CacheType
+  ( AudioBackend
+  , CacheType
   , DriveMedia (..)
   , NetInterfaceType
   , SharedDirCache
@@ -93,7 +98,8 @@ import qualified Corvus.Protocol.Vm as PV
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpViewGrant, toCapnpEntityRef)
 import Corvus.Wire.Enums
-  ( toCapnpCacheType
+  ( toCapnpAudioBackend
+  , toCapnpCacheType
   , toCapnpDriveMedia
   , toCapnpNetInterfaceType
   , toCapnpSharedDirCache
@@ -202,6 +208,7 @@ rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm =
           , CGVm.autostart = autostart
           , CGVm.rebootQuirk = rq
           , CGVm.cpuModel = cm
+          , CGVm.audioDevices = []
           }
   CGVm.VmManager'create'results {CGVm.vm = vmClient} <-
     callOn #create CGVm.VmManager'create'params {CGVm.params = inner} mgr
@@ -445,6 +452,45 @@ rpcSharedDirList conn vmRef = do
   CGVm.Vm'listSharedDirs'results {CGVm.sharedDirs = sds} <-
     callOn #listSharedDirs CGVm.Vm'listSharedDirs'params vmClient
   traverse (failOnWire . WSd.fromCapnpSharedDirInfo) sds
+
+-- | Manage a VM's duplex sound cards.
+rpcAudioDeviceAdd :: CapnpConnection -> EntityRef -> AudioBackend -> Text -> IO Int64
+rpcAudioDeviceAdd conn vmRef backend options = do
+  vmClient <- getVmClient conn vmRef
+  CGVm.Vm'addAudioDevice'results {CGVm.audioDeviceId = aid} <-
+    callOn
+      #addAudioDevice
+      CGVm.Vm'addAudioDevice'params
+        { CGVm.params = CGVm.AudioDeviceParams {CGVm.backend = toCapnpAudioBackend backend, CGVm.options = options}
+        }
+      vmClient
+  pure aid
+
+rpcAudioDeviceEdit :: CapnpConnection -> EntityRef -> Int64 -> AudioBackend -> Text -> IO ()
+rpcAudioDeviceEdit conn vmRef aid backend options = do
+  vmClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #editAudioDevice
+      CGVm.Vm'editAudioDevice'params
+        { CGVm.audioDeviceId = aid
+        , CGVm.params = CGVm.AudioDeviceParams {CGVm.backend = toCapnpAudioBackend backend, CGVm.options = options}
+        }
+      vmClient
+  pure ()
+
+rpcAudioDeviceRemove :: CapnpConnection -> EntityRef -> Int64 -> IO ()
+rpcAudioDeviceRemove conn vmRef aid = do
+  vmClient <- getVmClient conn vmRef
+  _ <- callOn #removeAudioDevice CGVm.Vm'removeAudioDevice'params {CGVm.audioDeviceId = aid} vmClient
+  pure ()
+
+rpcAudioDeviceList :: CapnpConnection -> EntityRef -> IO [PV.AudioDeviceInfo]
+rpcAudioDeviceList conn vmRef = do
+  vmClient <- getVmClient conn vmRef
+  CGVm.Vm'listAudioDevices'results {CGVm.audioDevices = devices} <-
+    callOn #listAudioDevices CGVm.Vm'listAudioDevices'params vmClient
+  traverse (failOnWire . WVm.fromCapnpAudioDeviceInfo) devices
 
 -- ---------------------------------------------------------------------
 -- Network interface wrappers (per-VM)

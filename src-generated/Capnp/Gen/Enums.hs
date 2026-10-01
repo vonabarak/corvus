@@ -395,6 +395,45 @@ instance (C.Parse SharedDirCache SharedDirCache) where
 instance (C.AllocateList SharedDirCache) where
     type ListAllocHint SharedDirCache = Std_.Int
 instance (C.EstimateListAlloc SharedDirCache SharedDirCache)
+data AudioBackend 
+    = AudioBackend'pulse 
+    | AudioBackend'pipewire 
+    | AudioBackend'spice 
+    | AudioBackend'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor AudioBackend) = (R.Data R.Sz16)
+instance (C.HasTypeId AudioBackend) where
+    typeId  = 12589244741375744398
+instance (Std_.Enum AudioBackend) where
+    toEnum n_ = case n_ of
+        0 ->
+            AudioBackend'pulse
+        1 ->
+            AudioBackend'pipewire
+        2 ->
+            AudioBackend'spice
+        tag_ ->
+            (AudioBackend'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (AudioBackend'pulse) ->
+            0
+        (AudioBackend'pipewire) ->
+            1
+        (AudioBackend'spice) ->
+            2
+        (AudioBackend'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord AudioBackend) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse AudioBackend AudioBackend) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList AudioBackend) where
+    type ListAllocHint AudioBackend = Std_.Int
+instance (C.EstimateListAlloc AudioBackend AudioBackend)
 data TemplateCloneStrategy 
     = TemplateCloneStrategy'clone 
     | TemplateCloneStrategy'overlay 
@@ -679,6 +718,7 @@ data ErrorCode
     | ErrorCode'ambiguousRef 
     | ErrorCode'internalError 
     | ErrorCode'protocolError 
+    | ErrorCode'audioDeviceNotFound 
     | ErrorCode'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -744,6 +784,8 @@ instance (Std_.Enum ErrorCode) where
             ErrorCode'internalError
         27 ->
             ErrorCode'protocolError
+        28 ->
+            ErrorCode'audioDeviceNotFound
         tag_ ->
             (ErrorCode'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
@@ -803,6 +845,8 @@ instance (Std_.Enum ErrorCode) where
             26
         (ErrorCode'protocolError) ->
             27
+        (ErrorCode'audioDeviceNotFound) ->
+            28
         (ErrorCode'unknown' tag_) ->
             (Std_.fromIntegral tag_)
 instance (C.IsWord ErrorCode) where

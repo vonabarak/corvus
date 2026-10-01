@@ -7,9 +7,10 @@
 module Corvus.TemplateYamlSpec (spec) where
 
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
-import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), SharedDirCache (..), TemplateCloneStrategy (..))
+import Corvus.Model (AudioBackend (..), CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), SharedDirCache (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
   ( NamedRef (..)
+  , TemplateAudioDeviceInfo (..)
   , TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
@@ -17,7 +18,8 @@ import Corvus.Protocol
   , TemplateSshKeyInfo (..)
   )
 import Corvus.Schema.Template
-  ( TemplateDriveYaml (..)
+  ( TemplateAudioDeviceYaml (..)
+  , TemplateDriveYaml (..)
   , TemplateNetworkInterfaceYaml (..)
   , TemplateSharedDirYaml (..)
   , TemplateSshKeyYaml (..)
@@ -80,6 +82,13 @@ sampleDetails =
             , tvsdiReadOnly = False
             }
         ]
+    , tvdAudioDevices =
+        [ TemplateAudioDeviceInfo
+            { tvadiId = 12
+            , tvadiBackend = AudioPipewire
+            , tvadiOptions = "out.name=speakers,in.name=mic"
+            }
+        ]
     }
 
 spec :: Spec
@@ -123,6 +132,10 @@ spec = do
           tsdyTag sd `shouldBe` "data"
           tsdyCache sd `shouldBe` CacheAuto
           tsdyReadOnly sd `shouldBe` False
+          length (tyAudioDevices ty) `shouldBe` 1
+          let [audioDevice] = tyAudioDevices ty
+          tadyBackend audioDevice `shouldBe` AudioPipewire
+          tadyOptions audioDevice `shouldBe` "out.name=speakers,in.name=mic"
 
     it "round-trips a create-strategy drive (no diskImageName)" $ do
       let createDetails =

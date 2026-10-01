@@ -12,6 +12,8 @@ module Corvus.Wire.Template
   , fromCapnpTemplateSshKeyInfo
   , toCapnpTemplateSharedDirInfo
   , fromCapnpTemplateSharedDirInfo
+  , toCapnpTemplateAudioDeviceInfo
+  , fromCapnpTemplateAudioDeviceInfo
   , toCapnpTemplateDetails
   , fromCapnpTemplateDetails
   )
@@ -24,13 +26,15 @@ import qualified Corvus.Protocol.Template as P
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (fromCapnpNamedRefOpt, toCapnpNamedRefOpt)
 import Corvus.Wire.Enums
-  ( fromCapnpCacheType
+  ( fromCapnpAudioBackend
+  , fromCapnpCacheType
   , fromCapnpDriveFormat
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpNetInterfaceType
   , fromCapnpSharedDirCache
   , fromCapnpTemplateCloneStrategy
+  , toCapnpAudioBackend
   , toCapnpCacheType
   , toCapnpDriveFormat
   , toCapnpDriveInterface
@@ -42,6 +46,19 @@ import Corvus.Wire.Enums
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
 import Data.Maybe (fromMaybe, isJust)
+
+toCapnpTemplateAudioDeviceInfo :: P.TemplateAudioDeviceInfo -> C.Parsed CGT.TemplateAudioDeviceInfo
+toCapnpTemplateAudioDeviceInfo P.TemplateAudioDeviceInfo {..} =
+  CGT.TemplateAudioDeviceInfo
+    { CGT.id = tvadiId
+    , CGT.backend = toCapnpAudioBackend tvadiBackend
+    , CGT.options = tvadiOptions
+    }
+
+fromCapnpTemplateAudioDeviceInfo :: C.Parsed CGT.TemplateAudioDeviceInfo -> Either WireError P.TemplateAudioDeviceInfo
+fromCapnpTemplateAudioDeviceInfo CGT.TemplateAudioDeviceInfo {..} = do
+  backend' <- fromCapnpAudioBackend backend
+  pure P.TemplateAudioDeviceInfo {P.tvadiId = id, P.tvadiBackend = backend', P.tvadiOptions = options}
 
 emptyCloudInitInfo :: PCI.CloudInitInfo
 emptyCloudInitInfo =
@@ -225,6 +242,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     , CGT.sshKeys = map toCapnpTemplateSshKeyInfo tvdSshKeys
     , CGT.rebootQuirk = tvdRebootQuirk
     , CGT.sharedDirs = map toCapnpTemplateSharedDirInfo tvdSharedDirs
+    , CGT.audioDevices = map toCapnpTemplateAudioDeviceInfo tvdAudioDevices
     }
 
 fromCapnpTemplateDetails
@@ -234,6 +252,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
   drives' <- traverse fromCapnpTemplateDriveInfo drives
   netIfs' <- traverse fromCapnpTemplateNetIfInfo netIfs
   sharedDirs' <- traverse fromCapnpTemplateSharedDirInfo sharedDirs
+  audioDevices' <- traverse fromCapnpTemplateAudioDeviceInfo audioDevices
   let sshKeys' = map fromCapnpTemplateSshKeyInfo sshKeys
   let ci = fromCapnpCloudInitInfo cloudInitConfig
   pure
@@ -255,4 +274,5 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       , P.tvdNetIfs = netIfs'
       , P.tvdSshKeys = sshKeys'
       , P.tvdSharedDirs = sharedDirs'
+      , P.tvdAudioDevices = audioDevices'
       }

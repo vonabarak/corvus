@@ -51,6 +51,12 @@ export interface SharedDirInfo {
   pid: number | null;
 }
 
+export interface AudioDeviceInfo {
+  id: number;
+  backend: "pulse" | "pipewire" | "spice";
+  options: string;
+}
+
 /** Per-drive cumulative I/O counters from QEMU query-blockstats. */
 export interface DriveIo {
   name: string;
@@ -93,6 +99,7 @@ export interface VmDetails extends Omit<VmInfo, "last_healthcheck"> {
   drives: DriveInfo[];
   net_ifs: NetIfInfo[];
   shared_dirs: SharedDirInfo[];
+  audio_devices: AudioDeviceInfo[];
   description: string | null;
   spice_port: number | null;
   vsock_cid: number | null;
@@ -128,6 +135,26 @@ export interface VmCreateBody {
   autostart?: boolean;
   reboot_quirk?: boolean;
   cpu_model?: string;
+  audio_devices?: [AudioDeviceInfo["backend"], string][];
+}
+
+export function addAudioDevice(
+  vmId: number,
+  body: Pick<AudioDeviceInfo, "backend" | "options">,
+): Promise<{ audio_device_id: number }> {
+  return apiSend<{ audio_device_id: number }>("POST", `/vms/${vmId}/audio-devices`, body);
+}
+
+export function editAudioDevice(
+  vmId: number,
+  deviceId: number,
+  body: Pick<AudioDeviceInfo, "backend" | "options">,
+): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("PUT", `/vms/${vmId}/audio-devices/${deviceId}`, body);
+}
+
+export function removeAudioDevice(vmId: number, deviceId: number): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("DELETE", `/vms/${vmId}/audio-devices/${deviceId}`);
 }
 
 export function createVm(body: VmCreateBody): Promise<VmDetails> {

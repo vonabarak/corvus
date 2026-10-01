@@ -27,6 +27,7 @@ import Corvus.Handlers.Vm (VmCreate (..))
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.AudioDevice (validateAudioOptions)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk.Attach (DiskAttach (..))
 import Corvus.Handlers.Disk.Create (DiskCreate (..))
@@ -36,7 +37,8 @@ import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
 import Corvus.Schema.Template
-  ( TemplateDriveYaml (..)
+  ( TemplateAudioDeviceYaml (..)
+  , TemplateDriveYaml (..)
   , TemplateNetworkInterfaceYaml (..)
   , TemplateSharedDirYaml (..)
   , TemplateSshKeyYaml (..)
@@ -191,6 +193,7 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
                 (tvdAutostart details)
                 (tvdRebootQuirk details)
                 ""
+                [(tvadiBackend audioDevice, tvadiOptions audioDevice) | audioDevice <- tvdAudioDevices details]
             )
       case vmResp of
         RespVmCreated vmIdLong -> do
@@ -233,6 +236,8 @@ insertTemplateYaml ty now = do
         concatMap validateDrive (tyDrives ty)
           ++ concatMap validateNetIf (tyNetworkInterfaces ty)
           ++ validateSharedDirs (tySharedDirs ty)
+          ++ [err | audioDevice <- tyAudioDevices ty, Left err <- [validateAudioOptions (tadyOptions audioDevice)]]
+          ++ ["SPICE audio requires a graphical VM" | tyHeadless ty && any ((== AudioSpice) . tadyBackend) (tyAudioDevices ty)]
   if not (null earlyErrs)
     then pure $ Left $ T.intercalate "; " earlyErrs
     else do
@@ -311,6 +316,9 @@ insertTemplateYaml ty now = do
                       (tsdyCache tsd)
                       (tsdyReadOnly tsd)
 
+                forM_ (tyAudioDevices ty) $ \audioDevice ->
+                  insert_ $ TemplateAudioDevice tid (tadyBackend audioDevice) (tadyOptions audioDevice)
+
                 -- Insert cloud-init config if provided
                 forM_ (tyCloudInitConfig ty) $ \cic ->
                   insert_ $
@@ -346,7 +354,7 @@ insertTemplateYaml ty now = do
     -- than a generic FK violation.
     validateSharedDirs sds =
       let tags = map tsdyTag sds
-          dups = [head g | g <- L.group (L.sort tags), length g > 1]
+          dups = [t | t : _ : _ <- L.group (L.sort tags)]
        in [ "shared-dir tag '" <> t <> "' is used more than once in this template" | t <- dups
           ]
             ++ ["shared-dir path must not be empty" | any (T.null . tsdyPath) sds]
@@ -403,6 +411,11 @@ getTemplateDetails tid = do
         pure $ TemplateSshKeyInfo (fromSqlKey $ templateSshKeySshKeyId tsk) keyName
 
       sharedDirRows <- selectList [TemplateSharedDirTemplateId ==. tid] []
+      audioDeviceRows <- selectList [TemplateAudioDeviceTemplateId ==. tid] [Asc TemplateAudioDeviceId]
+      let audioDeviceInfos =
+            [ TemplateAudioDeviceInfo (fromSqlKey audioId) (templateAudioDeviceBackend audioDevice) (templateAudioDeviceOptions audioDevice)
+            | Entity audioId audioDevice <- audioDeviceRows
+            ]
       let sharedDirInfos =
             map
               ( \(Entity sdid tsd) ->
@@ -449,6 +462,7 @@ getTemplateDetails tid = do
             , tvdNetIfs = netIfInfos
             , tvdSshKeys = sshKeyInfos
             , tvdSharedDirs = sharedDirInfos
+            , tvdAudioDevices = audioDeviceInfos
             }
 
 deleteTemplate :: TemplateVmId -> SqlPersistT IO ()
@@ -457,6 +471,7 @@ deleteTemplate tid = do
   deleteWhere [TemplateNetworkInterfaceTemplateId ==. tid]
   deleteWhere [TemplateSshKeyTemplateId ==. tid]
   deleteWhere [TemplateSharedDirTemplateId ==. tid]
+  deleteWhere [TemplateAudioDeviceTemplateId ==. tid]
   deleteBy (UniqueTemplateCloudInitVm tid)
   delete tid
 

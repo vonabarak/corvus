@@ -239,7 +239,7 @@ export default function SpiceConsole() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Browser SPICE has feature limits compared to <code>crv vm view</code>: no audio, no USB
+        Browser SPICE has feature limits compared to <code>crv vm view</code>: no microphone or USB
         redirect, no 3D acceleration. Locale-specific keys (non-US layouts) may misbehave — use the
         native viewer for serious work. Auto-resize requires <code>spice-vdagent</code> in the
         guest.

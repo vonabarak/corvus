@@ -35,6 +35,8 @@ module Corvus.Wire.Enums
     -- * SharedDirCache
   , toCapnpSharedDirCache
   , fromCapnpSharedDirCache
+  , toCapnpAudioBackend
+  , fromCapnpAudioBackend
 
     -- * TemplateCloneStrategy
   , toCapnpTemplateCloneStrategy
@@ -57,6 +59,19 @@ where
 import qualified Capnp.Gen.Enums as CGE
 import qualified Corvus.Model as M
 import Corvus.Wire.Errors (WireError (..))
+
+toCapnpAudioBackend :: M.AudioBackend -> CGE.AudioBackend
+toCapnpAudioBackend = \case
+  M.AudioPulse -> CGE.AudioBackend'pulse
+  M.AudioPipewire -> CGE.AudioBackend'pipewire
+  M.AudioSpice -> CGE.AudioBackend'spice
+
+fromCapnpAudioBackend :: CGE.AudioBackend -> Either WireError M.AudioBackend
+fromCapnpAudioBackend = \case
+  CGE.AudioBackend'pulse -> Right M.AudioPulse
+  CGE.AudioBackend'pipewire -> Right M.AudioPipewire
+  CGE.AudioBackend'spice -> Right M.AudioSpice
+  CGE.AudioBackend'unknown' n -> Left (WireUnknownEnum "AudioBackend" n)
 
 -- ---------------------------------------------------------------------
 -- VmStatus

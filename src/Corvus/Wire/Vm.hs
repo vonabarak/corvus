@@ -9,6 +9,8 @@ module Corvus.Wire.Vm
   , fromCapnpDriveInfo
   , toCapnpNetIfInfo
   , fromCapnpNetIfInfo
+  , toCapnpAudioDeviceInfo
+  , fromCapnpAudioDeviceInfo
   , toCapnpVmDetails
   , fromCapnpVmDetails
   , toCapnpVmStats
@@ -32,12 +34,14 @@ import Corvus.Wire.Common
   , toCapnpNamedRefOpt
   )
 import Corvus.Wire.Enums
-  ( fromCapnpCacheType
+  ( fromCapnpAudioBackend
+  , fromCapnpCacheType
   , fromCapnpDriveFormat
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpNetInterfaceType
   , fromCapnpVmStatus
+  , toCapnpAudioBackend
   , toCapnpCacheType
   , toCapnpDriveFormat
   , toCapnpDriveInterface
@@ -49,6 +53,19 @@ import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.SharedDir (fromCapnpSharedDirInfo, toCapnpSharedDirInfo)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
 import Data.Maybe (fromMaybe, isJust)
+
+toCapnpAudioDeviceInfo :: P.AudioDeviceInfo -> C.Parsed CGVm.AudioDeviceInfo
+toCapnpAudioDeviceInfo P.AudioDeviceInfo {..} =
+  CGVm.AudioDeviceInfo
+    { CGVm.id = adiId
+    , CGVm.backend = toCapnpAudioBackend adiBackend
+    , CGVm.options = adiOptions
+    }
+
+fromCapnpAudioDeviceInfo :: C.Parsed CGVm.AudioDeviceInfo -> Either WireError P.AudioDeviceInfo
+fromCapnpAudioDeviceInfo CGVm.AudioDeviceInfo {..} = do
+  backend' <- fromCapnpAudioBackend backend
+  pure P.AudioDeviceInfo {P.adiId = id, P.adiBackend = backend', P.adiOptions = options}
 
 -- A 'CloudInitInfo' with all fields empty, used as the on-the-wire
 -- "absent" sentinel for the @vmDetails.cloudInitConfig@ field.
@@ -206,6 +223,7 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
     , CGVm.drives = map toCapnpDriveInfo vdDrives
     , CGVm.netIfs = map toCapnpNetIfInfo vdNetIfs
     , CGVm.sharedDirs = map toCapnpSharedDirInfo sharedDirs
+    , CGVm.audioDevices = map toCapnpAudioDeviceInfo vdAudioDevices
     , CGVm.headless = vdHeadless
     , CGVm.monitorSocket = vdMonitorSocket
     , CGVm.spicePort = maybe 0 fromIntegral vdSpicePort
@@ -254,6 +272,7 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
   drives' <- traverse fromCapnpDriveInfo drives
   netIfs' <- traverse fromCapnpNetIfInfo netIfs
   sharedDirs' <- traverse fromCapnpSharedDirInfo sharedDirs
+  audioDevices' <- traverse fromCapnpAudioDeviceInfo audioDevices
   let ci = fromCapnpCloudInitInfo cloudInitConfig
   pure
     ( P.VmDetails
@@ -267,6 +286,7 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdDescription = if description == mempty then Nothing else Just description
         , P.vdDrives = drives'
         , P.vdNetIfs = netIfs'
+        , P.vdAudioDevices = audioDevices'
         , P.vdHeadless = headless
         , P.vdMonitorSocket = monitorSocket
         , P.vdSpicePort = if spicePort == 0 then Nothing else Just (fromIntegral spicePort)

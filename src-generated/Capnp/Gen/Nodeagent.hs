@@ -4245,7 +4245,7 @@ instance (C.HasTypeId VmSpec) where
     typeId  = 13869854766932503674
 instance (C.TypedStruct VmSpec) where
     numStructWords  = 6
-    numStructPtrs  = 6
+    numStructPtrs  = 7
 instance (C.Allocate VmSpec) where
     type AllocHint VmSpec = ()
     new _ = C.newTypedStruct
@@ -4277,7 +4277,8 @@ data instance C.Parsed VmSpec
         ,startPaused :: (RP.Parsed Std_.Bool)
         ,tpm :: (RP.Parsed Std_.Bool)
         ,lifecycleRevision :: (RP.Parsed Std_.Int64)
-        ,runtimeGeneration :: (RP.Parsed Std_.Int64)}
+        ,runtimeGeneration :: (RP.Parsed Std_.Int64)
+        ,audioDevices :: (RP.Parsed (R.List VmAudioDeviceSpec))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSpec))
 deriving instance (Std_.Eq (C.Parsed VmSpec))
@@ -4303,7 +4304,8 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
                          <*> (GH.parseField #startPaused raw_)
                          <*> (GH.parseField #tpm raw_)
                          <*> (GH.parseField #lifecycleRevision raw_)
-                         <*> (GH.parseField #runtimeGeneration raw_))
+                         <*> (GH.parseField #runtimeGeneration raw_)
+                         <*> (GH.parseField #audioDevices raw_))
 instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
     marshalInto raw_ VmSpec{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -4328,6 +4330,7 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
         (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
+        (GH.encodeField #audioDevices audioDevices raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmSpec Std_.Int64) where
@@ -4374,6 +4377,48 @@ instance (GH.HasField "lifecycleRevision" GH.Slot VmSpec Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 4 64 0)
 instance (GH.HasField "runtimeGeneration" GH.Slot VmSpec Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
+instance (GH.HasField "audioDevices" GH.Slot VmSpec (R.List VmAudioDeviceSpec)) where
+    fieldByLabel  = (GH.ptrField 6)
+data VmAudioDeviceSpec 
+type instance (R.ReprFor VmAudioDeviceSpec) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmAudioDeviceSpec) where
+    typeId  = 9824235107752412338
+instance (C.TypedStruct VmAudioDeviceSpec) where
+    numStructWords  = 2
+    numStructPtrs  = 1
+instance (C.Allocate VmAudioDeviceSpec) where
+    type AllocHint VmAudioDeviceSpec = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec))
+instance (C.AllocateList VmAudioDeviceSpec) where
+    type ListAllocHint VmAudioDeviceSpec = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec))
+data instance C.Parsed VmAudioDeviceSpec
+    = VmAudioDeviceSpec 
+        {audioDeviceId :: (RP.Parsed Std_.Int64)
+        ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
+        ,options :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmAudioDeviceSpec))
+deriving instance (Std_.Eq (C.Parsed VmAudioDeviceSpec))
+instance (C.Parse VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec)) where
+    parse raw_ = (VmAudioDeviceSpec <$> (GH.parseField #audioDeviceId raw_)
+                                    <*> (GH.parseField #backend raw_)
+                                    <*> (GH.parseField #options raw_))
+instance (C.Marshal VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec)) where
+    marshalInto raw_ VmAudioDeviceSpec{..} = (do
+        (GH.encodeField #audioDeviceId audioDeviceId raw_)
+        (GH.encodeField #backend backend raw_)
+        (GH.encodeField #options options raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "audioDeviceId" GH.Slot VmAudioDeviceSpec Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "backend" GH.Slot VmAudioDeviceSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend) where
+    fieldByLabel  = (GH.dataField 0 1 16 0)
+instance (GH.HasField "options" GH.Slot VmAudioDeviceSpec Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
 data VmDriveSpec 
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where

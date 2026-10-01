@@ -17,6 +17,7 @@ module Corvus.Node.VmSpec
   , VmDriveSpec (..)
   , VmNetIfSpec (..)
   , VmSharedDirSpec (..)
+  , VmAudioDeviceSpec (..)
   , VmRuntimeInfo (..)
   , VmStopResult (..)
   , VmStopKind (..)
@@ -53,6 +54,7 @@ data VmSpec = VmSpec
   , vsDrives :: ![VmDriveSpec]
   , vsNetIfs :: ![VmNetIfSpec]
   , vsSharedDirs :: ![VmSharedDirSpec]
+  , vsAudioDevices :: ![VmAudioDeviceSpec]
   , vsWaitForGuestAgentMs :: !Word32
   , vsRebootQuirk :: !Bool
   -- ^ When true, the agent runs QEMU with @-no-reboot@ and
@@ -117,6 +119,13 @@ data VmSharedDirSpec = VmSharedDirSpec
   , vssTag :: !T.Text
   , vssCache :: !T.Text
   , vssReadOnly :: !Bool
+  }
+  deriving (Eq, Show)
+
+data VmAudioDeviceSpec = VmAudioDeviceSpec
+  { vasAudioDeviceId :: !Int64
+  , vasBackend :: !T.Text
+  , vasOptions :: !T.Text
   }
   deriving (Eq, Show)
 

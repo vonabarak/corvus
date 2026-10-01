@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from types import TracebackType
 
 from .. import types as t
@@ -112,6 +112,7 @@ class SyncVmManager:
         autostart: bool = False,
         reboot_quirk: bool = False,
         cpu_model: str = "host",
+        audio_devices: Sequence[tuple[str, str]] | None = None,
     ) -> SyncVm:
         return SyncVm(
             self._rl.run(
@@ -128,6 +129,7 @@ class SyncVmManager:
                     autostart=autostart,
                     reboot_quirk=reboot_quirk,
                     cpu_model=cpu_model,
+                    audio_devices=audio_devices,
                 )
             ),
             self._rl,
@@ -355,6 +357,21 @@ class SyncVm(LoopBoundResource):
 
     def list_shared_dirs(self) -> list[t.SharedDirInfo]:
         return self._rl.run(self._a.list_shared_dirs())
+
+    # audio devices
+    def add_audio_device(self, backend: str, options: str = "") -> int:
+        return self._rl.run(self._a.add_audio_device(backend, options))
+
+    def edit_audio_device(
+        self, audio_device_id: int, backend: str, options: str = ""
+    ) -> None:
+        self._rl.run(self._a.edit_audio_device(audio_device_id, backend, options))
+
+    def remove_audio_device(self, audio_device_id: int) -> None:
+        self._rl.run(self._a.remove_audio_device(audio_device_id))
+
+    def list_audio_devices(self) -> list[t.AudioDeviceInfo]:
+        return self._rl.run(self._a.list_audio_devices())
 
     # VM-scoped full-machine snapshots
     def snapshot_create(self, name: str) -> t.VmSnapshotInfo:

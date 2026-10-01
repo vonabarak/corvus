@@ -175,6 +175,7 @@ deleteVm vmId = do
   deleteWhere [M.NetworkInterfaceVmId ==. key]
   -- Delete shared directories
   deleteWhere [M.SharedDirVmId ==. key]
+  deleteWhere [M.AudioDeviceVmId ==. key]
   -- Delete VM
   delete key
 

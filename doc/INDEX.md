@@ -16,6 +16,7 @@
 - [SSH Keys](ssh-keys.md) -- Create, delete, attach/detach to VMs
 - [Cloud-Init](cloud-init.md) -- ISO generation, custom user-data, SSH key injection, Windows support
 - [Shared Directories](shared-directories.md) -- virtiofs host directory sharing
+- [VM Audio](vm-audio.md) -- Sound cards, playback, microphones, and audio backends
 - [Guest Execution](guest-exec.md) -- Execute commands inside VMs via guest agent
 - [Task History](task-history.md) -- Track async operations, query history
 - [Observability](observability.md) -- Per-VM resource metrics: CLI Resource Usage, WebUI sparklines, Prometheus `/metrics`

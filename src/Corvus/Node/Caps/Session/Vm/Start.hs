@@ -25,6 +25,7 @@ module Corvus.Node.Caps.Session.Vm.Start
   ) where
 
 import qualified Capnp as C
+import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
@@ -135,6 +136,7 @@ decodeVmSpec
     , CGNA.drives = ds
     , CGNA.netIfs = nis
     , CGNA.sharedDirs = sds
+    , CGNA.audioDevices = ads
     , CGNA.waitForGuestAgentMs = wms
     , CGNA.rebootQuirk = rq
     , CGNA.spiceBindAddr = sba
@@ -157,6 +159,7 @@ decodeVmSpec
       , VS.vsDrives = map decodeVmDriveSpec ds
       , VS.vsNetIfs = map decodeVmNetIfSpec nis
       , VS.vsSharedDirs = map decodeVmSharedDirSpec sds
+      , VS.vsAudioDevices = map decodeVmAudioDeviceSpec ads
       , VS.vsWaitForGuestAgentMs = wms
       , VS.vsRebootQuirk = rq
       , VS.vsSpiceBindAddr = sba
@@ -217,6 +220,18 @@ decodeVmSharedDirSpec
       , VS.vssCache = ca
       , VS.vssReadOnly = ro
       }
+
+decodeVmAudioDeviceSpec :: CGNA.Parsed CGNA.VmAudioDeviceSpec -> VS.VmAudioDeviceSpec
+decodeVmAudioDeviceSpec CGNA.VmAudioDeviceSpec {CGNA.audioDeviceId = aid, CGNA.backend = backend, CGNA.options = options} =
+  VS.VmAudioDeviceSpec
+    { VS.vasAudioDeviceId = aid
+    , VS.vasBackend = case backend of
+        CGE.AudioBackend'pulse -> "pulse"
+        CGE.AudioBackend'pipewire -> "pipewire"
+        CGE.AudioBackend'spice -> "spice"
+        CGE.AudioBackend'unknown' _ -> "unknown"
+    , VS.vasOptions = options
+    }
 
 decodeVmGuestExecReq :: CGNA.Parsed CGNA.VmGuestExecReq -> VS.VmGuestExecReq
 decodeVmGuestExecReq

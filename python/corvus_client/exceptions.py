@@ -149,6 +149,10 @@ class SharedDirNotFound(CorvusError):
     """VM has no shared directory with that ref."""
 
 
+class AudioDeviceNotFound(CorvusError):
+    """VM has no audio device with that id."""
+
+
 class TemplateNotFound(CorvusError):
     """No template matches the ref."""
 
@@ -187,6 +191,7 @@ _CODE_MAP: dict[str, type[CorvusError]] = {
     "netif_not_found": NetIfNotFound,
     "ssh_key_not_found": SshKeyNotFound,
     "shared_dir_not_found": SharedDirNotFound,
+    "audio_device_not_found": AudioDeviceNotFound,
     "template_not_found": TemplateNotFound,
     "task_not_found": TaskNotFound,
     "node_not_found": NodeNotFound,

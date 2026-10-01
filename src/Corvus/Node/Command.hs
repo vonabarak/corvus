@@ -67,6 +67,7 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , guestAgentArgs
       , tpmArgs
       , displayArgs
+      , concatMap audioArgsSpec (VS.vsAudioDevices spec)
       , monitorArgs
       , concatMap driveArgsSpec (VS.vsDrives spec)
       , concatMap netArgsSpec (zip [0 ..] (VS.vsNetIfs spec))
@@ -188,6 +189,25 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
     displayArgs
       | VS.vsHeadless spec = serialConsoleArgs
       | otherwise = spiceArgs ++ usbRedirArgs
+
+    -- hda-micro provides both a speaker and a microphone to the guest.
+    -- Each row gets its own backend and HDA controller, so multiple cards
+    -- can use different host sinks and sources.
+    audioArgsSpec audioDevice =
+      let ident = show (VS.vasAudioDeviceId audioDevice)
+          backendId = "audio" ++ ident
+          controllerId = "hda" ++ ident
+          options = T.unpack (VS.vasOptions audioDevice)
+       in [ "-audiodev"
+          , (if VS.vasBackend audioDevice == "pulse" then "pa" else T.unpack (VS.vasBackend audioDevice))
+              ++ ",id="
+              ++ backendId
+              ++ (if null options then "" else "," ++ options)
+          , "-device"
+          , "ich9-intel-hda,id=" ++ controllerId
+          , "-device"
+          , "hda-micro,bus=" ++ controllerId ++ ".0,audiodev=" ++ backendId
+          ]
 
     spicePort = fromMaybe 0 (VS.vsSpicePort spec)
 

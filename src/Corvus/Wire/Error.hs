@@ -64,6 +64,7 @@ data ErrorCode
   | AmbiguousRef
   | InternalError
   | ProtocolError
+  | AudioDeviceNotFound
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Every code in declaration order.
@@ -101,6 +102,7 @@ errorCodeText = \case
   AmbiguousRef -> "ambiguous_ref"
   InternalError -> "internal_error"
   ProtocolError -> "protocol_error"
+  AudioDeviceNotFound -> "audio_device_not_found"
 
 -- | A wire error: one code plus the human-readable message.
 data WireErrorInfo

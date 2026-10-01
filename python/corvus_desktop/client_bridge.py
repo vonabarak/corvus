@@ -565,6 +565,19 @@ class CorvusBridge(QObject):
     def request_vm_shared_dirs(self, vm_id: int) -> None:
         self._enqueue(self._do_vm_shared_dirs(vm_id))
 
+    def vm_add_audio_device(self, vm_id: int, backend: str, options: str) -> None:
+        self._enqueue(self._do_vm_audio_device(vm_id, "add", None, backend, options))
+
+    def vm_edit_audio_device(
+        self, vm_id: int, device_id: int, backend: str, options: str
+    ) -> None:
+        self._enqueue(
+            self._do_vm_audio_device(vm_id, "edit", device_id, backend, options)
+        )
+
+    def vm_remove_audio_device(self, vm_id: int, device_id: int) -> None:
+        self._enqueue(self._do_vm_audio_device(vm_id, "remove", device_id, "", ""))
+
     def vm_guest_exec(self, vm_id: int, command: str) -> None:
         self._enqueue(self._do_vm_guest_exec(vm_id, command))
 
@@ -1620,6 +1633,26 @@ class CorvusBridge(QObject):
             self.operation_failed.emit("vm_shared_dirs", _friendly_error(e))
             return
         self.vm_shared_dirs_ready.emit(vm_id, dirs)
+
+    async def _do_vm_audio_device(
+        self, vm_id: int, action: str, device_id: int | None, backend: str, options: str
+    ) -> None:
+        client = self._client
+        if client is None:
+            self.operation_failed.emit("vm_audio_device", "not connected")
+            return
+        try:
+            vm = await client.vms.get(vm_id)
+            if action == "add":
+                await vm.add_audio_device(backend, options)
+            elif action == "edit" and device_id is not None:
+                await vm.edit_audio_device(device_id, backend, options)
+            elif action == "remove" and device_id is not None:
+                await vm.remove_audio_device(device_id)
+        except CorvusError as exc:
+            self.operation_failed.emit("vm_audio_device", _friendly_error(exc))
+            return
+        self.vm_edit_completed.emit(vm_id, f"{action}_audio_device")
 
     async def _do_vm_guest_exec(self, vm_id: int, command: str) -> None:
         client = self._client

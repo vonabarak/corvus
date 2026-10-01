@@ -146,6 +146,10 @@ def shared_dir_info(r: capnp.lib.capnp._DynamicStructReader) -> t.SharedDirInfo:
     )
 
 
+def audio_device_info(r: capnp.lib.capnp._DynamicStructReader) -> t.AudioDeviceInfo:
+    return t.AudioDeviceInfo(id=r.id, backend=str(r.backend), options=r.options)
+
+
 def vm_details(r: capnp.lib.capnp._DynamicStructReader) -> t.VmDetails:
     return t.VmDetails(
         id=r.id,
@@ -159,6 +163,7 @@ def vm_details(r: capnp.lib.capnp._DynamicStructReader) -> t.VmDetails:
         drives=[drive_info(d) for d in r.drives],
         net_ifs=[net_if_info(n) for n in r.netIfs],
         shared_dirs=[shared_dir_info(s) for s in r.sharedDirs],
+        audio_devices=[audio_device_info(a) for a in r.audioDevices],
         headless=r.headless,
         monitor_socket=r.monitorSocket,
         spice_port=_nz_int(r.spicePort),
@@ -432,6 +437,12 @@ def template_shared_dir_info(
     )
 
 
+def template_audio_device_info(
+    r: capnp.lib.capnp._DynamicStructReader,
+) -> t.TemplateAudioDeviceInfo:
+    return t.TemplateAudioDeviceInfo(id=r.id, backend=str(r.backend), options=r.options)
+
+
 def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetails:
     return t.TemplateDetails(
         id=r.id,
@@ -450,6 +461,7 @@ def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetai
         net_ifs=[template_net_if_info(n) for n in r.netIfs],
         ssh_keys=[template_ssh_key_info(k) for k in r.sshKeys],
         shared_dirs=[template_shared_dir_info(s) for s in r.sharedDirs],
+        audio_devices=[template_audio_device_info(a) for a in r.audioDevices],
     )
 
 

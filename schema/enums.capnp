@@ -66,6 +66,12 @@ enum SharedDirCache {
   never  @2;
 }
 
+enum AudioBackend {
+  pulse    @0;
+  pipewire @1;
+  spice    @2;
+}
+
 enum TemplateCloneStrategy {
   clone   @0;
   overlay @1;
@@ -155,4 +161,5 @@ enum ErrorCode {
   ambiguousRef          @25;
   internalError         @26;
   protocolError         @27;
+  audioDeviceNotFound   @28;
 }

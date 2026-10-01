@@ -11,6 +11,7 @@ module Corvus.Schema.Template
   , TemplateNetworkInterfaceYaml (..)
   , TemplateSshKeyYaml (..)
   , TemplateSharedDirYaml (..)
+  , TemplateAudioDeviceYaml (..)
   )
 where
 
@@ -36,6 +37,7 @@ data TemplateYaml = TemplateYaml
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
   , tySshKeys :: [TemplateSshKeyYaml]
   , tySharedDirs :: [TemplateSharedDirYaml]
+  , tyAudioDevices :: [TemplateAudioDeviceYaml]
   }
   deriving (Show, Generic)
 
@@ -57,6 +59,17 @@ instance FromJSON TemplateYaml where
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sshKeys" .!= []
       <*> o .:? "sharedDirs" .!= []
+      <*> o .:? "audioDevices" .!= []
+
+data TemplateAudioDeviceYaml = TemplateAudioDeviceYaml
+  { tadyBackend :: AudioBackend
+  , tadyOptions :: Text
+  }
+  deriving (Show, Generic)
+
+instance FromJSON TemplateAudioDeviceYaml where
+  parseJSON = withObject "TemplateAudioDeviceYaml" $ \o ->
+    TemplateAudioDeviceYaml <$> o .: "backend" <*> o .:? "options" .!= ""
 
 data TemplateDriveYaml = TemplateDriveYaml
   { tdyDiskImageName :: Maybe Text

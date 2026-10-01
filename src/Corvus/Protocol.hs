@@ -177,6 +177,10 @@ data Response
     RespSharedDirOk
   | -- | Shared directory not found
     RespSharedDirNotFound
+  | RespAudioDeviceList {audioDevices :: ![AudioDeviceInfo]}
+  | RespAudioDeviceAdded {id :: !Int64}
+  | RespAudioDeviceOk
+  | RespAudioDeviceNotFound
   | -- | List of network interfaces
     RespNetIfList {netIfs :: ![NetIfInfo]}
   | -- | Network interface added

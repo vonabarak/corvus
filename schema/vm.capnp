@@ -79,6 +79,7 @@ struct VmDetails {
   stats               @26 :VmStats;
   # See `VmInfo.tpm`.
   tpm                 @27 :Bool;
+  audioDevices        @28 :List(AudioDeviceInfo);
 }
 
 # Per-VM resource consumption sample. Cumulative counters + the
@@ -154,6 +155,19 @@ struct SharedDirInfo {
   pid       @5 :Int32;   # 0 == not running
 }
 
+struct AudioDeviceParams {
+  backend @0 :Enums.AudioBackend;
+  # QEMU -audiodev properties, for example server=host,out.name=sink.
+  # The daemon validates the comma-separated key=value syntax.
+  options @1 :Text;
+}
+
+struct AudioDeviceInfo {
+  id      @0 :Int64;
+  backend @1 :Enums.AudioBackend;
+  options @2 :Text;
+}
+
 # A VM-scoped full-machine snapshot. Backed on disk by N qcow2
 # internal snapshots that share the same `name` across the VM's
 # writable disk set; one of them — the `carrierDisk` — additionally
@@ -199,6 +213,7 @@ struct VmCreateParams {
   # trade-off.
   cpuModel        @10 :Text;
   tpm             @11 :Bool = false;
+  audioDevices    @12 :List(AudioDeviceParams);
 }
 
 struct VmEditParams {
@@ -276,6 +291,10 @@ interface VmManager {
 }
 
 interface Vm {
+  addAudioDevice    @35 (params :AudioDeviceParams) -> (audioDeviceId :Int64);
+  editAudioDevice   @36 (audioDeviceId :Int64, params :AudioDeviceParams) -> ();
+  removeAudioDevice @37 (audioDeviceId :Int64) -> ();
+  listAudioDevices  @38 () -> (audioDevices :List(AudioDeviceInfo));
   show           @0  () -> (details :VmDetails);
   # Inline-param defaults mirror the CLI: start/stop return
   # immediately by default; `delete` reaps attached ephemeral disks

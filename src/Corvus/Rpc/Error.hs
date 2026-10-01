@@ -33,6 +33,7 @@ responseError = \case
   RespSshKeyNotFound -> (SshKeyNotFound, "SSH key not found")
   RespSshKeyInUse _ -> (SshKeyInUse, "SSH key in use")
   RespSharedDirNotFound -> (SharedDirNotFound, "Shared directory not found")
+  RespAudioDeviceNotFound -> (AudioDeviceNotFound, "Audio device not found")
   RespTemplateNotFound -> (TemplateNotFound, "Template not found")
   RespTaskNotFound -> (TaskNotFound, "Task not found")
   RespNodeNotFound -> (NodeNotFound, "Node not found")

@@ -31,6 +31,63 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 logger = logging.getLogger(__name__)
 
 
+class AudioDeviceBody(BaseModel):  # type: ignore[explicit-any]
+    backend: str = Field(..., pattern="^(pulse|pipewire|spice)$")
+    options: str = ""
+
+
+@router.get("/{vm_id}/audio-devices")
+async def list_audio_devices(vm_id: int, client: ClientDep) -> list[JsonObject]:
+    try:
+        vm = await client.vms.get(vm_id)
+        return [to_dict(device) for device in await vm.list_audio_devices()]
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{vm_id}/audio-devices")
+async def add_audio_device(
+    vm_id: int, body: AudioDeviceBody, client: ClientDep
+) -> dict[str, int]:
+    try:
+        vm = await client.vms.get(vm_id)
+        return {
+            "audio_device_id": await vm.add_audio_device(body.backend, body.options)
+        }
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/{vm_id}/audio-devices/{audio_device_id}")
+async def edit_audio_device(
+    vm_id: int, audio_device_id: int, body: AudioDeviceBody, client: ClientDep
+) -> dict[str, str]:
+    try:
+        vm = await client.vms.get(vm_id)
+        await vm.edit_audio_device(audio_device_id, body.backend, body.options)
+        return {"status": "updated"}
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/{vm_id}/audio-devices/{audio_device_id}")
+async def remove_audio_device(
+    vm_id: int, audio_device_id: int, client: ClientDep
+) -> dict[str, str]:
+    try:
+        vm = await client.vms.get(vm_id)
+        await vm.remove_audio_device(audio_device_id)
+        return {"status": "removed"}
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("")
 async def list_vms(client: ClientDep) -> list[JsonObject]:
     """List every VM. Mirrors ``crv vm list``."""
@@ -65,6 +122,7 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
             "(e.g. `Westmere`) for migration between dissimilar nodes."
         ),
     )
+    audio_devices: list[tuple[str, str]] = Field(default_factory=list)
 
 
 @router.post("")
@@ -87,6 +145,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
             autostart=body.autostart,
             reboot_quirk=body.reboot_quirk,
             cpu_model=body.cpu_model,
+            audio_devices=body.audio_devices,
         )
     except CorvusError as exc:
         # Most likely a name collision or unknown node — surface as 400

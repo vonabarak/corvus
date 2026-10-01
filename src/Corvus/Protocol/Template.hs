@@ -11,11 +11,12 @@ module Corvus.Protocol.Template
   , TemplateNetIfInfo (..)
   , TemplateSshKeyInfo (..)
   , TemplateSharedDirInfo (..)
+  , TemplateAudioDeviceInfo (..)
   , TemplateDetails (..)
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy)
+import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -86,6 +87,13 @@ data TemplateSharedDirInfo = TemplateSharedDirInfo
   }
   deriving (Eq, Show, Generic)
 
+data TemplateAudioDeviceInfo = TemplateAudioDeviceInfo
+  { tvadiId :: !Int64
+  , tvadiBackend :: !AudioBackend
+  , tvadiOptions :: !Text
+  }
+  deriving (Eq, Show, Generic)
+
 -- | Template VM full details
 data TemplateDetails = TemplateDetails
   { tvdId :: !Int64
@@ -105,6 +113,7 @@ data TemplateDetails = TemplateDetails
   , tvdNetIfs :: ![TemplateNetIfInfo]
   , tvdSshKeys :: ![TemplateSshKeyInfo]
   , tvdSharedDirs :: ![TemplateSharedDirInfo]
+  , tvdAudioDevices :: ![TemplateAudioDeviceInfo]
   }
   deriving (Eq, Show, Generic)
 
@@ -121,6 +130,9 @@ instance ToJSON TemplateSshKeyInfo where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateSharedDirInfo where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON TemplateAudioDeviceInfo where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateDetails where
