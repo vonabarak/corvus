@@ -157,6 +157,11 @@ pipeline:
               getent hosts distfiles.gentoo.org >/dev/null \
                 || { echo "network never came up after 120s" >&2; exit 1; }
 
+              # Match the profile used by the headless sysroot below.
+              # ROOT=$SYSROOT emerges read the bake VM's profile.
+              ln -sfn ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/no-multilib/systemd \
+                /etc/portage/make.profile
+
               mkdir -p /etc/portage/package.use
               cat > /etc/portage/package.use/grub <<'EOF'
               sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
@@ -489,7 +494,7 @@ pipeline:
               # booted image the first time the user runs
               # `emerge-webrsync` (or `emerge --sync`) — same convention
               # the stage3 tarball used.
-              ln -sf ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/systemd \
+              ln -sf ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/no-multilib/systemd \
                 "$SYSROOT/etc/portage/make.profile"
 
               # Trust keys for binpkg signature verification.

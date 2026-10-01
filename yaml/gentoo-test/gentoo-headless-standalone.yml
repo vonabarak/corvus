@@ -163,6 +163,11 @@ pipeline:
                 emerge-webrsync
               fi
 
+              # Match the profile used by the headless sysroot below.
+              # ROOT=$SYSROOT emerges read the bake VM's profile.
+              ln -sfn ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/no-multilib/systemd \
+                /etc/portage/make.profile
+
               # Append binhost + binpkg flags to the bake VM's
               # /etc/portage/make.conf. The cloud-init image's
               # make.conf likely already names the default binhost;
@@ -391,7 +396,7 @@ pipeline:
               # booted image the first time the user runs
               # `emerge-webrsync` (or `emerge --sync`) — same convention
               # the stage3 tarball used.
-              ln -sf ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/systemd \
+              ln -sf ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/no-multilib/systemd \
                 "$SYSROOT/etc/portage/make.profile"
 
               # Carry the bake VM's /etc/portage/gnupg into the
