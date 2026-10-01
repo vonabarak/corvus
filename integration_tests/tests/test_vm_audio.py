@@ -11,7 +11,6 @@ from corvus_client._sync.vm import SyncVm
 from corvus_test_harness import SingleNodeCase
 
 
-@pytest.mark.slow
 class TestVmAudio(SingleNodeCase):
     @contextmanager
     def _audio_server(self, backend: str) -> Iterator[None]:
@@ -19,35 +18,34 @@ class TestVmAudio(SingleNodeCase):
             yield
             return
 
-        command = (
-            "pipewire"
-            if backend == "pipewire"
-            else "pulseaudio --daemonize=no --exit-idle-time=-1"
-        )
-        socket = (
-            "/run/corvus/pipewire-0"
-            if backend == "pipewire"
-            else "/run/corvus/pulse/native"
-        )
-        log = f"/tmp/corvus-it-audio-{backend}.log"
-        result = self.node.run(
-            f"nohup env XDG_RUNTIME_DIR=/run/corvus {command} "
-            f">{log} 2>&1 </dev/null & echo $!"
-        )
-        pid = int(result.stdout.decode().strip())
+        pids: list[int] = []
         try:
-            ready = self.node.run(
-                f"for i in $(seq 1 50); do test -S {socket} && exit 0; "
-                f"sleep 0.1; done; cat {log}; exit 1",
-                check=False,
-            )
-            assert ready.returncode == 0, (
-                f"{backend} server did not create {socket}:\n"
-                f"{ready.stdout.decode()}\n{ready.stderr.decode()}"
-            )
+            for command, socket, log in (
+                ("pipewire", "/run/corvus/pipewire-0", "/tmp/corvus-it-pipewire.log"),
+                (
+                    "pipewire-pulse",
+                    "/run/corvus/pulse/native",
+                    "/tmp/corvus-it-pipewire-pulse.log",
+                ),
+            ):
+                result = self.node.run(
+                    f"nohup env XDG_RUNTIME_DIR=/run/corvus {command} "
+                    f">{log} 2>&1 </dev/null & echo $!"
+                )
+                pids.append(int(result.stdout.decode().strip()))
+                ready = self.node.run(
+                    f"for i in $(seq 1 50); do test -S {socket} && exit 0; "
+                    f"sleep 0.1; done; cat {log}; exit 1",
+                    check=False,
+                )
+                assert ready.returncode == 0, (
+                    f"{command} did not create {socket}:\n"
+                    f"{ready.stdout.decode()}\n{ready.stderr.decode()}"
+                )
             yield
         finally:
-            self.node.run(f"kill {pid}", check=False)
+            for pid in reversed(pids):
+                self.node.run(f"kill {pid}", check=False)
 
     @pytest.mark.parametrize("backend", ["pipewire", "pulse", "spice"])
     def test_audio_card_is_visible_in_guest(self, backend: str) -> None:
