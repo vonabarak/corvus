@@ -77,13 +77,25 @@ Operational constraints:
 
 Known limitations vs. `crv vm view`:
 
-- No audio.
+- SPICE playback requires WebM/Opus support in the browser. Click **Enable sound** in the console while the VM is playing audio to allow playback if the browser blocks autoplay. Microphone input is not available.
 - No USB redirect.
 - No 3D acceleration.
 - Locale-specific keyboard keys may misbehave (non-US layouts).
 - No clipboard or file transfer (could be enabled later — spice-html5 has partial support behind feature flags).
 
 For serious work on a graphical guest, use `crv vm view`. The in-browser console is for quick fixes, install screens, and BIOS-level interaction.
+
+To capture SPICE audio state and media events without opening browser DevTools,
+install Firefox, geckodriver, and Python's `selenium` package. With `corvus-web`
+running and the guest producing sound, run:
+
+```sh
+python scripts/debug_spice_audio.py <vm-id> --firefox-binary /opt/firefox/firefox
+```
+
+The probe opens a headless Firefox session, clicks **Enable sound**, and prints
+playback state and events once per second. Use `--url` if the gateway is not at
+`http://127.0.0.1:8080`.
 
 ## Development
 

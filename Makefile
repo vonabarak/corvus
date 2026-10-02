@@ -347,7 +347,7 @@ web-dev:
 # daemon transport with FLAGS=, e.g.:
 #   make web-serve FLAGS="--daemon-host 1.2.3.4 --no-daemon-tls"
 web-serve:
-	$(CORVUS_WEB) --log-level debug $(FLAGS)
+	PYTHONPATH=python $(CORVUS_WEB) --log-level debug $(FLAGS)
 
 web-lint:
 	cd frontend && $(NPM) run lint

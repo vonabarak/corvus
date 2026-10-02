@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Circle, Keyboard, Zap } from "lucide-react";
+import { ArrowLeft, Circle, Keyboard, Volume2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { createSpiceSession } from "@/api/vms";
+import { installBatchedSpiceAudio } from "@/lib/batchedSpiceAudio";
 import { SpiceMainConn } from "@/lib/spice/main.js";
 import { sendCtrlAltDel } from "@/lib/spice/inputs.js";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +52,7 @@ export default function SpiceConsole() {
   const scRef = useRef<SpiceMainConn | null>(null);
   const [state, setState] = useState<ConnState>("connecting");
   const [reason, setReason] = useState<string>("");
+  const [soundError, setSoundError] = useState("");
 
   /** Ask the guest to resize its framebuffer to match our wrapper.
    * Xorg / qxl require both dimensions to be multiples of 8 — round
@@ -90,6 +92,7 @@ export default function SpiceConsole() {
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       const uri = `${proto}//${window.location.host}/api/vms/${vmId}/spice/ws?session=${encodeURIComponent(session.session_id)}`;
 
+      installBatchedSpiceAudio();
       const sc = new SpiceMainConn({
         uri,
         password: session.password,
@@ -157,6 +160,57 @@ export default function SpiceConsole() {
     setState("closed");
   }, []);
 
+  const onEnableSound = useCallback(async () => {
+    if (!window.MediaSource?.isTypeSupported('audio/webm; codecs="opus"')) {
+      setSoundError("This browser cannot play SPICE audio (WebM/Opus is unavailable).");
+      return;
+    }
+
+    const audio = document.getElementById(screenDomId)?.querySelector("audio");
+    if (!audio) {
+      setSoundError("No audio stream yet. Start sound in the VM, then try again.");
+      return;
+    }
+
+    try {
+      // The vendored SPICE player requests autoplay when the playback channel
+      // starts. Some browsers place the playhead at Infinity for its live
+      // MediaSource stream, even after data has been buffered. Seek into the
+      // newest buffered range and wait for the seek to complete before play().
+      // Calling play() while the seek is pending can reset the playhead to
+      // Infinity and leave the element paused.
+      if (audio.buffered.length > 0) {
+        const lastRange = audio.buffered.length - 1;
+        const start = audio.buffered.start(lastRange);
+        const end = audio.buffered.end(lastRange);
+        if (
+          !Number.isFinite(audio.currentTime) ||
+          audio.currentTime < start ||
+          audio.currentTime >= end
+        ) {
+          audio.pause();
+          await new Promise<void>((resolve, reject) => {
+            const onSeeked = () => {
+              window.clearTimeout(timeout);
+              resolve();
+            };
+            const timeout = window.setTimeout(() => {
+              audio.removeEventListener("seeked", onSeeked);
+              reject(new Error("Audio seek timed out"));
+            }, 5000);
+            audio.addEventListener("seeked", onSeeked, { once: true });
+            audio.currentTime = Math.max(start, end - 2);
+          });
+        }
+      }
+      // Calling play() from a click also works when autoplay was blocked.
+      await audio.play();
+      setSoundError("");
+    } catch (e) {
+      setSoundError(`Could not play audio: ${(e as Error).message}`);
+    }
+  }, [screenDomId]);
+
   if (!Number.isFinite(vmId)) {
     return <p className="text-destructive">Invalid VM id.</p>;
   }
@@ -180,6 +234,16 @@ export default function SpiceConsole() {
           <ConnBadge state={state} />
         </div>
         <div className="ml-auto flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={state !== "open"}
+            onClick={onEnableSound}
+            title="Allow the browser to play the VM's SPICE audio."
+          >
+            <Volume2 className="h-3.5 w-3.5" />
+            Enable sound
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -217,6 +281,8 @@ export default function SpiceConsole() {
           </CardHeader>
         </Card>
       )}
+
+      {soundError && <p className="text-sm text-destructive">{soundError}</p>}
 
       <Card className="min-h-0 flex-1">
         <CardContent className="h-full p-3">

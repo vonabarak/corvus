@@ -48,3 +48,13 @@ declare module "@/lib/spice/inputs.js" {
    * into this helper; we don't have to emit them ourselves. */
   export function sendCtrlAltDel(conn: SpiceMainConn): void;
 }
+
+declare module "@/lib/spice/playback.js" {
+  export class SpicePlaybackConn {
+    process_channel_message(message: { type: number; data: ArrayBuffer }): boolean;
+  }
+}
+
+declare module "@/lib/spice/enums.js" {
+  export const Constants: { SPICE_MSG_PLAYBACK_DATA: number };
+}
