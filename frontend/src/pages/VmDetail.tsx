@@ -74,6 +74,7 @@ function ActionButton({ vmId, action, icon, label, variant, allowed }: ActionBut
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vm", vmId] });
       queryClient.invalidateQueries({ queryKey: ["vms"] });
+      toast.success(`${label} requested`);
     },
     onError: (e) => toast.error(`${label} failed`, { description: (e as Error).message }),
   });
@@ -267,7 +268,11 @@ export default function VmDetail() {
   // Lifecycle transition table from ``/api/config``.  Fetched once
   // and cached for the session so the action buttons stay in sync
   // with the daemon without hard-coding the table.
-  const { data: config } = useQuery({
+  const {
+    data: config,
+    error: configError,
+    refetch: refetchConfig,
+  } = useQuery({
     queryKey: ["config"],
     queryFn: fetchConfig,
     staleTime: Infinity,
@@ -364,6 +369,15 @@ export default function VmDetail() {
         </Button>
         <DeleteButton vm={vm} />
       </div>
+
+      {configError && (
+        <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+          <span>Could not load VM actions: {configError.message}</span>
+          <Button variant="outline" size="sm" onClick={() => void refetchConfig()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardHeader>

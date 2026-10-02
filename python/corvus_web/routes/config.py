@@ -60,10 +60,13 @@ _TRANSITIONS: dict[str, list[str]] = {
     "paused": ["start", "reset", "save"],
     "saved": ["start", "reset"],
     "error": ["reset"],
+    "saving": ["reset"],
+    "loading": ["reset"],
+    "migrating": ["reset"],
 }
 
 
-@router.get("")
+@router.get("/config")
 async def get_config() -> ConfigResponse:
     """Return configuration data the frontend needs to stay in sync
     with the daemon: valid enum values and the lifecycle transition
