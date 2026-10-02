@@ -3,8 +3,8 @@
 DEBIAN_BASE := https://cloud.debian.org/images/cloud/bookworm/latest
 DEBIAN_FILE := debian-12-generic-amd64.qcow2
 
-UBUNTU_BASE := https://cloud-images.ubuntu.com/releases/noble/release
-UBUNTU_FILE := ubuntu-24.04-server-cloudimg-amd64.img
+UBUNTU_BASE := https://cloud-images.ubuntu.com/releases/resolute/release
+UBUNTU_FILE := ubuntu-26.04-server-cloudimg-amd64.img
 
 ALMALINUX_BASE := https://repo.almalinux.org/almalinux/10/cloud/x86_64_v2/images
 ALMALINUX_FILE := AlmaLinux-10-GenericCloud-latest.x86_64_v2.qcow2
@@ -63,12 +63,12 @@ build-force:
 	  --wait
 
 check:
-	@for disk in debian-12-generic-base ubuntu-24-04-server-base almalinux-10-base freebsd-14-base alpine-3-21-base; do \
+	@for disk in debian-12-generic-base ubuntu-26.04-server-base almalinux-10-base freebsd-14-base alpine-3-21-base; do \
 	  crv -o json disk show $$disk >/dev/null || exit $$?; \
 	done
 
 clean:
-	@for disk in alpine-3-21-base freebsd-14-base almalinux-10-base ubuntu-24-04-server-base debian-12-generic-base; do \
+	@for disk in alpine-3-21-base freebsd-14-base almalinux-10-base ubuntu-26.04-server-base debian-12-generic-base; do \
 	  crv -o json disk show $$disk >/dev/null 2>&1 && crv disk delete $$disk || true; \
 	done
 

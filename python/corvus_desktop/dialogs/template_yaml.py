@@ -14,7 +14,7 @@ ramMb: 2048
 guestAgent: true
 tpm: false
 drives:
-  - diskImageName: "ubuntu-24.04-server-base"
+  - diskImageName: "ubuntu-26.04-server-base"
     interface: "virtio"
     strategy: "overlay"
     sizeMb: 10240

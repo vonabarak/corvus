@@ -240,7 +240,7 @@ class TestBuildPipeline(SingleNodeCase):
 
         We deliberately do *not* apply `yaml/multi-os/multi-os.yml`
         here: that file registers cloud-image disks under names
-        like `ubuntu-24.04-server-base` (with dots) whose
+        like `ubuntu-26.04-server-base` (with dots) whose
         `file_path` collides with the harness's pre-registered
         same-file disks (`register_base_images` sanitises dots to
         hyphens). Staging only what this build needs sidesteps the

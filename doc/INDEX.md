@@ -56,5 +56,5 @@ any companion files like kernel configs or autounattend answer files):
 - [yaml/windows-11/](../yaml/windows-11/) -- Build a Windows 11 Pro image without cloud-init
 - [yaml/gentoo-test/](../yaml/gentoo-test/) -- Build headless Gentoo and the Corvus test image
 - [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
-- [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 24.04 base
+- [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 26.04 base
 - [yaml/template-example/template-example.yml](../yaml/template-example/template-example.yml) -- Standalone template file

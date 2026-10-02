@@ -108,10 +108,10 @@ imageConfigs =
         }
     )
   ,
-    ( "ubuntu-24.04"
+    ( "ubuntu-26.04"
     , ImageConfig
-        { icImageUrl = "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img"
-        , icImageName = "ubuntu-24.04-server-cloudimg-amd64.img"
+        { icImageUrl = "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img"
+        , icImageName = "ubuntu-26.04-server-cloudimg-amd64.img"
         }
     )
   ,

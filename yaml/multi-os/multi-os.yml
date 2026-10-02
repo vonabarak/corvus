@@ -63,7 +63,7 @@ pipeline:
             algorithm: sha512
             value: "{{ debian_sha512 }}"
 
-        - name: ubuntu-24.04-server-base
+        - name: ubuntu-26.04-server-base
           import: "{{ ubuntu_url }}"
           format: qcow2
           path: BaseImages/Ubuntu/
@@ -145,9 +145,9 @@ pipeline:
           sshKeys:
             - name: corvus
 
-        - name: ubuntu24
+        - name: ubuntu26
           <<: *defaults
-          description: "Ubuntu 24.04 LTS"
+          description: "Ubuntu 26.04 LTS"
           cloudInitConfig:
             userData:
               packages:
@@ -155,7 +155,7 @@ pipeline:
               runcmd:
                 - systemctl enable --now qemu-guest-agent
           drives:
-            - diskImageName: ubuntu-24.04-server-base
+            - diskImageName: ubuntu-26.04-server-base
               interface: virtio
               strategy: overlay
               cacheType: writeback

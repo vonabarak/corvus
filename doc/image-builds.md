@@ -663,7 +663,7 @@ once before building):
 - [yaml/debian-nginx/debian-nginx.yml](../yaml/debian-nginx/debian-nginx.yml) —
   Debian 12 with nginx preinstalled (`debian12` template).
 - [yaml/ubuntu-nginx/ubuntu-nginx.yml](../yaml/ubuntu-nginx/ubuntu-nginx.yml) —
-  Ubuntu 24.04 LTS with nginx preinstalled (`ubuntu24` template).
+  Ubuntu 26.04 LTS with nginx preinstalled (`ubuntu26` template).
 - [yaml/gentoo-test/gentoo-test.yml](../yaml/gentoo-test/gentoo-test.yml) —
   Gentoo image preloaded with the full Corvus build/test toolchain
   (`gentoo20260412` template). The bake takes ~15 minutes.

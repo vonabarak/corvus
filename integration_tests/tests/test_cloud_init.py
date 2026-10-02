@@ -150,7 +150,7 @@ class TestCloudInit(SingleNodeCase):
 
     def test_ubuntu(self) -> None:
         class _UbuntuCI(_CIBase):
-            base_image_key = "ubuntu-24-04-server-base"
+            base_image_key = "ubuntu-26-04-server-base"
 
         with _UbuntuCI(self) as vm:
             self._verify_login_linux(vm)

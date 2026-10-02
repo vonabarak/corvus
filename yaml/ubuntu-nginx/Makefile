@@ -1,4 +1,4 @@
-DISK := ubuntu24-nginx
+DISK := ubuntu26-nginx
 
 .PHONY: all build check clean rebuild cache-clean
 all: build
