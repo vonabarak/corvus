@@ -69,15 +69,17 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
     # ---- class-scoped setup ------------------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self) -> Iterator[None]:
+    @classmethod
+    def _register_beta(cls) -> Iterator[None]:
         """Register beta with alpha's daemon for every test in the class.
 
         The registered capability remains local to this class-scoped
         fixture while pytest re-instantiates the test class per method.
         """
-        client = self.client_alpha
-        beta_name = self.beta_name
-        beta_ip = self.node_beta.outer_ip
+        case = cls()
+        client = case.client_alpha
+        beta_name = case.beta_name
+        beta_ip = case.node_beta.outer_ip
         try:
             existing = next(
                 (n for n in client.nodes.list() if n.name == beta_name),

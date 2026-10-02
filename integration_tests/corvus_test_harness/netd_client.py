@@ -31,6 +31,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import ssl
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
@@ -162,10 +163,15 @@ class NetdClient:
             stream = await capnp.AsyncIoStream.create_connection(
                 host=host, port=port, **kwargs
             )
-            two_party = capnp.TwoPartyClient(stream)
-            agent_cap = two_party.bootstrap().cast_as(NETAGENT_SCHEMA.NetAgent)
-            sess_cap = (await agent_cap.session(owner=owner)).session
-            return stream, agent_cap, sess_cap
+            try:
+                two_party = capnp.TwoPartyClient(stream)
+                agent_cap = two_party.bootstrap().cast_as(NETAGENT_SCHEMA.NetAgent)
+                sess_cap = (await agent_cap.session(owner=owner)).session
+                return stream, agent_cap, sess_cap
+            except BaseException:
+                stream.close()
+                await asyncio.sleep(0.2)
+                raise
 
         stream, agent_cap, sess_cap = rl.run(_open())
         return cls(rl, stream, agent_cap, sess_cap)
@@ -190,6 +196,18 @@ class NetdClient:
 
     def close(self) -> None:
         rl = self.__dict__.pop("_rl", None)
+        stream = self.__dict__.get("_stream")
+        if stream is not None and rl is not None:
+
+            async def _close_stream() -> None:
+                stream.close()
+                # pycapnp returns before asyncio's TLS transport closes.
+                await asyncio.sleep(0.2)
+
+            try:
+                rl.run(_close_stream())
+            except Exception:
+                pass
         for key in ("_sess", "_agent", "_stream"):
             obj = self.__dict__.pop(key, None)
             if obj is not None and rl is not None:

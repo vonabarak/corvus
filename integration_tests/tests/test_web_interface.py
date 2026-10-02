@@ -366,3 +366,4 @@ class TestSpiceConsoleHandshake(SingleNodeCase):
             assert exc_info.value.code == 400, (
                 f"expected 400 for headless VM, got {exc_info.value.code}"
             )
+            exc_info.value.close()

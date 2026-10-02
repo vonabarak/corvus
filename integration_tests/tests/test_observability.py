@@ -372,6 +372,7 @@ class TestObservability(SingleNodeCase):
                 from urllib.error import HTTPError
 
                 if isinstance(e, HTTPError) and e.code == 503:
+                    e.close()
                     return
                 raise
             # We expect 503; tolerate 200 only if the body indicates

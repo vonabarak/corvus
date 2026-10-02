@@ -89,11 +89,13 @@ class TestCloudInitCli(SingleNodeCase):
     """Direct coverage of `crv cloud-init` verbs + networkConfig."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology: object) -> None:
+    @classmethod
+    def _install_client_certs(cls, _class_topology: object) -> None:
         """The inner ``/opt/corvus/bin/crv`` calls below dial the
         daemon over mTLS; install the client cert trio under the
         corvus user's XDG config dir before any test runs."""
-        self.install_node_client_certs()
+        case = cls()
+        case.install_node_client_certs()
 
     def _make_ci_vm(self, name: str) -> SyncVm:
         """Create a stopped cloud-init VM. Caller is responsible

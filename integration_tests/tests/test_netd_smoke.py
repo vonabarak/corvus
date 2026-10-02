@@ -81,6 +81,7 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen[bytes]:
             err = b""
             if proc.stderr is not None:
                 err = proc.stderr.read()
+                proc.stderr.close()
             raise RuntimeError(
                 f"ssh port forward exited early: {err.decode(errors='replace')}"
             )
@@ -90,18 +91,22 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen[bytes]:
         except OSError:
             time.sleep(0.1)
     proc.terminate()
+    proc.wait(timeout=2.0)
+    if proc.stderr is not None:
+        proc.stderr.close()
     raise RuntimeError(f"ssh port forward never ready on 127.0.0.1:{host_port}")
 
 
 def _close_port_forward(proc: subprocess.Popen[bytes]) -> None:
-    if proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=2.0)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=2.0)
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2.0)
+    if proc.stderr is not None:
+        proc.stderr.close()
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +193,8 @@ class TestNetdDeclarative(SingleNodeCase):
     NODES = ("netd",)
 
     @pytest.fixture(scope="class")
-    def netd_endpoint(
-        self, request: pytest.FixtureRequest
-    ) -> Iterator[tuple[str, int]]:
+    @classmethod
+    def netd_endpoint(cls, request: pytest.FixtureRequest) -> Iterator[tuple[str, int]]:
         assert request.cls is not None
         state = state_for(request.cls)
         if state.topology is None:

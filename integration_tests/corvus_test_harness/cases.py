@@ -112,14 +112,16 @@ class IntegrationTestCase:
     # answer for #2 (one shared CA); TwoDaemonsCase overrides
     # both to give every node its own isolated CA.
 
-    def _node_role(self, short_name: str) -> NodeRole:
+    @classmethod
+    def _node_role(cls, short_name: str) -> NodeRole:
         """Default: every node runs the full stack. Override
         in subclasses (e.g. OneDaemonTwoNodesCase returns
         AGENTS_ONLY for ``"beta"``)."""
 
         return NodeRole.FULL_STACK
 
-    def _ca_key_for(self, short_name: str) -> str:
+    @classmethod
+    def _ca_key_for(cls, short_name: str) -> str:
         """Default: every node points at the one ``"shared"`` CA.
         Override in :class:`TwoDaemonsCase` to return *short_name*
         and get one CA per node."""
@@ -127,8 +129,9 @@ class IntegrationTestCase:
         return "shared"
 
     @pytest.fixture(scope="class", autouse=True)
+    @classmethod
     def _class_topology(
-        self,
+        cls,
         request: pytest.FixtureRequest,
         crv: Crv,
         image_ready: ImageReady,
@@ -143,7 +146,7 @@ class IntegrationTestCase:
         kept alive on failure so a developer can `crv vm show <name>`
         and inspect the systemd journal.
         """
-        cls = request.cls
+        assert request.cls is cls
         assert cls.NODES, (
             f"{cls.__name__} must set NODES to a non-empty tuple of "
             "short node names (or inherit from SingleNodeCase / "
@@ -162,7 +165,7 @@ class IntegrationTestCase:
             # Build the per-class CA(s) first so add() can stash
             # the right CA key on each TestNode. Sorting de-duped
             # keys keeps the init order stable for log output.
-            ca_keys = tuple(sorted({self._ca_key_for(name) for name in cls.NODES}))
+            ca_keys = tuple(sorted({cls._ca_key_for(name) for name in cls.NODES}))
             topology.init_cas(ca_keys)
             sys.stderr.write(
                 f"[harness] booting class topology for "
@@ -175,8 +178,8 @@ class IntegrationTestCase:
             for short_name in cls.NODES:
                 topology.add(
                     short_name,
-                    role=self._node_role(short_name),
-                    ca_key=self._ca_key_for(short_name),
+                    role=cls._node_role(short_name),
+                    ca_key=cls._ca_key_for(short_name),
                 )
             # Phase 2: mint + push cert trios, enable + start the
             # inner services. Each FULL_STACK node also lands a
@@ -515,7 +518,8 @@ class OneDaemonTwoNodesCase(IntegrationTestCase):
 
     NODES = ("alpha", "beta")
 
-    def _node_role(self, short_name: str) -> NodeRole:
+    @classmethod
+    def _node_role(cls, short_name: str) -> NodeRole:
         return NodeRole.FULL_STACK if short_name == "alpha" else NodeRole.AGENTS_ONLY
 
     @property
@@ -551,7 +555,8 @@ class TwoDaemonsCase(IntegrationTestCase):
 
     NODES = ("alpha", "beta")
 
-    def _ca_key_for(self, short_name: str) -> str:
+    @classmethod
+    def _ca_key_for(cls, short_name: str) -> str:
         # One CA per node — name it after the node itself so the
         # admin store on disk is easy to inspect on a leaked run.
         return short_name

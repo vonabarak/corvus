@@ -151,10 +151,12 @@ class _MigrationCase(OneDaemonTwoNodesCase):
     # ---- class-scoped setup ------------------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self) -> Iterator[None]:
-        client = self.client_alpha
-        beta_name = self.beta_name
-        beta_ip = self.node_beta.outer_ip
+    @classmethod
+    def _register_beta(cls) -> Iterator[None]:
+        case = cls()
+        client = case.client_alpha
+        beta_name = case.beta_name
+        beta_ip = case.node_beta.outer_ip
         try:
             existing = next(
                 (n for n in client.nodes.list() if n.name == beta_name),
@@ -796,12 +798,14 @@ class TestVmMigrationBootableGuest(_MigrationCase):
     """
 
     @pytest.fixture(scope="class", autouse=True)
-    def _stage_alpine_on_beta(self) -> Iterator[None]:
+    @classmethod
+    def _stage_alpine_on_beta(cls) -> Iterator[None]:
         # Inherits ``_register_beta`` from ``_MigrationCase``; pytest
         # runs class-scoped fixtures in dependency order, so by the
         # time this fires beta is already registered with the daemon.
-        self.register_base_images()  # alpha placement
-        self.stage_base_images_on(node_index=1)  # beta placement
+        case = cls()
+        case.register_base_images()  # alpha placement
+        case.stage_base_images_on(node_index=1)  # beta placement
         yield
 
     def test_migrate_minimal_vm_and_boot(self) -> None:

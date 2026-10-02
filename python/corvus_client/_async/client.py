@@ -15,6 +15,7 @@ so they survive across calls.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import TracebackType
@@ -178,10 +179,13 @@ class AsyncClient:
         if self._stream is not None:
             try:
                 self._stream.close()
-                await self._stream.wait_closed()
             except Exception:
                 pass
             self._stream = None
+            # pycapnp closes its asyncio transport without exposing a
+            # usable completion future; let the transport's close
+            # callback run before the owning event loop stops.
+            await asyncio.sleep(0.2)
 
     @property
     def daemon(self) -> capnp.lib.capnp._DynamicCapabilityClient:

@@ -23,7 +23,7 @@ all: build
 
 # Build the project
 build:
-	stack build $(STACK_BUILD_FLAGS)
+	PATH="$$(stack path --local-install-root)/bin:$$PATH" stack --local-bin-path "$$(stack path --local-install-root)/bin" build --copy-bins $(STACK_BUILD_FLAGS)
 
 # Regenerate src-generated/Capnp/Gen/*.hs from schema/*.capnp.
 # The capnp CLI invokes the `capnpc-haskell` plugin shipped with the
@@ -64,7 +64,7 @@ python-test: build venv
 # Run the pytest integration test suite (nested VMs; rootful inner
 # Corvus; multi-node). The orchestrator VMs mount the host's
 # `stack path --local-install-root`/bin/ over virtiofs at
-# /opt/corvus/bin, so a `stack build` is the only thing the suite
+# /opt/corvus/bin, so `make build` refreshes those binaries before the suite
 # needs — the user-driven `make install` step (which copies to
 # $HOME/.local/bin) is *not* a dependency here, and the harness
 # resolves `crv` from the same stack-install path. The first
@@ -92,7 +92,7 @@ integration-tests: build venv
 	    workers=$$(python3 integration_tests/scripts/detect_workers.py --explain); \
 	  fi; \
 	  echo "integration tests: $$workers parallel workers"; \
-	  PYTHONPATH=python:integration_tests .venv/bin/pytest integration_tests/tests -v \
+	  PYTHONPATH=python:integration_tests .venv/bin/pytest integration_tests/tests -v -W always \
 	    $(if $(MATCH),-k "$(MATCH)",-n $$workers)
 
 # Sweep orphan integration-test VMs left behind by aborted test runs.

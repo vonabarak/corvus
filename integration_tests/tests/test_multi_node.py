@@ -253,13 +253,15 @@ class TestNetdReachability(OneDaemonTwoNodesCase):
     """
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self) -> Iterator[None]:
+    @classmethod
+    def _register_beta(cls) -> Iterator[None]:
         """Register beta with alpha and wait until alpha's supervisor
         successfully dials beta's netd. Teardown drops the node
         row so each test class leaves a clean daemon state."""
-        client = self.client_alpha
-        beta_name = self.node_beta.short_name
-        beta_ip = self.node_beta.outer_ip
+        case = cls()
+        client = case.client_alpha
+        beta_name = case.node_beta.short_name
+        beta_ip = case.node_beta.outer_ip
         # Use list-and-find rather than .get(by_name=True) — get
         # raises NodeNotFound (typed CorvusError subclass) on a
         # fresh cluster, which is the common case for this test
@@ -292,7 +294,7 @@ class TestNetdReachability(OneDaemonTwoNodesCase):
             # test classes that boot under the same harness
             # session see it healthy.
             try:
-                self.node_beta.run(
+                case.node_beta.run(
                     "sudo systemctl start corvus-netd",
                     check=False,
                     timeout_sec=10.0,
@@ -384,10 +386,12 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
     """
 
     @pytest.fixture(scope="class", autouse=True)
-    def _register_beta(self) -> Iterator[None]:
-        client = self.client_alpha
-        beta_name = self.node_beta.short_name
-        beta_ip = self.node_beta.outer_ip
+    @classmethod
+    def _register_beta(cls) -> Iterator[None]:
+        case = cls()
+        client = case.client_alpha
+        beta_name = case.node_beta.short_name
+        beta_ip = case.node_beta.outer_ip
         existing = next(
             (n for n in client.nodes.list() if n.name == beta_name),
             None,

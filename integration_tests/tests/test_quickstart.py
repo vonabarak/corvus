@@ -124,8 +124,9 @@ class TestQuickstart(IntegrationTestCase):
     # ---- Class fixture override ----------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
+    @classmethod
     def _class_topology(
-        self,
+        cls,
         request: pytest.FixtureRequest,
         crv: Crv,
         image_ready: ImageReady,

@@ -79,6 +79,8 @@ class VsockTcpRelay:
                 err = (proc.stderr.read() if proc.stderr else b"").decode(
                     errors="replace"
                 )
+                if proc.stderr is not None:
+                    proc.stderr.close()
                 raise RuntimeError(
                     f"socat relay exited early: {err.strip() or proc.returncode}"
                 )
@@ -87,6 +89,9 @@ class VsockTcpRelay:
             time.sleep(0.05)
         else:
             proc.terminate()
+            proc.wait(timeout=3)
+            if proc.stderr is not None:
+                proc.stderr.close()
             raise RuntimeError(
                 f"socat relay didn't start listening on 127.0.0.1:{port}"
             )
@@ -106,6 +111,8 @@ class VsockTcpRelay:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=2)
+        if proc.stderr is not None:
+            proc.stderr.close()
 
     def __enter__(self) -> VsockTcpRelay:
         return self

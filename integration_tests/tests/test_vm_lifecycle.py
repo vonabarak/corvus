@@ -712,9 +712,11 @@ class TestVmTpm(_VmLifecycleBase):
     """swtpm supervision, QEMU wiring, and destructive disable semantics."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _swtpm_present(self, _class_topology: object) -> None:
+    @classmethod
+    def _swtpm_present(cls, _class_topology: object) -> None:
         """Fail early when a cached test-node predates the TPM recipe."""
-        r = self.nodes[0].run("command -v swtpm", check=False)
+        case = cls()
+        r = case.nodes[0].run("command -v swtpm", check=False)
         if r.returncode != 0:
             pytest.fail(
                 "test-node is missing swtpm on PATH. Rebake only the cached "

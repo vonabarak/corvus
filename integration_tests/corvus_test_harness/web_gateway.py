@@ -155,8 +155,11 @@ class WebGateway:
                         return
                     last_err = f"HTTP {resp.status}"
             except HTTPError as e:
-                body = e.read().decode("utf-8", errors="replace")
-                last_err = f"HTTP {e.code}: {body}"
+                try:
+                    body = e.read().decode("utf-8", errors="replace")
+                    last_err = f"HTTP {e.code}: {body}"
+                finally:
+                    e.close()
             except URLError as e:
                 last_err = str(e)
             time.sleep(0.5)

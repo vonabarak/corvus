@@ -76,11 +76,13 @@ class TestGuestExecCli(SingleNodeCase):
     independent."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology: object) -> None:
+    @classmethod
+    def _install_client_certs(cls, _class_topology: object) -> None:
         """``crv`` on the test node needs the host-side client cert
         trio to dial the daemon over mTLS. Mirrors the pattern from
         :mod:`test_task_history`."""
-        self.install_node_client_certs()
+        case = cls()
+        case.install_node_client_certs()
 
     def test_exit_code_and_json_output(self) -> None:
         with Vm(self) as vm:

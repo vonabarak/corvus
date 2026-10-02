@@ -173,14 +173,16 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
     # ---- Class fixture override (same pattern as test_quickstart)
 
     @pytest.fixture(scope="class", autouse=True)
+    @classmethod
     def _class_topology(
-        self,
+        cls,
         request: pytest.FixtureRequest,
         crv: Crv,
         image_ready: ImageReady,
         host_binary: HostBinary,
         session_test_network: str,
     ) -> Iterator[None]:
+        case = cls()
         cls = request.cls
         assert isinstance(cls, type) and issubclass(cls, IntegrationTestCase)
         state = state_for(cls)
@@ -208,7 +210,7 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
             # paths must exist on the test node.  tmp_path is a
             # function-scoped host fixture and is not available in
             # class-based integration tests.
-            cp = _run(self.node, "mktemp -d", user=NODE_USER)
+            cp = _run(case.node, "mktemp -d", user=NODE_USER)
             state.scratch_dir = cp.stdout.decode().strip()
         except BaseException as exc:
             state.setup_failed = True
@@ -594,8 +596,9 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
     NODES = ("controller", "remote")
 
     @pytest.fixture(scope="class", autouse=True)
+    @classmethod
     def _class_topology(
-        self,
+        cls,
         request: pytest.FixtureRequest,
         crv: Crv,
         image_ready: ImageReady,

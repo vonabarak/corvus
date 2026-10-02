@@ -53,7 +53,8 @@ _BUILD_YAML = REPO_ROOT / "yaml" / "corvus-test-installer" / "corvus-test-instal
 
 class TestBuildInstaller(SingleNodeCase):
     @pytest.fixture(scope="class", autouse=True)
-    def _installer_image_present(self, crv: Crv) -> None:
+    @classmethod
+    def _installer_image_present(cls, crv: Crv) -> None:
         """Fail fast if the synthetic-installer ISO isn't registered.
 
         Mirrors `image_ready` for `corvus-test-node`: the bake

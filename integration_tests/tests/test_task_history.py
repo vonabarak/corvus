@@ -51,12 +51,14 @@ class TestTaskHistory(SingleNodeCase):
     """Direct coverage of `TaskManager` + `Task.show` + `crv task wait`."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology: object) -> None:
+    @classmethod
+    def _install_client_certs(cls, _class_topology: object) -> None:
         """``crv task list`` / ``crv task wait`` invocations below
         dial the daemon over mTLS; install the client cert trio
         under the corvus user's XDG config dir before any test
         runs (see ``IntegrationTestCase.install_node_client_certs``)."""
-        self.install_node_client_certs()
+        case = cls()
+        case.install_node_client_certs()
 
     # ---- list filters -----------------------------------------------------
 

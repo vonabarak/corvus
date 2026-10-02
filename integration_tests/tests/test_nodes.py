@@ -54,12 +54,14 @@ class TestNodes(SingleNodeCase):
     """Direct coverage of the `NodeManager` cap + matching CLI verbs."""
 
     @pytest.fixture(scope="class", autouse=True)
-    def _install_client_certs(self, _class_topology: object) -> None:
+    @classmethod
+    def _install_client_certs(cls, _class_topology: object) -> None:
         """Make the corvus user's ``~/.config/corvus`` carry the
         client cert trio so the inner ``/opt/corvus/bin/crv`` can
         dial the daemon over mTLS (see
         ``IntegrationTestCase.install_node_client_certs``)."""
-        self.install_node_client_certs()
+        case = cls()
+        case.install_node_client_certs()
 
     def test_list_and_show_self(self) -> None:
         """`nodes.list()` includes the self-registered node and
