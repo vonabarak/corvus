@@ -316,10 +316,10 @@ resumeMemoryCacheBakeVmClaimed state cachedVmId disks chain carrier vm = do
         <> " has a managed NIC but netd is unavailable; the lifecycle will probably fail"
   let netAgentForSpec = if needsNetd then mNetAgent else Nothing
       -- Cache resume re-uses the bake VM. The QGA wait happens AFTER our
-      -- snapshot-load + cont, so we inherit the 90-second steady-state
-      -- budget the non-cloud-init path uses. The bake VM has QGA on by
+      -- snapshot-load + cont, with the same five-minute budget as a
+      -- cold start. The bake VM has QGA on by
       -- construction (overlay + from-scratch strategies both require it).
-      waitMs = if vmGuestAgent vm then 90000 else 0
+      waitMs = if vmGuestAgent vm then 300000 else 0
   mSpec <-
     liftIO $
       assembleVmSpec pool cfg netAgentForSpec cachedVmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) waitMs

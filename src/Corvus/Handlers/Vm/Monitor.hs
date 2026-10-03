@@ -22,7 +22,7 @@ module Corvus.Handlers.Vm.Monitor
 where
 
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Monad (forM_, void)
+import Control.Monad (forM_, unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.Vm.Db
@@ -32,7 +32,7 @@ import Corvus.Handlers.Vm.Db
   , setVmStarted
   , setVmStopped
   )
-import Corvus.Model (Vm (vmGuestAgent, vmName), VmId, VmStatus (..))
+import Corvus.Model (Vm (vmGuestAgent, vmName, vmStatus), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
@@ -189,13 +189,16 @@ attachVmMonitor state vmId = do
             "VM "
               <> T.pack (show vmId)
               <> " monitor exiting: agent disconnected"
-    -- Tell netd it can drop the VM's managed TAPs.
-    liftIO $ releaseManagedTaps state vmId
+    -- An unavailable agent does not prove QEMU exited. Reconnect
+    -- reconciliation will release TAPs if it has actually stopped.
+    unless (case outcome of ExitAgentGone -> True; _ -> False) $
+      liftIO $
+        releaseManagedTaps state vmId
   pure ()
 
 -- | On daemon (re)connect to the agent: walk the DB for every VM
--- whose intent is "should be running" (status in
--- @{Starting, Running, Paused}@), ask the agent for current
+-- that might still have QEMU alive (status in
+-- @{Starting, Loading, Running, Paused, Error}@), ask the agent for current
 -- status, and reconcile:
 --
 --   * 'VmAgentRunning' — agent still has the VM; re-attach the
@@ -204,9 +207,7 @@ attachVmMonitor state vmId = do
 --     exit while the daemon was down; reflect it in the DB.
 --   * 'VmAgentUnknown' — agent has no record (e.g. it restarted
 --     and reaped the orphan QEMU on startup). Re-issue 'vmStart'
---     to honour the daemon's intent. 'vmStart' is idempotent, so
---     this is also safe if the agent had the VM and we're just
---     catching up.
+--     only for a non-error VM; an errored VM needs explicit reset.
 --
 -- Paused VMs lose their pause state across an agent restart —
 -- they come back as VmRunning. Documented trade-off; symmetric
@@ -218,7 +219,7 @@ reattachVmMonitors state = do
     runSqlPool
       ( selectList
           [ M.VmStatus
-              <-. [VmStarting, VmLoading, VmRunning, VmPaused]
+              <-. [VmStarting, VmLoading, VmRunning, VmPaused, VmError]
           ]
           []
       )
@@ -240,25 +241,37 @@ reattachVmMonitors state = do
                 "Re-attaching monitor for VM " <> vmName vm
               liftIO $ attachVmMonitor state vmId
             NOA.VmAgentStopped -> do
-              logInfoN $
-                "VM "
-                  <> vmName vm
-                  <> " exited cleanly while daemon was disconnected; reconciling"
-              liftIO $ runSqlPool (setVmStopped vmId) pool
+              when (vmStatus vm == VmError) $
+                liftIO $
+                  releaseManagedTaps state vmId
+              when (vmStatus vm /= VmError) $ do
+                logInfoN $
+                  "VM "
+                    <> vmName vm
+                    <> " exited cleanly while daemon was disconnected; reconciling"
+                liftIO $ runSqlPool (setVmStopped vmId) pool
             NOA.VmAgentErrored -> do
-              let msg =
-                    "QEMU exited with error code "
-                      <> T.pack (show (NOA.vasLastExitCode status))
-                      <> " (observed while daemon was disconnected)"
-              logWarnN $
-                "VM " <> vmName vm <> ": " <> msg
-              liftIO $ runSqlPool (setVmError vmId msg) pool
+              when (vmStatus vm == VmError) $
+                liftIO $
+                  releaseManagedTaps state vmId
+              when (vmStatus vm /= VmError) $ do
+                let msg =
+                      "QEMU exited with error code "
+                        <> T.pack (show (NOA.vasLastExitCode status))
+                        <> " (observed while daemon was disconnected)"
+                logWarnN $
+                  "VM " <> vmName vm <> ": " <> msg
+                liftIO $ runSqlPool (setVmError vmId msg) pool
             NOA.VmAgentUnknown -> do
-              logInfoN $
-                "VM "
-                  <> vmName vm
-                  <> " not in agent ledger; re-issuing vmStart to honour DB intent"
-              reapplyVm state nac vmId vm
+              when (vmStatus vm == VmError) $
+                liftIO $
+                  releaseManagedTaps state vmId
+              when (vmStatus vm /= VmError) $ do
+                logInfoN $
+                  "VM "
+                    <> vmName vm
+                    <> " not in agent ledger; re-issuing vmStart to honour DB intent"
+                reapplyVm state nac vmId vm
           Left e ->
             logWarnN $
               "vmStatus RPC failed for VM "

@@ -88,11 +88,9 @@ handleVmStartValidate state vmId = do
 -- | Execute VM start to completion (blocks until VmRunning).
 -- Used with --wait flag or in withTaskAsync.
 --
--- The agent's @vmStart@ blocks internally for the first QGA
--- ping when @waitForGuestAgentMs > 0@ — by the time the RPC
--- returns successfully, the VM is fully booted and the guest
--- agent is reachable. So there's no longer a separate
--- @waitForFirstPing@ step in the daemon.
+-- The agent's first-QGA-ping watcher reports readiness or timeout
+-- through status snapshots. The synchronous start path waits for the
+-- resulting DB transition.
 handleVmStartExecute :: ActionContext -> Int64 -> IO Response
 handleVmStartExecute ctx vmId = do
   let state = acState ctx
@@ -161,18 +159,17 @@ handleVmStartExecute ctx vmId = do
 -- old "block until fully booted" semantics now that the agent
 -- returns from 'vmStart' before QGA is ready.
 waitForStartCompletion :: ServerState -> Int64 -> IO Response
-waitForStartCompletion state vmId = go (10 * 60 * 10)
+waitForStartCompletion state vmId = go (330 * 10)
   where
     pool = ssDbPool state
-    -- 10-minute budget at 100 ms ticks; matches the agent's
-    -- worst-case cloud-init bootstrap wait (5 min) with margin.
+    -- Five-minute QGA budget plus 30 seconds for status delivery.
     go remaining
       | remaining <= 0 =
           pure $
             RespError $
               "VM "
                 <> T.pack (show vmId)
-                <> " did not finish starting within 10 minutes; "
+                <> " did not finish starting within 5 minutes 30 seconds; "
                 <> "the agent's first-QGA-ping watcher may be stuck"
       | otherwise = do
           mStatus <- runSqlPool (getVmStatusOnly vmId) pool
@@ -217,8 +214,8 @@ resumeFromPaused state vmId vm = do
 -- | Start QEMU + virtiofsd via the agent, set status, fork the
 -- monitor thread, hook up the chardev ring buffers.
 --
--- After the refactor, the agent handles the QGA first-ping wait
--- itself (driven by @VmSpec.waitForGuestAgentMs@), spawns
+-- The agent watches for the first QGA ping in the background
+-- (driven by @VmSpec.waitForGuestAgentMs@), spawns
 -- virtiofsd internally if the spec carries shared dirs, and
 -- spawns QEMU. So this function shrinks to:
 --
@@ -229,8 +226,7 @@ resumeFromPaused state vmId vm = do
 --   3. Vsock CID re-validation (daemon owns @ssVsockCidLock@).
 --   4. 'Spec.assembleVmSpec' — walk the DB, resolve managed
 --      NICs through netd, pack into 'VmSpec'.
---   5. 'NOA.vmStart' — one RPC, the agent does everything else
---      (including blocking for first QGA ping).
+--   5. 'NOA.vmStart' — one RPC; the agent returns after QEMU starts.
 --   6. 'attachVmMonitor' to watch for QEMU exit.
 --   7. Wire up the chardev ring buffers.
 startQemuAndMonitor :: ActionContext -> Int64 -> Vm -> VmStatus -> LoggingT IO Response
@@ -395,15 +391,11 @@ launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
       pure $ if needsNetd then mNetAgent else Nothing
 
     -- The nodeagent wait budget covers cold boot through the first QGA
-    -- response. Cloud-init's first installation of qemu-guest-agent gets a
-    -- longer budget; steady-state and pre-installed-agent boots use 90 s.
+    -- response. All guest-agent-enabled starts get five minutes.
     assembleStartSpec netAgentForSpec = do
-      let firstBoot = isNothing (vmHealthcheck vm)
-          cloudInitBootstrap = firstBoot && vmCloudInit vm
-          waitMs
+      let waitMs
             | not (vmGuestAgent vm) = 0
-            | cloudInitBootstrap = 300000
-            | otherwise = 90000
+            | otherwise = 300000
       liftIO $
         NSpec.assembleVmSpec
           pool

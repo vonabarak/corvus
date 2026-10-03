@@ -39,7 +39,8 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import Corvus.Node.Caps.Session.Utils
-  ( SessionCap (..)
+  ( FirstQgaPingResult (..)
+  , SessionCap (..)
   , agentQemuConfig
   , captureStderrTail
   , decodeQuiesceMode
@@ -471,6 +472,7 @@ newVmLiveState
 newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntry = do
   lastExitVar <- newTVarIO Nothing
   stderrTailVar <- newTVarIO T.empty
+  startupErrorVar <- newTVarIO Nothing
   forwardQemuOutput (VS.vsVmId spec) mStdoutH mStderrH stderrTailVar
   stopRequestedVar <- newTVarIO False
   pure $
@@ -481,6 +483,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
       , L.vlsSwtpm = swtpmEntry
       , L.vlsLastExitCode = lastExitVar
       , L.vlsStderrTail = stderrTailVar
+      , L.vlsStartupError = startupErrorVar
       , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
       , L.vlsSpec = spec
       , L.vlsStopRequested = stopRequestedVar
@@ -659,8 +662,8 @@ completeIncomingState sc cfg live savedStateFile = do
     SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
 
 -- | Race the first QGA ping against the reaper's exit code so early crashes
--- surface in under a second. Success pushes a snapshot that promotes the
--- daemon's VmStarting row to VmRunning; failure tears down and reports error.
+-- surface in under a second. Success promotes the daemon's VmStarting row;
+-- timeout reports an error while retaining QEMU, and early exit tears down.
 awaitGuestAgent :: SessionCap -> QemuConfig -> L.VmLiveState -> IO ()
 awaitGuestAgent sc cfg live = do
   let spec = L.vlsSpec live
@@ -674,11 +677,16 @@ awaitGuestAgent sc cfg live = do
       (L.vlsStderrTail live)
       (VS.vsWaitForGuestAgentMs spec)
   case result of
-    Right () -> do
+    FirstQgaPingSucceeded -> do
       runStderrLoggingT . logInfoN $
         "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
-    Left reason -> do
+    FirstQgaPingTimedOut reason -> do
+      runStderrLoggingT . logWarnN $
+        "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping timed out: " <> reason
+      atomically $ writeTVar (L.vlsStartupError live) (Just reason)
+      SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+    FirstQgaPingQemuExited reason -> do
       runStderrLoggingT . logWarnN $
         "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping failed: " <> reason
       stopFailedStartup sc cfg live

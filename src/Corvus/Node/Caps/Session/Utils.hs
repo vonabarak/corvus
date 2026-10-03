@@ -31,6 +31,7 @@ module Corvus.Node.Caps.Session.Utils
 
     -- * VM spawn helpers
   , waitForFirstQgaPing
+  , FirstQgaPingResult (..)
   , forwardPipeToLog
   , captureStderrTail
   , stderrTailCapacity
@@ -85,6 +86,7 @@ import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
+import System.Timeout (timeout)
 
 -- ---------------------------------------------------------------------------
 -- Disk encoders / parsers
@@ -217,10 +219,14 @@ agentQemuConfig = defaultQemuConfig
 -- ---------------------------------------------------------------------------
 -- VM spawn helpers
 
--- | Poll QGA every 200 ms up to @timeoutMs@ ms; return 'True' as
--- soon as one ping succeeds, 'False' on timeout. Used by
--- 'doVmStart' to block until the guest agent inside the VM is
--- alive.
+-- | Result of the first guest-agent readiness check.
+data FirstQgaPingResult
+  = FirstQgaPingSucceeded
+  | FirstQgaPingTimedOut Text
+  | FirstQgaPingQemuExited Text
+
+-- | Poll QGA every 200 ms up to @timeoutMs@ ms. Distinguish a
+-- live QEMU with an unresponsive agent from an early QEMU exit.
 --
 -- The 'NGA.GuestAgentConns' argument MUST be the agent-wide cache
 -- ('scQgaConns'), not a fresh local map. The successful ping
@@ -243,11 +249,7 @@ waitForFirstQgaPing
   -- verbatim in the error string when QEMU died early.
   -> Word32
   -- ^ wall-clock budget in milliseconds
-  -> IO (Either T.Text ())
-  -- ^ 'Right ()' when the first guest-agent ping succeeded;
-  -- 'Left reason' on timeout *or* early QEMU exit. The reason
-  -- string is intended to flow verbatim into the daemon's task
-  -- message and 'vm.error_message'.
+  -> IO FirstQgaPingResult
 waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
   let budgetSec = fromIntegral timeoutMs / 1000 :: Double
   start <- getMonotonicTime
@@ -256,29 +258,35 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
     loop deadline = do
       mExit <- readTVarIO exitVar
       case mExit of
-        Just code -> Left <$> earlyExitReason code
+        Just code -> FirstQgaPingQemuExited <$> earlyExitReason code
         Nothing -> do
-          ok <- NGA.guestPing conns cfg vmId
-          if ok
-            then pure $ Right ()
+          now <- getMonotonicTime
+          if now >= deadline
+            then pure $ FirstQgaPingTimedOut timeoutReason
             else do
+              -- A QGA request can wait for its own internal timeout.
+              -- Cap it at the remaining startup budget.
+              let remainingUs = ceiling ((deadline - now) * 1000000)
+              ping <- timeout remainingUs (NGA.guestPing conns cfg vmId)
               -- Re-check the reaper after the (potentially slow)
               -- ping attempt: 'guestPing' has its own ~15 s internal
               -- timeout, so QEMU could have died during the call.
               mExit' <- readTVarIO exitVar
               case mExit' of
-                Just code -> Left <$> earlyExitReason code
+                Just code -> FirstQgaPingQemuExited <$> earlyExitReason code
                 Nothing -> do
-                  now <- getMonotonicTime
-                  if now >= deadline
-                    then
-                      pure $
-                        Left $
-                          "guest agent did not respond within "
-                            <> tshow timeoutMs
-                            <> " ms for vmId "
-                            <> tshow vmId
-                    else threadDelay 200000 >> loop deadline
+                  afterPing <- getMonotonicTime
+                  if afterPing >= deadline
+                    then pure $ FirstQgaPingTimedOut timeoutReason
+                    else case ping of
+                      Just True -> pure FirstQgaPingSucceeded
+                      _ -> threadDelay 200000 >> loop deadline
+
+    timeoutReason =
+      "guest agent did not respond within "
+        <> tshow timeoutMs
+        <> " ms for vmId "
+        <> tshow vmId
 
     earlyExitReason code = do
       stderr <- readTVarIO stderrVar

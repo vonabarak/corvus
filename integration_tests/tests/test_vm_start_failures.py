@@ -3,7 +3,7 @@
 When a VM fails to start (e.g. QEMU OOMs because the requested RAM
 exceeds the host's), three things must hold:
 
-* the caller's `vm.start(...)` RPC fails fast — well under the 90 s
+* the caller's `vm.start(...)` RPC fails fast — well under the five-minute
   wait-for-first-QGA budget;
 * the failure reason ends up in `vm.show().error_message` so
   `crv vm show` shows the operator what happened without making
@@ -16,7 +16,7 @@ exceed the test-node's total memory. The kernel rejects the
 allocation, QEMU exits within ~1 s, and the nodeagent's
 `waitForFirstQgaPing` sees `vlsLastExitCode` populated and surfaces
 "QEMU exited with code N before first guest-agent ping" instead of
-the misleading 90 s "QGA ping timeout".
+the misleading five-minute "QGA ping timeout".
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from corvus_test_harness import SingleNodeCase
 pytestmark = pytest.mark.timeout(300)
 
 
+@pytest.mark.slow
 class TestVmStartFailures(SingleNodeCase):
     def test_vm_oversized_ram_surfaces_in_vm_show(self) -> None:
         """Requesting more RAM than the node has surfaces a real
@@ -67,7 +68,7 @@ class TestVmStartFailures(SingleNodeCase):
                 vm.start(wait=True)
             elapsed = time.monotonic() - start
 
-            # Fast-fail: must NOT eat the 90 s wait-for-first-ping
+            # Fast-fail: must NOT eat the five-minute wait-for-first-ping
             # budget. 30 s allows generous margin for QEMU init,
             # the reaper picking up the exit, and the RPC roundtrip
             # back through the daemon.
@@ -115,6 +116,58 @@ class TestVmStartFailures(SingleNodeCase):
             vm.edit(ram_mb=256)
             vm.start(wait=True)
             assert vm.show().status == "running"
+        finally:
+            try:
+                vm.reset()
+            except Exception:
+                pass
+            try:
+                vm.delete()
+            except Exception:
+                pass
+
+    @pytest.mark.timeout(420)
+    def test_guest_agent_timeout_preserves_qemu_and_returns_to_python(self) -> None:
+        """A live QEMU with no boot disk cannot answer a guest-agent ping."""
+        vm = self.client.vms.create(
+            f"corvus-it-no-qga-{secrets.token_hex(4)}",
+            cpu_count=1,
+            ram_mb=256,
+            headless=False,
+            guest_agent=True,
+            cloud_init=False,
+        )
+        try:
+            vm_id = vm.show().id
+            started = time.monotonic()
+            with pytest.raises(CorvusError) as exc_info:
+                vm.start(wait=True)
+            elapsed = time.monotonic() - started
+            assert 290 <= elapsed < 330, f"unexpected startup wait: {elapsed:.1f}s"
+            assert "guest agent did not respond" in str(exc_info.value).lower()
+
+            details = vm.show()
+            assert details.status == "error"
+            assert details.error_message is not None
+            assert "guest agent did not respond" in details.error_message.lower()
+            assert details.last_error_at is not None
+
+            pid = (
+                self.node.run(
+                    f"pgrep -f '[c]orvus-vm-{vm_id}' || true",
+                    check=False,
+                    timeout_sec=10.0,
+                )
+                .stdout.decode()
+                .strip()
+            )
+            assert pid, "QEMU was killed after the guest-agent timeout"
+
+            # Error remains terminal; access is still possible while QEMU lives.
+            grant = vm.view_grant()
+            assert grant.port > 0
+            time.sleep(12)
+            assert vm.show().status == "error"
         finally:
             try:
                 vm.reset()

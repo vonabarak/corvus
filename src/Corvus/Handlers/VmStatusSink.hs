@@ -109,6 +109,7 @@ processEntry state entry = do
         , CGNA.lastExitCode = exitCode
         , CGNA.netIfs = ifs
         , CGNA.stats = stats
+        , CGNA.startupError = startupError
         } = entry
       pool = ssDbPool state
   -- Stats ring: keep the most recent 'vmStatsRingCapacity' samples
@@ -124,7 +125,7 @@ processEntry state entry = do
   pushVmStats state vmId stats
   -- Stamp healthcheck on successful ping; reflect MAC→IP map in
   -- the network_interface table.
-  when ok $ do
+  when (ok && T.null startupError) $ do
     let pingedAt = millisToUtc pingMillis
     current <- runSqlPool (isCurrentRuntime vmId lifecycleRevision runtimeGeneration) pool
     when current $ do
@@ -139,30 +140,54 @@ processEntry state entry = do
   -- 'dispatchVm' the moment the first ping lands) and surface
   -- early QEMU crashes that happened before the daemon's
   -- monitor was even attached.
-  case agentState of
-    CGNA.VmAgentState'running
-      | ok ->
-          -- QGA pinged — definitively running. Promotes any
-          -- 'VmStarting' or 'VmLoading' row to 'VmRunning'.
-          runSqlPool (promoteStartingToRunning vmId lifecycleRevision runtimeGeneration) pool
-      | otherwise ->
-          -- No QGA ping (either GA disabled, or first ping not
-          -- yet). For 'VmStarting' the daemon waits for QGA before
-          -- promoting; for 'VmLoading' the agent's
-          -- 'runIncomingStep' dispatches this snapshot AFTER QMP
-          -- 'cont' succeeded — so the row is genuinely running on
-          -- the QEMU side and we promote even without QGA. The
-          -- helper guards on the DB's from-status so a regular
-          -- steady-state tick doesn't accidentally re-write the
-          -- row.
-          runSqlPool (promoteLoadingToRunning vmId lifecycleRevision runtimeGeneration) pool
-    CGNA.VmAgentState'errored ->
-      runSqlPool (markErroredFromAgent vmId lifecycleRevision runtimeGeneration (fromIntegral exitCode)) pool
-    _ -> pure ()
+  if not (T.null startupError) && agentState == CGNA.VmAgentState'running
+    then runSqlPool (markGuestAgentTimedOut vmId lifecycleRevision runtimeGeneration startupError) pool
+    else case agentState of
+      CGNA.VmAgentState'running
+        | ok ->
+            -- QGA pinged — definitively running. Promotes any
+            -- 'VmStarting' or 'VmLoading' row to 'VmRunning'.
+            runSqlPool (promoteStartingToRunning vmId lifecycleRevision runtimeGeneration) pool
+        | otherwise ->
+            -- No QGA ping (either GA disabled, or first ping not
+            -- yet). For 'VmStarting' the daemon waits for QGA before
+            -- promoting; for 'VmLoading' the agent's
+            -- 'runIncomingStep' dispatches this snapshot AFTER QMP
+            -- 'cont' succeeded — so the row is genuinely running on
+            -- the QEMU side and we promote even without QGA. The
+            -- helper guards on the DB's from-status so a regular
+            -- steady-state tick doesn't accidentally re-write the
+            -- row.
+            runSqlPool (promoteLoadingToRunning vmId lifecycleRevision runtimeGeneration) pool
+      CGNA.VmAgentState'errored ->
+        runSqlPool (markErroredFromAgent vmId lifecycleRevision runtimeGeneration (fromIntegral exitCode)) pool
+      _ -> pure ()
   -- Fan out the per-VM GuestAgentStatus to anyone subscribed via
   -- @vm.subscribeGuestAgent@. Mirrors the old in-daemon poller's
   -- 'pushGuestAgentStatus' helper.
   pushGuestAgentStatus state vmId ok pingMillis
+
+-- | A first-ping timeout is a startup failure, but QEMU remains live.
+-- Keep the SPICE port and other runtime resources for diagnostics.
+markGuestAgentTimedOut :: Int64 -> Int64 -> Int64 -> Text -> SqlPersistT IO ()
+markGuestAgentTimedOut vmId lifecycleRevision runtimeGeneration reason = do
+  let key = M.toSqlKey vmId :: M.VmId
+  mVm <- get key
+  case mVm of
+    Just vm
+      | M.vmStatus vm `elem` [M.VmStarting, M.VmLoading, M.VmRunning] -> do
+          now <- liftIO getCurrentTime
+          updateWhere
+            [ M.VmId ==. key
+            , M.VmLifecycleRevision ==. lifecycleRevision
+            , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            ]
+            [ M.VmStatus =. M.VmError
+            , M.VmHealthcheck =. Nothing
+            , M.VmErrorMessage =. Just reason
+            , M.VmLastErrorAt =. Just now
+            ]
+    _ -> pure ()
 
 -- | Promote @VmStarting@ or @VmLoading@ to @VmRunning@. Called on
 -- the agent's QGA-ping push for GA-enabled VMs. The push channel
@@ -263,6 +288,7 @@ isCurrentRuntime vmId lifecycleRevision runtimeGeneration = do
     Just vm ->
       M.vmLifecycleRevision vm == lifecycleRevision
         && M.vmRuntimeGeneration vm == Just runtimeGeneration
+        && M.vmStatus vm /= M.VmError
     Nothing -> False
 
 updateHealthcheck :: Int64 -> UTCTime -> SqlPersistT IO ()

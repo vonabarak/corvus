@@ -59,7 +59,7 @@ import Corvus.Rpc.Streams (callSink)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Word (Word32, Word64)
@@ -131,8 +131,8 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = do
 
 -- | Push a single-VM snapshot to every subscriber, out of band
 -- from the 10 s ticker. Used by the agent's @vmStart@ forked
--- post-spawn watcher to signal "first QGA ping landed" (or
--- "QGA never came up, VM torn down") to the daemon without
+-- post-spawn watcher to signal "first QGA ping landed" or
+-- "first QGA ping timed out" to the daemon without
 -- waiting for the next tick.
 --
 -- The entry is built from the same path the periodic poller
@@ -179,9 +179,10 @@ buildEntry
   -> IO (C.Parsed CGNA.VmStatusEntry)
 buildEntry cfg qgaConns subs clk (vmId, live) = do
   mExit <- readTVarIO (L.vlsLastExitCode live)
+  startupError <- readTVarIO (L.vlsStartupError live)
   let qpid = fromIntegral (L.vlsQemuPid live) :: Int32
   case mExit of
-    Just 0 -> pure $ baseEntry vmId live CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk)
+    Just 0 -> pure $ baseEntry vmId live CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk) startupError
     Just code ->
       pure $
         baseEntry
@@ -194,9 +195,13 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
           0
           []
           (zeroVmStats clk)
+          startupError
     Nothing -> do
-      -- Still running; probe QGA.
-      pingResult <- E.try @E.SomeException (NGA.guestPing qgaConns cfg vmId)
+      -- A timed-out runtime stays errored even if QGA responds later.
+      pingResult <-
+        if isNothing startupError
+          then E.try @E.SomeException (NGA.guestPing qgaConns cfg vmId)
+          else pure (Right False)
       let ok = case pingResult of
             Right b -> b
             Left _ -> False
@@ -212,7 +217,7 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
       let wireIfs = map encodeIf ifs
       stats <- sampleVmStats cfg subs clk vmId live
       pure $
-        baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats
+        baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats startupError
 
 baseEntry
   :: Int64
@@ -224,8 +229,9 @@ baseEntry
   -> Int64
   -> [C.Parsed CGNA.GuestNetIf]
   -> C.Parsed CGVM.VmStats
+  -> Maybe T.Text
   -> C.Parsed CGNA.VmStatusEntry
-baseEntry vid live st qpid code ok pingedAt ifs stats =
+baseEntry vid live st qpid code ok pingedAt ifs stats startupError =
   CGNA.VmStatusEntry
     { CGNA.vmId = vid
     , CGNA.state = st
@@ -237,6 +243,7 @@ baseEntry vid live st qpid code ok pingedAt ifs stats =
     , CGNA.stats = stats
     , CGNA.lifecycleRevision = VS.vsLifecycleRevision (L.vlsSpec live)
     , CGNA.runtimeGeneration = VS.vsRuntimeGeneration (L.vlsSpec live)
+    , CGNA.startupError = fromMaybe T.empty startupError
     }
 
 -- ---------------------------------------------------------------------------

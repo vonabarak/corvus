@@ -24,7 +24,10 @@ graphicsAdapterReader :: ReadM GraphicsAdapter
 graphicsAdapterReader = eitherReader (either (Left . T.unpack) Right . enumFromText . T.pack)
 
 graphicsAdapterOption :: Mod OptionFields GraphicsAdapter -> Parser GraphicsAdapter
-graphicsAdapterOption = option graphicsAdapterReader
+graphicsAdapterOption mods =
+  option
+    graphicsAdapterReader
+    (mods <> completeWith (map (T.unpack . snd) (enumMapping :: [(GraphicsAdapter, T.Text)])))
 
 -- | Parser for vm list
 vmListCommand :: Parser Command

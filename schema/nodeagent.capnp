@@ -243,10 +243,9 @@ interface Session {
 
   # Start a VM. The daemon supplies its lifecycle fence and runtime
   # generation in the spec. The agent rejects a stale fence before it can
-  # publish a process. When
-  # spec.waitForGuestAgentMs is non-zero, the agent polls QGA
-  # after spawn and only returns once a ping succeeds (or throws
-  # on timeout).
+  # publish a process. When spec.waitForGuestAgentMs is non-zero, a
+  # background watcher polls QGA and reports success or timeout through
+  # VmStatusSink; vmStart returns after QEMU is spawned.
   vmStart @15 (spec :VmSpec) -> (result :VmStartResult);
 
   # Graceful shutdown: QMP system_powerdown (ACPI), wait up to
@@ -767,6 +766,7 @@ struct VmStatusEntry {
   stats          @7 :Vm.VmStats;
   lifecycleRevision @8 :Int64;
   runtimeGeneration @9 :Int64;
+  startupError @10 :Text;             # nonempty after first QGA ping timeout; QEMU remains live
 }
 
 struct GuestNetIf {

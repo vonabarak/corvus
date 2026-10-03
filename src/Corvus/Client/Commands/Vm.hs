@@ -50,7 +50,7 @@ import Corvus.Client.Config (ClientConfig (..))
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTable)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), GraphicsAdapter, VmStatus (..))
-import Corvus.Protocol (DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
+import Corvus.Protocol (AudioDeviceInfo (..), DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
@@ -506,7 +506,11 @@ printVmDetails vm = do
   printField "CPU Model" (T.unpack (vdCpuModel vm))
   printField "RAM (MB)" (show (vdRamMb vm))
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
+  printField "Headless" (show (vdHeadless vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
+  unless (vdHeadless vm) $
+    putStrLn $
+      "Graphics adapter: " ++ T.unpack (enumToText (vdGraphicsAdapter vm))
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
   printField "TPM 2.0" (if vdTpm vm then "enabled" else "disabled")
   printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
@@ -538,6 +542,11 @@ printVmDetails vm = do
   if null (vdNetIfs vm)
     then putStrLn "  (none)"
     else mapM_ printNetIf (vdNetIfs vm)
+
+  unless (null (vdAudioDevices vm)) $ do
+    putStrLn ""
+    putStrLn "Audio Devices:"
+    mapM_ printAudioDevice (vdAudioDevices vm)
 
   -- Resource usage block: only meaningful when the VM is running
   -- AND the daemon has received at least one stats sample. The
@@ -572,6 +581,13 @@ printVmDetails vm = do
       case niGuestIpAddresses n of
         Nothing -> pure ()
         Just ips -> putStrLn $ "    Guest IPs: " ++ T.unpack ips
+
+    printAudioDevice a = do
+      putStrLn $ "  - ID: " ++ show (adiId a)
+      putStrLn $ "    Backend: " ++ T.unpack (enumToText (adiBackend a))
+      unless (T.null (adiOptions a)) $
+        putStrLn $
+          "    Options: " ++ T.unpack (adiOptions a)
 
 -- | Compute health label for VM list display
 healthLabel :: UTCTime -> VmInfo -> String

@@ -52,8 +52,7 @@ import System.IO (IOMode (ReadMode), withBinaryFile)
 
 -- | VM statuses in which a user may attach to the console, HMP monitor,
 -- or SPICE viewer. Anything non-@stopped@ where QEMU is (or should soon
--- be) alive — deliberately excludes 'VmPaused' (no live I/O) and
--- 'VmError' (QEMU has already died).
+-- be) alive. An errored VM is checked against nodeagent separately.
 viewableStatuses :: [VmStatus]
 viewableStatuses = [VmRunning, VmStarting, VmStopping]
 
@@ -61,18 +60,31 @@ viewableStatuses = [VmRunning, VmStarting, VmStopping]
 isViewable :: VmStatus -> Bool
 isViewable = (`elem` viewableStatuses)
 
+-- | A timed-out guest agent can leave QEMU alive in VmError.
+isVmViewable :: ServerState -> Int64 -> VmStatus -> IO Bool
+isVmViewable state vmId status
+  | isViewable status = pure True
+  | status /= VmError = pure False
+  | otherwise = do
+      outer <- withVmNodeAgent state vmId $ \nac -> NOA.vmStatus nac vmId
+      pure $ case outer of
+        Right (Right agentStatus) -> NOA.vasState agentStatus == NOA.VmAgentRunning
+        _ -> False
+
 -- | Validate that the VM can be addressed for serial console
 -- attachment (running + headless). The agent owns the ring buffer;
 -- this only does the user-facing-message validation.
 handleSerialConsole :: ServerState -> Int64 -> IO Response
 handleSerialConsole state vmId = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  pure $ case result of
-    Nothing -> RespVmNotFound
-    Just (vm, status)
-      | not (isViewable status) -> RespVmNotRunning
-      | not (vmHeadless vm) -> RespVmHeadless
-      | otherwise -> RespSerialConsoleOk
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (vm, status) -> do
+      viewable <- isVmViewable state vmId status
+      pure $
+        if not viewable
+          then RespVmNotRunning
+          else if not (vmHeadless vm) then RespVmHeadless else RespSerialConsoleOk
 
 -- | Validate the VM for serial-console flush (same predicate as
 -- attach). The actual flush is dispatched through the agent.
@@ -89,11 +101,11 @@ handleSerialConsoleFlush state vmId = do
 handleHmpMonitor :: ServerState -> Int64 -> IO Response
 handleHmpMonitor state vmId = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  pure $ case result of
-    Nothing -> RespVmNotFound
-    Just (_, status)
-      | not (isViewable status) -> RespVmNotRunning
-      | otherwise -> RespHmpMonitorOk
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (_, status) -> do
+      viewable <- isVmViewable state vmId status
+      pure $ if viewable then RespHmpMonitorOk else RespVmNotRunning
 
 -- | Validate the VM for HMP-monitor flush; actual flush dispatches
 -- through the agent.
@@ -112,9 +124,11 @@ handleVmSendCtrlAltDel state vmId = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
-    Just (_, status)
-      | not (isViewable status) -> pure RespVmNotRunning
-      | otherwise -> do
+    Just (_, status) -> do
+      viewable <- isVmViewable state vmId status
+      if not viewable
+        then pure RespVmNotRunning
+        else do
           qmpResult <- qmpSendCtrlAltDel (ssQemuConfig state) vmId
           case qmpResult of
             QmpSuccess -> pure RespOk
@@ -135,29 +149,33 @@ handleVmViewGrant state vmId = do
   mVm <- runSqlPool (get (toSqlKey vmId :: VmId)) pool
   case mVm of
     Nothing -> pure RespVmNotFound
-    Just vm
-      | vmHeadless vm -> pure RespVmHeadless
-      | not (isViewable (vmStatus vm)) -> pure RespVmNotRunning
-      | otherwise -> case vmSpicePort vm of
-          Nothing -> pure $ RespError "VM has no SPICE port assigned (daemon bug)"
-          Just spicePort -> do
-            pw <- generateSpicePassword
-            let ttl = 120 :: Int
-            outer <- withVmNodeAgent state vmId $ \nac ->
-              NOA.vmSetSpiceTicket nac vmId pw (fromIntegral ttl)
-            case outer of
-              Left err -> pure $ RespError err
-              Right r -> case r of
-                Left e ->
-                  pure $ RespError $ "vmSetSpiceTicket: " <> T.pack (show e)
-                Right () ->
-                  pure $
-                    RespVmViewGrant
-                      { host = qcSpiceBindAddress cfg
-                      , port = spicePort
-                      , password = pw
-                      , ttlSeconds = ttl
-                      }
+    Just vm -> do
+      viewable <- isVmViewable state vmId (vmStatus vm)
+      if vmHeadless vm
+        then pure RespVmHeadless
+        else
+          if not viewable
+            then pure RespVmNotRunning
+            else case vmSpicePort vm of
+              Nothing -> pure $ RespError "VM has no SPICE port assigned (daemon bug)"
+              Just spicePort -> do
+                pw <- generateSpicePassword
+                let ttl = 120 :: Int
+                outer <- withVmNodeAgent state vmId $ \nac ->
+                  NOA.vmSetSpiceTicket nac vmId pw (fromIntegral ttl)
+                case outer of
+                  Left err -> pure $ RespError err
+                  Right r -> case r of
+                    Left e ->
+                      pure $ RespError $ "vmSetSpiceTicket: " <> T.pack (show e)
+                    Right () ->
+                      pure $
+                        RespVmViewGrant
+                          { host = qcSpiceBindAddress cfg
+                          , port = spicePort
+                          , password = pw
+                          , ttlSeconds = ttl
+                          }
 
 -- | Read 18 bytes from @/dev/urandom@ and encode as URL-safe base64
 -- (24 printable characters, no padding issues in SPICE tickets).
