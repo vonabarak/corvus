@@ -31,6 +31,7 @@ import Corvus.Wire.Enums
   , fromCapnpDriveFormat
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
+  , fromCapnpGraphicsAdapter
   , fromCapnpNetInterfaceType
   , fromCapnpSharedDirCache
   , fromCapnpTemplateCloneStrategy
@@ -39,6 +40,7 @@ import Corvus.Wire.Enums
   , toCapnpDriveFormat
   , toCapnpDriveInterface
   , toCapnpDriveMedia
+  , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
   , toCapnpSharedDirCache
   , toCapnpTemplateCloneStrategy
@@ -85,22 +87,26 @@ toCapnpTemplateVmInfo P.TemplateVmInfo {..} =
     , CGT.tpm = tviTpm
     , CGT.autostart = tviAutostart
     , CGT.rebootQuirk = tviRebootQuirk
+    , CGT.graphicsAdapter = toCapnpGraphicsAdapter tviGraphicsAdapter
     }
 
-fromCapnpTemplateVmInfo :: C.Parsed CGT.TemplateVmInfo -> P.TemplateVmInfo
-fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} =
-  P.TemplateVmInfo
-    { P.tviId = id
-    , P.tviName = name
-    , P.tviCpuCount = fromIntegral cpuCount
-    , P.tviRamMb = fromIntegral ramMb
-    , P.tviDescription = if description == mempty then Nothing else Just description
-    , P.tviHeadless = headless
-    , P.tviGuestAgent = guestAgent
-    , P.tviTpm = tpm
-    , P.tviAutostart = autostart
-    , P.tviRebootQuirk = rebootQuirk
-    }
+fromCapnpTemplateVmInfo :: C.Parsed CGT.TemplateVmInfo -> Either WireError P.TemplateVmInfo
+fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} = do
+  graphicsAdapter' <- fromCapnpGraphicsAdapter graphicsAdapter
+  pure
+    P.TemplateVmInfo
+      { P.tviId = id
+      , P.tviName = name
+      , P.tviCpuCount = fromIntegral cpuCount
+      , P.tviRamMb = fromIntegral ramMb
+      , P.tviDescription = if description == mempty then Nothing else Just description
+      , P.tviHeadless = headless
+      , P.tviGuestAgent = guestAgent
+      , P.tviTpm = tpm
+      , P.tviAutostart = autostart
+      , P.tviRebootQuirk = rebootQuirk
+      , P.tviGraphicsAdapter = graphicsAdapter'
+      }
 
 -- ---------------------------------------------------------------------
 -- TemplateDriveInfo
@@ -243,6 +249,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     , CGT.rebootQuirk = tvdRebootQuirk
     , CGT.sharedDirs = map toCapnpTemplateSharedDirInfo tvdSharedDirs
     , CGT.audioDevices = map toCapnpTemplateAudioDeviceInfo tvdAudioDevices
+    , CGT.graphicsAdapter = toCapnpGraphicsAdapter tvdGraphicsAdapter
     }
 
 fromCapnpTemplateDetails
@@ -253,6 +260,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
   netIfs' <- traverse fromCapnpTemplateNetIfInfo netIfs
   sharedDirs' <- traverse fromCapnpTemplateSharedDirInfo sharedDirs
   audioDevices' <- traverse fromCapnpTemplateAudioDeviceInfo audioDevices
+  graphicsAdapter' <- fromCapnpGraphicsAdapter graphicsAdapter
   let sshKeys' = map fromCapnpTemplateSshKeyInfo sshKeys
   let ci = fromCapnpCloudInitInfo cloudInitConfig
   pure
@@ -275,4 +283,5 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       , P.tvdSshKeys = sshKeys'
       , P.tvdSharedDirs = sharedDirs'
       , P.tvdAudioDevices = audioDevices'
+      , P.tvdGraphicsAdapter = graphicsAdapter'
       }

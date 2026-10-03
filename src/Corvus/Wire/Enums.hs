@@ -37,6 +37,8 @@ module Corvus.Wire.Enums
   , fromCapnpSharedDirCache
   , toCapnpAudioBackend
   , fromCapnpAudioBackend
+  , toCapnpGraphicsAdapter
+  , fromCapnpGraphicsAdapter
 
     -- * TemplateCloneStrategy
   , toCapnpTemplateCloneStrategy
@@ -59,6 +61,25 @@ where
 import qualified Capnp.Gen.Enums as CGE
 import qualified Corvus.Model as M
 import Corvus.Wire.Errors (WireError (..))
+
+toCapnpGraphicsAdapter :: M.GraphicsAdapter -> CGE.GraphicsAdapter
+toCapnpGraphicsAdapter = \case
+  M.GraphicsVirtioVga -> CGE.GraphicsAdapter'virtioVga
+  M.GraphicsQxlVga -> CGE.GraphicsAdapter'qxlVga
+  M.GraphicsVga -> CGE.GraphicsAdapter'vga
+  M.GraphicsVirtioGpuPci -> CGE.GraphicsAdapter'virtioGpuPci
+  M.GraphicsVirtioVgaGl -> CGE.GraphicsAdapter'virtioVgaGl
+  M.GraphicsVirtioGpuGlPci -> CGE.GraphicsAdapter'virtioGpuGlPci
+
+fromCapnpGraphicsAdapter :: CGE.GraphicsAdapter -> Either WireError M.GraphicsAdapter
+fromCapnpGraphicsAdapter = \case
+  CGE.GraphicsAdapter'virtioVga -> Right M.GraphicsVirtioVga
+  CGE.GraphicsAdapter'qxlVga -> Right M.GraphicsQxlVga
+  CGE.GraphicsAdapter'vga -> Right M.GraphicsVga
+  CGE.GraphicsAdapter'virtioGpuPci -> Right M.GraphicsVirtioGpuPci
+  CGE.GraphicsAdapter'virtioVgaGl -> Right M.GraphicsVirtioVgaGl
+  CGE.GraphicsAdapter'virtioGpuGlPci -> Right M.GraphicsVirtioGpuGlPci
+  CGE.GraphicsAdapter'unknown' n -> Left (WireUnknownEnum "GraphicsAdapter" n)
 
 toCapnpAudioBackend :: M.AudioBackend -> CGE.AudioBackend
 toCapnpAudioBackend = \case

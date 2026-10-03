@@ -2,6 +2,7 @@
 
 module Corvus.NodeCommandSpec (spec) where
 
+import Corvus.Model (GraphicsAdapter (..))
 import Corvus.Node.Command (buildQemuCommandFromSpec)
 import Corvus.Node.VmSpec (VmAudioDeviceSpec (..), VmDriveSpec (..), VmSpec (..))
 import Corvus.Qemu.Config (defaultQemuConfig)
@@ -31,6 +32,7 @@ baseSpec =
     , vsLoadFromSavedState = False
     , vsStartPaused = False
     , vsCpuModel = "host"
+    , vsGraphicsAdapter = GraphicsVirtioVga
     }
 
 qemuArgs :: VmSpec -> [String]
@@ -74,6 +76,19 @@ scsiDrive =
 
 spec :: Spec
 spec = describe "buildQemuCommandFromSpec" $ do
+  it "uses the selected graphics device with SPICE" $ do
+    let args = qemuArgs baseSpec {vsHeadless = False, vsSpicePort = Just 5901, vsGraphicsAdapter = GraphicsQxlVga}
+    args `shouldContain` ["-vga", "none", "-device", "qxl-vga"]
+
+  it "enables EGL headless for a GL graphics device" $ do
+    let args = qemuArgs baseSpec {vsHeadless = False, vsSpicePort = Just 5901, vsGraphicsAdapter = GraphicsVirtioVgaGl}
+    args `shouldContain` ["-device", "virtio-vga-gl"]
+    args `shouldContain` ["-display", "egl-headless"]
+
+  it "ignores the selected graphics device for a headless VM" $ do
+    let args = qemuArgs baseSpec {vsGraphicsAdapter = GraphicsQxlVga}
+    args `shouldNotContain` ["-device", "qxl-vga"]
+
   it "creates independent duplex cards for each audio backend" $ do
     let devices =
           [ VmAudioDeviceSpec 11 "pulse" "server=192.0.2.10,out.name=sink,in.name=mic"

@@ -1,6 +1,14 @@
 import { apiGet, apiSend } from "./client";
 import type { NamedRef } from "./refs";
 
+export type GraphicsAdapter =
+  | "virtio-vga"
+  | "qxl-vga"
+  | "vga"
+  | "virtio-gpu-pci"
+  | "virtio-vga-gl"
+  | "virtio-gpu-gl-pci";
+
 /** Subset of fields returned by `/api/vms` (list view). Mirrors
  * corvus_client.types.VmInfo. */
 export interface VmInfo {
@@ -18,6 +26,7 @@ export interface VmInfo {
   last_healthcheck: string | null;
   reboot_quirk: boolean;
   cpu_model: string;
+  graphics_adapter: GraphicsAdapter;
 }
 
 export interface DriveInfo {
@@ -135,6 +144,7 @@ export interface VmCreateBody {
   autostart?: boolean;
   reboot_quirk?: boolean;
   cpu_model?: string;
+  graphics_adapter?: GraphicsAdapter;
   audio_devices?: [AudioDeviceInfo["backend"], string][];
 }
 

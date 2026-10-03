@@ -612,6 +612,7 @@ struct VmSpec {
   lifecycleRevision @20 :Int64;
   runtimeGeneration @21 :Int64;
   audioDevices @22 :List(VmAudioDeviceSpec);
+  graphicsAdapter @23 :Enums.GraphicsAdapter = virtioVga;
 }
 
 struct VmAudioDeviceSpec {

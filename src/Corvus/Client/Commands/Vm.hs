@@ -49,7 +49,7 @@ import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Config (ClientConfig (..))
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTable)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
-import Corvus.Model (EnumText (..), VmStatus (..))
+import Corvus.Model (EnumText (..), GraphicsAdapter, VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
@@ -109,9 +109,10 @@ handleVmCreate
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel
+  -> GraphicsAdapter
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel)
+handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -201,12 +202,13 @@ handleVmEdit
   -- ^ rebootQuirk
   -> Maybe Text
   -- ^ cpuModel
+  -> Maybe GraphicsAdapter
   -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel =
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
-    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel)
+    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter)
 
 -- | Handle @crv vm migrate <VM> --to-node <NODE>@.
 handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool

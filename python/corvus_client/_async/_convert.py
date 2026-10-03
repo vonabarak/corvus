@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import capnp
 
 from .. import types as t
+from .._graphics import from_wire
 
 
 def _ts(ns: int) -> datetime | None:
@@ -106,6 +107,7 @@ def vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.VmInfo:
         last_healthcheck=_ts(r.lastHealthcheck),
         reboot_quirk=r.rebootQuirk,
         cpu_model=r.cpuModel,
+        graphics_adapter=from_wire(r.graphicsAdapter),
     )
 
 
@@ -180,6 +182,7 @@ def vm_details(r: capnp.lib.capnp._DynamicStructReader) -> t.VmDetails:
         last_error_at=_ts(r.lastErrorAt),
         reboot_quirk=r.rebootQuirk,
         cpu_model=r.cpuModel,
+        graphics_adapter=from_wire(r.graphicsAdapter),
         stats=vm_stats(r.stats),
     )
 
@@ -393,6 +396,7 @@ def template_vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateVmInf
         guest_agent=r.guestAgent,
         tpm=r.tpm,
         autostart=r.autostart,
+        graphics_adapter=from_wire(r.graphicsAdapter),
     )
 
 
@@ -462,6 +466,7 @@ def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetai
         ssh_keys=[template_ssh_key_info(k) for k in r.sshKeys],
         shared_dirs=[template_shared_dir_info(s) for s in r.sharedDirs],
         audio_devices=[template_audio_device_info(a) for a in r.audioDevices],
+        graphics_adapter=from_wire(r.graphicsAdapter),
     )
 
 

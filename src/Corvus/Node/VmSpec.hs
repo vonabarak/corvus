@@ -34,6 +34,7 @@ module Corvus.Node.VmSpec
   )
 where
 
+import Corvus.Model (GraphicsAdapter)
 import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
 import qualified Data.Text as T
@@ -47,6 +48,7 @@ data VmSpec = VmSpec
   , vsCpuCount :: !Int32
   , vsRamMb :: !Int32
   , vsHeadless :: !Bool
+  , vsGraphicsAdapter :: !GraphicsAdapter
   , vsGuestAgent :: !Bool
   , vsTpm :: !Bool
   , vsVsockCid :: !(Maybe Word32)

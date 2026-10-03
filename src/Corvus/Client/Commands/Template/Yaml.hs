@@ -41,6 +41,7 @@ templateDetailsToValue t =
     , "cpuCount" .= tvdCpuCount t
     , "ramMb" .= tvdRamMb t
     , "headless" .= tvdHeadless t
+    , "graphicsAdapter" .= tvdGraphicsAdapter t
     , "cloudInit" .= tvdCloudInit t
     , "guestAgent" .= tvdGuestAgent t
     , "tpm" .= tvdTpm t
@@ -124,6 +125,7 @@ skeletonTemplateYaml =
   \cpuCount: 1\n\
   \ramMb: 1024\n\
   \headless: false\n\
+  \graphicsAdapter: virtio-vga\n\
   \cloudInit: false\n\
   \guestAgent: false\n\
   \tpm: false\n\

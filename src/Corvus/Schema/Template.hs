@@ -27,6 +27,7 @@ data TemplateYaml = TemplateYaml
   , tyRamMb :: Int
   , tyDescription :: Maybe Text
   , tyHeadless :: Bool
+  , tyGraphicsAdapter :: GraphicsAdapter
   , tyCloudInit :: Bool
   , tyGuestAgent :: Bool
   , tyTpm :: Bool
@@ -49,6 +50,7 @@ instance FromJSON TemplateYaml where
       <*> o .: "ramMb"
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
+      <*> o .:? "graphicsAdapter" .!= GraphicsVirtioVga
       <*> o .:? "cloudInit" .!= False
       <*> o .:? "guestAgent" .!= False
       <*> o .:? "tpm" .!= False

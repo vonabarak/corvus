@@ -600,35 +600,31 @@ class TestVmBootBasics(_VmLifecycleBase):
 
 
 class TestVmEditWhileRunning(_VmLifecycleBase):
-    """Edits that require a stop / edit / start cycle — two boots
-    per method, so this class lands its own worker."""
+    """Edits that require a stop / edit / start cycle and multiple
+    boots per method, so this class lands its own worker."""
 
     def test_headless_swap_cycle(self) -> None:
-        """Headless ↔ non-headless edit cycle on the same VM.
+        """Boot with virtio-vga, switch to qxl-vga, then go headless.
 
-        Non-headless half: VM gets `-vga …`, the kernel sees a
-        graphics adapter (`lshw -class display`), and QEMU exposes
-        a SPICE TCP listener on the node's @127.0.0.1@. We probe
-        both: lshw inside the guest, and a SPICE link handshake
-        against the listener from inside the node.
+        Each graphical boot exposes the selected PCI display adapter
+        to the guest. The first boot also checks that QEMU exposes a
+        SPICE TCP listener on the node's 127.0.0.1.
 
-        Headless half: stop, edit `headless: true`, restart, and
+        Headless boot: stop, edit `headless: true`, restart, and
         re-verify — no display adapter visible to the guest, no
         SPICE port allocated by the daemon, and the serial console
-        buffer comes up (only headless VMs get a serial chardev —
-        see `Handlers/Vm.hs:386-389`).
+        buffer comes up.
         """
 
         class _GfxOn(VmSsh):
             headless = False
 
         with _GfxOn(self) as vm:
-            r = vm.run("lshw -class display")
+            assert vm.cap.show().graphics_adapter == "virtio-vga"
+            r = vm.run("lspci -n")
             assert r.exit_code == 0
-            # Match any of qemu's standard adapters (std/qxl/virtio).
-            out = r.stdout.lower()
-            assert any(k in out for k in ("vga", "qxl", "virtio gpu", "display")), (
-                f"no display adapter visible in lshw output: {r.stdout!r}"
+            assert "0300: 1af4:1050" in r.stdout, (
+                f"virtio-vga not visible in guest PCI devices: {r.stdout!r}"
             )
 
             # SPICE liveness: a non-headless VM must have a
@@ -650,6 +646,26 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
             # spice-protocol's spice/protocol.h.
             assert info.magic == b"REDQ", info
             assert info.major == 2, info
+
+            # --- swap to qxl-vga ----------------------------------
+            assert vm.shell is not None
+            vm.shell.close()
+            vm.shell = None
+            vm.cap.stop(wait=True)
+            vm.cap.edit(graphics_adapter="qxl-vga")
+            assert vm.cap.show().graphics_adapter == "qxl-vga"
+            vm.cap.start(wait=True)
+
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                r = shell.run("lspci -n")
+                assert r.exit_code == 0
+                assert "0300: 1b36:0100" in r.stdout, (
+                    f"qxl-vga not visible in guest PCI devices: {r.stdout!r}"
+                )
+                assert "0300: 1af4:1050" not in r.stdout, (
+                    f"virtio-vga still visible after qxl-vga swap: {r.stdout!r}"
+                )
 
             # --- swap to headless ---------------------------------
             vm.cap.stop(wait=True)
@@ -707,7 +723,6 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
                 assert mem_kb >= 0.85 * 2 * 1024 * 1024
 
 
-@pytest.mark.slow
 class TestVmTpm(_VmLifecycleBase):
     """swtpm supervision, QEMU wiring, and destructive disable semantics."""
 

@@ -4278,7 +4278,8 @@ data instance C.Parsed VmSpec
         ,tpm :: (RP.Parsed Std_.Bool)
         ,lifecycleRevision :: (RP.Parsed Std_.Int64)
         ,runtimeGeneration :: (RP.Parsed Std_.Int64)
-        ,audioDevices :: (RP.Parsed (R.List VmAudioDeviceSpec))}
+        ,audioDevices :: (RP.Parsed (R.List VmAudioDeviceSpec))
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSpec))
 deriving instance (Std_.Eq (C.Parsed VmSpec))
@@ -4305,7 +4306,8 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
                          <*> (GH.parseField #tpm raw_)
                          <*> (GH.parseField #lifecycleRevision raw_)
                          <*> (GH.parseField #runtimeGeneration raw_)
-                         <*> (GH.parseField #audioDevices raw_))
+                         <*> (GH.parseField #audioDevices raw_)
+                         <*> (GH.parseField #graphicsAdapter raw_))
 instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
     marshalInto raw_ VmSpec{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -4331,6 +4333,7 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
         (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
         (GH.encodeField #audioDevices audioDevices raw_)
+        (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmSpec Std_.Int64) where
@@ -4379,6 +4382,8 @@ instance (GH.HasField "runtimeGeneration" GH.Slot VmSpec Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
 instance (GH.HasField "audioDevices" GH.Slot VmSpec (R.List VmAudioDeviceSpec)) where
     fieldByLabel  = (GH.ptrField 6)
+instance (GH.HasField "graphicsAdapter" GH.Slot VmSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
+    fieldByLabel  = (GH.dataField 16 2 16 0)
 data VmAudioDeviceSpec 
 type instance (R.ReprFor VmAudioDeviceSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmAudioDeviceSpec) where

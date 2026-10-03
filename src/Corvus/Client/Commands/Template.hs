@@ -196,6 +196,7 @@ printTemplateDetails t = do
     Just desc -> printField "Description" (T.unpack desc)
     Nothing -> pure ()
   printField "Console" (if tvdHeadless t then "serial (headless)" else "SPICE (graphics)")
+  printField "Graphics adapter" (T.unpack (enumToText (tvdGraphicsAdapter t)))
   printField "Guest Agent" (if tvdGuestAgent t then "enabled" else "disabled")
   printField "TPM 2.0" (if tvdTpm t then "enabled" else "disabled")
   printField "Cloud-init" (if tvdCloudInit t then "enabled" else "disabled")

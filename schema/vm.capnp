@@ -37,6 +37,7 @@ struct VmInfo {
   cpuModel        @12 :Text;
   # Attach a software-emulated TPM 2.0 device backed by swtpm.
   tpm             @13 :Bool;
+  graphicsAdapter @14 :Enums.GraphicsAdapter = virtioVga;
 }
 
 struct VmDetails {
@@ -80,6 +81,7 @@ struct VmDetails {
   # See `VmInfo.tpm`.
   tpm                 @27 :Bool;
   audioDevices        @28 :List(AudioDeviceInfo);
+  graphicsAdapter     @29 :Enums.GraphicsAdapter = virtioVga;
 }
 
 # Per-VM resource consumption sample. Cumulative counters + the
@@ -214,6 +216,7 @@ struct VmCreateParams {
   cpuModel        @10 :Text;
   tpm             @11 :Bool = false;
   audioDevices    @12 :List(AudioDeviceParams);
+  graphicsAdapter @13 :Enums.GraphicsAdapter = virtioVga;
 }
 
 struct VmEditParams {
@@ -241,6 +244,8 @@ struct VmEditParams {
   cpuModel           @19 :Text;
   hasTpm             @20 :Bool;
   tpm                @21 :Bool;
+  hasGraphicsAdapter @22 :Bool;
+  graphicsAdapter    @23 :Enums.GraphicsAdapter = virtioVga;
 }
 
 struct DriveAttachParams {

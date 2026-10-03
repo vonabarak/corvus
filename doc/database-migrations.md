@@ -77,15 +77,15 @@ its registry entry/import. Do not renumber retained migrations or lower
 `currentSchemaVersion`. No runner refactoring or separate minimum-version
 constant is required.
 
-For example, at current version 5 with only `V005` retained:
+For example, at current version 6 with only `V006` retained:
 
 | Starting database | Result |
 |---|---|
-| Empty | Create version 5 directly |
-| Version 5 | Skip migrations |
-| Version 4 | Apply `V005` |
-| Version 3 | Refuse: migration 3 → 4 is missing |
-| Version 6 | Refuse: database is newer than the binary |
+| Empty | Create version 6 directly |
+| Version 6 | Skip migrations |
+| Version 5 | Apply `V006` |
+| Version 4 | Refuse: migration 4 → 5 is missing |
+| Version 7 | Refuse: database is newer than the binary |
 
 An empty registry permits fresh creation and already-current databases only.
 Never skip a missing intermediate transition. Operators with older databases

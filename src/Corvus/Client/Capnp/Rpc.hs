@@ -178,7 +178,7 @@ rpcTemplateList conn = do
     callOn #templates CGCorvus.Daemon'templates'params (ccDaemon conn)
   CGTmpl.TemplateManager'list'results {CGTmpl.templates = ts} <-
     callOn #list CGTmpl.TemplateManager'list'params mgr
-  pure (map WTmpl.fromCapnpTemplateVmInfo ts)
+  failOnWire (traverse WTmpl.fromCapnpTemplateVmInfo ts)
 
 rpcTemplateShow :: CapnpConnection -> EntityRef -> IO PTm.TemplateDetails
 rpcTemplateShow conn refIn = do

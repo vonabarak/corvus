@@ -26,6 +26,7 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
             description="from python",
             headless=True,
             autostart=True,
+            graphics_adapter="qxl-vga",
         )
         details = await vm.show()
         assert details.name == "py-vm-1"
@@ -35,17 +36,25 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
         assert details.tpm is False
         assert details.autostart is True
         assert details.description == "from python"
+        assert details.graphics_adapter == "qxl-vga"
 
-        await vm.edit(cpu_count=4, ram_mb=1024, description=None)
+        await vm.edit(
+            cpu_count=4, ram_mb=1024, description=None, graphics_adapter="virtio-vga"
+        )
         details2 = await vm.show()
         assert details2.cpu_count == 4
         assert details2.ram_mb == 1024
+        assert details2.graphics_adapter == "virtio-vga"
         # description=None on edit means "do not change"; description stays
         assert details2.description == "from python"
 
         listed = await c.vms.list()
         assert any(v.id == details.id for v in listed)
         assert next(v for v in listed if v.id == details.id).tpm is False
+        assert (
+            next(v for v in listed if v.id == details.id).graphics_adapter
+            == "virtio-vga"
+        )
 
         await vm.delete()
         with pytest.raises(VmNotFound):

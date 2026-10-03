@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, ServerCog } from "lucide-react";
-import { createVm, type VmCreateBody } from "@/api/vms";
+import { createVm, type GraphicsAdapter, type VmCreateBody } from "@/api/vms";
 import { listNodes, type NodeInfo } from "@/api/nodes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,7 @@ export default function VmCreate() {
   const [autostart, setAutostart] = useState(false);
   const [rebootQuirk, setRebootQuirk] = useState(false);
   const [cpuModel, setCpuModel] = useState("host");
+  const [graphicsAdapter, setGraphicsAdapter] = useState<GraphicsAdapter>("virtio-vga");
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const mutation = useMutation({
@@ -89,6 +90,7 @@ export default function VmCreate() {
       autostart,
       reboot_quirk: rebootQuirk,
       cpu_model: cpuModel.trim() || "host",
+      graphics_adapter: graphicsAdapter,
     });
   };
 
@@ -196,6 +198,33 @@ export default function VmCreate() {
               checked={headless}
               onChange={setHeadless}
             />
+            <div className="space-y-1.5">
+              <Label htmlFor="graphics-adapter">Graphics adapter</Label>
+              <select
+                id="graphics-adapter"
+                value={graphicsAdapter}
+                onChange={(e) => setGraphicsAdapter(e.target.value as GraphicsAdapter)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {(
+                  [
+                    "virtio-vga",
+                    "qxl-vga",
+                    "vga",
+                    "virtio-gpu-pci",
+                    "virtio-vga-gl",
+                    "virtio-gpu-gl-pci",
+                  ] as const
+                ).map((adapter) => (
+                  <option key={adapter} value={adapter}>
+                    {adapter}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Used when the VM has a graphical display. GL models require host EGL support.
+              </p>
+            </div>
             <CheckboxField
               id="qga"
               label="QEMU guest agent"

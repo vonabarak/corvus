@@ -61,6 +61,7 @@ import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import Corvus.Rpc.Streams (callSink, runByteSinkRelay)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
+import Corvus.Wire.Errors (showWireError)
 import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -436,9 +437,9 @@ instance CGNA.Session'server_ SessionCap where
     -- block for hundreds of ms spawning virtiofsd + QEMU and
     -- waiting on sockets; under the per-VM op lock so two starts
     -- for the same VM can't orphan each other's processes.
-    handleParsedAsync $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} ->
-      let spec = decodeVmSpec wireSpec
-       in withVmOpLock sc (VS.vsVmId spec) (handleVmStart sc spec)
+    handleParsedAsync $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} -> do
+      spec <- either (throwFailed . showWireError) pure (decodeVmSpec wireSpec)
+      withVmOpLock sc (VS.vsVmId spec) (handleVmStart sc spec)
 
   session'vmStopGraceful sc =
     -- Async dispatch is the headline fix for the per-node wedge:

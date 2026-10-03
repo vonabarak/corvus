@@ -162,6 +162,7 @@ insertVm name status = do
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = False
           , vmCpuModel = "host"
+          , vmGraphicsAdapter = GraphicsVirtioVga
           }
   pure $ fromSqlKey key
 
@@ -197,6 +198,7 @@ insertRunningVmWithGuestAgent name = do
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = False
           , vmCpuModel = "host"
+          , vmGraphicsAdapter = GraphicsVirtioVga
           }
   pure $ fromSqlKey key
 
@@ -231,6 +233,7 @@ insertHeadlessVm name status = do
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = False
           , vmCpuModel = "host"
+          , vmGraphicsAdapter = GraphicsVirtioVga
           }
   pure $ fromSqlKey key
 
@@ -271,6 +274,7 @@ insertVmFull name status cpus ramMb desc _pid = do
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = False
           , vmCpuModel = "host"
+          , vmGraphicsAdapter = GraphicsVirtioVga
           }
   pure $ fromSqlKey key
 
@@ -304,6 +308,7 @@ defaultVm = do
       , vmLastErrorAt = Nothing
       , vmRebootQuirk = False
       , vmCpuModel = "host"
+      , vmGraphicsAdapter = GraphicsVirtioVga
       }
 
 --------------------------------------------------------------------------------
@@ -655,6 +660,7 @@ givenCloudInitVmExists name = do
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = False
           , vmCpuModel = "host"
+          , vmGraphicsAdapter = GraphicsVirtioVga
           }
   pure $ fromSqlKey key
 

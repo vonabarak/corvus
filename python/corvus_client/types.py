@@ -94,6 +94,7 @@ class VmInfo:
     last_healthcheck: datetime | None = None
     reboot_quirk: bool = False
     cpu_model: str = "host"
+    graphics_adapter: str = "virtio-vga"
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,7 @@ class VmDetails:
     last_error_at: datetime | None = None
     reboot_quirk: bool = False
     cpu_model: str = "host"
+    graphics_adapter: str = "virtio-vga"
     stats: VmStats | None = None
     # ^ Most-recent resource-consumption sample from the daemon.
     # `None` only on legacy responses that predate the field.
@@ -452,6 +454,7 @@ class TemplateVmInfo:
     tpm: bool
     autostart: bool
     description: str | None = None
+    graphics_adapter: str = "virtio-vga"
 
 
 @dataclass(frozen=True)
@@ -514,6 +517,7 @@ class TemplateDetails:
     audio_devices: list[TemplateAudioDeviceInfo] = field(default_factory=list)
     description: str | None = None
     cloud_init_config: CloudInitInfo | None = None
+    graphics_adapter: str = "virtio-vga"
 
 
 # ---------------------------------------------------------------------------

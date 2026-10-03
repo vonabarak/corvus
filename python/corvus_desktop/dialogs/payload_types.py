@@ -12,6 +12,7 @@ class VmCreatePayload(TypedDict):
     ram_mb: int
     description: str | None
     cpu_model: str
+    graphics_adapter: str
     headless: bool
     guest_agent: bool
     tpm: bool
@@ -26,6 +27,7 @@ class VmEditPayload(TypedDict, total=False):
     ram_mb: int
     description: str
     cpu_model: str
+    graphics_adapter: str
     headless: bool
     guest_agent: bool
     tpm: bool

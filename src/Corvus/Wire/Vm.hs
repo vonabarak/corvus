@@ -39,6 +39,7 @@ import Corvus.Wire.Enums
   , fromCapnpDriveFormat
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
+  , fromCapnpGraphicsAdapter
   , fromCapnpNetInterfaceType
   , fromCapnpVmStatus
   , toCapnpAudioBackend
@@ -46,6 +47,7 @@ import Corvus.Wire.Enums
   , toCapnpDriveFormat
   , toCapnpDriveInterface
   , toCapnpDriveMedia
+  , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
   , toCapnpVmStatus
   )
@@ -98,11 +100,13 @@ toCapnpVmInfo P.VmInfo {..} =
     , CGVm.autostart = viAutostart
     , CGVm.rebootQuirk = viRebootQuirk
     , CGVm.cpuModel = viCpuModel
+    , CGVm.graphicsAdapter = toCapnpGraphicsAdapter viGraphicsAdapter
     }
 
 fromCapnpVmInfo :: C.Parsed CGVm.VmInfo -> Either WireError P.VmInfo
 fromCapnpVmInfo CGVm.VmInfo {..} = do
   status' <- fromCapnpVmStatus status
+  graphicsAdapter' <- fromCapnpGraphicsAdapter graphicsAdapter
   pure
     P.VmInfo
       { P.viId = id
@@ -119,6 +123,7 @@ fromCapnpVmInfo CGVm.VmInfo {..} = do
       , P.viAutostart = autostart
       , P.viRebootQuirk = rebootQuirk
       , P.viCpuModel = cpuModel
+      , P.viGraphicsAdapter = graphicsAdapter'
       }
 
 -- ---------------------------------------------------------------------
@@ -241,6 +246,7 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
     , CGVm.lastErrorAt = utcTimeToNanosMaybe vdLastErrorAt
     , CGVm.rebootQuirk = vdRebootQuirk
     , CGVm.cpuModel = vdCpuModel
+    , CGVm.graphicsAdapter = toCapnpGraphicsAdapter vdGraphicsAdapter
     , CGVm.stats = stats
     }
 
@@ -269,6 +275,7 @@ fromCapnpVmDetails
   -> Either WireError (P.VmDetails, [PSD.SharedDirInfo])
 fromCapnpVmDetails CGVm.VmDetails {..} = do
   status' <- fromCapnpVmStatus status
+  graphicsAdapter' <- fromCapnpGraphicsAdapter graphicsAdapter
   drives' <- traverse fromCapnpDriveInfo drives
   netIfs' <- traverse fromCapnpNetIfInfo netIfs
   sharedDirs' <- traverse fromCapnpSharedDirInfo sharedDirs
@@ -303,6 +310,7 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdLastErrorAt = nanosToUtcTimeMaybe lastErrorAt
         , P.vdRebootQuirk = rebootQuirk
         , P.vdCpuModel = cpuModel
+        , P.vdGraphicsAdapter = graphicsAdapter'
         , P.vdStats = fromCapnpVmStats stats
         }
     , sharedDirs'

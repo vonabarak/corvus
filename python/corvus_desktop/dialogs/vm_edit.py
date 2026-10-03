@@ -7,6 +7,7 @@ from typing import cast
 from corvus_client.types import VmDetails
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QLineEdit,
     QPlainTextEdit,
@@ -33,6 +34,18 @@ class VmEditDialog(FormDialog):
         self._ram.setSuffix(" MB")
         self._ram.setValue(vm.ram_mb)
         self._cpu_model = QLineEdit(vm.cpu_model)
+        self._graphics_adapter = QComboBox()
+        self._graphics_adapter.addItems(
+            [
+                "virtio-vga",
+                "qxl-vga",
+                "vga",
+                "virtio-gpu-pci",
+                "virtio-vga-gl",
+                "virtio-gpu-gl-pci",
+            ]
+        )
+        self._graphics_adapter.setCurrentText(vm.graphics_adapter)
         self._description = QPlainTextEdit(vm.description or "")
         self._description.setMaximumHeight(80)
         self._headless = QCheckBox()
@@ -54,6 +67,7 @@ class VmEditDialog(FormDialog):
         form.addRow("CPUs:", self._cpu)
         form.addRow("RAM:", self._ram)
         form.addRow("CPU model:", self._cpu_model)
+        form.addRow("Graphics adapter:", self._graphics_adapter)
         form.addRow("Description:", self._description)
         form.addRow("Headless:", self._headless)
         form.addRow("Guest agent:", self._guest_agent)
@@ -74,6 +88,8 @@ class VmEditDialog(FormDialog):
             payload["ram_mb"] = self._ram.value()
         if self._cpu_model.text() != self._original.cpu_model:
             payload["cpu_model"] = self._cpu_model.text()
+        if self._graphics_adapter.currentText() != self._original.graphics_adapter:
+            payload["graphics_adapter"] = self._graphics_adapter.currentText()
         new_desc = self._description.toPlainText()
         if new_desc != (self._original.description or ""):
             payload["description"] = new_desc

@@ -6,6 +6,7 @@ from typing import cast
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QLineEdit,
     QPlainTextEdit,
@@ -36,6 +37,17 @@ class VmCreateDialog(FormDialog):
         self._ram.setSuffix(" MB")
         self._ram.setValue(2048)
         self._cpu_model = QLineEdit("host")
+        self._graphics_adapter = QComboBox()
+        self._graphics_adapter.addItems(
+            [
+                "virtio-vga",
+                "qxl-vga",
+                "vga",
+                "virtio-gpu-pci",
+                "virtio-vga-gl",
+                "virtio-gpu-gl-pci",
+            ]
+        )
         self._description = QPlainTextEdit()
         self._description.setMaximumHeight(80)
         self._headless = QCheckBox()
@@ -52,6 +64,7 @@ class VmCreateDialog(FormDialog):
         form.addRow("CPUs:", self._cpu)
         form.addRow("RAM:", self._ram)
         form.addRow("CPU model:", self._cpu_model)
+        form.addRow("Graphics adapter:", self._graphics_adapter)
         form.addRow("Description:", self._description)
         form.addRow("Headless:", self._headless)
         form.addRow("Guest agent:", self._guest_agent)
@@ -72,6 +85,7 @@ class VmCreateDialog(FormDialog):
             "ram_mb": self._ram.value(),
             "description": self._description.toPlainText().strip() or None,
             "cpu_model": self._cpu_model.text().strip() or "host",
+            "graphics_adapter": self._graphics_adapter.currentText(),
             "headless": self._headless.isChecked(),
             "guest_agent": self._guest_agent.isChecked(),
             "tpm": self._tpm.isChecked(),

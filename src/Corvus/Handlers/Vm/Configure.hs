@@ -64,8 +64,9 @@ handleVmCreate
   -> Text
   -- ^ cpuModel (empty == "host")
   -> [(AudioBackend, Text)]
+  -> GraphicsAdapter
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices =
+handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter =
   case validateName "VM" name >> mapM_ (validateAudioOptions . snd) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
@@ -86,14 +87,14 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
               r <-
                 withAllocatedVsockCid state nodeKey $ \cid ->
                   runSqlPool
-                    (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel (Just cid))
+                    (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid))
                     pool
               case r of
                 Right vmId -> pure (Right vmId)
                 Left _ -> do
                   vmId <-
                     runSqlPool
-                      (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel Nothing)
+                      (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing)
                       pool
                   pure (Right vmId)
             case eVmId of
@@ -149,8 +150,9 @@ handleVmEdit
   -- ^ rebootQuirk
   -> Maybe Text
   -- ^ cpuModel
+  -> Maybe GraphicsAdapter
   -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel = do
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
@@ -169,33 +171,50 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit m
               , isJust mGuestAgent
               , isJust mTpm
               , isJust mCloudInit
+              , isJust mGraphicsAdapter
               ]
        in if hasRuntimeEdits && status /= VmStopped
             then pure RespVmMustBeStopped
             else do
-              tpmDeleteResult <-
-                if vmTpm vm && mTpm == Just False
-                  then deleteTpmStateForVm state vmId (vmName vm)
-                  else pure (Right ())
-              case tpmDeleteResult of
-                Left err -> pure (RespError err)
-                Right () -> do
-                  runSqlPool
-                    ( editVm
-                        vmId
-                        mCpus
-                        mRam
-                        mDesc
-                        mHeadless
-                        mGuestAgent
-                        mTpm
-                        mCloudInit
-                        mAutostart
-                        mRebootQuirk
-                        mCpuModel
-                    )
-                    (ssDbPool state)
-                  pure RespVmEdited
+              hasRamSnapshots <-
+                if maybe False (/= vmGraphicsAdapter vm) mGraphicsAdapter
+                  then runSqlPool (vmHasRamSnapshots vmId) (ssDbPool state)
+                  else pure False
+              if hasRamSnapshots
+                then pure (RespError "Cannot change graphics adapter while an attached disk has a RAM snapshot")
+                else do
+                  tpmDeleteResult <-
+                    if vmTpm vm && mTpm == Just False
+                      then deleteTpmStateForVm state vmId (vmName vm)
+                      else pure (Right ())
+                  case tpmDeleteResult of
+                    Left err -> pure (RespError err)
+                    Right () -> do
+                      runSqlPool
+                        ( editVm
+                            vmId
+                            mCpus
+                            mRam
+                            mDesc
+                            mHeadless
+                            mGuestAgent
+                            mTpm
+                            mCloudInit
+                            mAutostart
+                            mRebootQuirk
+                            mCpuModel
+                            mGraphicsAdapter
+                        )
+                        (ssDbPool state)
+                      pure RespVmEdited
+
+vmHasRamSnapshots :: Int64 -> SqlPersistT IO Bool
+vmHasRamSnapshots vmId = do
+  drives <- selectList [M.DriveVmId ==. toSqlKey vmId] []
+  let diskIds = mapMaybe (M.driveDiskImageId . entityVal) drives
+  if null diskIds
+    then pure False
+    else isJust <$> selectFirst [M.SnapshotDiskImageId <-. diskIds, M.SnapshotHasVmstate ==. True] []
 
 -- | Insert a VM record and allocate its VSOCK CID.
 --
@@ -216,9 +235,10 @@ createVm
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel
+  -> GraphicsAdapter
   -> Maybe Int
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel vsockCid = do
+createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -243,6 +263,7 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudIn
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = rebootQuirk
           , vmCpuModel = cpuModel
+          , vmGraphicsAdapter = graphicsAdapter
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -260,8 +281,9 @@ editVm
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Text
+  -> Maybe GraphicsAdapter
   -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel = do
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -274,6 +296,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mR
           ++ maybe [] (\a -> [M.VmAutostart =. a]) mAutostart
           ++ maybe [] (\rq -> [M.VmRebootQuirk =. rq]) mRebootQuirk
           ++ maybe [] (\cm -> [M.VmCpuModel =. cm]) mCpuModel
+          ++ maybe [] (\ga -> [M.VmGraphicsAdapter =. ga]) mGraphicsAdapter
   case updates of
     [] -> pure ()
     us -> update key us
@@ -296,6 +319,7 @@ data VmCreate = VmCreate
   , vcrRebootQuirk :: Bool
   , vcrCpuModel :: Text
   , vcrAudioDevices :: [(AudioBackend, Text)]
+  , vcrGraphicsAdapter :: GraphicsAdapter
   -- ^ QEMU @-cpu@ model. Empty == use the daemon default
   -- ('host'); see the schema field comment on
   -- @schema/vm.capnp::VmInfo.cpuModel@ for the
@@ -322,6 +346,7 @@ instance Action VmCreate where
       (vcrRebootQuirk a)
       (vcrCpuModel a)
       (vcrAudioDevices a)
+      (vcrGraphicsAdapter a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64
@@ -335,6 +360,7 @@ data VmEdit = VmEdit
   , vedAutostart :: Maybe Bool
   , vedRebootQuirk :: Maybe Bool
   , vedCpuModel :: Maybe Text
+  , vedGraphicsAdapter :: Maybe GraphicsAdapter
   }
 
 instance Action VmEdit where
@@ -355,3 +381,4 @@ instance Action VmEdit where
       (vedAutostart a)
       (vedRebootQuirk a)
       (vedCpuModel a)
+      (vedGraphicsAdapter a)

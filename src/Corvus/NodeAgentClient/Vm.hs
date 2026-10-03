@@ -53,6 +53,7 @@ import Corvus.Node.VmSpec
   , VmStopResult (..)
   )
 import Corvus.NodeAgentClient.Core
+import Corvus.Wire.Enums (toCapnpGraphicsAdapter)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
@@ -76,6 +77,7 @@ encodeVmSpec s =
     , CGNA.cpuCount = vsCpuCount s
     , CGNA.ramMb = vsRamMb s
     , CGNA.headless = vsHeadless s
+    , CGNA.graphicsAdapter = toCapnpGraphicsAdapter (vsGraphicsAdapter s)
     , CGNA.guestAgent = vsGuestAgent s
     , CGNA.tpm = vsTpm s
     , CGNA.vsockCid = fromMaybe 0 (vsVsockCid s)

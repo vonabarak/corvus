@@ -1,5 +1,6 @@
 import { apiGet, apiSend } from "./client";
 import type { NamedRef } from "./refs";
+import type { GraphicsAdapter } from "./vms";
 
 export interface TemplateVmInfo {
   id: number;
@@ -11,6 +12,7 @@ export interface TemplateVmInfo {
   tpm: boolean;
   autostart: boolean;
   description: string | null;
+  graphics_adapter: GraphicsAdapter;
 }
 
 export interface TemplateDriveInfo {
@@ -73,6 +75,7 @@ export interface TemplateDetails {
   audio_devices: TemplateAudioDeviceInfo[];
   description: string | null;
   cloud_init_config: CloudInitInfo | null;
+  graphics_adapter: GraphicsAdapter;
 }
 
 export function listTemplates(signal?: AbortSignal): Promise<TemplateVmInfo[]> {

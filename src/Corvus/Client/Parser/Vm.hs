@@ -9,6 +9,7 @@ where
 import Corvus.Client.Completion
 import Corvus.Client.Parser.Utility
 import Corvus.Client.Types
+import Corvus.Model (EnumText (..), GraphicsAdapter (..))
 import qualified Data.Text as T
 import Options.Applicative
 
@@ -18,6 +19,12 @@ nonNegativeInt =
     case reads raw of
       [(n, "")] | n >= 0 -> Right n
       _ -> Left "expected a non-negative integer"
+
+graphicsAdapterReader :: ReadM GraphicsAdapter
+graphicsAdapterReader = eitherReader (either (Left . T.unpack) Right . enumFromText . T.pack)
+
+graphicsAdapterOption :: Mod OptionFields GraphicsAdapter -> Parser GraphicsAdapter
+graphicsAdapterOption = option graphicsAdapterReader
 
 -- | Parser for vm list
 vmListCommand :: Parser Command
@@ -109,6 +116,13 @@ vmCreateCommand =
                     \`Skylake-Client-v1`."
               )
         )
+    <*> graphicsAdapterOption
+      ( long "graphics-adapter"
+          <> metavar "MODEL"
+          <> value GraphicsVirtioVga
+          <> showDefaultWith (T.unpack . enumToText)
+          <> help "Graphics adapter: virtio-vga, qxl-vga, vga, virtio-gpu-pci, virtio-vga-gl, virtio-gpu-gl-pci"
+      )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -314,6 +328,13 @@ vmEditCommand =
                   "New QEMU `-cpu` model (e.g. `host`, `qemu64`, \
                   \`Westmere-v3`). Takes effect on next start."
             )
+      )
+    <*> optional
+      ( graphicsAdapterOption
+          ( long "graphics-adapter"
+              <> metavar "MODEL"
+              <> help "New graphics adapter (requires stopped VM)"
+          )
       )
 
 -- | Parser for vm view

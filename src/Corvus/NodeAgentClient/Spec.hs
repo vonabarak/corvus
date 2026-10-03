@@ -134,6 +134,7 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
                     VS.vsLoadFromSavedState =
                       vmStatus vm `elem` [M.VmSaved, M.VmLoading]
                   , VS.vsCpuModel = vmCpuModel vm
+                  , VS.vsGraphicsAdapter = vmGraphicsAdapter vm
                   , -- 'vsStartPaused' is opt-in by the caller for
                     -- the QMP `snapshot-load` lifecycle (start
                     -- paused, restore vmstate, then `cont`). The

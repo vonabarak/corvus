@@ -239,6 +239,7 @@ export default function TemplateDetail() {
           <Field label="CPU" value={t.cpu_count} />
           <Field label="RAM" value={formatMb(t.ram_mb)} />
           <Field label="Headless" value={t.headless ? "yes" : "no"} />
+          <Field label="Graphics adapter" value={t.graphics_adapter} />
           <Field label="Guest agent" value={t.guest_agent ? "yes" : "no"} />
           <Field label="TPM 2.0" value={t.tpm ? "yes" : "no"} />
           <Field label="Cloud-init" value={t.cloud_init ? "yes" : "no"} />

@@ -88,6 +88,7 @@ import Corvus.Model
   ( AudioBackend
   , CacheType
   , DriveMedia (..)
+  , GraphicsAdapter (..)
   , NetInterfaceType
   , SharedDirCache
   )
@@ -101,6 +102,7 @@ import Corvus.Wire.Enums
   ( toCapnpAudioBackend
   , toCapnpCacheType
   , toCapnpDriveMedia
+  , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
   , toCapnpSharedDirCache
   )
@@ -190,8 +192,9 @@ rpcVmCreate
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel
+  -> GraphicsAdapter
   -> IO Int64
-rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm = do
+rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm graphicsAdapter = do
   CGCorvus.Daemon'vms'results {CGCorvus.mgr = mgr} <-
     callOn #vms CGCorvus.Daemon'vms'params (ccDaemon conn)
   let inner =
@@ -209,6 +212,7 @@ rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm =
           , CGVm.rebootQuirk = rq
           , CGVm.cpuModel = cm
           , CGVm.audioDevices = []
+          , CGVm.graphicsAdapter = toCapnpGraphicsAdapter graphicsAdapter
           }
   CGVm.VmManager'create'results {CGVm.vm = vmClient} <-
     callOn #create CGVm.VmManager'create'params {CGVm.params = inner} mgr
@@ -292,8 +296,9 @@ rpcVmEdit
   -- ^ new rebootQuirk
   -> Maybe Text
   -- ^ new cpuModel
+  -> Maybe GraphicsAdapter
   -> IO ()
-rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm = do
+rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter = do
   vmClient <- getVmClient conn ref
   let p =
         CGVm.VmEditParams
@@ -319,6 +324,8 @@ rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm = do
           , CGVm.rebootQuirk = fromMaybe False mRq
           , CGVm.hasCpuModel = isJust mCm
           , CGVm.cpuModel = fromMaybe "" mCm
+          , CGVm.hasGraphicsAdapter = isJust mGraphicsAdapter
+          , CGVm.graphicsAdapter = toCapnpGraphicsAdapter (fromMaybe GraphicsVirtioVga mGraphicsAdapter)
           }
   _ <- callOn #edit CGVm.Vm'edit'params {CGVm.params = p} vmClient
   pure ()

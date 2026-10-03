@@ -7,7 +7,7 @@
 module Corvus.TemplateYamlSpec (spec) where
 
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
-import Corvus.Model (AudioBackend (..), CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), SharedDirCache (..), TemplateCloneStrategy (..))
+import Corvus.Model (AudioBackend (..), CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), GraphicsAdapter (..), NetInterfaceType (..), SharedDirCache (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
   ( NamedRef (..)
   , TemplateAudioDeviceInfo (..)
@@ -39,6 +39,7 @@ sampleDetails =
     , tvdRamMb = 4096
     , tvdDescription = Just "A sample template"
     , tvdHeadless = False
+    , tvdGraphicsAdapter = GraphicsQxlVga
     , tvdCloudInit = True
     , tvdGuestAgent = True
     , tvdTpm = True
@@ -104,6 +105,7 @@ spec = do
           tyRamMb ty `shouldBe` 4096
           tyDescription ty `shouldBe` Just "A sample template"
           tyHeadless ty `shouldBe` False
+          tyGraphicsAdapter ty `shouldBe` GraphicsQxlVga
           tyCloudInit ty `shouldBe` True
           tyGuestAgent ty `shouldBe` True
           tyTpm ty `shouldBe` True

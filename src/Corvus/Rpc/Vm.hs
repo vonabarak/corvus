@@ -81,6 +81,7 @@ import Corvus.Wire.Enums
   , fromCapnpCacheType
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
+  , fromCapnpGraphicsAdapter
   , fromCapnpNetInterfaceType
   , fromCapnpSharedDirCache
   , toCapnpVmStatus
@@ -137,6 +138,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               pure (parsedBackend, audioOptions)
           )
           audioDevices
+      parsedGraphicsAdapter <- enumOrThrow (fromCapnpGraphicsAdapter graphicsAdapter)
       let act =
             VmCreate
               { vcrName = name
@@ -152,6 +154,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrRebootQuirk = rebootQuirk
               , vcrCpuModel = cpuModel
               , vcrAudioDevices = parsedAudioDevices
+              , vcrGraphicsAdapter = parsedGraphicsAdapter
               }
       resp <- runAction st cn act
       case resp of
@@ -252,6 +255,10 @@ instance CGVm.Vm'server_ VmCap where
 
   vm'edit (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do
+      parsedGraphicsAdapter <-
+        if hasGraphicsAdapter
+          then Just <$> enumOrThrow (fromCapnpGraphicsAdapter graphicsAdapter)
+          else pure Nothing
       let act =
             VmEdit
               { vedVmId = eid
@@ -265,6 +272,7 @@ instance CGVm.Vm'server_ VmCap where
               , vedAutostart = if hasAutostart then Just autostart else Nothing
               , vedRebootQuirk = if hasRebootQuirk then Just rebootQuirk else Nothing
               , vedCpuModel = if hasCpuModel then Just cpuModel else Nothing
+              , vedGraphicsAdapter = parsedGraphicsAdapter
               }
       resp <- runAction st cn act
       case resp of

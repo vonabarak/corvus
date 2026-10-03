@@ -14,6 +14,7 @@ const SKELETON = `# Template YAML — see doc/templates.md for the full field li
 # cpuCount: 2
 # ramMb: 2048
 # headless: true
+# graphicsAdapter: virtio-vga
 # guestAgent: true
 # tpm: false
 # cloudInit: true

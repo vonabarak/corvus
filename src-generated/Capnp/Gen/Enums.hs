@@ -434,6 +434,60 @@ instance (C.Parse AudioBackend AudioBackend) where
 instance (C.AllocateList AudioBackend) where
     type ListAllocHint AudioBackend = Std_.Int
 instance (C.EstimateListAlloc AudioBackend AudioBackend)
+data GraphicsAdapter
+    = GraphicsAdapter'virtioVga
+    | GraphicsAdapter'qxlVga
+    | GraphicsAdapter'vga
+    | GraphicsAdapter'virtioGpuPci
+    | GraphicsAdapter'virtioVgaGl
+    | GraphicsAdapter'virtioGpuGlPci
+    | GraphicsAdapter'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor GraphicsAdapter) = (R.Data R.Sz16)
+instance (C.HasTypeId GraphicsAdapter) where
+    typeId  = 15851014926010048338
+instance (Std_.Enum GraphicsAdapter) where
+    toEnum n_ = case n_ of
+        0 ->
+            GraphicsAdapter'virtioVga
+        1 ->
+            GraphicsAdapter'qxlVga
+        2 ->
+            GraphicsAdapter'vga
+        3 ->
+            GraphicsAdapter'virtioGpuPci
+        4 ->
+            GraphicsAdapter'virtioVgaGl
+        5 ->
+            GraphicsAdapter'virtioGpuGlPci
+        tag_ ->
+            (GraphicsAdapter'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (GraphicsAdapter'virtioVga) ->
+            0
+        (GraphicsAdapter'qxlVga) ->
+            1
+        (GraphicsAdapter'vga) ->
+            2
+        (GraphicsAdapter'virtioGpuPci) ->
+            3
+        (GraphicsAdapter'virtioVgaGl) ->
+            4
+        (GraphicsAdapter'virtioGpuGlPci) ->
+            5
+        (GraphicsAdapter'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord GraphicsAdapter) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse GraphicsAdapter GraphicsAdapter) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList GraphicsAdapter) where
+    type ListAllocHint GraphicsAdapter = Std_.Int
+instance (C.EstimateListAlloc GraphicsAdapter GraphicsAdapter)
 data TemplateCloneStrategy 
     = TemplateCloneStrategy'clone 
     | TemplateCloneStrategy'overlay 

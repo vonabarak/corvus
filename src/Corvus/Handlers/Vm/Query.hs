@@ -88,6 +88,7 @@ listVms = do
         , viAutostart = vmAutostart vm
         , viRebootQuirk = vmRebootQuirk vm
         , viCpuModel = vmCpuModel vm
+        , viGraphicsAdapter = vmGraphicsAdapter vm
         }
 
 -- | Get full VM details. Re-exported so 'Corvus.Handlers.Build' can
@@ -166,6 +167,7 @@ getVmDetails config vmId = do
             , vdLastErrorAt = vmLastErrorAt vm
             , vdRebootQuirk = vmRebootQuirk vm
             , vdCpuModel = vmCpuModel vm
+            , vdGraphicsAdapter = vmGraphicsAdapter vm
             , vdStats = Corvus.Protocol.zeroVmStats
             }
   where

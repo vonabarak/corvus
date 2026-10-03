@@ -110,6 +110,7 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
         "cpuCount": t.cpu_count,
         "ramMb": t.ram_mb,
         "headless": t.headless,
+        "graphicsAdapter": t.graphics_adapter,
         "cloudInit": t.cloud_init,
         "guestAgent": t.guest_agent,
         "autostart": t.autostart,

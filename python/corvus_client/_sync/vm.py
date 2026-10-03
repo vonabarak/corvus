@@ -112,6 +112,7 @@ class SyncVmManager:
         autostart: bool = False,
         reboot_quirk: bool = False,
         cpu_model: str = "host",
+        graphics_adapter: str = "virtio-vga",
         audio_devices: Sequence[tuple[str, str]] | None = None,
     ) -> SyncVm:
         return SyncVm(
@@ -129,6 +130,7 @@ class SyncVmManager:
                     autostart=autostart,
                     reboot_quirk=reboot_quirk,
                     cpu_model=cpu_model,
+                    graphics_adapter=graphics_adapter,
                     audio_devices=audio_devices,
                 )
             ),
@@ -175,6 +177,7 @@ class SyncVm(LoopBoundResource):
         autostart: bool | None = None,
         reboot_quirk: bool | None = None,
         cpu_model: str | None = None,
+        graphics_adapter: str | None = None,
     ) -> None:
         self._rl.run(
             self._a.edit(
@@ -189,6 +192,7 @@ class SyncVm(LoopBoundResource):
                 autostart=autostart,
                 reboot_quirk=reboot_quirk,
                 cpu_model=cpu_model,
+                graphics_adapter=graphics_adapter,
             )
         )
 

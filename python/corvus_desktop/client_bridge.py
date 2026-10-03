@@ -94,6 +94,7 @@ class _VmCreateKwargs(TypedDict, total=False):
     autostart: bool
     reboot_quirk: bool
     cpu_model: str
+    graphics_adapter: str
 
 
 class _VmEditKwargs(TypedDict, total=False):
@@ -108,6 +109,7 @@ class _VmEditKwargs(TypedDict, total=False):
     autostart: bool | None
     reboot_quirk: bool | None
     cpu_model: str | None
+    graphics_adapter: str | None
 
 
 class _NodeEditKwargs(TypedDict, total=False):

@@ -391,6 +391,7 @@ vms:
     ramMb: <integer>           # Required. RAM in megabytes.
     description: <string>      # Optional. Human-readable description.
     headless: <boolean>        # Optional. Default: false. Serial console instead of SPICE.
+    graphicsAdapter: <string>  # Optional. Default: virtio-vga. Ignored while headless.
     guestAgent: <boolean>      # Optional. Default: false. Enable QEMU guest agent channel.
     tpm: <boolean>             # Optional. Default: false. Enable an emulated TPM 2.0 CRB device.
     cloudInit: <boolean>       # Optional. See Cloud-Init Behavior below.
@@ -554,6 +555,7 @@ templates:
     ramMb: <integer>            # Required. RAM in MB.
     description: <string>       # Optional.
     headless: <bool>            # Optional. Default: false.
+    graphicsAdapter: <string>   # Optional. Default: virtio-vga. Ignored while headless.
     cloudInit: <bool>           # Optional. Default: false.
     guestAgent: <bool>          # Optional. Default: false. Enable QEMU guest agent.
     tpm: <bool>                 # Optional. Default: false. Enable an emulated TPM 2.0 CRB device.

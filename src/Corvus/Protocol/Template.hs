@@ -16,7 +16,7 @@ module Corvus.Protocol.Template
   )
 where
 
-import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy)
+import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, SharedDirCache, TemplateCloneStrategy)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -38,6 +38,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviTpm :: !Bool
   , tviAutostart :: !Bool
   , tviRebootQuirk :: !Bool
+  , tviGraphicsAdapter :: !GraphicsAdapter
   }
   deriving (Eq, Show, Generic)
 
@@ -114,6 +115,7 @@ data TemplateDetails = TemplateDetails
   , tvdSshKeys :: ![TemplateSshKeyInfo]
   , tvdSharedDirs :: ![TemplateSharedDirInfo]
   , tvdAudioDevices :: ![TemplateAudioDeviceInfo]
+  , tvdGraphicsAdapter :: !GraphicsAdapter
   }
   deriving (Eq, Show, Generic)
 

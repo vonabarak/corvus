@@ -16,6 +16,7 @@ import capnp
 from .. import _schema
 from .. import types as t
 from .._entityref import entity_ref
+from .._graphics import to_wire
 from ..exceptions import translate_errors
 from . import _convert as conv
 
@@ -73,6 +74,7 @@ class AsyncVmManager:
         autostart: bool = False,
         reboot_quirk: bool = False,
         cpu_model: str = "host",
+        graphics_adapter: str = "virtio-vga",
         audio_devices: Sequence[tuple[str, str]] | None = None,
     ) -> AsyncVm:
         """Create a bare VM record.
@@ -103,6 +105,7 @@ class AsyncVmManager:
         params.autostart = autostart
         params.rebootQuirk = reboot_quirk
         params.cpuModel = cpu_model
+        params.graphicsAdapter = to_wire(graphics_adapter)
         if audio_devices:
             devices = params.init("audioDevices", len(audio_devices))
             for device, (backend, options) in zip(devices, audio_devices, strict=True):
@@ -162,6 +165,7 @@ class AsyncVm:
         autostart: bool | None = None,
         reboot_quirk: bool | None = None,
         cpu_model: str | None = None,
+        graphics_adapter: str | None = None,
     ) -> None:
         params = _schema.vm.VmEditParams.new_message()
         _set_optional(params, "hasName", "name", name)
@@ -175,6 +179,12 @@ class AsyncVm:
         _set_optional(params, "hasAutostart", "autostart", autostart)
         _set_optional(params, "hasRebootQuirk", "rebootQuirk", reboot_quirk)
         _set_optional(params, "hasCpuModel", "cpuModel", cpu_model)
+        _set_optional(
+            params,
+            "hasGraphicsAdapter",
+            "graphicsAdapter",
+            to_wire(graphics_adapter) if graphics_adapter is not None else None,
+        )
         await self._cap.edit(params=params)
 
     async def delete(self, *, keep_disks: bool = False, force: bool = False) -> None:

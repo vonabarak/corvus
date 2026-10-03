@@ -20,6 +20,7 @@ struct TemplateVmInfo {
   autostart   @7 :Bool;
   rebootQuirk @8 :Bool;
   tpm         @9 :Bool;
+  graphicsAdapter @10 :Enums.GraphicsAdapter = virtioVga;
 }
 
 struct TemplateDriveInfo {
@@ -90,6 +91,7 @@ struct TemplateDetails {
   sharedDirs      @15 :List(TemplateSharedDirInfo);
   tpm             @16 :Bool;
   audioDevices    @17 :List(TemplateAudioDeviceInfo);
+  graphicsAdapter @18 :Enums.GraphicsAdapter = virtioVga;
 }
 
 # ---------------------------------------------------------------------

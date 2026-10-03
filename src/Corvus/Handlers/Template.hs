@@ -144,6 +144,7 @@ handleTemplateList state = do
         , tviTpm = templateVmTpm t
         , tviAutostart = templateVmAutostart t
         , tviRebootQuirk = templateVmRebootQuirk t
+        , tviGraphicsAdapter = templateVmGraphicsAdapter t
         }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
@@ -194,6 +195,7 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
                 (tvdRebootQuirk details)
                 ""
                 [(tvadiBackend audioDevice, tvadiOptions audioDevice) | audioDevice <- tvdAudioDevices details]
+                (tvdGraphicsAdapter details)
             )
       case vmResp of
         RespVmCreated vmIdLong -> do
@@ -266,7 +268,7 @@ insertTemplateYaml ty now = do
         then pure $ Left "Template has SSH keys but cloud-init is not enabled"
         else case (sequence mDiskIds, sequence mKeyIds) of
           (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty)
             case mTid of
               Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
               Just tid -> do
@@ -463,6 +465,7 @@ getTemplateDetails tid = do
             , tvdSshKeys = sshKeyInfos
             , tvdSharedDirs = sharedDirInfos
             , tvdAudioDevices = audioDeviceInfos
+            , tvdGraphicsAdapter = templateVmGraphicsAdapter t
             }
 
 deleteTemplate :: TemplateVmId -> SqlPersistT IO ()

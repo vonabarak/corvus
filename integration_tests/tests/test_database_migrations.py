@@ -123,8 +123,15 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.get("migration-vm").show().name == "migration-vm"
-        assert "migrated from version 2 to 5" in self._logs()
-        assert self._sql("SELECT version FROM schema_version") == "5"
+        assert "migrated from version 2 to 6" in self._logs()
+        assert self._sql("SELECT version FROM schema_version") == "6"
+        assert self._sql("SELECT graphics_adapter FROM vm WHERE id = 1") == "virtio-vga"
+        assert (
+            self._sql(
+                "SELECT graphics_adapter FROM template_vm WHERE name = 'migration-template'"
+            )
+            == "virtio-vga"
+        )
         assert self._sql("SELECT id, disk_image_id FROM drive") == "1|1"
         self._sql(
             "INSERT INTO audio_device (vm_id, backend, options) "
@@ -162,9 +169,9 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.list() == []
-        assert "Created database schema at version 5" in self._logs()
+        assert "Created database schema at version 6" in self._logs()
         assert "migrated from version" not in self._logs()
-        assert self._sql("SELECT version FROM schema_version") == "5"
+        assert self._sql("SELECT version FROM schema_version") == "6"
 
     def test_03_retired_migration_refuses_startup(self) -> None:
         self._prepare(historical=True)

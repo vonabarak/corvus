@@ -82,6 +82,8 @@ import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types (SocketBufferHandle (..))
+import Corvus.Wire.Enums (fromCapnpGraphicsAdapter)
+import Corvus.Wire.Errors (WireError)
 import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -117,7 +119,7 @@ import Corvus.Node.Caps.Session.Vm.Lifecycle (outgoingMigrateTimeoutSec, pollOut
 import Corvus.Node.Caps.Session.Vm.Process (prepareVmRuntime, reapSpawnedHelpers, reapVmHelpers, spawnVmHelpers)
 import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper, stopVmAfterStartFailure, waitForVsockOwnership)
 
-decodeVmSpec :: CGNA.Parsed CGNA.VmSpec -> VS.VmSpec
+decodeVmSpec :: CGNA.Parsed CGNA.VmSpec -> Either WireError VS.VmSpec
 decodeVmSpec
   CGNA.VmSpec
     { CGNA.vmId = vid
@@ -127,6 +129,7 @@ decodeVmSpec
     , CGNA.cpuCount = c
     , CGNA.ramMb = r
     , CGNA.headless = h
+    , CGNA.graphicsAdapter = graphicsAdapter
     , CGNA.guestAgent = g
     , CGNA.tpm = tpm
     , CGNA.vsockCid = vc
@@ -144,29 +147,33 @@ decodeVmSpec
     , CGNA.cpuModel = cm
     , CGNA.startPaused = sps
     } =
-    VS.VmSpec
-      { VS.vsVmId = vid
-      , VS.vsLifecycleRevision = rev
-      , VS.vsRuntimeGeneration = gen
-      , VS.vsName = n
-      , VS.vsCpuCount = c
-      , VS.vsRamMb = r
-      , VS.vsHeadless = h
-      , VS.vsGuestAgent = g
-      , VS.vsTpm = tpm
-      , VS.vsVsockCid = if hvc then Just vc else Nothing
-      , VS.vsSpicePort = if hsp then Just sp else Nothing
-      , VS.vsDrives = map decodeVmDriveSpec ds
-      , VS.vsNetIfs = map decodeVmNetIfSpec nis
-      , VS.vsSharedDirs = map decodeVmSharedDirSpec sds
-      , VS.vsAudioDevices = map decodeVmAudioDeviceSpec ads
-      , VS.vsWaitForGuestAgentMs = wms
-      , VS.vsRebootQuirk = rq
-      , VS.vsSpiceBindAddr = sba
-      , VS.vsLoadFromSavedState = lfs
-      , VS.vsCpuModel = if T.null cm then "host" else cm
-      , VS.vsStartPaused = sps
-      }
+    ( \adapter ->
+        VS.VmSpec
+          { VS.vsVmId = vid
+          , VS.vsLifecycleRevision = rev
+          , VS.vsRuntimeGeneration = gen
+          , VS.vsName = n
+          , VS.vsCpuCount = c
+          , VS.vsRamMb = r
+          , VS.vsHeadless = h
+          , VS.vsGraphicsAdapter = adapter
+          , VS.vsGuestAgent = g
+          , VS.vsTpm = tpm
+          , VS.vsVsockCid = if hvc then Just vc else Nothing
+          , VS.vsSpicePort = if hsp then Just sp else Nothing
+          , VS.vsDrives = map decodeVmDriveSpec ds
+          , VS.vsNetIfs = map decodeVmNetIfSpec nis
+          , VS.vsSharedDirs = map decodeVmSharedDirSpec sds
+          , VS.vsAudioDevices = map decodeVmAudioDeviceSpec ads
+          , VS.vsWaitForGuestAgentMs = wms
+          , VS.vsRebootQuirk = rq
+          , VS.vsSpiceBindAddr = sba
+          , VS.vsLoadFromSavedState = lfs
+          , VS.vsCpuModel = if T.null cm then "host" else cm
+          , VS.vsStartPaused = sps
+          }
+    )
+      <$> fromCapnpGraphicsAdapter graphicsAdapter
 
 decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
 decodeVmDriveSpec

@@ -31,9 +31,15 @@ crv vm create my-vm --cpus 2 --ram 2048 --autostart        # Auto-start on daemo
 crv vm create my-vm --cpus 2 --ram 2048 -d "Web server"    # With description
 crv vm create my-vm --cpus 2 --ram 2048 --node alpha       # Pin to a specific node
 crv vm create my-vm --cpus 2 --ram 2048 --cpu-model qemu64 # Migratable CPU model (see below)
+crv vm create my-vm --graphics-adapter qxl-vga              # QXL display adapter
 ```
 
 When omitted, `--cpus` defaults to `1` and `--ram` defaults to `1024` MB.
+
+`--graphics-adapter` defaults to `virtio-vga`. Supported values are
+`virtio-vga`, `qxl-vga`, `vga`, `virtio-gpu-pci`, `virtio-vga-gl`, and
+`virtio-gpu-gl-pci`. The two `-gl` models require host EGL support. A headless
+VM retains the selection, but does not create a graphics device.
 
 ### `--cpu-model` and cross-host migration
 
@@ -101,9 +107,14 @@ crv vm edit my-vm --guest-agent true          # Enable guest agent
 crv vm edit my-vm --tpm true                  # Enable TPM 2.0
 crv vm edit my-vm --tpm false                 # Disable TPM and erase persistent state
 crv vm edit my-vm --headless true             # Switch to serial console
+crv vm edit my-vm --graphics-adapter qxl-vga   # Change display adapter
 crv vm edit my-vm --autostart true            # Enable autostart
 crv vm edit my-vm --description "New desc"    # Update description
 ```
+
+Changing the graphics adapter requires the VM to be stopped. It is rejected
+while an attached disk has a snapshot containing VM memory state; remove that
+snapshot first.
 
 ## Starting and Stopping
 

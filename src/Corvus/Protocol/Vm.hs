@@ -19,7 +19,7 @@ module Corvus.Protocol.Vm
   )
 where
 
-import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
+import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, VmStatus)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -51,6 +51,7 @@ data VmInfo = VmInfo
   , viAutostart :: !Bool
   , viRebootQuirk :: !Bool
   , viCpuModel :: !Text
+  , viGraphicsAdapter :: !GraphicsAdapter
   -- ^ QEMU @-cpu@ model. Default @"host"@ for back-compat; see
   -- @schema/vm.capnp::VmInfo.cpuModel@ for migration-safety
   -- trade-off.
@@ -147,6 +148,7 @@ data VmDetails = VmDetails
   -- re-spawns on each guest-initiated exit. Used to dodge OVMF
   -- firmware reboot hangs (tianocore/edk2#12441).
   , vdCpuModel :: !Text
+  , vdGraphicsAdapter :: !GraphicsAdapter
   -- ^ See @viCpuModel@.
   , vdStats :: !VmStats
   -- ^ Most-recent resource-consumption sample from the agent's

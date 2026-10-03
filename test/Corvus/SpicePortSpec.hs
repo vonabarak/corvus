@@ -98,6 +98,7 @@ spec = sequential $ withTestDb $ do
                     , M.vmLastErrorAt = Nothing
                     , M.vmRebootQuirk = False
                     , M.vmCpuModel = "host"
+                    , M.vmGraphicsAdapter = M.GraphicsVirtioVga
                     }
               )
               pool
@@ -158,6 +159,7 @@ insertRunningVm name port = do
           , M.vmLastErrorAt = Nothing
           , M.vmRebootQuirk = False
           , M.vmCpuModel = "host"
+          , M.vmGraphicsAdapter = M.GraphicsVirtioVga
           }
   pure ()
 

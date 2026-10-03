@@ -123,6 +123,10 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
         ),
     )
     audio_devices: list[tuple[str, str]] = Field(default_factory=list)
+    graphics_adapter: str = Field(
+        "virtio-vga",
+        pattern="^(virtio-vga|qxl-vga|vga|virtio-gpu-pci|virtio-vga-gl|virtio-gpu-gl-pci)$",
+    )
 
 
 @router.post("")
@@ -145,6 +149,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
             autostart=body.autostart,
             reboot_quirk=body.reboot_quirk,
             cpu_model=body.cpu_model,
+            graphics_adapter=body.graphics_adapter,
             audio_devices=body.audio_devices,
         )
     except CorvusError as exc:

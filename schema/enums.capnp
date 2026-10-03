@@ -72,6 +72,15 @@ enum AudioBackend {
   spice    @2;
 }
 
+enum GraphicsAdapter {
+  virtioVga        @0;
+  qxlVga           @1;
+  vga              @2;
+  virtioGpuPci     @3;
+  virtioVgaGl      @4;
+  virtioGpuGlPci   @5;
+}
+
 enum TemplateCloneStrategy {
   clone   @0;
   overlay @1;

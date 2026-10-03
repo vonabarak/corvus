@@ -40,6 +40,7 @@ module Corvus.Model
   , NetInterfaceType (..)
   , SharedDirCache (..)
   , AudioBackend (..)
+  , GraphicsAdapter (..)
   , TemplateCloneStrategy (..)
 
     -- * Network entity
@@ -441,6 +442,39 @@ instance PersistField AudioBackend where
 instance PersistFieldSql AudioBackend where
   sqlType _ = SqlString
 
+data GraphicsAdapter
+  = GraphicsVirtioVga
+  | GraphicsQxlVga
+  | GraphicsVga
+  | GraphicsVirtioGpuPci
+  | GraphicsVirtioVgaGl
+  | GraphicsVirtioGpuGlPci
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance EnumText GraphicsAdapter where
+  enumTypeName = "GraphicsAdapter"
+  enumMapping =
+    [ (GraphicsVirtioVga, "virtio-vga")
+    , (GraphicsQxlVga, "qxl-vga")
+    , (GraphicsVga, "vga")
+    , (GraphicsVirtioGpuPci, "virtio-gpu-pci")
+    , (GraphicsVirtioVgaGl, "virtio-vga-gl")
+    , (GraphicsVirtioGpuGlPci, "virtio-gpu-gl-pci")
+    ]
+
+instance FromJSON GraphicsAdapter where
+  parseJSON = parseEnumJSON
+
+instance ToJSON GraphicsAdapter where
+  toJSON = toEnumJSON
+
+instance PersistField GraphicsAdapter where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+
+instance PersistFieldSql GraphicsAdapter where
+  sqlType _ = SqlString
+
 --------------------------------------------------------------------------------
 -- TemplateCloneStrategy
 --------------------------------------------------------------------------------
@@ -661,6 +695,7 @@ Vm
     lastErrorAt UTCTime Maybe default=NULL
     rebootQuirk Bool default=false
     cpuModel Text default='host'
+    graphicsAdapter GraphicsAdapter default='virtio-vga'
     UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 
@@ -821,6 +856,7 @@ TemplateVm
     autostart Bool default=false
     rebootQuirk Bool default=false
     createdAt UTCTime
+    graphicsAdapter GraphicsAdapter default='virtio-vga'
     UniqueTemplateVmName name
     deriving Show Eq Generic
 

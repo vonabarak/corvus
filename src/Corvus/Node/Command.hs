@@ -13,6 +13,7 @@ module Corvus.Node.Command
   )
 where
 
+import Corvus.Model (GraphicsAdapter (..))
 import Corvus.Node.Runtime (shellQuotePath)
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig (..))
@@ -231,11 +232,22 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
           ++ ",disable-ticketing=off"
       , "-chardev"
       , "spicevmc,id=vdagent,name=vdagent"
+      , "-vga"
+      , "none"
       , "-device"
-      , "virtio-vga"
+      , case VS.vsGraphicsAdapter spec of
+          GraphicsVirtioVga -> "virtio-vga"
+          GraphicsQxlVga -> "qxl-vga"
+          GraphicsVga -> "VGA"
+          GraphicsVirtioGpuPci -> "virtio-gpu-pci"
+          GraphicsVirtioVgaGl -> "virtio-vga-gl"
+          GraphicsVirtioGpuGlPci -> "virtio-gpu-gl-pci"
       , "-device"
       , "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
       ]
+        ++ if VS.vsGraphicsAdapter spec `elem` [GraphicsVirtioVgaGl, GraphicsVirtioGpuGlPci]
+          then ["-display", "egl-headless"]
+          else []
 
     usbRedirArgs =
       [ "-device"
