@@ -3,7 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { addNetIf, removeNetIf, type NetIfAddBody, type VmDetails } from "@/api/vms";
+import {
+  addNetIf,
+  editNetIf,
+  removeNetIf,
+  type NetIfAddBody,
+  type NetworkDeviceModel,
+  type VmDetails,
+} from "@/api/vms";
 import { listNetworks, type NetworkInfo } from "@/api/networks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -21,6 +28,12 @@ import { Label } from "@/components/ui/label";
 // Mirrors NetInterfaceType in src/Corvus/Model.hs: user, tap, bridge,
 // macvtap, managed. Default `user` is QEMU's SLIRP — no host setup.
 const TYPES = ["user", "managed", "tap", "bridge", "macvtap"] as const;
+const MODELS: NetworkDeviceModel[] = [
+  "virtio-net-pci",
+  "virtio-net-pci-non-transitional",
+  "virtio-net-pci-transitional",
+  "e1000",
+];
 
 function selectClass(): string {
   return "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -32,6 +45,7 @@ function AddForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
   const [networkRef, setNetworkRef] = useState("");
   const [hostDevice, setHostDevice] = useState("");
   const [macAddress, setMacAddress] = useState("");
+  const [model, setModel] = useState<NetworkDeviceModel>("virtio-net-pci");
 
   // Only fetch networks when the user picks `managed` — saves a round-
   // trip for the much more common `user` path.
@@ -50,6 +64,7 @@ function AddForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
         host_device:
           type === "tap" || type === "bridge" || type === "macvtap" ? hostDevice || null : null,
         mac_address: macAddress || null,
+        model,
       };
       return addNetIf(vmId, body);
     },
@@ -132,6 +147,21 @@ function AddForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
           </div>
         )}
         <div className="space-y-1">
+          <Label htmlFor="nic-model">Model</Label>
+          <select
+            id="nic-model"
+            value={model}
+            onChange={(e) => setModel(e.target.value as NetworkDeviceModel)}
+            className={selectClass()}
+          >
+            {MODELS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
           <Label htmlFor="nic-mac">MAC (optional)</Label>
           <Input
             id="nic-mac"
@@ -185,6 +215,7 @@ function RemoveButton({ vmId, netIfId }: { vmId: number; netIfId: number }) {
 
 export function NetIfsCard({ vm }: { vm: VmDetails }) {
   const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -205,6 +236,7 @@ export function NetIfsCard({ vm }: { vm: VmDetails }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Type</TableHead>
+                <TableHead>Model</TableHead>
                 <TableHead>Network</TableHead>
                 <TableHead>MAC</TableHead>
                 <TableHead>Host device</TableHead>
@@ -216,6 +248,30 @@ export function NetIfsCard({ vm }: { vm: VmDetails }) {
               {vm.net_ifs.map((n) => (
                 <TableRow key={n.id}>
                   <TableCell>{n.type}</TableCell>
+                  <TableCell>
+                    <select
+                      aria-label={`Model for interface ${n.id}`}
+                      value={n.model}
+                      disabled={vm.status !== "stopped"}
+                      className={selectClass()}
+                      onChange={async (e) => {
+                        try {
+                          await editNetIf(vm.id, n.id, e.target.value as NetworkDeviceModel);
+                          await queryClient.invalidateQueries({ queryKey: ["vm", vm.id] });
+                        } catch (error) {
+                          toast.error("Network model update failed", {
+                            description: (error as Error).message,
+                          });
+                        }
+                      }}
+                    >
+                      {MODELS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
                   <TableCell>{n.network?.name ?? "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{n.mac_address}</TableCell>
                   <TableCell className="font-mono text-xs">{n.host_device || "—"}</TableCell>

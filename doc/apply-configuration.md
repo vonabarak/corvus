@@ -400,9 +400,9 @@ vms:
       networkConfig: <object>  # Optional. Network-config YAML (version 2).
       injectSshKeys: <boolean> # Optional. Default: true. Merge DB SSH keys into first user.
     drives: [...]              # Optional. List of attached drives.
-    networkInterfaces: [...]   # Optional. List of network interfaces.
+    networkInterfaces: [...]   # Optional. List of interfaces; model defaults to virtio-net-pci.
     sharedDirs: [...]          # Optional. List of virtiofs shared directories.
-    audioDevices: [...]        # Optional. List of {backend, options} sound cards.
+    audioDevices: [...]        # Optional. List of {backend, model, options} sound cards; model defaults to virtio-sound.
     sshKeys: [...]             # Optional. List of SSH key names to attach.
 ```
 
@@ -575,6 +575,7 @@ templates:
         sizeMb: <integer>       # Optional. Size in MB: disk size for create, resize after clone/overlay.
     networkInterfaces:          # Optional.
       - type: <user|tap|bridge|macvtap|vde|managed>
+        model: <virtio-net-pci|virtio-net-pci-non-transitional|virtio-net-pci-transitional|e1000>  # Optional.
         hostDevice: <string>    # Optional, depends on type.
     sshKeys:                    # Optional.
       - name: <key-name>
@@ -585,6 +586,7 @@ templates:
         readOnly: <bool>              # Optional. Default: false.
     audioDevices:               # Optional. Same fields as VM-level audioDevices above.
       - backend: <pulse|pipewire|spice>
+        model: <virtio-sound|intel-hda|ich9-intel-hda|AC97>  # Optional.
         options: <comma-separated QEMU key=value options>  # Optional.
 ```
 

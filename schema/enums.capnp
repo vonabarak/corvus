@@ -72,6 +72,20 @@ enum AudioBackend {
   spice    @2;
 }
 
+enum AudioDeviceModel {
+  virtioSound  @0;
+  intelHda     @1;
+  ich9IntelHda @2;
+  ac97         @3;
+}
+
+enum NetworkDeviceModel {
+  virtioNetPci                @0;
+  virtioNetPciNonTransitional @1;
+  virtioNetPciTransitional    @2;
+  e1000                      @3;
+}
+
 enum GraphicsAdapter {
   virtioVga        @0;
   qxlVga           @1;

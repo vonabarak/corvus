@@ -142,7 +142,7 @@ import Corvus.Handlers.Template (TemplateCreate (..), TemplateDelete (..), Templ
 import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..), VmStart (..), VmStop (..), handleVmList, handleVmShow)
 import qualified Corvus.Handlers.Vm as VmHandlers
 import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..), VmSnapshotRollback (..), handleVmSnapshotList)
-import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
+import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, NetworkDeviceModel (..), SharedDirCache)
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
@@ -423,7 +423,7 @@ whenSharedDirList vmId = withState (`handleSharedDirList` vmId)
 
 whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Maybe Text -> TestM Response
 whenNetIfAdd vmId ifaceType hostDevice mac =
-  withState (\st -> runAction st "alice" (NetIfAdd vmId ifaceType hostDevice mac Nothing))
+  withState (\st -> runAction st "alice" (NetIfAdd vmId ifaceType NetworkVirtioNetPci hostDevice mac Nothing))
 
 whenNetIfRemove :: Int64 -> Int64 -> TestM Response
 whenNetIfRemove vmId netIfId =

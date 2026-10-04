@@ -34,7 +34,7 @@ instance Action ApplyVmCreate where
     pure $ either RespError RespVmCreated result
 
 createOneVm ctx keyMap diskMap nwMap v = do
-  vmResult <- executeCreate ctx (VmCreate (avName v) (avNode v) (avCpuCount v) (avRamMb v) (avDescription v) (avHeadless v) (avGuestAgent v) (avTpm v) (effectiveCloudInit v) (avAutostart v) (avRebootQuirk v) (avCpuModel v) [(tadyBackend audioDevice, tadyOptions audioDevice) | audioDevice <- avAudioDevices v] (avGraphicsAdapter v)) (toSqlKey 0)
+  vmResult <- executeCreate ctx (VmCreate (avName v) (avNode v) (avCpuCount v) (avRamMb v) (avDescription v) (avHeadless v) (avGuestAgent v) (avTpm v) (effectiveCloudInit v) (avAutostart v) (avRebootQuirk v) (avCpuModel v) [(tadyBackend audioDevice, tadyModel audioDevice, tadyOptions audioDevice) | audioDevice <- avAudioDevices v] (avGraphicsAdapter v)) (toSqlKey 0)
   case vmResult of
     Left err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
     Right vmId -> createOneVmAttachments ctx keyMap diskMap nwMap v (toSqlKey vmId)
@@ -85,7 +85,7 @@ createNetIfs state nwMap vmId netIfs vmName vmNodeRef = go netIfs
                   Just nid -> doInsert ni nis (Just nid)
     doInsert ni nis networkId = do
       mac <- maybe generateMacAddress pure (aniMac ni)
-      runSqlPool (insert_ NetworkInterface {networkInterfaceVmId = vmId, networkInterfaceInterfaceType = aniType ni, networkInterfaceHostDevice = fromMaybe "" (aniHostDevice ni), networkInterfaceMacAddress = mac, networkInterfaceNetworkId = fmap toSqlKey networkId, networkInterfaceGuestIpAddresses = Nothing, networkInterfaceIpAddress = Nothing}) (ssDbPool state)
+      runSqlPool (insert_ NetworkInterface {networkInterfaceVmId = vmId, networkInterfaceInterfaceType = aniType ni, networkInterfaceModel = aniModel ni, networkInterfaceHostDevice = fromMaybe "" (aniHostDevice ni), networkInterfaceMacAddress = mac, networkInterfaceNetworkId = fmap toSqlKey networkId, networkInterfaceGuestIpAddresses = Nothing, networkInterfaceIpAddress = Nothing}) (ssDbPool state)
       go nis
 attachSshKeys state keyMap vmId keyNames vmName = go keyNames
   where

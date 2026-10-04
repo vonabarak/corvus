@@ -576,6 +576,7 @@ printVmDetails vm = do
     printNetIf n = do
       putStrLn $ "  - ID: " ++ show (niId n)
       putStrLn $ "    Type: " ++ T.unpack (enumToText $ niType n)
+      putStrLn $ "    Model: " ++ T.unpack (enumToText $ niModel n)
       putStrLn $ "    Host Device: " ++ T.unpack (niHostDevice n)
       putStrLn $ "    MAC: " ++ T.unpack (niMacAddress n)
       case niGuestIpAddresses n of
@@ -585,6 +586,7 @@ printVmDetails vm = do
     printAudioDevice a = do
       putStrLn $ "  - ID: " ++ show (adiId a)
       putStrLn $ "    Backend: " ++ T.unpack (enumToText (adiBackend a))
+      putStrLn $ "    Model: " ++ T.unpack (enumToText (adiModel a))
       unless (T.null (adiOptions a)) $
         putStrLn $
           "    Options: " ++ T.unpack (adiOptions a)

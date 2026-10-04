@@ -195,9 +195,9 @@ class VmDetailWidget(QWidget):
         )
 
         # ---------------- NICs ----------------
-        self._netifs_table = QTableWidget(0, 5)
+        self._netifs_table = QTableWidget(0, 6)
         self._netifs_table.setHorizontalHeaderLabels(
-            ["Type", "Network", "MAC", "Guest IPs", ""]
+            ["Type", "Model", "Network", "MAC", "Guest IPs", ""]
         )
         self._netifs_table.verticalHeader().setVisible(False)
         self._netifs_table.horizontalHeader().setStretchLastSection(False)
@@ -228,8 +228,8 @@ class VmDetailWidget(QWidget):
             self._shared_table, "+ Add shared dir", self._on_add_shared_dir
         )
 
-        self._audio_table = QTableWidget(0, 3)
-        self._audio_table.setHorizontalHeaderLabels(["Backend", "Options", ""])
+        self._audio_table = QTableWidget(0, 4)
+        self._audio_table.setHorizontalHeaderLabels(["Backend", "Model", "Options", ""])
         self._audio_table.verticalHeader().setVisible(False)
         self._audio_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         audio_pane = _table_with_action(
@@ -582,6 +582,7 @@ class VmDetailWidget(QWidget):
                 host_device=p["host_device"],
                 mac_address=p["mac_address"],
                 network_ref=p["network_ref"],
+                model=p["model"],
             )
 
     def _on_attach_ssh_key(self) -> None:
@@ -607,8 +608,8 @@ class VmDetailWidget(QWidget):
             )
 
     def _audio_params(
-        self, backend: str = "spice", options: str = ""
-    ) -> tuple[str, str] | None:
+        self, backend: str = "spice", options: str = "", model: str = "virtio-sound"
+    ) -> tuple[str, str, str] | None:
         selected, ok = QInputDialog.getItem(
             self,
             "Audio backend",
@@ -619,13 +620,19 @@ class VmDetailWidget(QWidget):
         )
         if not ok:
             return None
+        models = ["virtio-sound", "intel-hda", "ich9-intel-hda", "AC97"]
+        selected_model, ok = QInputDialog.getItem(
+            self, "Audio model", "Model", models, models.index(model), False
+        )
+        if not ok:
+            return None
         value, ok = QInputDialog.getText(
             self,
             "Audio options",
             "Comma-separated QEMU key=value options",
             text=options,
         )
-        return (selected, value) if ok else None
+        return (selected, value, selected_model) if ok else None
 
     def _on_add_audio_device(self) -> None:
         if self._vm_id is None or self._vm_status != "stopped":
@@ -637,7 +644,7 @@ class VmDetailWidget(QWidget):
     def _on_edit_audio_device(self, device: AudioDeviceInfo) -> None:
         if self._vm_id is None or self._vm_status != "stopped":
             return
-        params = self._audio_params(device.backend, device.options)
+        params = self._audio_params(device.backend, device.options, device.model)
         if params is not None:
             self._bridge.vm_edit_audio_device(self._vm_id, device.id, *params)
 
@@ -649,7 +656,8 @@ class VmDetailWidget(QWidget):
         self._audio_table.setRowCount(len(devices))
         for row, device in enumerate(devices):
             self._audio_table.setItem(row, 0, QTableWidgetItem(device.backend))
-            self._audio_table.setItem(row, 1, QTableWidgetItem(device.options))
+            self._audio_table.setItem(row, 1, QTableWidgetItem(device.model))
+            self._audio_table.setItem(row, 2, QTableWidgetItem(device.options))
             actions = QWidget()
             layout = QHBoxLayout(actions)
             layout.setContentsMargins(0, 0, 0, 0)
@@ -661,7 +669,7 @@ class VmDetailWidget(QWidget):
                 button.setEnabled(self._vm_status == "stopped")
                 button.clicked.connect(callback)
                 layout.addWidget(button)
-            self._audio_table.setCellWidget(row, 2, actions)
+            self._audio_table.setCellWidget(row, 3, actions)
         self._audio_table.resizeColumnsToContents()
 
     def _on_tab_changed(self, index: int) -> None:
@@ -750,22 +758,50 @@ class VmDetailWidget(QWidget):
         self._netifs_table.setRowCount(len(netifs))
         for row, n in enumerate(netifs):
             self._netifs_table.setItem(row, 0, QTableWidgetItem(n.type))
+            self._netifs_table.setItem(row, 1, QTableWidgetItem(n.model))
             net_name = n.network.name if n.network else (n.host_device or "")
-            self._netifs_table.setItem(row, 1, QTableWidgetItem(net_name))
-            self._netifs_table.setItem(row, 2, QTableWidgetItem(n.mac_address or ""))
+            self._netifs_table.setItem(row, 2, QTableWidgetItem(net_name))
+            self._netifs_table.setItem(row, 3, QTableWidgetItem(n.mac_address or ""))
             # ``guest_ip_addresses`` is a single string (typically a
             # space- or comma-separated list assembled daemon-side);
             # render it verbatim — joining over a str would split it
             # into individual characters.
             self._netifs_table.setItem(
-                row, 3, QTableWidgetItem(n.guest_ip_addresses or "")
+                row, 4, QTableWidgetItem(n.guest_ip_addresses or "")
             )
-            self._netifs_table.setCellWidget(
-                row,
-                4,
-                _detach_button("Remove", partial(self._remove_net_if, n.id)),
-            )
+            actions = QWidget()
+            layout = QHBoxLayout(actions)
+            layout.setContentsMargins(0, 0, 0, 0)
+            for label, callback in (
+                ("Edit", partial(self._edit_net_if, n)),
+                ("Remove", partial(self._remove_net_if, n.id)),
+            ):
+                button = QPushButton(label)
+                button.setEnabled(self._vm_status == "stopped")
+                button.clicked.connect(callback)
+                layout.addWidget(button)
+            self._netifs_table.setCellWidget(row, 5, actions)
         self._netifs_table.resizeColumnsToContents()
+
+    def _edit_net_if(self, net_if: NetIfInfo) -> None:
+        if self._vm_id is None or self._vm_status != "stopped":
+            return
+        models = [
+            "virtio-net-pci",
+            "virtio-net-pci-non-transitional",
+            "virtio-net-pci-transitional",
+            "e1000",
+        ]
+        model, ok = QInputDialog.getItem(
+            self,
+            "Network card model",
+            "Model",
+            models,
+            models.index(net_if.model),
+            False,
+        )
+        if ok:
+            self._bridge.vm_edit_net_if(self._vm_id, net_if.id, model)
 
     def _remove_net_if(self, net_if_id: int) -> None:
         if self._vm_id is None:

@@ -566,7 +566,8 @@ data instance C.Parsed NetIfInfo
         ,macAddress :: (RP.Parsed Basics.Text)
         ,network :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,guestIpAddresses :: (RP.Parsed Basics.Text)
-        ,ipAddress :: (RP.Parsed Basics.Text)}
+        ,ipAddress :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetIfInfo))
 deriving instance (Std_.Eq (C.Parsed NetIfInfo))
@@ -577,7 +578,8 @@ instance (C.Parse NetIfInfo (C.Parsed NetIfInfo)) where
                             <*> (GH.parseField #macAddress raw_)
                             <*> (GH.parseField #network raw_)
                             <*> (GH.parseField #guestIpAddresses raw_)
-                            <*> (GH.parseField #ipAddress raw_))
+                            <*> (GH.parseField #ipAddress raw_)
+                            <*> (GH.parseField #model raw_))
 instance (C.Marshal NetIfInfo (C.Parsed NetIfInfo)) where
     marshalInto raw_ NetIfInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -587,6 +589,7 @@ instance (C.Marshal NetIfInfo (C.Parsed NetIfInfo)) where
         (GH.encodeField #network network raw_)
         (GH.encodeField #guestIpAddresses guestIpAddresses raw_)
         (GH.encodeField #ipAddress ipAddress raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot NetIfInfo Std_.Int64) where
@@ -603,6 +606,8 @@ instance (GH.HasField "guestIpAddresses" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "ipAddress" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
+instance (GH.HasField "model" GH.Slot NetIfInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 1 16 0)
 data SharedDirInfo 
 type instance (R.ReprFor SharedDirInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId SharedDirInfo) where
@@ -676,23 +681,28 @@ instance (C.EstimateListAlloc AudioDeviceParams (C.Parsed AudioDeviceParams))
 data instance C.Parsed AudioDeviceParams
     = AudioDeviceParams 
         {backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
-        ,options :: (RP.Parsed Basics.Text)}
+        ,options :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed AudioDeviceParams))
 deriving instance (Std_.Eq (C.Parsed AudioDeviceParams))
 instance (C.Parse AudioDeviceParams (C.Parsed AudioDeviceParams)) where
     parse raw_ = (AudioDeviceParams <$> (GH.parseField #backend raw_)
-                                    <*> (GH.parseField #options raw_))
+                                    <*> (GH.parseField #options raw_)
+                                    <*> (GH.parseField #model raw_))
 instance (C.Marshal AudioDeviceParams (C.Parsed AudioDeviceParams)) where
     marshalInto raw_ AudioDeviceParams{..} = (do
         (GH.encodeField #backend backend raw_)
         (GH.encodeField #options options raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "backend" GH.Slot AudioDeviceParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "options" GH.Slot AudioDeviceParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "model" GH.Slot AudioDeviceParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 0 16 0)
 data AudioDeviceInfo 
 type instance (R.ReprFor AudioDeviceInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId AudioDeviceInfo) where
@@ -712,19 +722,22 @@ data instance C.Parsed AudioDeviceInfo
     = AudioDeviceInfo 
         {id :: (RP.Parsed Std_.Int64)
         ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
-        ,options :: (RP.Parsed Basics.Text)}
+        ,options :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed AudioDeviceInfo))
 deriving instance (Std_.Eq (C.Parsed AudioDeviceInfo))
 instance (C.Parse AudioDeviceInfo (C.Parsed AudioDeviceInfo)) where
     parse raw_ = (AudioDeviceInfo <$> (GH.parseField #id raw_)
                                   <*> (GH.parseField #backend raw_)
-                                  <*> (GH.parseField #options raw_))
+                                  <*> (GH.parseField #options raw_)
+                                  <*> (GH.parseField #model raw_))
 instance (C.Marshal AudioDeviceInfo (C.Parsed AudioDeviceInfo)) where
     marshalInto raw_ AudioDeviceInfo{..} = (do
         (GH.encodeField #id id raw_)
         (GH.encodeField #backend backend raw_)
         (GH.encodeField #options options raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot AudioDeviceInfo Std_.Int64) where
@@ -733,6 +746,8 @@ instance (GH.HasField "backend" GH.Slot AudioDeviceInfo Capnp.Gen.ById.Xbf9b09f6
     fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "options" GH.Slot AudioDeviceInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "model" GH.Slot AudioDeviceInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 1 16 0)
 data VmSnapshotInfo 
 type instance (R.ReprFor VmSnapshotInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSnapshotInfo) where
@@ -1103,7 +1118,8 @@ data instance C.Parsed NetIfAddParams
         {type_ :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType)
         ,hostDevice :: (RP.Parsed Basics.Text)
         ,macAddress :: (RP.Parsed Basics.Text)
-        ,networkRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+        ,networkRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetIfAddParams))
 deriving instance (Std_.Eq (C.Parsed NetIfAddParams))
@@ -1111,13 +1127,15 @@ instance (C.Parse NetIfAddParams (C.Parsed NetIfAddParams)) where
     parse raw_ = (NetIfAddParams <$> (GH.parseField #type_ raw_)
                                  <*> (GH.parseField #hostDevice raw_)
                                  <*> (GH.parseField #macAddress raw_)
-                                 <*> (GH.parseField #networkRef raw_))
+                                 <*> (GH.parseField #networkRef raw_)
+                                 <*> (GH.parseField #model raw_))
 instance (C.Marshal NetIfAddParams (C.Parsed NetIfAddParams)) where
     marshalInto raw_ NetIfAddParams{..} = (do
         (GH.encodeField #type_ type_ raw_)
         (GH.encodeField #hostDevice hostDevice raw_)
         (GH.encodeField #macAddress macAddress raw_)
         (GH.encodeField #networkRef networkRef raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "type_" GH.Slot NetIfAddParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType) where
@@ -1128,6 +1146,8 @@ instance (GH.HasField "macAddress" GH.Slot NetIfAddParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "networkRef" GH.Slot NetIfAddParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "model" GH.Slot NetIfAddParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 0 16 0)
 data SharedDirAddParams 
 type instance (R.ReprFor SharedDirAddParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId SharedDirAddParams) where
@@ -1461,9 +1481,10 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'addAudioDevice) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'editAudioDevice) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'removeAudioDevice) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'listAudioDevices) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'listAudioDevices) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'editNetIf) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1542,6 +1563,8 @@ class (Vm'server_ s_) where
     vm'removeAudioDevice _ = GH.methodUnimplemented
     vm'listAudioDevices :: s_ -> (GH.MethodHandler Vm'listAudioDevices'params Vm'listAudioDevices'results)
     vm'listAudioDevices _ = GH.methodUnimplemented
+    vm'editNetIf :: s_ -> (GH.MethodHandler Vm'editNetIf'params Vm'editNetIf'results)
+    vm'editNetIf _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1620,6 +1643,8 @@ instance (GH.HasMethod "removeAudioDevice" Vm Vm'removeAudioDevice'params Vm'rem
     methodByLabel  = (GH.Method 17269745093196220462 37)
 instance (GH.HasMethod "listAudioDevices" Vm Vm'listAudioDevices'params Vm'listAudioDevices'results) where
     methodByLabel  = (GH.Method 17269745093196220462 38)
+instance (GH.HasMethod "editNetIf" Vm Vm'editNetIf'params Vm'editNetIf'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 39)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -3670,7 +3695,7 @@ type instance (R.ReprFor Vm'editAudioDevice'params) = (R.Ptr (Std_.Just R.Struct
 instance (C.HasTypeId Vm'editAudioDevice'params) where
     typeId  = 14946865667307605783
 instance (C.TypedStruct Vm'editAudioDevice'params) where
-    numStructWords  = 1
+    numStructWords  = 2
     numStructPtrs  = 1
 instance (C.Allocate Vm'editAudioDevice'params) where
     type AllocHint Vm'editAudioDevice'params = ()
@@ -3683,23 +3708,28 @@ instance (C.EstimateListAlloc Vm'editAudioDevice'params (C.Parsed Vm'editAudioDe
 data instance C.Parsed Vm'editAudioDevice'params
     = Vm'editAudioDevice'params 
         {audioDeviceId :: (RP.Parsed Std_.Int64)
-        ,params :: (RP.Parsed AudioDeviceParams)}
+        ,params :: (RP.Parsed AudioDeviceParams)
+        ,setModel :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'editAudioDevice'params))
 deriving instance (Std_.Eq (C.Parsed Vm'editAudioDevice'params))
 instance (C.Parse Vm'editAudioDevice'params (C.Parsed Vm'editAudioDevice'params)) where
     parse raw_ = (Vm'editAudioDevice'params <$> (GH.parseField #audioDeviceId raw_)
-                                            <*> (GH.parseField #params raw_))
+                                            <*> (GH.parseField #params raw_)
+                                            <*> (GH.parseField #setModel raw_))
 instance (C.Marshal Vm'editAudioDevice'params (C.Parsed Vm'editAudioDevice'params)) where
     marshalInto raw_ Vm'editAudioDevice'params{..} = (do
         (GH.encodeField #audioDeviceId audioDeviceId raw_)
         (GH.encodeField #params params raw_)
+        (GH.encodeField #setModel setModel raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "audioDeviceId" GH.Slot Vm'editAudioDevice'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "params" GH.Slot Vm'editAudioDevice'params AudioDeviceParams) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "setModel" GH.Slot Vm'editAudioDevice'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 1 1 0)
 data Vm'editAudioDevice'results 
 type instance (R.ReprFor Vm'editAudioDevice'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'editAudioDevice'results) where
@@ -3835,6 +3865,66 @@ instance (C.Marshal Vm'listAudioDevices'results (C.Parsed Vm'listAudioDevices're
         )
 instance (GH.HasField "audioDevices" GH.Slot Vm'listAudioDevices'results (R.List AudioDeviceInfo)) where
     fieldByLabel  = (GH.ptrField 0)
+data Vm'editNetIf'params 
+type instance (R.ReprFor Vm'editNetIf'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'editNetIf'params) where
+    typeId  = 12766095088604291224
+instance (C.TypedStruct Vm'editNetIf'params) where
+    numStructWords  = 2
+    numStructPtrs  = 0
+instance (C.Allocate Vm'editNetIf'params) where
+    type AllocHint Vm'editNetIf'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'editNetIf'params (C.Parsed Vm'editNetIf'params))
+instance (C.AllocateList Vm'editNetIf'params) where
+    type ListAllocHint Vm'editNetIf'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'editNetIf'params (C.Parsed Vm'editNetIf'params))
+data instance C.Parsed Vm'editNetIf'params
+    = Vm'editNetIf'params 
+        {netIfId :: (RP.Parsed Std_.Int64)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'editNetIf'params))
+deriving instance (Std_.Eq (C.Parsed Vm'editNetIf'params))
+instance (C.Parse Vm'editNetIf'params (C.Parsed Vm'editNetIf'params)) where
+    parse raw_ = (Vm'editNetIf'params <$> (GH.parseField #netIfId raw_)
+                                      <*> (GH.parseField #model raw_))
+instance (C.Marshal Vm'editNetIf'params (C.Parsed Vm'editNetIf'params)) where
+    marshalInto raw_ Vm'editNetIf'params{..} = (do
+        (GH.encodeField #netIfId netIfId raw_)
+        (GH.encodeField #model model raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "netIfId" GH.Slot Vm'editNetIf'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "model" GH.Slot Vm'editNetIf'params Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel) where
+    fieldByLabel  = (GH.dataField 0 1 16 0)
+data Vm'editNetIf'results 
+type instance (R.ReprFor Vm'editNetIf'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'editNetIf'results) where
+    typeId  = 16147913365240318173
+instance (C.TypedStruct Vm'editNetIf'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'editNetIf'results) where
+    type AllocHint Vm'editNetIf'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'editNetIf'results (C.Parsed Vm'editNetIf'results))
+instance (C.AllocateList Vm'editNetIf'results) where
+    type ListAllocHint Vm'editNetIf'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'editNetIf'results (C.Parsed Vm'editNetIf'results))
+data instance C.Parsed Vm'editNetIf'results
+    = Vm'editNetIf'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'editNetIf'results))
+deriving instance (Std_.Eq (C.Parsed Vm'editNetIf'results))
+instance (C.Parse Vm'editNetIf'results (C.Parsed Vm'editNetIf'results)) where
+    parse raw_ = (Std_.pure Vm'editNetIf'results)
+instance (C.Marshal Vm'editNetIf'results (C.Parsed Vm'editNetIf'results)) where
+    marshalInto _raw (Vm'editNetIf'results) = (Std_.pure ())
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

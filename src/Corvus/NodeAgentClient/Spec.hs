@@ -152,6 +152,7 @@ encodeAudioDeviceSpec (Entity audioId audioDevice) =
   VS.VmAudioDeviceSpec
     { VS.vasAudioDeviceId = fromSqlKey audioId
     , VS.vasBackend = enumToText (M.audioDeviceBackend audioDevice)
+    , VS.vasModel = enumToText (M.audioDeviceModel audioDevice)
     , VS.vasOptions = M.audioDeviceOptions audioDevice
     }
 
@@ -225,6 +226,7 @@ encodeNetIfSpec :: NetworkInterface -> VS.VmNetIfSpec
 encodeNetIfSpec n =
   VS.VmNetIfSpec
     { VS.vnsIfType = ifTypeText (networkInterfaceInterfaceType n)
+    , VS.vnsModel = enumToText (networkInterfaceModel n)
     , VS.vnsHostDevice = networkInterfaceHostDevice n
     , VS.vnsMacAddress = networkInterfaceMacAddress n
     }

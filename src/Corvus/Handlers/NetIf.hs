@@ -3,10 +3,9 @@ module Corvus.Handlers.NetIf
   ( -- * Action types
     NetIfAdd (..)
   , NetIfRemove (..)
+  , NetIfEdit (..)
 
     -- * Handlers
-  , handleNetIfAdd
-  , handleNetIfRemove
   , handleNetIfList
 
     -- * Validators
@@ -20,7 +19,7 @@ import Corvus.Action
 import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Handlers.Network as NetworkH
 import qualified Corvus.Handlers.Network.Ipam as Ipam
-import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), TaskSubsystem (..), Vm (..), VmId, VmStatus (..))
+import Corvus.Model (NetInterfaceType (..), Network (..), NetworkDeviceModel, NetworkInterface (..), TaskSubsystem (..), Vm (..), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
@@ -42,11 +41,12 @@ handleNetIfAdd
   :: ServerState
   -> Int64
   -> NetInterfaceType
+  -> NetworkDeviceModel
   -> Text
   -> Maybe Text
   -> Maybe Int64
   -> IO Response
-handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
+handleNetIfAdd state vmId ifaceType model hostDevice mMacAddress mNetworkId = do
   let networkKey = toSqlKey <$> mNetworkId :: Maybe M.NetworkId
       -- When a network is specified, force managed type
       actualType = case mNetworkId of
@@ -66,7 +66,7 @@ handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
         mac <- case mMacAddress of
           Just m | not (T.null m) -> pure m
           _ -> generateMacAddress
-        result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
+        result <- runSqlPool (addNetIf vmId actualType model hostDevice mac networkKey) (ssDbPool state)
         case result of
           Nothing -> pure RespVmNotFound
           Just (Left err) -> pure $ RespError err
@@ -112,11 +112,12 @@ handleNetIfList state vmId = do
 addNetIf
   :: Int64
   -> NetInterfaceType
+  -> NetworkDeviceModel
   -> Text
   -> Text
   -> Maybe M.NetworkId
   -> SqlPersistT IO (Maybe (Either Text (Int64, Maybe M.NetworkId, Bool)))
-addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
+addNetIf vmId ifaceType model hostDevice macAddress mNetworkKey = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- get vmKey
   case mVm of
@@ -172,6 +173,7 @@ addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
             NetworkInterface
               { networkInterfaceVmId = vmKey
               , networkInterfaceInterfaceType = ifaceType
+              , networkInterfaceModel = model
               , networkInterfaceHostDevice = hostDevice
               , networkInterfaceMacAddress = macAddress
               , networkInterfaceNetworkId = nwKey
@@ -256,6 +258,7 @@ listNetIfs vmId = do
         NetIfInfo
           { niId = fromSqlKey key
           , niType = networkInterfaceInterfaceType netIf
+          , niModel = networkInterfaceModel netIf
           , niHostDevice = networkInterfaceHostDevice netIf
           , niMacAddress = networkInterfaceMacAddress netIf
           , niNetwork = networkRef
@@ -270,6 +273,7 @@ listNetIfs vmId = do
 data NetIfAdd = NetIfAdd
   { niaVmId :: Int64
   , niaType :: NetInterfaceType
+  , niaModel :: NetworkDeviceModel
   , niaHostDevice :: Text
   , niaMacAddress :: Maybe Text
   , niaNetworkId :: Maybe Int64
@@ -279,7 +283,33 @@ instance Action NetIfAdd where
   actionSubsystem _ = SubVm
   actionCommand _ = "add-netif"
   actionEntityId = Just . fromIntegral . niaVmId
-  actionExecute ctx a = handleNetIfAdd (acState ctx) (niaVmId a) (niaType a) (niaHostDevice a) (niaMacAddress a) (niaNetworkId a)
+  actionExecute ctx a = handleNetIfAdd (acState ctx) (niaVmId a) (niaType a) (niaModel a) (niaHostDevice a) (niaMacAddress a) (niaNetworkId a)
+
+data NetIfEdit = NetIfEdit
+  { nieVmId :: Int64
+  , nieNetIfId :: Int64
+  , nieModel :: NetworkDeviceModel
+  }
+
+instance Action NetIfEdit where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "edit-netif"
+  actionEntityId = Just . fromIntegral . nieVmId
+  actionExecute ctx a = do
+    let pool = ssDbPool (acState ctx)
+        vmKey = toSqlKey (nieVmId a) :: VmId
+        nicKey = toSqlKey (nieNetIfId a) :: M.NetworkInterfaceId
+    mVm <- runSqlPool (get vmKey) pool
+    case mVm of
+      Nothing -> pure RespVmNotFound
+      Just vm | vmStatus vm /= VmStopped -> pure RespVmMustBeStopped
+      Just _ -> do
+        mNic <- runSqlPool (get nicKey) pool
+        case mNic of
+          Just nic | networkInterfaceVmId nic == vmKey -> do
+            runSqlPool (update nicKey [M.NetworkInterfaceModel =. nieModel a]) pool
+            pure RespOk
+          _ -> pure RespNetIfNotFound
 
 data NetIfRemove = NetIfRemove
   { nirVmId :: Int64

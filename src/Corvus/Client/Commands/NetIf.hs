@@ -6,6 +6,7 @@
 module Corvus.Client.Commands.NetIf
   ( -- * Command handlers
     handleNetIfAdd
+  , handleNetIfEdit
   , handleNetIfRemove
   , handleNetIfList
 
@@ -17,9 +18,9 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Types (OutputFormat)
-import Corvus.Model (EnumText (..), NetInterfaceType)
+import Corvus.Model (EnumText (..), NetInterfaceType, NetworkDeviceModel)
 import Corvus.Protocol (NetIfInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
@@ -32,20 +33,33 @@ parseNetInterfaceType :: Text -> Either Text NetInterfaceType
 parseNetInterfaceType = enumFromText
 
 -- | Handle network interface add command
-handleNetIfAdd :: OutputFormat -> CapnpConnection -> Text -> NetInterfaceType -> Text -> Maybe Text -> Maybe Text -> IO Bool
-handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef = do
+handleNetIfAdd :: OutputFormat -> CapnpConnection -> Text -> NetInterfaceType -> Text -> Maybe Text -> Maybe Text -> Text -> IO Bool
+handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef modelText = do
   let mNetEnt = fmap entityRefFromText mNetworkRef
-  r <- try @SomeException (CR.rpcNetIfAdd conn (entityRefFromText vmRef) ifaceType hostDevice macAddress mNetEnt)
-  case r of
-    Right nid -> do
-      emitOkWith fmt [("id", toJSON nid)] $
-        putStrLn $
-          "Network interface added with ID: " ++ show nid
-      pure True
-    Left e -> do
-      emitRpcError fmt e $
-        putStrLn ("Failed to add network interface: " ++ show e)
-      pure False
+  case enumFromText modelText of
+    Left err -> emitError fmt "invalid_network_model" err (putStrLn (T.unpack err)) >> pure False
+    Right model -> do
+      r <- try @SomeException (CR.rpcNetIfAdd conn (entityRefFromText vmRef) ifaceType model hostDevice macAddress mNetEnt)
+      case r of
+        Right nid -> do
+          emitOkWith fmt [("id", toJSON nid)] $
+            putStrLn $
+              "Network interface added with ID: " ++ show nid
+          pure True
+        Left e -> do
+          emitRpcError fmt e $
+            putStrLn ("Failed to add network interface: " ++ show e)
+          pure False
+
+handleNetIfEdit :: OutputFormat -> CapnpConnection -> Text -> Int64 -> Text -> IO Bool
+handleNetIfEdit fmt conn vmRef netIfId modelText =
+  case enumFromText modelText :: Either Text NetworkDeviceModel of
+    Left err -> emitError fmt "invalid_network_model" err (putStrLn (T.unpack err)) >> pure False
+    Right model -> do
+      r <- try @SomeException (CR.rpcNetIfEdit conn (entityRefFromText vmRef) netIfId model)
+      case r of
+        Right () -> emitOk fmt (putStrLn "Network interface updated.") >> pure True
+        Left err -> emitRpcError fmt err (print err) >> pure False
 
 -- | Handle network interface remove command
 handleNetIfRemove :: OutputFormat -> CapnpConnection -> Text -> Int64 -> IO Bool
@@ -80,6 +94,7 @@ handleNetIfList fmt tableOpts conn vmRef = do
 netIfColumns :: [Column NetIfInfo]
 netIfColumns =
   [ Column "ID" RightAlign (show . niId)
+  , Column "MODEL" LeftAlign (T.unpack . enumToText . niModel)
   , Column "TYPE" LeftAlign (T.unpack . enumToText . niType)
   , Column "DEVICE" LeftAlign (T.unpack . niHostDevice)
   , Column "MAC" LeftAlign (T.unpack . niMacAddress)

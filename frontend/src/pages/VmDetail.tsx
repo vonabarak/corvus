@@ -126,11 +126,12 @@ function DeleteButton({ vm }: { vm: VmDetails }) {
 function AudioDevicesCard({ vm }: { vm: VmDetails }) {
   const queryClient = useQueryClient();
   const [backend, setBackend] = useState<AudioDeviceInfo["backend"]>("spice");
+  const [model, setModel] = useState<AudioDeviceInfo["model"]>("virtio-sound");
   const [options, setOptions] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const mutation = useMutation({
     mutationFn: async () => {
-      const body = { backend, options };
+      const body = { backend, options, model };
       if (editingId === null) await addAudioDevice(vm.id, body);
       else await editAudioDevice(vm.id, editingId, body);
     },
@@ -161,7 +162,7 @@ function AudioDevicesCard({ vm }: { vm: VmDetails }) {
         {vm.audio_devices.map((device) => (
           <div key={device.id} className="flex items-center gap-3 text-sm">
             <span className="font-medium">
-              #{device.id} {device.backend}
+              #{device.id} {device.model} ({device.backend})
             </span>
             <code className="flex-1 break-all">{device.options || "default"}</code>
             <Button
@@ -171,6 +172,7 @@ function AudioDevicesCard({ vm }: { vm: VmDetails }) {
               onClick={() => {
                 setEditingId(device.id);
                 setBackend(device.backend);
+                setModel(device.model);
                 setOptions(device.options);
               }}
             >
@@ -202,6 +204,17 @@ function AudioDevicesCard({ vm }: { vm: VmDetails }) {
             <option value="spice">SPICE</option>
             <option value="pulse">PulseAudio</option>
             <option value="pipewire">PipeWire</option>
+          </select>
+          <select
+            aria-label="Audio model"
+            className="rounded border bg-background p-2 text-sm"
+            value={model}
+            onChange={(event) => setModel(event.target.value as AudioDeviceInfo["model"])}
+          >
+            <option value="virtio-sound">virtio-sound</option>
+            <option value="intel-hda">intel-hda</option>
+            <option value="ich9-intel-hda">ich9-intel-hda</option>
+            <option value="AC97">AC97</option>
           </select>
           <input
             aria-label="Audio options"

@@ -85,6 +85,7 @@ class AttachDiskPayload(TypedDict):
 
 class AddNetIfPayload(TypedDict):
     type: str
+    model: str
     host_device: str | None
     mac_address: str | None
     network_ref: int | None

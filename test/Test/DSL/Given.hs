@@ -589,6 +589,7 @@ insertNetworkInterface vmId ifaceType hostDevice macAddress = do
         NetworkInterface
           { networkInterfaceVmId = toSqlKey vmId
           , networkInterfaceInterfaceType = ifaceType
+          , networkInterfaceModel = NetworkVirtioNetPci
           , networkInterfaceHostDevice = hostDevice
           , networkInterfaceMacAddress = macAddress
           , networkInterfaceNetworkId = Nothing

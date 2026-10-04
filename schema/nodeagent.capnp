@@ -618,6 +618,7 @@ struct VmAudioDeviceSpec {
   audioDeviceId @0 :Int64;
   backend       @1 :Enums.AudioBackend;
   options       @2 :Text;
+  model         @3 :Enums.AudioDeviceModel;
 }
 
 struct VmDriveSpec {
@@ -636,6 +637,7 @@ struct VmNetIfSpec {
   hostDevice @1 :Text;     # resolved TAP / bridge name; daemon
                            # populates from netd for managed NICs
   macAddress @2 :Text;
+  model      @3 :Enums.NetworkDeviceModel;
 }
 
 struct VmSharedDirSpec {

@@ -199,16 +199,17 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
           backendId = "audio" ++ ident
           controllerId = "hda" ++ ident
           options = T.unpack (VS.vasOptions audioDevice)
+          deviceArgs = case VS.vasModel audioDevice of
+            "virtio-sound" -> ["-device", "virtio-sound-pci,audiodev=" ++ backendId]
+            "AC97" -> ["-device", "AC97,audiodev=" ++ backendId]
+            controller -> ["-device", T.unpack controller ++ ",id=" ++ controllerId, "-device", "hda-micro,bus=" ++ controllerId ++ ".0,audiodev=" ++ backendId]
        in [ "-audiodev"
           , (if VS.vasBackend audioDevice == "pulse" then "pa" else T.unpack (VS.vasBackend audioDevice))
               ++ ",id="
               ++ backendId
               ++ (if null options then "" else "," ++ options)
-          , "-device"
-          , "ich9-intel-hda,id=" ++ controllerId
-          , "-device"
-          , "hda-micro,bus=" ++ controllerId ++ ".0,audiodev=" ++ backendId
           ]
+            ++ deviceArgs
 
     spicePort = fromMaybe 0 (VS.vsSpicePort spec)
 
@@ -452,4 +453,4 @@ netArgsSpec (idx, n) =
         "managed" ->
           ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
         _ -> []
-   in netdev ++ ["-device", "virtio-net-pci,netdev=" ++ netId ++ ",mac=" ++ mac]
+   in netdev ++ ["-device", T.unpack (VS.vnsModel n) ++ ",netdev=" ++ netId ++ ",mac=" ++ mac]

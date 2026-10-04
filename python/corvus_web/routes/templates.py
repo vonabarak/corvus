@@ -122,7 +122,8 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
             for d in t.shared_dirs
         ],
         "audioDevices": [
-            {"backend": d.backend, "options": d.options} for d in t.audio_devices
+            {"backend": d.backend, "options": d.options, "model": d.model}
+            for d in t.audio_devices
         ],
     }
     if t.description is not None:

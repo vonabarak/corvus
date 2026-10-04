@@ -78,6 +78,7 @@ netIfToValue :: TemplateNetIfInfo -> Value
 netIfToValue n =
   object $
     ("type" .= tvniType n)
+      : ("model" .= tvniModel n)
       : catMaybes
         [ optPair "hostDevice" (tvniHostDevice n)
         , optPair "network" (tvniNetwork n)
@@ -97,7 +98,7 @@ sharedDirToValue sd =
     ]
 
 audioDeviceToValue :: TemplateAudioDeviceInfo -> Value
-audioDeviceToValue device = object ["backend" .= tvadiBackend device, "options" .= tvadiOptions device]
+audioDeviceToValue device = object ["backend" .= tvadiBackend device, "model" .= tvadiModel device, "options" .= tvadiOptions device]
 
 cloudInitInfoToValue :: CloudInitInfo -> Value
 cloudInitInfoToValue ci =
@@ -139,4 +140,4 @@ skeletonTemplateYaml =
   \networkInterfaces: []\n\
   \sshKeys: []\n\
   \sharedDirs: []        # list of {path, tag, cache, readOnly} entries\n\
-  \audioDevices: []     # list of {backend: spice|pulse|pipewire, options: ''} entries\n"
+  \audioDevices: []     # list of {backend: spice|pulse|pipewire, model: virtio-sound|intel-hda|ich9-intel-hda|AC97, options: ''} entries\n"

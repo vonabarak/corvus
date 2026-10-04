@@ -111,6 +111,7 @@ data VmDriveSpec = VmDriveSpec
 
 data VmNetIfSpec = VmNetIfSpec
   { vnsIfType :: !T.Text
+  , vnsModel :: !T.Text
   , vnsHostDevice :: !T.Text
   , vnsMacAddress :: !T.Text
   }
@@ -127,6 +128,7 @@ data VmSharedDirSpec = VmSharedDirSpec
 data VmAudioDeviceSpec = VmAudioDeviceSpec
   { vasAudioDeviceId :: !Int64
   , vasBackend :: !T.Text
+  , vasModel :: !T.Text
   , vasOptions :: !T.Text
   }
   deriving (Eq, Show)

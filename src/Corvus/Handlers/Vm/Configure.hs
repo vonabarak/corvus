@@ -63,11 +63,11 @@ handleVmCreate
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel (empty == "host")
-  -> [(AudioBackend, Text)]
+  -> [(AudioBackend, AudioDeviceModel, Text)]
   -> GraphicsAdapter
   -> IO Response
 handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter =
-  case validateName "VM" name >> mapM_ (validateAudioOptions . snd) audioDevices >> validateBackends of
+  case validateName "VM" name >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
       let pool = ssDbPool state
@@ -101,8 +101,8 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
               Left err -> pure $ RespError err
               Right vmId -> do
                 runSqlPool
-                  ( forM_ audioDevices $ \(backend, options) ->
-                      insert_ (AudioDevice (toSqlKey vmId) backend options)
+                  ( forM_ audioDevices $ \(backend, model, options) ->
+                      insert_ (AudioDevice (toSqlKey vmId) backend model options)
                   )
                   pool
                 -- Bump the scheduler's in-memory reservation so the
@@ -129,7 +129,7 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             Right nidRaw -> placeOn (M.toSqlKey nidRaw)
   where
     validateBackends
-      | headless && any ((== AudioSpice) . fst) audioDevices = Left "SPICE audio requires a graphical VM"
+      | headless && any (\(backend, _, _) -> backend == AudioSpice) audioDevices = Left "SPICE audio requires a graphical VM"
       | otherwise = Right ()
 
 -- | Handle VM delete command. Reaps ephemeral disks attached to the
@@ -318,7 +318,7 @@ data VmCreate = VmCreate
   , vcrAutostart :: Bool
   , vcrRebootQuirk :: Bool
   , vcrCpuModel :: Text
-  , vcrAudioDevices :: [(AudioBackend, Text)]
+  , vcrAudioDevices :: [(AudioBackend, AudioDeviceModel, Text)]
   , vcrGraphicsAdapter :: GraphicsAdapter
   -- ^ QEMU @-cpu@ model. Empty == use the daemon default
   -- ('host'); see the schema field comment on

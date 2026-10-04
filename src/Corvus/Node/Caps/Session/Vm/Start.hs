@@ -205,11 +205,18 @@ decodeVmNetIfSpec :: CGNA.Parsed CGNA.VmNetIfSpec -> VS.VmNetIfSpec
 decodeVmNetIfSpec
   CGNA.VmNetIfSpec
     { CGNA.ifType = it
+    , CGNA.model = model
     , CGNA.hostDevice = hd
     , CGNA.macAddress = ma
     } =
     VS.VmNetIfSpec
       { VS.vnsIfType = it
+      , VS.vnsModel = case model of
+          CGE.NetworkDeviceModel'virtioNetPci -> "virtio-net-pci"
+          CGE.NetworkDeviceModel'virtioNetPciNonTransitional -> "virtio-net-pci-non-transitional"
+          CGE.NetworkDeviceModel'virtioNetPciTransitional -> "virtio-net-pci-transitional"
+          CGE.NetworkDeviceModel'e1000 -> "e1000"
+          CGE.NetworkDeviceModel'unknown' _ -> "unknown"
       , VS.vnsHostDevice = hd
       , VS.vnsMacAddress = ma
       }
@@ -230,7 +237,7 @@ decodeVmSharedDirSpec
       }
 
 decodeVmAudioDeviceSpec :: CGNA.Parsed CGNA.VmAudioDeviceSpec -> VS.VmAudioDeviceSpec
-decodeVmAudioDeviceSpec CGNA.VmAudioDeviceSpec {CGNA.audioDeviceId = aid, CGNA.backend = backend, CGNA.options = options} =
+decodeVmAudioDeviceSpec CGNA.VmAudioDeviceSpec {CGNA.audioDeviceId = aid, CGNA.backend = backend, CGNA.model = model, CGNA.options = options} =
   VS.VmAudioDeviceSpec
     { VS.vasAudioDeviceId = aid
     , VS.vasBackend = case backend of
@@ -238,6 +245,12 @@ decodeVmAudioDeviceSpec CGNA.VmAudioDeviceSpec {CGNA.audioDeviceId = aid, CGNA.b
         CGE.AudioBackend'pipewire -> "pipewire"
         CGE.AudioBackend'spice -> "spice"
         CGE.AudioBackend'unknown' _ -> "unknown"
+    , VS.vasModel = case model of
+        CGE.AudioDeviceModel'virtioSound -> "virtio-sound"
+        CGE.AudioDeviceModel'intelHda -> "intel-hda"
+        CGE.AudioDeviceModel'ich9IntelHda -> "ich9-intel-hda"
+        CGE.AudioDeviceModel'ac97 -> "AC97"
+        CGE.AudioDeviceModel'unknown' _ -> "unknown"
     , VS.vasOptions = options
     }
 

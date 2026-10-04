@@ -29,6 +29,7 @@ export interface TemplateDriveInfo {
 
 export interface TemplateNetIfInfo {
   type: string;
+  model: string;
   host_device: string | null;
 }
 
@@ -48,6 +49,7 @@ export interface TemplateSharedDirInfo {
 export interface TemplateAudioDeviceInfo {
   id: number;
   backend: "pulse" | "pipewire" | "spice";
+  model: string;
   options: string;
 }
 

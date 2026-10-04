@@ -13,7 +13,7 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Types (OutputFormat)
-import Corvus.Model (AudioBackend, EnumText (..))
+import Corvus.Model (AudioBackend, AudioDeviceModel, EnumText (..))
 import Corvus.Protocol.Vm (AudioDeviceInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
@@ -28,27 +28,34 @@ parseBackend fmt value = case enumFromText value of
     emitError fmt "invalid_audio_backend" err $ putStrLn (T.unpack err)
     pure Nothing
 
-handleAudioDeviceAdd :: OutputFormat -> CapnpConnection -> Text -> Text -> Text -> IO Bool
-handleAudioDeviceAdd fmt conn vmRef backendText options = do
+handleAudioDeviceAdd :: OutputFormat -> CapnpConnection -> Text -> Text -> Text -> Text -> IO Bool
+handleAudioDeviceAdd fmt conn vmRef backendText options modelText = do
   mBackend <- parseBackend fmt backendText
-  case mBackend of
-    Nothing -> pure False
-    Just backend -> do
-      result <- try @SomeException (CR.rpcAudioDeviceAdd conn (entityRefFromText vmRef) backend options)
+  mModel <- parseModel fmt modelText
+  case (mBackend, mModel) of
+    (Just backend, Just model) -> do
+      result <- try @SomeException (CR.rpcAudioDeviceAdd conn (entityRefFromText vmRef) backend model options)
       case result of
         Right aid -> emitOkWith fmt [("id", toJSON aid)] (putStrLn ("Audio device added with ID: " ++ show aid)) >> pure True
         Left err -> emitRpcError fmt err (print err) >> pure False
+    _ -> pure False
 
-handleAudioDeviceEdit :: OutputFormat -> CapnpConnection -> Text -> Int64 -> Text -> Text -> IO Bool
-handleAudioDeviceEdit fmt conn vmRef aid backendText options = do
+parseModel :: OutputFormat -> Text -> IO (Maybe AudioDeviceModel)
+parseModel fmt value = case enumFromText value of
+  Right model -> pure (Just model)
+  Left err -> emitError fmt "invalid_audio_model" err (putStrLn (T.unpack err)) >> pure Nothing
+
+handleAudioDeviceEdit :: OutputFormat -> CapnpConnection -> Text -> Int64 -> Text -> Text -> Maybe Text -> IO Bool
+handleAudioDeviceEdit fmt conn vmRef aid backendText options mModelText = do
   mBackend <- parseBackend fmt backendText
-  case mBackend of
-    Nothing -> pure False
-    Just backend -> do
-      result <- try @SomeException (CR.rpcAudioDeviceEdit conn (entityRefFromText vmRef) aid backend options)
+  mModel <- traverse (parseModel fmt) mModelText
+  case (mBackend, sequence mModel) of
+    (Just backend, Just model) -> do
+      result <- try @SomeException (CR.rpcAudioDeviceEdit conn (entityRefFromText vmRef) aid backend model options)
       case result of
         Right () -> emitOk fmt (putStrLn "Audio device updated.") >> pure True
         Left err -> emitRpcError fmt err (print err) >> pure False
+    _ -> pure False
 
 handleAudioDeviceRemove :: OutputFormat -> CapnpConnection -> Text -> Int64 -> IO Bool
 handleAudioDeviceRemove fmt conn vmRef aid = do
@@ -69,6 +76,7 @@ handleAudioDeviceList fmt tableOpts conn vmRef = do
     columns :: [Column AudioDeviceInfo]
     columns =
       [ Column "ID" RightAlign (show . adiId)
+      , Column "MODEL" LeftAlign (T.unpack . enumToText . adiModel)
       , Column "BACKEND" LeftAlign (T.unpack . enumToText . adiBackend)
       , Column "OPTIONS" LeftAlign (T.unpack . adiOptions)
       ]

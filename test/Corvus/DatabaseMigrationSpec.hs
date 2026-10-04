@@ -36,14 +36,42 @@ spec = do
       targets 3 [] 4 `shouldBe` Left (SchemaVersionTooNew 4 3)
 
   describe "database migration transactions with the configured backend" $ do
+    it "sets defaults for existing audio and network devices" $
+      withDatabase $ \cfg pool -> do
+        runSqlPool (clearSchema (dcEngine cfg) >> loadVersion2 (dcEngine cfg)) pool
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 7)
+        runSqlPool
+          ( do
+              forM_
+                ["audio_device", "template_audio_device", "network_interface", "template_network_interface"]
+                $ \table -> rawExecute ("ALTER TABLE " <> table <> " DROP COLUMN model") []
+              rawExecute "UPDATE schema_version SET version = 6" []
+              rawExecute "INSERT INTO audio_device (vm_id, backend, options) VALUES (1, 'spice', '')" []
+              rawExecute "INSERT INTO template_audio_device (template_id, backend, options) VALUES (1, 'spice', '')" []
+              rawExecute "INSERT INTO network_interface (vm_id, interface_type, host_device, mac_address) VALUES (1, 'user', '', '52:54:00:00:00:01')" []
+              rawExecute "INSERT INTO template_network_interface (template_id, interface_type) VALUES (1, 'user')" []
+          )
+          pool
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 6 7)
+        forM_
+          ["audio_device", "template_audio_device"]
+          $ \table -> do
+            models <- runSqlPool (rawSql ("SELECT model FROM " <> table) []) pool
+            models `shouldBe` [Single ("virtio-sound" :: T.Text)]
+        forM_
+          ["network_interface", "template_network_interface"]
+          $ \table -> do
+            models <- runSqlPool (rawSql ("SELECT model FROM " <> table) []) pool
+            models `shouldBe` [Single ("virtio-net-pci" :: T.Text)]
+
     it "upgrades the frozen version-2 schema and preserves constraints and data" $
       withDatabase $ \cfg pool -> do
         runSqlPool (clearSchema (dcEngine cfg) >> loadVersion2 (dcEngine cfg)) pool
         case dcEngine cfg of
           DatabaseSqlite -> runSqlPool (rawExecute "UPDATE sqlite_sequence SET seq = 100 WHERE name = 'drive'" []) pool
           DatabasePostgresql -> pure ()
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 6)
-        runSqlPool readSchemaVersion pool `shouldReturn` Just 6
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 7)
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 7
         adapters <- runSqlPool (rawSql "SELECT graphics_adapter FROM vm" []) pool
         adapters `shouldBe` [Single ("virtio-vga" :: T.Text)]
         templateAdapters <- runSqlPool (rawSql "SELECT graphics_adapter FROM template_vm" []) pool
@@ -63,40 +91,40 @@ spec = do
             ids <- runSqlPool (rawSql "SELECT id FROM drive WHERE disk_image_id IS NULL ORDER BY id" []) pool
             ids `shouldBe` [Single (101 :: Int), Single 102]
           DatabasePostgresql -> pure ()
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaAlreadyCurrent 6)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaAlreadyCurrent 7)
 
     it "upgrades an empty historical drive table without reusing deleted IDs" $
       withDatabase $ \cfg pool -> do
         runSqlPool (clearSchema (dcEngine cfg) >> loadVersion2 (dcEngine cfg) >> rawExecute "DELETE FROM drive" []) pool
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 6)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 7)
         runSqlPool (rawExecute "INSERT INTO drive (vm_id, disk_image_id, interface, cache_type) VALUES (1, NULL, 'ide', 'none')" []) pool
         ids <- runSqlPool (rawSql "SELECT id FROM drive" []) pool
         ids `shouldBe` [Single (2 :: Int)]
 
     it "rolls back schema, data and version updates when a later step fails" $
       withDatabase $ \cfg pool -> do
-        let first = Migration 7 "create marker" $ const $ do
+        let first = Migration 8 "create marker" $ const $ do
               rawExecute "CREATE TABLE migration_marker (value INTEGER NOT NULL)" []
               rawExecute "INSERT INTO migration_marker VALUES (42)" []
               rawExecute "UPDATE node SET description = 'changed'" []
-            second = Migration 8 "deliberate failure" $ const $ do
+            second = Migration 9 "deliberate failure" $ const $ do
               version <- readSchemaVersion
-              liftIO $ version `shouldBe` Just 7
+              liftIO $ version `shouldBe` Just 8
               liftIO $ ioError $ userError "injected failure"
-        result <- runDatabaseMigrationsWith 8 [second, first] cfg pool
+        result <- runDatabaseMigrationsWith 9 [second, first] cfg pool
         case result of
-          Left (SchemaMigrationFailed 8 "deliberate failure" reason) -> reason `shouldSatisfy` T.isInfixOf "injected failure"
+          Left (SchemaMigrationFailed 9 "deliberate failure" reason) -> reason `shouldSatisfy` T.isInfixOf "injected failure"
           _ -> expectationFailure $ show result
-        runSqlPool readSchemaVersion pool `shouldReturn` Just 6
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 7
         runSqlPool (rawSql "SELECT value FROM migration_marker" [] :: SqlPersistT IO [Single Int]) pool `shouldThrow` anyException
         descriptions <- runSqlPool (rawSql "SELECT description FROM node" []) pool
         descriptions `shouldBe` [Single (Nothing :: Maybe T.Text)]
 
     it "checks the whole path before executing any step" $
       withDatabase $ \cfg pool -> do
-        let first = Migration 7 "must not run" $ const $ liftIO $ expectationFailure "ran before validating path"
-        runDatabaseMigrationsWith 8 [first] cfg pool `shouldReturn` Left (SchemaMigrationMissing 6 8 8)
-        runSqlPool readSchemaVersion pool `shouldReturn` Just 6
+        let first = Migration 8 "must not run" $ const $ liftIO $ expectationFailure "ran before validating path"
+        runDatabaseMigrationsWith 9 [first] cfg pool `shouldReturn` Left (SchemaMigrationMissing 7 9 9)
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 7
 
     it "creates fresh schemas even when no historical migrations remain" $
       withDatabase $ \cfg pool -> do
@@ -115,7 +143,7 @@ spec = do
         runSqlPool
           (clearSchema (dcEngine cfg) >> rawExecute "CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)" [])
           pool
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaCreated 6)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaCreated 7)
 
     it "refuses existing tables with absent metadata without creating metadata" $
       withDatabase $ \cfg pool -> do

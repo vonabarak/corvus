@@ -91,17 +91,17 @@ spec = describe "buildQemuCommandFromSpec" $ do
 
   it "creates independent duplex cards for each audio backend" $ do
     let devices =
-          [ VmAudioDeviceSpec 11 "pulse" "server=192.0.2.10,out.name=sink,in.name=mic"
-          , VmAudioDeviceSpec 12 "pipewire" "out.name=desk,in.name=desk-mic"
-          , VmAudioDeviceSpec 13 "spice" ""
+          [ VmAudioDeviceSpec 11 "pulse" "virtio-sound" "server=192.0.2.10,out.name=sink,in.name=mic"
+          , VmAudioDeviceSpec 12 "pipewire" "ich9-intel-hda" "out.name=desk,in.name=desk-mic"
+          , VmAudioDeviceSpec 13 "spice" "AC97" ""
           ]
         args = qemuArgs baseSpec {vsAudioDevices = devices, vsHeadless = False, vsSpicePort = Just 5901}
     args `shouldContain` ["-audiodev", "pa,id=audio11,server=192.0.2.10,out.name=sink,in.name=mic"]
     args `shouldContain` ["-audiodev", "pipewire,id=audio12,out.name=desk,in.name=desk-mic"]
     args `shouldContain` ["-audiodev", "spice,id=audio13"]
-    args `shouldContain` ["-device", "hda-micro,bus=hda11.0,audiodev=audio11"]
+    args `shouldContain` ["-device", "virtio-sound-pci,audiodev=audio11"]
     args `shouldContain` ["-device", "hda-micro,bus=hda12.0,audiodev=audio12"]
-    args `shouldContain` ["-device", "hda-micro,bus=hda13.0,audiodev=audio13"]
+    args `shouldContain` ["-device", "AC97,audiodev=audio13"]
 
   it "omits every TPM argument when TPM is disabled" $ do
     let args = qemuArgs baseSpec

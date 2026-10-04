@@ -15,6 +15,7 @@ import capnp
 
 from .. import _schema
 from .. import types as t
+from .._device_models import audio_to_wire, network_to_wire
 from .._entityref import entity_ref
 from .._graphics import to_wire
 from ..exceptions import translate_errors
@@ -75,7 +76,7 @@ class AsyncVmManager:
         reboot_quirk: bool = False,
         cpu_model: str = "host",
         graphics_adapter: str = "virtio-vga",
-        audio_devices: Sequence[tuple[str, str]] | None = None,
+        audio_devices: Sequence[tuple[str, str] | tuple[str, str, str]] | None = None,
     ) -> AsyncVm:
         """Create a bare VM record.
 
@@ -108,9 +109,13 @@ class AsyncVmManager:
         params.graphicsAdapter = to_wire(graphics_adapter)
         if audio_devices:
             devices = params.init("audioDevices", len(audio_devices))
-            for device, (backend, options) in zip(devices, audio_devices, strict=True):
+            for device, config in zip(devices, audio_devices, strict=True):
+                backend, options = config[:2]
                 device.backend = backend
                 device.options = options
+                device.model = audio_to_wire(
+                    config[2] if len(config) == 3 else "virtio-sound"
+                )
         resp = await mgr.create(params=params)
         return AsyncVm(resp.vm)
 
@@ -345,8 +350,10 @@ class AsyncVm:
         host_device: str | None = None,
         mac_address: str | None = None,
         network_ref: int | str | None = None,
+        model: str = "virtio-net-pci",
     ) -> int:
         params = _schema.vm.NetIfAddParams.new_message()
+        params.model = network_to_wire(model)
         if type is not None:
             params.type = type
         if host_device is not None:
@@ -360,6 +367,9 @@ class AsyncVm:
 
     async def remove_net_if(self, net_if_id: int) -> None:
         await self._cap.removeNetIf(netIfId=net_if_id)
+
+    async def edit_net_if(self, net_if_id: int, model: str) -> None:
+        await self._cap.editNetIf(netIfId=net_if_id, model=network_to_wire(model))
 
     async def list_net_ifs(self) -> list[t.NetIfInfo]:
         resp = await self._cap.listNetIfs()
@@ -393,20 +403,31 @@ class AsyncVm:
 
     # ---- audio devices ----------------------------------------------------
 
-    async def add_audio_device(self, backend: str, options: str = "") -> int:
+    async def add_audio_device(
+        self, backend: str, options: str = "", model: str = "virtio-sound"
+    ) -> int:
         params = _schema.vm.AudioDeviceParams.new_message()
         params.backend = backend
         params.options = options
+        params.model = audio_to_wire(model)
         resp = await self._cap.addAudioDevice(params=params)
         return cast(int, resp.audioDeviceId)
 
     async def edit_audio_device(
-        self, audio_device_id: int, backend: str, options: str = ""
+        self,
+        audio_device_id: int,
+        backend: str,
+        options: str = "",
+        model: str | None = None,
     ) -> None:
         params = _schema.vm.AudioDeviceParams.new_message()
         params.backend = backend
         params.options = options
-        await self._cap.editAudioDevice(audioDeviceId=audio_device_id, params=params)
+        if model is not None:
+            params.model = audio_to_wire(model)
+        await self._cap.editAudioDevice(
+            audioDeviceId=audio_device_id, params=params, setModel=model is not None
+        )
 
     async def remove_audio_device(self, audio_device_id: int) -> None:
         await self._cap.removeAudioDevice(audioDeviceId=audio_device_id)

@@ -226,19 +226,22 @@ data instance C.Parsed TemplateNetIfInfo
     = TemplateNetIfInfo 
         {type_ :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType)
         ,hostDevice :: (RP.Parsed Basics.Text)
-        ,network :: (RP.Parsed Basics.Text)}
+        ,network :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateNetIfInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateNetIfInfo))
 instance (C.Parse TemplateNetIfInfo (C.Parsed TemplateNetIfInfo)) where
     parse raw_ = (TemplateNetIfInfo <$> (GH.parseField #type_ raw_)
                                     <*> (GH.parseField #hostDevice raw_)
-                                    <*> (GH.parseField #network raw_))
+                                    <*> (GH.parseField #network raw_)
+                                    <*> (GH.parseField #model raw_))
 instance (C.Marshal TemplateNetIfInfo (C.Parsed TemplateNetIfInfo)) where
     marshalInto raw_ TemplateNetIfInfo{..} = (do
         (GH.encodeField #type_ type_ raw_)
         (GH.encodeField #hostDevice hostDevice raw_)
         (GH.encodeField #network network raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "type_" GH.Slot TemplateNetIfInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType) where
@@ -247,6 +250,8 @@ instance (GH.HasField "hostDevice" GH.Slot TemplateNetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "network" GH.Slot TemplateNetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "model" GH.Slot TemplateNetIfInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 0 16 0)
 data TemplateSshKeyInfo 
 type instance (R.ReprFor TemplateSshKeyInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateSshKeyInfo) where
@@ -351,19 +356,22 @@ data instance C.Parsed TemplateAudioDeviceInfo
     = TemplateAudioDeviceInfo 
         {id :: (RP.Parsed Std_.Int64)
         ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
-        ,options :: (RP.Parsed Basics.Text)}
+        ,options :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateAudioDeviceInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateAudioDeviceInfo))
 instance (C.Parse TemplateAudioDeviceInfo (C.Parsed TemplateAudioDeviceInfo)) where
     parse raw_ = (TemplateAudioDeviceInfo <$> (GH.parseField #id raw_)
                                           <*> (GH.parseField #backend raw_)
-                                          <*> (GH.parseField #options raw_))
+                                          <*> (GH.parseField #options raw_)
+                                          <*> (GH.parseField #model raw_))
 instance (C.Marshal TemplateAudioDeviceInfo (C.Parsed TemplateAudioDeviceInfo)) where
     marshalInto raw_ TemplateAudioDeviceInfo{..} = (do
         (GH.encodeField #id id raw_)
         (GH.encodeField #backend backend raw_)
         (GH.encodeField #options options raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateAudioDeviceInfo Std_.Int64) where
@@ -372,6 +380,8 @@ instance (GH.HasField "backend" GH.Slot TemplateAudioDeviceInfo Capnp.Gen.ById.X
     fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "options" GH.Slot TemplateAudioDeviceInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "model" GH.Slot TemplateAudioDeviceInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 1 16 0)
 data TemplateDetails 
 type instance (R.ReprFor TemplateDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDetails) where

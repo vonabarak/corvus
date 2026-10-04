@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 class AudioDeviceBody(BaseModel):  # type: ignore[explicit-any]
     backend: str = Field(..., pattern="^(pulse|pipewire|spice)$")
     options: str = ""
+    model: str | None = Field(
+        None, pattern="^(virtio-sound|intel-hda|ich9-intel-hda|AC97)$"
+    )
 
 
 @router.get("/{vm_id}/audio-devices")
@@ -52,7 +55,9 @@ async def add_audio_device(
     try:
         vm = await client.vms.get(vm_id)
         return {
-            "audio_device_id": await vm.add_audio_device(body.backend, body.options)
+            "audio_device_id": await vm.add_audio_device(
+                body.backend, body.options, body.model or "virtio-sound"
+            )
         }
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -66,7 +71,9 @@ async def edit_audio_device(
 ) -> dict[str, str]:
     try:
         vm = await client.vms.get(vm_id)
-        await vm.edit_audio_device(audio_device_id, body.backend, body.options)
+        await vm.edit_audio_device(
+            audio_device_id, body.backend, body.options, body.model
+        )
         return {"status": "updated"}
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -122,7 +129,9 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
             "(e.g. `Westmere`) for migration between dissimilar nodes."
         ),
     )
-    audio_devices: list[tuple[str, str]] = Field(default_factory=list)
+    audio_devices: list[tuple[str, str] | tuple[str, str, str]] = Field(
+        default_factory=list
+    )
     graphics_adapter: str = Field(
         "virtio-vga",
         pattern="^(virtio-vga|qxl-vga|vga|virtio-gpu-pci|virtio-vga-gl|virtio-gpu-gl-pci)$",
@@ -372,6 +381,17 @@ class NetIfAddBody(BaseModel):  # type: ignore[explicit-any]
     network_ref: str | None = Field(
         None, description="Managed-network id or name (required for type=managed)."
     )
+    model: str = Field(
+        "virtio-net-pci",
+        pattern="^(virtio-net-pci|virtio-net-pci-non-transitional|virtio-net-pci-transitional|e1000)$",
+    )
+
+
+class NetIfEditBody(BaseModel):  # type: ignore[explicit-any]
+    model: str = Field(
+        ...,
+        pattern="^(virtio-net-pci|virtio-net-pci-non-transitional|virtio-net-pci-transitional|e1000)$",
+    )
 
 
 @router.post("/{vm_id}/net-ifs")
@@ -388,10 +408,25 @@ async def add_net_if(
             host_device=body.host_device,
             mac_address=body.mac_address,
             network_ref=_coerce_ref(body.network_ref) if body.network_ref else None,
+            model=body.model,
         )
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"net_if_id": net_if_id}
+
+
+@router.put("/{vm_id}/net-ifs/{net_if_id}")
+async def edit_net_if(
+    vm_id: int, net_if_id: int, body: NetIfEditBody, client: ClientDep
+) -> dict[str, str]:
+    try:
+        vm = await client.vms.get(vm_id)
+        await vm.edit_net_if(net_if_id, body.model)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "updated"}
 
 
 @router.delete("/{vm_id}/net-ifs/{net_if_id}")

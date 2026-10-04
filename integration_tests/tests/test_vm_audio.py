@@ -47,8 +47,18 @@ class TestVmAudio(SingleNodeCase):
             for pid in reversed(pids):
                 self.node.run(f"kill {pid}", check=False)
 
-    @pytest.mark.parametrize("backend", ["pipewire", "pulse", "spice"])
-    def test_audio_card_is_visible_in_guest(self, backend: str) -> None:
+    @pytest.mark.parametrize(
+        ("backend", "model", "pci_id"),
+        [
+            ("pipewire", "virtio-sound", "1af4:1059"),
+            ("pulse", "virtio-sound", "1af4:1059"),
+            ("spice", "virtio-sound", "1af4:1059"),
+            ("spice", "ich9-intel-hda", "8086:293e"),
+        ],
+    )
+    def test_audio_card_is_visible_in_guest(
+        self, backend: str, model: str, pci_id: str
+    ) -> None:
         qemu_backend = "pa" if backend == "pulse" else backend
         available = self.node.run("qemu-system-x86_64 -audiodev help").stdout.decode()
         assert qemu_backend in available.splitlines(), (
@@ -58,7 +68,7 @@ class TestVmAudio(SingleNodeCase):
 
         with self._audio_server(backend):
             images = self.register_base_images()
-            name = f"corvus-it-audio-{backend}-{secrets.token_hex(3)}"
+            name = f"corvus-it-audio-{backend}-{model}-{secrets.token_hex(3)}"
             self.client.disks.create_overlay(name, images["alpine"], ephemeral=True)
             vm: SyncVm | None = None
             try:
@@ -68,16 +78,16 @@ class TestVmAudio(SingleNodeCase):
                     ram_mb=1024,
                     headless=backend != "spice",
                     guest_agent=True,
-                    audio_devices=[(backend, "")],
+                    audio_devices=[(backend, "", model)],
                 )
                 vm.attach_disk(name, interface="virtio")
                 vm.start(wait=True)
 
                 result = vm.guest_exec("/usr/bin/lspci -n")
                 assert result.exit_code == 0, result.stderr
-                assert any(
-                    "0403: 8086:293e" in line for line in result.stdout.splitlines()
-                ), f"{backend} VM has no ICH9 HD Audio card in lspci:\n{result.stdout}"
+                assert any(pci_id in line for line in result.stdout.splitlines()), (
+                    f"{model} card missing from guest lspci:\n{result.stdout}"
+                )
             finally:
                 if vm is not None:
                     with suppress(Exception):

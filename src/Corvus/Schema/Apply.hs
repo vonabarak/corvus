@@ -295,6 +295,7 @@ instance FromJSON ApplyDrive where
 
 data ApplyNetIf = ApplyNetIf
   { aniType :: NetInterfaceType
+  , aniModel :: NetworkDeviceModel
   , aniHostDevice :: Maybe Text
   , aniNetwork :: Maybe Text
   , aniMac :: Maybe Text
@@ -314,7 +315,8 @@ instance FromJSON ApplyNetIf where
         | otherwise -> pure NetManaged
       (Just t, Nothing) -> pure t
       (Nothing, Nothing) -> pure NetUser
-    pure $ ApplyNetIf ifType hostDevice network mac
+    model <- o .:? "model" .!= NetworkVirtioNetPci
+    pure $ ApplyNetIf ifType model hostDevice network mac
 
 data ApplySharedDir = ApplySharedDir
   { asdPath :: Text

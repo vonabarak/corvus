@@ -116,6 +116,7 @@ class NetIfInfo:
     type: str
     host_device: str
     mac_address: str
+    model: str = "virtio-net-pci"
     network: NamedRef | None = None
     guest_ip_addresses: str | None = None
     ip_address: str | None = None
@@ -136,6 +137,7 @@ class AudioDeviceInfo:
     id: int
     backend: str
     options: str
+    model: str = "virtio-sound"
 
 
 @dataclass(frozen=True)
@@ -474,6 +476,7 @@ class TemplateDriveInfo:
 class TemplateNetIfInfo:
     type: str
     host_device: str | None = None
+    model: str = "virtio-net-pci"
 
 
 @dataclass(frozen=True)
@@ -496,6 +499,7 @@ class TemplateAudioDeviceInfo:
     id: int
     backend: str
     options: str
+    model: str = "virtio-sound"
 
 
 @dataclass(frozen=True)

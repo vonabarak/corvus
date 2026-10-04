@@ -115,6 +115,11 @@ encodeVmNetIfSpec :: VmNetIfSpec -> CGNA.Parsed CGNA.VmNetIfSpec
 encodeVmNetIfSpec n =
   CGNA.VmNetIfSpec
     { CGNA.ifType = vnsIfType n
+    , CGNA.model = case vnsModel n of
+        "virtio-net-pci-non-transitional" -> CGE.NetworkDeviceModel'virtioNetPciNonTransitional
+        "virtio-net-pci-transitional" -> CGE.NetworkDeviceModel'virtioNetPciTransitional
+        "e1000" -> CGE.NetworkDeviceModel'e1000
+        _ -> CGE.NetworkDeviceModel'virtioNetPci
     , CGNA.hostDevice = vnsHostDevice n
     , CGNA.macAddress = vnsMacAddress n
     }
@@ -136,6 +141,11 @@ encodeVmAudioDeviceSpec s =
         "pulse" -> CGE.AudioBackend'pulse
         "pipewire" -> CGE.AudioBackend'pipewire
         _ -> CGE.AudioBackend'spice
+    , CGNA.model = case vasModel s of
+        "intel-hda" -> CGE.AudioDeviceModel'intelHda
+        "ich9-intel-hda" -> CGE.AudioDeviceModel'ich9IntelHda
+        "AC97" -> CGE.AudioDeviceModel'ac97
+        _ -> CGE.AudioDeviceModel'virtioSound
     , CGNA.options = vasOptions s
     }
 

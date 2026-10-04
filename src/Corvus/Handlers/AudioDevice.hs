@@ -15,28 +15,29 @@ import Corvus.Protocol
 import Corvus.Types (ServerState (..))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), SelectOpt (Asc), delete, get, insert, selectList, update, (=.), (==.))
 import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 
-data AudioDeviceAdd = AudioDeviceAdd Int64 AudioBackend Text
-data AudioDeviceEdit = AudioDeviceEdit Int64 Int64 AudioBackend Text
+data AudioDeviceAdd = AudioDeviceAdd Int64 AudioBackend AudioDeviceModel Text
+data AudioDeviceEdit = AudioDeviceEdit Int64 Int64 AudioBackend (Maybe AudioDeviceModel) Text
 data AudioDeviceRemove = AudioDeviceRemove Int64 Int64
 
 instance Action AudioDeviceAdd where
   actionSubsystem _ = SubVm
   actionCommand _ = "add-audio-device"
-  actionEntityId (AudioDeviceAdd vmId _ _) = Just (fromIntegral vmId)
-  actionExecute ctx (AudioDeviceAdd vmId backend options) =
-    changeAudioDevice (acState ctx) vmId backend options Nothing
+  actionEntityId (AudioDeviceAdd vmId _ _ _) = Just (fromIntegral vmId)
+  actionExecute ctx (AudioDeviceAdd vmId backend model options) =
+    changeAudioDevice (acState ctx) vmId backend (Just model) options Nothing
 
 instance Action AudioDeviceEdit where
   actionSubsystem _ = SubVm
   actionCommand _ = "edit-audio-device"
-  actionEntityId (AudioDeviceEdit vmId _ _ _) = Just (fromIntegral vmId)
-  actionExecute ctx (AudioDeviceEdit vmId audioId backend options) =
-    changeAudioDevice (acState ctx) vmId backend options (Just audioId)
+  actionEntityId (AudioDeviceEdit vmId _ _ _ _) = Just (fromIntegral vmId)
+  actionExecute ctx (AudioDeviceEdit vmId audioId backend model options) =
+    changeAudioDevice (acState ctx) vmId backend model options (Just audioId)
 
 instance Action AudioDeviceRemove where
   actionSubsystem _ = SubVm
@@ -58,8 +59,8 @@ instance Action AudioDeviceRemove where
             pure RespAudioDeviceOk
           _ -> pure RespAudioDeviceNotFound
 
-changeAudioDevice :: ServerState -> Int64 -> AudioBackend -> Text -> Maybe Int64 -> IO Response
-changeAudioDevice state vmId backend options mAudioId =
+changeAudioDevice :: ServerState -> Int64 -> AudioBackend -> Maybe AudioDeviceModel -> Text -> Maybe Int64 -> IO Response
+changeAudioDevice state vmId backend mModel options mAudioId =
   case validateAudioOptions options of
     Left err -> pure (RespError err)
     Right () -> do
@@ -72,14 +73,14 @@ changeAudioDevice state vmId backend options mAudioId =
         Just vm | backend == AudioSpice && vmHeadless vm -> pure (RespError "SPICE audio requires a graphical VM")
         Just _ -> case mAudioId of
           Nothing -> do
-            audioId <- runSqlPool (insert (AudioDevice vmKey backend options)) pool
+            audioId <- runSqlPool (insert (AudioDevice vmKey backend (fromMaybe AudioVirtioSound mModel) options)) pool
             pure (RespAudioDeviceAdded (fromSqlKey audioId))
           Just audioId -> do
             let audioKey = toSqlKey audioId :: AudioDeviceId
             mAudio <- runSqlPool (get audioKey) pool
             case mAudio of
               Just audio | audioDeviceVmId audio == vmKey -> do
-                runSqlPool (update audioKey [AudioDeviceBackend =. backend, AudioDeviceOptions =. options]) pool
+                runSqlPool (update audioKey ([AudioDeviceBackend =. backend, AudioDeviceOptions =. options] ++ maybe [] (\model -> [AudioDeviceModel =. model]) mModel)) pool
                 pure RespAudioDeviceOk
               _ -> pure RespAudioDeviceNotFound
 
@@ -94,7 +95,7 @@ handleAudioDeviceList state vmId = do
       devices <- runSqlPool (selectList [AudioDeviceVmId ==. vmKey] [Asc AudioDeviceId]) pool
       pure $
         RespAudioDeviceList
-          [ AudioDeviceInfo (fromSqlKey audioId) (audioDeviceBackend audioDevice) (audioDeviceOptions audioDevice)
+          [ AudioDeviceInfo (fromSqlKey audioId) (audioDeviceBackend audioDevice) (audioDeviceModel audioDevice) (audioDeviceOptions audioDevice)
           | Entity audioId audioDevice <- devices
           ]
 

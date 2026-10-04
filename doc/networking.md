@@ -133,6 +133,7 @@ Each VM can have multiple network interfaces, each with its own type and configu
 ```bash
 crv net-if list <vm>                    # List VM's network interfaces
 crv net-if add <vm> [options]           # Add a network interface
+crv net-if edit <vm> <netif_id> --model <model>  # Change its PCI model while stopped
 crv net-if remove <vm> <netif_id>       # Remove a network interface
 ```
 
@@ -171,7 +172,11 @@ crv net-if add my-vm --type vde --host-device /var/run/vde.ctl
 crv net-if add my-vm --type user --mac 52:54:00:12:34:56
 ```
 
-Each interface gets a VirtIO NIC with an auto-generated MAC address unless `--mac` is specified.
+Each interface gets a `virtio-net-pci` NIC by default and an auto-generated
+MAC address unless `--mac` is specified. Use `--model` on `add` or `edit` to
+select `virtio-net-pci`, `virtio-net-pci-non-transitional`,
+`virtio-net-pci-transitional`, or `e1000`. Editing the model requires a stopped
+VM and preserves its MAC, network binding, and IP allocation.
 
 ## Disabling netd per node
 

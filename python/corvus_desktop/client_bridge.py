@@ -536,10 +536,16 @@ class CorvusBridge(QObject):
         host_device: str | None = None,
         mac_address: str | None = None,
         network_ref: int | str | None = None,
+        model: str = "virtio-net-pci",
     ) -> None:
         self._enqueue(
-            self._do_vm_add_net_if(vm_id, type, host_device, mac_address, network_ref)
+            self._do_vm_add_net_if(
+                vm_id, type, host_device, mac_address, network_ref, model
+            )
         )
+
+    def vm_edit_net_if(self, vm_id: int, net_if_id: int, model: str) -> None:
+        self._enqueue(self._do_vm_edit_net_if(vm_id, net_if_id, model))
 
     def vm_remove_net_if(self, vm_id: int, net_if_id: int) -> None:
         self._enqueue(self._do_vm_remove_net_if(vm_id, net_if_id))
@@ -567,18 +573,22 @@ class CorvusBridge(QObject):
     def request_vm_shared_dirs(self, vm_id: int) -> None:
         self._enqueue(self._do_vm_shared_dirs(vm_id))
 
-    def vm_add_audio_device(self, vm_id: int, backend: str, options: str) -> None:
-        self._enqueue(self._do_vm_audio_device(vm_id, "add", None, backend, options))
-
-    def vm_edit_audio_device(
-        self, vm_id: int, device_id: int, backend: str, options: str
+    def vm_add_audio_device(
+        self, vm_id: int, backend: str, options: str, model: str
     ) -> None:
         self._enqueue(
-            self._do_vm_audio_device(vm_id, "edit", device_id, backend, options)
+            self._do_vm_audio_device(vm_id, "add", None, backend, options, model)
+        )
+
+    def vm_edit_audio_device(
+        self, vm_id: int, device_id: int, backend: str, options: str, model: str
+    ) -> None:
+        self._enqueue(
+            self._do_vm_audio_device(vm_id, "edit", device_id, backend, options, model)
         )
 
     def vm_remove_audio_device(self, vm_id: int, device_id: int) -> None:
-        self._enqueue(self._do_vm_audio_device(vm_id, "remove", device_id, "", ""))
+        self._enqueue(self._do_vm_audio_device(vm_id, "remove", device_id, "", "", ""))
 
     def vm_guest_exec(self, vm_id: int, command: str) -> None:
         self._enqueue(self._do_vm_guest_exec(vm_id, command))
@@ -1533,6 +1543,7 @@ class CorvusBridge(QObject):
         host_device: str | None,
         mac_address: str | None,
         network_ref: int | str | None,
+        model: str,
     ) -> None:
         client = self._client
         if client is None:
@@ -1545,11 +1556,25 @@ class CorvusBridge(QObject):
                 host_device=host_device,
                 mac_address=mac_address,
                 network_ref=network_ref,
+                model=model,
             )
         except CorvusError as e:
             self.operation_failed.emit("vm_add_net_if", _friendly_error(e))
             return
         self.vm_edit_completed.emit(vm_id, "add_net_if")
+
+    async def _do_vm_edit_net_if(self, vm_id: int, net_if_id: int, model: str) -> None:
+        client = self._client
+        if client is None:
+            self.operation_failed.emit("vm_edit_net_if", "not connected")
+            return
+        try:
+            vm = await client.vms.get(vm_id)
+            await vm.edit_net_if(net_if_id, model)
+        except CorvusError as e:
+            self.operation_failed.emit("vm_edit_net_if", _friendly_error(e))
+            return
+        self.vm_edit_completed.emit(vm_id, "edit_net_if")
 
     async def _do_vm_remove_net_if(self, vm_id: int, net_if_id: int) -> None:
         client = self._client
@@ -1637,7 +1662,13 @@ class CorvusBridge(QObject):
         self.vm_shared_dirs_ready.emit(vm_id, dirs)
 
     async def _do_vm_audio_device(
-        self, vm_id: int, action: str, device_id: int | None, backend: str, options: str
+        self,
+        vm_id: int,
+        action: str,
+        device_id: int | None,
+        backend: str,
+        options: str,
+        model: str,
     ) -> None:
         client = self._client
         if client is None:
@@ -1646,9 +1677,9 @@ class CorvusBridge(QObject):
         try:
             vm = await client.vms.get(vm_id)
             if action == "add":
-                await vm.add_audio_device(backend, options)
+                await vm.add_audio_device(backend, options, model=model)
             elif action == "edit" and device_id is not None:
-                await vm.edit_audio_device(device_id, backend, options)
+                await vm.edit_audio_device(device_id, backend, options, model=model)
             elif action == "remove" and device_id is not None:
                 await vm.remove_audio_device(device_id)
         except CorvusError as exc:

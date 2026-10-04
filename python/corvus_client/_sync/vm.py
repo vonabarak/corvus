@@ -113,7 +113,7 @@ class SyncVmManager:
         reboot_quirk: bool = False,
         cpu_model: str = "host",
         graphics_adapter: str = "virtio-vga",
-        audio_devices: Sequence[tuple[str, str]] | None = None,
+        audio_devices: Sequence[tuple[str, str] | tuple[str, str, str]] | None = None,
     ) -> SyncVm:
         return SyncVm(
             self._rl.run(
@@ -322,6 +322,7 @@ class SyncVm(LoopBoundResource):
         host_device: str | None = None,
         mac_address: str | None = None,
         network_ref: int | str | None = None,
+        model: str = "virtio-net-pci",
     ) -> int:
         return self._rl.run(
             self._a.add_net_if(
@@ -329,11 +330,15 @@ class SyncVm(LoopBoundResource):
                 host_device=host_device,
                 mac_address=mac_address,
                 network_ref=network_ref,
+                model=model,
             )
         )
 
     def remove_net_if(self, net_if_id: int) -> None:
         return self._rl.run(self._a.remove_net_if(net_if_id))
+
+    def edit_net_if(self, net_if_id: int, model: str) -> None:
+        self._rl.run(self._a.edit_net_if(net_if_id, model))
 
     def list_net_ifs(self) -> list[t.NetIfInfo]:
         return self._rl.run(self._a.list_net_ifs())
@@ -363,13 +368,21 @@ class SyncVm(LoopBoundResource):
         return self._rl.run(self._a.list_shared_dirs())
 
     # audio devices
-    def add_audio_device(self, backend: str, options: str = "") -> int:
-        return self._rl.run(self._a.add_audio_device(backend, options))
+    def add_audio_device(
+        self, backend: str, options: str = "", model: str = "virtio-sound"
+    ) -> int:
+        return self._rl.run(self._a.add_audio_device(backend, options, model))
 
     def edit_audio_device(
-        self, audio_device_id: int, backend: str, options: str = ""
+        self,
+        audio_device_id: int,
+        backend: str,
+        options: str = "",
+        model: str | None = None,
     ) -> None:
-        self._rl.run(self._a.edit_audio_device(audio_device_id, backend, options))
+        self._rl.run(
+            self._a.edit_audio_device(audio_device_id, backend, options, model)
+        )
 
     def remove_audio_device(self, audio_device_id: int) -> None:
         self._rl.run(self._a.remove_audio_device(audio_device_id))

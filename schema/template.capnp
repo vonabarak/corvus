@@ -51,6 +51,7 @@ struct TemplateNetIfInfo {
   # to a NetworkId at template-instantiation time. Empty for
   # non-managed types.
   network    @2 :Text;
+  model      @3 :Enums.NetworkDeviceModel;
 }
 
 struct TemplateSshKeyInfo {
@@ -70,6 +71,7 @@ struct TemplateAudioDeviceInfo {
   id      @0 :Int64;
   backend @1 :Enums.AudioBackend;
   options @2 :Text;
+  model   @3 :Enums.AudioDeviceModel;
 }
 
 struct TemplateDetails {

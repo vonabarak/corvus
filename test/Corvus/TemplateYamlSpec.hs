@@ -7,7 +7,7 @@
 module Corvus.TemplateYamlSpec (spec) where
 
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
-import Corvus.Model (AudioBackend (..), CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), GraphicsAdapter (..), NetInterfaceType (..), SharedDirCache (..), TemplateCloneStrategy (..))
+import Corvus.Model (AudioBackend (..), AudioDeviceModel (..), CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), GraphicsAdapter (..), NetInterfaceType (..), NetworkDeviceModel (..), SharedDirCache (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
   ( NamedRef (..)
   , TemplateAudioDeviceInfo (..)
@@ -64,6 +64,7 @@ sampleDetails =
     , tvdNetIfs =
         [ TemplateNetIfInfo
             { tvniType = NetUser
+            , tvniModel = NetworkE1000
             , tvniHostDevice = Nothing
             , tvniNetwork = Nothing
             }
@@ -87,6 +88,7 @@ sampleDetails =
         [ TemplateAudioDeviceInfo
             { tvadiId = 12
             , tvadiBackend = AudioPipewire
+            , tvadiModel = AudioIch9IntelHda
             , tvadiOptions = "out.name=speakers,in.name=mic"
             }
         ]

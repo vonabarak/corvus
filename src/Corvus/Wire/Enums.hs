@@ -37,6 +37,10 @@ module Corvus.Wire.Enums
   , fromCapnpSharedDirCache
   , toCapnpAudioBackend
   , fromCapnpAudioBackend
+  , toCapnpAudioDeviceModel
+  , fromCapnpAudioDeviceModel
+  , toCapnpNetworkDeviceModel
+  , fromCapnpNetworkDeviceModel
   , toCapnpGraphicsAdapter
   , fromCapnpGraphicsAdapter
 
@@ -61,6 +65,36 @@ where
 import qualified Capnp.Gen.Enums as CGE
 import qualified Corvus.Model as M
 import Corvus.Wire.Errors (WireError (..))
+
+toCapnpAudioDeviceModel :: M.AudioDeviceModel -> CGE.AudioDeviceModel
+toCapnpAudioDeviceModel = \case
+  M.AudioVirtioSound -> CGE.AudioDeviceModel'virtioSound
+  M.AudioIntelHda -> CGE.AudioDeviceModel'intelHda
+  M.AudioIch9IntelHda -> CGE.AudioDeviceModel'ich9IntelHda
+  M.AudioAc97 -> CGE.AudioDeviceModel'ac97
+
+fromCapnpAudioDeviceModel :: CGE.AudioDeviceModel -> Either WireError M.AudioDeviceModel
+fromCapnpAudioDeviceModel = \case
+  CGE.AudioDeviceModel'virtioSound -> Right M.AudioVirtioSound
+  CGE.AudioDeviceModel'intelHda -> Right M.AudioIntelHda
+  CGE.AudioDeviceModel'ich9IntelHda -> Right M.AudioIch9IntelHda
+  CGE.AudioDeviceModel'ac97 -> Right M.AudioAc97
+  CGE.AudioDeviceModel'unknown' n -> Left (WireUnknownEnum "AudioDeviceModel" n)
+
+toCapnpNetworkDeviceModel :: M.NetworkDeviceModel -> CGE.NetworkDeviceModel
+toCapnpNetworkDeviceModel = \case
+  M.NetworkVirtioNetPci -> CGE.NetworkDeviceModel'virtioNetPci
+  M.NetworkVirtioNetPciNonTransitional -> CGE.NetworkDeviceModel'virtioNetPciNonTransitional
+  M.NetworkVirtioNetPciTransitional -> CGE.NetworkDeviceModel'virtioNetPciTransitional
+  M.NetworkE1000 -> CGE.NetworkDeviceModel'e1000
+
+fromCapnpNetworkDeviceModel :: CGE.NetworkDeviceModel -> Either WireError M.NetworkDeviceModel
+fromCapnpNetworkDeviceModel = \case
+  CGE.NetworkDeviceModel'virtioNetPci -> Right M.NetworkVirtioNetPci
+  CGE.NetworkDeviceModel'virtioNetPciNonTransitional -> Right M.NetworkVirtioNetPciNonTransitional
+  CGE.NetworkDeviceModel'virtioNetPciTransitional -> Right M.NetworkVirtioNetPciTransitional
+  CGE.NetworkDeviceModel'e1000 -> Right M.NetworkE1000
+  CGE.NetworkDeviceModel'unknown' n -> Left (WireUnknownEnum "NetworkDeviceModel" n)
 
 toCapnpGraphicsAdapter :: M.GraphicsAdapter -> CGE.GraphicsAdapter
 toCapnpGraphicsAdapter = \case

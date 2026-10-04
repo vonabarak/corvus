@@ -19,7 +19,7 @@ module Corvus.Protocol.Vm
   )
 where
 
-import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, VmStatus)
+import Corvus.Model (AudioBackend, AudioDeviceModel, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, NetworkDeviceModel, VmStatus)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -77,6 +77,7 @@ data DriveInfo = DriveInfo
 data NetIfInfo = NetIfInfo
   { niId :: !Int64
   , niType :: !NetInterfaceType
+  , niModel :: !NetworkDeviceModel
   , niHostDevice :: !Text
   , niMacAddress :: !Text
   , niNetwork :: !(Maybe NamedRef)
@@ -89,6 +90,7 @@ data NetIfInfo = NetIfInfo
 data AudioDeviceInfo = AudioDeviceInfo
   { adiId :: !Int64
   , adiBackend :: !AudioBackend
+  , adiModel :: !AudioDeviceModel
   , adiOptions :: !Text
   }
   deriving (Eq, Show, Generic)

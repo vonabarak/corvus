@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import capnp
 
 from .. import types as t
+from .._device_models import audio_from_wire, network_from_wire
 from .._graphics import from_wire
 
 
@@ -131,6 +132,7 @@ def net_if_info(r: capnp.lib.capnp._DynamicStructReader) -> t.NetIfInfo:
         type=str(r.type),
         host_device=r.hostDevice,
         mac_address=r.macAddress,
+        model=network_from_wire(r.model),
         network=named_ref_or_none(r.network),
         guest_ip_addresses=_nz_text(r.guestIpAddresses),
         ip_address=_nz_text(r.ipAddress),
@@ -149,7 +151,12 @@ def shared_dir_info(r: capnp.lib.capnp._DynamicStructReader) -> t.SharedDirInfo:
 
 
 def audio_device_info(r: capnp.lib.capnp._DynamicStructReader) -> t.AudioDeviceInfo:
-    return t.AudioDeviceInfo(id=r.id, backend=str(r.backend), options=r.options)
+    return t.AudioDeviceInfo(
+        id=r.id,
+        backend=str(r.backend),
+        options=r.options,
+        model=audio_from_wire(r.model),
+    )
 
 
 def vm_details(r: capnp.lib.capnp._DynamicStructReader) -> t.VmDetails:
@@ -420,6 +427,7 @@ def template_net_if_info(
     return t.TemplateNetIfInfo(
         type=str(r.type),
         host_device=_nz_text(r.hostDevice),
+        model=network_from_wire(r.model),
     )
 
 
@@ -444,7 +452,12 @@ def template_shared_dir_info(
 def template_audio_device_info(
     r: capnp.lib.capnp._DynamicStructReader,
 ) -> t.TemplateAudioDeviceInfo:
-    return t.TemplateAudioDeviceInfo(id=r.id, backend=str(r.backend), options=r.options)
+    return t.TemplateAudioDeviceInfo(
+        id=r.id,
+        backend=str(r.backend),
+        options=r.options,
+        model=audio_from_wire(r.model),
+    )
 
 
 def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetails:

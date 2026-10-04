@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 
 
 _TYPES = ("user", "tap", "bridge", "macvtap", "managed")
+_MODELS = (
+    "virtio-net-pci",
+    "virtio-net-pci-non-transitional",
+    "virtio-net-pci-transitional",
+    "e1000",
+)
 
 
 class AddNetIfDialog(FormDialog):
@@ -26,6 +32,8 @@ class AddNetIfDialog(FormDialog):
         for t in _TYPES:
             self._type.addItem(t)
         self._type.setCurrentText("user")
+        self._model = QComboBox()
+        self._model.addItems(_MODELS)
         self._host_device = QLineEdit()
         self._host_device.setPlaceholderText("e.g. enp4s0 (bridge / tap / macvtap)")
         self._mac = QLineEdit()
@@ -39,6 +47,7 @@ class AddNetIfDialog(FormDialog):
 
     def build_form(self, form: QFormLayout) -> None:
         form.addRow("Type:", self._type)
+        form.addRow("Model:", self._model)
         form.addRow("Host device:", self._host_device)
         form.addRow("MAC:", self._mac)
         form.addRow("Network:", self._network)
@@ -46,6 +55,7 @@ class AddNetIfDialog(FormDialog):
     def result_payload(self) -> AddNetIfPayload | None:
         return {
             "type": self._type.currentText(),
+            "model": self._model.currentText(),
             "host_device": self._host_device.text().strip() or None,
             "mac_address": self._mac.text().strip() or None,
             "network_ref": self._network.selected_id(),

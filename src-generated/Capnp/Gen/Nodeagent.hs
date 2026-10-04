@@ -4403,19 +4403,22 @@ data instance C.Parsed VmAudioDeviceSpec
     = VmAudioDeviceSpec 
         {audioDeviceId :: (RP.Parsed Std_.Int64)
         ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
-        ,options :: (RP.Parsed Basics.Text)}
+        ,options :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmAudioDeviceSpec))
 deriving instance (Std_.Eq (C.Parsed VmAudioDeviceSpec))
 instance (C.Parse VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec)) where
     parse raw_ = (VmAudioDeviceSpec <$> (GH.parseField #audioDeviceId raw_)
                                     <*> (GH.parseField #backend raw_)
-                                    <*> (GH.parseField #options raw_))
+                                    <*> (GH.parseField #options raw_)
+                                    <*> (GH.parseField #model raw_))
 instance (C.Marshal VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec)) where
     marshalInto raw_ VmAudioDeviceSpec{..} = (do
         (GH.encodeField #audioDeviceId audioDeviceId raw_)
         (GH.encodeField #backend backend raw_)
         (GH.encodeField #options options raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "audioDeviceId" GH.Slot VmAudioDeviceSpec Std_.Int64) where
@@ -4424,6 +4427,8 @@ instance (GH.HasField "backend" GH.Slot VmAudioDeviceSpec Capnp.Gen.ById.Xbf9b09
     fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "options" GH.Slot VmAudioDeviceSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "model" GH.Slot VmAudioDeviceSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel) where
+    fieldByLabel  = (GH.dataField 16 1 16 0)
 data VmDriveSpec 
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where
@@ -4494,7 +4499,7 @@ type instance (R.ReprFor VmNetIfSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmNetIfSpec) where
     typeId  = 11985747815183304231
 instance (C.TypedStruct VmNetIfSpec) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 3
 instance (C.Allocate VmNetIfSpec) where
     type AllocHint VmNetIfSpec = ()
@@ -4508,19 +4513,22 @@ data instance C.Parsed VmNetIfSpec
     = VmNetIfSpec 
         {ifType :: (RP.Parsed Basics.Text)
         ,hostDevice :: (RP.Parsed Basics.Text)
-        ,macAddress :: (RP.Parsed Basics.Text)}
+        ,macAddress :: (RP.Parsed Basics.Text)
+        ,model :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmNetIfSpec))
 deriving instance (Std_.Eq (C.Parsed VmNetIfSpec))
 instance (C.Parse VmNetIfSpec (C.Parsed VmNetIfSpec)) where
     parse raw_ = (VmNetIfSpec <$> (GH.parseField #ifType raw_)
                               <*> (GH.parseField #hostDevice raw_)
-                              <*> (GH.parseField #macAddress raw_))
+                              <*> (GH.parseField #macAddress raw_)
+                              <*> (GH.parseField #model raw_))
 instance (C.Marshal VmNetIfSpec (C.Parsed VmNetIfSpec)) where
     marshalInto raw_ VmNetIfSpec{..} = (do
         (GH.encodeField #ifType ifType raw_)
         (GH.encodeField #hostDevice hostDevice raw_)
         (GH.encodeField #macAddress macAddress raw_)
+        (GH.encodeField #model model raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "ifType" GH.Slot VmNetIfSpec Basics.Text) where
@@ -4529,6 +4537,8 @@ instance (GH.HasField "hostDevice" GH.Slot VmNetIfSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "macAddress" GH.Slot VmNetIfSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "model" GH.Slot VmNetIfSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel) where
+    fieldByLabel  = (GH.dataField 0 0 16 0)
 data VmSharedDirSpec 
 type instance (R.ReprFor VmSharedDirSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSharedDirSpec) where

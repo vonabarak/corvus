@@ -146,6 +146,7 @@ struct NetIfInfo {
   network           @4 :Common.NamedRef;
   guestIpAddresses  @5 :Text;   # empty == none; observed by QGA
   ipAddress         @6 :Text;   # empty == none; daemon IPAM allocation
+  model             @7 :Enums.NetworkDeviceModel;
 }
 
 struct SharedDirInfo {
@@ -162,12 +163,14 @@ struct AudioDeviceParams {
   # QEMU -audiodev properties, for example server=host,out.name=sink.
   # The daemon validates the comma-separated key=value syntax.
   options @1 :Text;
+  model   @2 :Enums.AudioDeviceModel;
 }
 
 struct AudioDeviceInfo {
   id      @0 :Int64;
   backend @1 :Enums.AudioBackend;
   options @2 :Text;
+  model   @3 :Enums.AudioDeviceModel;
 }
 
 # A VM-scoped full-machine snapshot. Backed on disk by N qcow2
@@ -268,6 +271,7 @@ struct NetIfAddParams {
   hostDevice   @1 :Text;     # empty == auto
   macAddress   @2 :Text;     # empty == generate
   networkRef   @3 :Common.EntityRef;  # id=0 / name="" == no managed network
+  model        @4 :Enums.NetworkDeviceModel;
 }
 
 struct SharedDirAddParams {
@@ -297,7 +301,7 @@ interface VmManager {
 
 interface Vm {
   addAudioDevice    @35 (params :AudioDeviceParams) -> (audioDeviceId :Int64);
-  editAudioDevice   @36 (audioDeviceId :Int64, params :AudioDeviceParams) -> ();
+  editAudioDevice   @36 (audioDeviceId :Int64, params :AudioDeviceParams, setModel :Bool = false) -> ();
   removeAudioDevice @37 (audioDeviceId :Int64) -> ();
   listAudioDevices  @38 () -> (audioDevices :List(AudioDeviceInfo));
   show           @0  () -> (details :VmDetails);
@@ -342,6 +346,7 @@ interface Vm {
   addNetIf    @18 (params :NetIfAddParams) -> (netIfId :Int64);
   removeNetIf @19 (netIfId :Int64) -> ();
   listNetIfs  @20 () -> (netIfs :List(NetIfInfo));
+  editNetIf   @39 (netIfId :Int64, model :Enums.NetworkDeviceModel) -> ();
 
   # Shared directories (virtiofs)
   addSharedDir    @21 (params :SharedDirAddParams) -> (sharedDirId :Int64);

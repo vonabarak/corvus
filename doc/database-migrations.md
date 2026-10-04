@@ -77,13 +77,13 @@ its registry entry/import. Do not renumber retained migrations or lower
 `currentSchemaVersion`. No runner refactoring or separate minimum-version
 constant is required.
 
-For example, at current version 6 with only `V006` retained:
+For example, at current version 7 with only `V007` retained:
 
 | Starting database | Result |
 |---|---|
-| Empty | Create version 6 directly |
+| Empty | Create version 7 directly |
 | Version 6 | Skip migrations |
-| Version 5 | Apply `V006` |
+| Version 6 | Apply `V007` |
 | Version 4 | Refuse: migration 4 → 5 is missing |
 | Version 7 | Refuse: database is newer than the binary |
 

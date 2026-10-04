@@ -27,21 +27,25 @@ import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (fromCapnpNamedRefOpt, toCapnpNamedRefOpt)
 import Corvus.Wire.Enums
   ( fromCapnpAudioBackend
+  , fromCapnpAudioDeviceModel
   , fromCapnpCacheType
   , fromCapnpDriveFormat
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpGraphicsAdapter
   , fromCapnpNetInterfaceType
+  , fromCapnpNetworkDeviceModel
   , fromCapnpSharedDirCache
   , fromCapnpTemplateCloneStrategy
   , toCapnpAudioBackend
+  , toCapnpAudioDeviceModel
   , toCapnpCacheType
   , toCapnpDriveFormat
   , toCapnpDriveInterface
   , toCapnpDriveMedia
   , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
+  , toCapnpNetworkDeviceModel
   , toCapnpSharedDirCache
   , toCapnpTemplateCloneStrategy
   )
@@ -54,13 +58,15 @@ toCapnpTemplateAudioDeviceInfo P.TemplateAudioDeviceInfo {..} =
   CGT.TemplateAudioDeviceInfo
     { CGT.id = tvadiId
     , CGT.backend = toCapnpAudioBackend tvadiBackend
+    , CGT.model = toCapnpAudioDeviceModel tvadiModel
     , CGT.options = tvadiOptions
     }
 
 fromCapnpTemplateAudioDeviceInfo :: C.Parsed CGT.TemplateAudioDeviceInfo -> Either WireError P.TemplateAudioDeviceInfo
 fromCapnpTemplateAudioDeviceInfo CGT.TemplateAudioDeviceInfo {..} = do
   backend' <- fromCapnpAudioBackend backend
-  pure P.TemplateAudioDeviceInfo {P.tvadiId = id, P.tvadiBackend = backend', P.tvadiOptions = options}
+  model' <- fromCapnpAudioDeviceModel model
+  pure P.TemplateAudioDeviceInfo {P.tvadiId = id, P.tvadiBackend = backend', P.tvadiModel = model', P.tvadiOptions = options}
 
 emptyCloudInitInfo :: PCI.CloudInitInfo
 emptyCloudInitInfo =
@@ -167,6 +173,7 @@ toCapnpTemplateNetIfInfo :: P.TemplateNetIfInfo -> C.Parsed CGT.TemplateNetIfInf
 toCapnpTemplateNetIfInfo P.TemplateNetIfInfo {..} =
   CGT.TemplateNetIfInfo
     { CGT.type_ = toCapnpNetInterfaceType tvniType
+    , CGT.model = toCapnpNetworkDeviceModel tvniModel
     , CGT.hostDevice = fromMaybe mempty tvniHostDevice
     , CGT.network = fromMaybe mempty tvniNetwork
     }
@@ -176,9 +183,11 @@ fromCapnpTemplateNetIfInfo
   -> Either WireError P.TemplateNetIfInfo
 fromCapnpTemplateNetIfInfo CGT.TemplateNetIfInfo {..} = do
   t <- fromCapnpNetInterfaceType type_
+  model' <- fromCapnpNetworkDeviceModel model
   pure
     P.TemplateNetIfInfo
       { P.tvniType = t
+      , P.tvniModel = model'
       , P.tvniHostDevice = if hostDevice == mempty then Nothing else Just hostDevice
       , P.tvniNetwork = if network == mempty then Nothing else Just network
       }

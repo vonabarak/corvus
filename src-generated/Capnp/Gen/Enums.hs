@@ -434,13 +434,101 @@ instance (C.Parse AudioBackend AudioBackend) where
 instance (C.AllocateList AudioBackend) where
     type ListAllocHint AudioBackend = Std_.Int
 instance (C.EstimateListAlloc AudioBackend AudioBackend)
-data GraphicsAdapter
-    = GraphicsAdapter'virtioVga
-    | GraphicsAdapter'qxlVga
-    | GraphicsAdapter'vga
-    | GraphicsAdapter'virtioGpuPci
-    | GraphicsAdapter'virtioVgaGl
-    | GraphicsAdapter'virtioGpuGlPci
+data AudioDeviceModel 
+    = AudioDeviceModel'virtioSound 
+    | AudioDeviceModel'intelHda 
+    | AudioDeviceModel'ich9IntelHda 
+    | AudioDeviceModel'ac97 
+    | AudioDeviceModel'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor AudioDeviceModel) = (R.Data R.Sz16)
+instance (C.HasTypeId AudioDeviceModel) where
+    typeId  = 13698306348489007884
+instance (Std_.Enum AudioDeviceModel) where
+    toEnum n_ = case n_ of
+        0 ->
+            AudioDeviceModel'virtioSound
+        1 ->
+            AudioDeviceModel'intelHda
+        2 ->
+            AudioDeviceModel'ich9IntelHda
+        3 ->
+            AudioDeviceModel'ac97
+        tag_ ->
+            (AudioDeviceModel'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (AudioDeviceModel'virtioSound) ->
+            0
+        (AudioDeviceModel'intelHda) ->
+            1
+        (AudioDeviceModel'ich9IntelHda) ->
+            2
+        (AudioDeviceModel'ac97) ->
+            3
+        (AudioDeviceModel'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord AudioDeviceModel) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse AudioDeviceModel AudioDeviceModel) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList AudioDeviceModel) where
+    type ListAllocHint AudioDeviceModel = Std_.Int
+instance (C.EstimateListAlloc AudioDeviceModel AudioDeviceModel)
+data NetworkDeviceModel 
+    = NetworkDeviceModel'virtioNetPci 
+    | NetworkDeviceModel'virtioNetPciNonTransitional 
+    | NetworkDeviceModel'virtioNetPciTransitional 
+    | NetworkDeviceModel'e1000 
+    | NetworkDeviceModel'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor NetworkDeviceModel) = (R.Data R.Sz16)
+instance (C.HasTypeId NetworkDeviceModel) where
+    typeId  = 11688245959880617245
+instance (Std_.Enum NetworkDeviceModel) where
+    toEnum n_ = case n_ of
+        0 ->
+            NetworkDeviceModel'virtioNetPci
+        1 ->
+            NetworkDeviceModel'virtioNetPciNonTransitional
+        2 ->
+            NetworkDeviceModel'virtioNetPciTransitional
+        3 ->
+            NetworkDeviceModel'e1000
+        tag_ ->
+            (NetworkDeviceModel'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (NetworkDeviceModel'virtioNetPci) ->
+            0
+        (NetworkDeviceModel'virtioNetPciNonTransitional) ->
+            1
+        (NetworkDeviceModel'virtioNetPciTransitional) ->
+            2
+        (NetworkDeviceModel'e1000) ->
+            3
+        (NetworkDeviceModel'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord NetworkDeviceModel) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse NetworkDeviceModel NetworkDeviceModel) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList NetworkDeviceModel) where
+    type ListAllocHint NetworkDeviceModel = Std_.Int
+instance (C.EstimateListAlloc NetworkDeviceModel NetworkDeviceModel)
+data GraphicsAdapter 
+    = GraphicsAdapter'virtioVga 
+    | GraphicsAdapter'qxlVga 
+    | GraphicsAdapter'vga 
+    | GraphicsAdapter'virtioGpuPci 
+    | GraphicsAdapter'virtioVgaGl 
+    | GraphicsAdapter'virtioGpuGlPci 
     | GraphicsAdapter'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show

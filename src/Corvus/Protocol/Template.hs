@@ -16,7 +16,7 @@ module Corvus.Protocol.Template
   )
 where
 
-import Corvus.Model (AudioBackend, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, SharedDirCache, TemplateCloneStrategy)
+import Corvus.Model (AudioBackend, AudioDeviceModel, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, NetworkDeviceModel, SharedDirCache, TemplateCloneStrategy)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -65,6 +65,7 @@ data TemplateDriveInfo = TemplateDriveInfo
 -- | Template network interface info
 data TemplateNetIfInfo = TemplateNetIfInfo
   { tvniType :: !NetInterfaceType
+  , tvniModel :: !NetworkDeviceModel
   , tvniHostDevice :: !(Maybe Text)
   , tvniNetwork :: !(Maybe Text)
   -- ^ Managed-network name; 'Nothing' for non-managed types.
@@ -91,6 +92,7 @@ data TemplateSharedDirInfo = TemplateSharedDirInfo
 data TemplateAudioDeviceInfo = TemplateAudioDeviceInfo
   { tvadiId :: !Int64
   , tvadiBackend :: !AudioBackend
+  , tvadiModel :: !AudioDeviceModel
   , tvadiOptions :: !Text
   }
   deriving (Eq, Show, Generic)

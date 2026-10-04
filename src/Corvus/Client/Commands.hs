@@ -224,17 +224,18 @@ runCommand opts = do
           Right cache -> handleSharedDirAdd fmt conn vmRef path tag cache readOnly
       SharedDirRemove vmRef sharedDirRef -> handleSharedDirRemove fmt conn vmRef sharedDirRef
       SharedDirList vmRef -> handleSharedDirList fmt tableOpts conn vmRef
-      AudioDeviceAdd vmRef backend options -> handleAudioDeviceAdd fmt conn vmRef backend options
-      AudioDeviceEdit vmRef aid backend options -> handleAudioDeviceEdit fmt conn vmRef aid backend options
+      AudioDeviceAdd vmRef backend options model -> handleAudioDeviceAdd fmt conn vmRef backend options model
+      AudioDeviceEdit vmRef aid backend options model -> handleAudioDeviceEdit fmt conn vmRef aid backend options model
       AudioDeviceRemove vmRef aid -> handleAudioDeviceRemove fmt conn vmRef aid
       AudioDeviceList vmRef -> handleAudioDeviceList fmt tableOpts conn vmRef
       -- Network interface commands
-      NetIfAdd vmRef ifaceTypeStr hostDevice macAddress mNetworkRef -> do
+      NetIfAdd vmRef ifaceTypeStr hostDevice macAddress mNetworkRef model -> do
         case parseNetInterfaceType ifaceTypeStr of
           Left err -> do
             emitError fmt "invalid_interface_type" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right ifaceType -> handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef
+          Right ifaceType -> handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef model
+      NetIfEdit vmRef netIfId model -> handleNetIfEdit fmt conn vmRef netIfId model
       NetIfRemove vmRef netIfId -> handleNetIfRemove fmt conn vmRef netIfId
       NetIfList vmRef -> handleNetIfList fmt tableOpts conn vmRef
       -- Snapshot commands

@@ -194,7 +194,7 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
                 (tvdAutostart details)
                 (tvdRebootQuirk details)
                 ""
-                [(tvadiBackend audioDevice, tvadiOptions audioDevice) | audioDevice <- tvdAudioDevices details]
+                [(tvadiBackend audioDevice, tvadiModel audioDevice, tvadiOptions audioDevice) | audioDevice <- tvdAudioDevices details]
                 (tvdGraphicsAdapter details)
             )
       case vmResp of
@@ -303,6 +303,7 @@ insertTemplateYaml ty now = do
                         TemplateNetworkInterface
                           tid
                           effectiveType
+                          (tnyModel tny)
                           (tnyHostDevice tny)
                           (tnyNetwork tny)
 
@@ -319,7 +320,7 @@ insertTemplateYaml ty now = do
                       (tsdyReadOnly tsd)
 
                 forM_ (tyAudioDevices ty) $ \audioDevice ->
-                  insert_ $ TemplateAudioDevice tid (tadyBackend audioDevice) (tadyOptions audioDevice)
+                  insert_ $ TemplateAudioDevice tid (tadyBackend audioDevice) (tadyModel audioDevice) (tadyOptions audioDevice)
 
                 -- Insert cloud-init config if provided
                 forM_ (tyCloudInitConfig ty) $ \cic ->
@@ -401,6 +402,7 @@ getTemplateDetails tid = do
               ( \(Entity _ tni) ->
                   TemplateNetIfInfo
                     (templateNetworkInterfaceInterfaceType tni)
+                    (templateNetworkInterfaceModel tni)
                     (templateNetworkInterfaceHostDevice tni)
                     (templateNetworkInterfaceNetworkName tni)
               )
@@ -415,7 +417,7 @@ getTemplateDetails tid = do
       sharedDirRows <- selectList [TemplateSharedDirTemplateId ==. tid] []
       audioDeviceRows <- selectList [TemplateAudioDeviceTemplateId ==. tid] [Asc TemplateAudioDeviceId]
       let audioDeviceInfos =
-            [ TemplateAudioDeviceInfo (fromSqlKey audioId) (templateAudioDeviceBackend audioDevice) (templateAudioDeviceOptions audioDevice)
+            [ TemplateAudioDeviceInfo (fromSqlKey audioId) (templateAudioDeviceBackend audioDevice) (templateAudioDeviceModel audioDevice) (templateAudioDeviceOptions audioDevice)
             | Entity audioId audioDevice <- audioDeviceRows
             ]
       let sharedDirInfos =
@@ -508,6 +510,7 @@ finishInstantiation ctx vmId newVmName details = runServerLogging (acState ctx) 
             NetworkInterface
               vmId
               (tvniType tni)
+              (tvniModel tni)
               (fromMaybe "" (tvniHostDevice tni))
               mac
               mNetKey

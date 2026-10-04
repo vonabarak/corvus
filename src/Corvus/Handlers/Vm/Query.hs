@@ -148,7 +148,7 @@ getVmDetails config vmId = do
             , vdDrives = driveInfos
             , vdNetIfs = netIfInfos
             , vdAudioDevices =
-                [ AudioDeviceInfo (fromSqlKey audioId) (M.audioDeviceBackend audioDevice) (M.audioDeviceOptions audioDevice)
+                [ AudioDeviceInfo (fromSqlKey audioId) (M.audioDeviceBackend audioDevice) (M.audioDeviceModel audioDevice) (M.audioDeviceOptions audioDevice)
                 | Entity audioId audioDevice <- audioDevices
                 ]
             , vdHeadless = vmHeadless vm
@@ -258,6 +258,7 @@ getVmDetails config vmId = do
         NetIfInfo
           { niId = fromSqlKey netIfKey
           , niType = networkInterfaceInterfaceType netIf
+          , niModel = networkInterfaceModel netIf
           , niHostDevice = networkInterfaceHostDevice netIf
           , niMacAddress = networkInterfaceMacAddress netIf
           , niNetwork = networkRef

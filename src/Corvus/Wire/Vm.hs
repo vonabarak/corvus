@@ -35,20 +35,24 @@ import Corvus.Wire.Common
   )
 import Corvus.Wire.Enums
   ( fromCapnpAudioBackend
+  , fromCapnpAudioDeviceModel
   , fromCapnpCacheType
   , fromCapnpDriveFormat
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpGraphicsAdapter
   , fromCapnpNetInterfaceType
+  , fromCapnpNetworkDeviceModel
   , fromCapnpVmStatus
   , toCapnpAudioBackend
+  , toCapnpAudioDeviceModel
   , toCapnpCacheType
   , toCapnpDriveFormat
   , toCapnpDriveInterface
   , toCapnpDriveMedia
   , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
+  , toCapnpNetworkDeviceModel
   , toCapnpVmStatus
   )
 import Corvus.Wire.Errors (WireError)
@@ -61,13 +65,15 @@ toCapnpAudioDeviceInfo P.AudioDeviceInfo {..} =
   CGVm.AudioDeviceInfo
     { CGVm.id = adiId
     , CGVm.backend = toCapnpAudioBackend adiBackend
+    , CGVm.model = toCapnpAudioDeviceModel adiModel
     , CGVm.options = adiOptions
     }
 
 fromCapnpAudioDeviceInfo :: C.Parsed CGVm.AudioDeviceInfo -> Either WireError P.AudioDeviceInfo
 fromCapnpAudioDeviceInfo CGVm.AudioDeviceInfo {..} = do
   backend' <- fromCapnpAudioBackend backend
-  pure P.AudioDeviceInfo {P.adiId = id, P.adiBackend = backend', P.adiOptions = options}
+  model' <- fromCapnpAudioDeviceModel model
+  pure P.AudioDeviceInfo {P.adiId = id, P.adiBackend = backend', P.adiModel = model', P.adiOptions = options}
 
 -- A 'CloudInitInfo' with all fields empty, used as the on-the-wire
 -- "absent" sentinel for the @vmDetails.cloudInitConfig@ field.
@@ -175,6 +181,7 @@ toCapnpNetIfInfo P.NetIfInfo {..} =
   CGVm.NetIfInfo
     { CGVm.id = niId
     , CGVm.type_ = toCapnpNetInterfaceType niType
+    , CGVm.model = toCapnpNetworkDeviceModel niModel
     , CGVm.hostDevice = niHostDevice
     , CGVm.macAddress = niMacAddress
     , CGVm.network = toCapnpNamedRefOpt niNetwork
@@ -185,10 +192,12 @@ toCapnpNetIfInfo P.NetIfInfo {..} =
 fromCapnpNetIfInfo :: C.Parsed CGVm.NetIfInfo -> Either WireError P.NetIfInfo
 fromCapnpNetIfInfo CGVm.NetIfInfo {..} = do
   t <- fromCapnpNetInterfaceType type_
+  model' <- fromCapnpNetworkDeviceModel model
   pure
     P.NetIfInfo
       { P.niId = id
       , P.niType = t
+      , P.niModel = model'
       , P.niHostDevice = hostDevice
       , P.niMacAddress = macAddress
       , P.niNetwork = fromCapnpNamedRefOpt network

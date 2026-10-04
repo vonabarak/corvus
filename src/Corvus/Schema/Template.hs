@@ -65,13 +65,14 @@ instance FromJSON TemplateYaml where
 
 data TemplateAudioDeviceYaml = TemplateAudioDeviceYaml
   { tadyBackend :: AudioBackend
+  , tadyModel :: AudioDeviceModel
   , tadyOptions :: Text
   }
   deriving (Show, Generic)
 
 instance FromJSON TemplateAudioDeviceYaml where
   parseJSON = withObject "TemplateAudioDeviceYaml" $ \o ->
-    TemplateAudioDeviceYaml <$> o .: "backend" <*> o .:? "options" .!= ""
+    TemplateAudioDeviceYaml <$> o .: "backend" <*> o .:? "model" .!= AudioVirtioSound <*> o .:? "options" .!= ""
 
 data TemplateDriveYaml = TemplateDriveYaml
   { tdyDiskImageName :: Maybe Text
@@ -107,6 +108,7 @@ instance FromJSON TemplateDriveYaml where
 
 data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
   { tnyType :: NetInterfaceType
+  , tnyModel :: NetworkDeviceModel
   , tnyHostDevice :: Maybe Text
   , tnyNetwork :: Maybe Text
   -- ^ Name of the managed network to attach this NIC to.
@@ -132,7 +134,8 @@ instance FromJSON TemplateNetworkInterfaceYaml where
       (Just t, Nothing) -> pure t
       (Nothing, Nothing) ->
         fail "network interface must specify 'type' (or 'network' for a managed NIC)"
-    pure (TemplateNetworkInterfaceYaml ifType hostDevice network)
+    model <- o .:? "model" .!= NetworkVirtioNetPci
+    pure (TemplateNetworkInterfaceYaml ifType model hostDevice network)
 
 newtype TemplateSshKeyYaml = TemplateSshKeyYaml
   { tkyName :: Text

@@ -67,6 +67,7 @@ class _NetIfOptions(TypedDict, total=False):
     host_device: str | None
     mac_address: str | None
     network_ref: int | str | None
+    model: str
 
 
 class _SharedDirOptions(TypedDict):

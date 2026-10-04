@@ -48,6 +48,7 @@ module Corvus.Client.Capnp.Rpc.Vm
 
     -- * Network interface (per-VM)
   , rpcNetIfAdd
+  , rpcNetIfEdit
   , rpcNetIfRemove
   , rpcNetIfList
 
@@ -86,10 +87,12 @@ import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model
   ( AudioBackend
+  , AudioDeviceModel (..)
   , CacheType
   , DriveMedia (..)
   , GraphicsAdapter (..)
   , NetInterfaceType
+  , NetworkDeviceModel
   , SharedDirCache
   )
 import qualified Corvus.Protocol.CloudInit as PCI
@@ -100,10 +103,12 @@ import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpViewGrant, toCapnpEntityRef)
 import Corvus.Wire.Enums
   ( toCapnpAudioBackend
+  , toCapnpAudioDeviceModel
   , toCapnpCacheType
   , toCapnpDriveMedia
   , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
+  , toCapnpNetworkDeviceModel
   , toCapnpSharedDirCache
   )
 import Corvus.Wire.Errors (WireError, showWireError)
@@ -461,27 +466,28 @@ rpcSharedDirList conn vmRef = do
   traverse (failOnWire . WSd.fromCapnpSharedDirInfo) sds
 
 -- | Manage a VM's duplex sound cards.
-rpcAudioDeviceAdd :: CapnpConnection -> EntityRef -> AudioBackend -> Text -> IO Int64
-rpcAudioDeviceAdd conn vmRef backend options = do
+rpcAudioDeviceAdd :: CapnpConnection -> EntityRef -> AudioBackend -> AudioDeviceModel -> Text -> IO Int64
+rpcAudioDeviceAdd conn vmRef backend model options = do
   vmClient <- getVmClient conn vmRef
   CGVm.Vm'addAudioDevice'results {CGVm.audioDeviceId = aid} <-
     callOn
       #addAudioDevice
       CGVm.Vm'addAudioDevice'params
-        { CGVm.params = CGVm.AudioDeviceParams {CGVm.backend = toCapnpAudioBackend backend, CGVm.options = options}
+        { CGVm.params = CGVm.AudioDeviceParams {CGVm.backend = toCapnpAudioBackend backend, CGVm.model = toCapnpAudioDeviceModel model, CGVm.options = options}
         }
       vmClient
   pure aid
 
-rpcAudioDeviceEdit :: CapnpConnection -> EntityRef -> Int64 -> AudioBackend -> Text -> IO ()
-rpcAudioDeviceEdit conn vmRef aid backend options = do
+rpcAudioDeviceEdit :: CapnpConnection -> EntityRef -> Int64 -> AudioBackend -> Maybe AudioDeviceModel -> Text -> IO ()
+rpcAudioDeviceEdit conn vmRef aid backend mModel options = do
   vmClient <- getVmClient conn vmRef
   _ <-
     callOn
       #editAudioDevice
       CGVm.Vm'editAudioDevice'params
         { CGVm.audioDeviceId = aid
-        , CGVm.params = CGVm.AudioDeviceParams {CGVm.backend = toCapnpAudioBackend backend, CGVm.options = options}
+        , CGVm.params = CGVm.AudioDeviceParams {CGVm.backend = toCapnpAudioBackend backend, CGVm.model = toCapnpAudioDeviceModel (fromMaybe AudioVirtioSound mModel), CGVm.options = options}
+        , CGVm.setModel = isJust mModel
         }
       vmClient
   pure ()
@@ -507,6 +513,7 @@ rpcNetIfAdd
   :: CapnpConnection
   -> EntityRef
   -> NetInterfaceType
+  -> NetworkDeviceModel
   -> Text
   -- ^ host device (\"\" → auto)
   -> Maybe Text
@@ -514,11 +521,12 @@ rpcNetIfAdd
   -> Maybe EntityRef
   -- ^ managed network
   -> IO Int64
-rpcNetIfAdd conn vmRef ifaceType hostDevice macAddress mNetwork = do
+rpcNetIfAdd conn vmRef ifaceType model hostDevice macAddress mNetwork = do
   vmClient <- getVmClient conn vmRef
   let p =
         CGVm.NetIfAddParams
           { CGVm.type_ = toCapnpNetInterfaceType ifaceType
+          , CGVm.model = toCapnpNetworkDeviceModel model
           , CGVm.hostDevice = hostDevice
           , CGVm.macAddress = fromMaybe "" macAddress
           , CGVm.networkRef = maybe emptyCapnpEntityRef toCapnpEntityRef mNetwork
@@ -526,6 +534,12 @@ rpcNetIfAdd conn vmRef ifaceType hostDevice macAddress mNetwork = do
   CGVm.Vm'addNetIf'results {CGVm.netIfId = nid} <-
     callOn #addNetIf CGVm.Vm'addNetIf'params {CGVm.params = p} vmClient
   pure nid
+
+rpcNetIfEdit :: CapnpConnection -> EntityRef -> Int64 -> NetworkDeviceModel -> IO ()
+rpcNetIfEdit conn vmRef netIfId model = do
+  vmClient <- getVmClient conn vmRef
+  _ <- callOn #editNetIf CGVm.Vm'editNetIf'params {CGVm.netIfId = netIfId, CGVm.model = toCapnpNetworkDeviceModel model} vmClient
+  pure ()
 
 rpcNetIfRemove :: CapnpConnection -> EntityRef -> Int64 -> IO ()
 rpcNetIfRemove conn vmRef netIfId = do

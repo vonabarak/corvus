@@ -40,6 +40,8 @@ module Corvus.Model
   , NetInterfaceType (..)
   , SharedDirCache (..)
   , AudioBackend (..)
+  , AudioDeviceModel (..)
+  , NetworkDeviceModel (..)
   , GraphicsAdapter (..)
   , TemplateCloneStrategy (..)
 
@@ -442,6 +444,40 @@ instance PersistField AudioBackend where
 instance PersistFieldSql AudioBackend where
   sqlType _ = SqlString
 
+data AudioDeviceModel = AudioVirtioSound | AudioIntelHda | AudioIch9IntelHda | AudioAc97
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance EnumText AudioDeviceModel where
+  enumTypeName = "AudioDeviceModel"
+  enumMapping = [(AudioVirtioSound, "virtio-sound"), (AudioIntelHda, "intel-hda"), (AudioIch9IntelHda, "ich9-intel-hda"), (AudioAc97, "AC97")]
+
+instance FromJSON AudioDeviceModel where
+  parseJSON = parseEnumJSON
+instance ToJSON AudioDeviceModel where
+  toJSON = toEnumJSON
+instance PersistField AudioDeviceModel where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+instance PersistFieldSql AudioDeviceModel where
+  sqlType _ = SqlString
+
+data NetworkDeviceModel = NetworkVirtioNetPci | NetworkVirtioNetPciNonTransitional | NetworkVirtioNetPciTransitional | NetworkE1000
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance EnumText NetworkDeviceModel where
+  enumTypeName = "NetworkDeviceModel"
+  enumMapping = [(NetworkVirtioNetPci, "virtio-net-pci"), (NetworkVirtioNetPciNonTransitional, "virtio-net-pci-non-transitional"), (NetworkVirtioNetPciTransitional, "virtio-net-pci-transitional"), (NetworkE1000, "e1000")]
+
+instance FromJSON NetworkDeviceModel where
+  parseJSON = parseEnumJSON
+instance ToJSON NetworkDeviceModel where
+  toJSON = toEnumJSON
+instance PersistField NetworkDeviceModel where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+instance PersistFieldSql NetworkDeviceModel where
+  sqlType _ = SqlString
+
 data GraphicsAdapter
   = GraphicsVirtioVga
   | GraphicsQxlVga
@@ -804,6 +840,7 @@ NetworkPeer
 NetworkInterface
     vmId VmId
     interfaceType NetInterfaceType
+    model NetworkDeviceModel default='virtio-net-pci'
     hostDevice Text
     macAddress Text
     networkId NetworkId Maybe
@@ -828,6 +865,7 @@ SharedDir
 AudioDevice
     vmId VmId
     backend AudioBackend
+    model AudioDeviceModel default='virtio-sound'
     options Text default=''
     deriving Show Eq Generic
 
@@ -878,6 +916,7 @@ TemplateDrive
 TemplateNetworkInterface
     templateId TemplateVmId
     interfaceType NetInterfaceType
+    model NetworkDeviceModel default='virtio-net-pci'
     hostDevice Text Maybe
     -- Managed-network NICs reference the network by name; the
     -- instantiation path resolves this to a NetworkId on the new
@@ -905,6 +944,7 @@ TemplateSharedDir
 TemplateAudioDevice
     templateId TemplateVmId
     backend AudioBackend
+    model AudioDeviceModel default='virtio-sound'
     options Text default=''
     deriving Show Eq Generic
 

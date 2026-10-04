@@ -35,7 +35,7 @@ import Corvus.Action (runAction, runActionAsync, runActionAsyncWithId)
 import Corvus.Handlers.AudioDevice (AudioDeviceAdd (..), AudioDeviceEdit (..), AudioDeviceRemove (..), handleAudioDeviceList)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
-import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
+import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfEdit (..), NetIfRemove (..), handleNetIfList)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNetwork, resolveNode, resolveSshKey, resolveVm)
 import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
 import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyDetach (..), handleSshKeyListForVm)
@@ -78,11 +78,13 @@ import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
 import Corvus.Wire.Common (ViewGrant (..), toCapnpViewGrant)
 import Corvus.Wire.Enums
   ( fromCapnpAudioBackend
+  , fromCapnpAudioDeviceModel
   , fromCapnpCacheType
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpGraphicsAdapter
   , fromCapnpNetInterfaceType
+  , fromCapnpNetworkDeviceModel
   , fromCapnpSharedDirCache
   , toCapnpVmStatus
   )
@@ -133,9 +135,10 @@ instance CGVm.VmManager'server_ VmManagerCap where
       nodeRef' <- capnpRefToRef node
       parsedAudioDevices <-
         traverse
-          ( \CGVm.AudioDeviceParams {CGVm.backend = audioBackend, CGVm.options = audioOptions} -> do
+          ( \CGVm.AudioDeviceParams {CGVm.backend = audioBackend, CGVm.model = audioModel, CGVm.options = audioOptions} -> do
               parsedBackend <- enumOrThrow (fromCapnpAudioBackend audioBackend)
-              pure (parsedBackend, audioOptions)
+              parsedModel <- enumOrThrow (fromCapnpAudioDeviceModel audioModel)
+              pure (parsedBackend, parsedModel, audioOptions)
           )
           audioDevices
       parsedGraphicsAdapter <- enumOrThrow (fromCapnpGraphicsAdapter graphicsAdapter)
@@ -179,14 +182,16 @@ instance SomeServer VmCap
 instance CGVm.Vm'server_ VmCap where
   vm'addAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'addAudioDevice'params {CGVm.params = CGVm.AudioDeviceParams {..}} -> do
     backend' <- enumOrThrow (fromCapnpAudioBackend backend)
-    resp <- runAction st cn (AudioDeviceAdd eid backend' options)
+    model' <- enumOrThrow (fromCapnpAudioDeviceModel model)
+    resp <- runAction st cn (AudioDeviceAdd eid backend' model' options)
     case resp of
       RespAudioDeviceAdded aid -> pure CGVm.Vm'addAudioDevice'results {CGVm.audioDeviceId = aid}
       _ -> throwError resp
 
-  vm'editAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'editAudioDevice'params {CGVm.audioDeviceId = aid, CGVm.params = CGVm.AudioDeviceParams {..}} -> do
+  vm'editAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'editAudioDevice'params {CGVm.audioDeviceId = aid, CGVm.params = CGVm.AudioDeviceParams {..}, CGVm.setModel = setModel} -> do
     backend' <- enumOrThrow (fromCapnpAudioBackend backend)
-    resp <- runAction st cn (AudioDeviceEdit eid aid backend' options)
+    model' <- if setModel then Just <$> enumOrThrow (fromCapnpAudioDeviceModel model) else pure Nothing
+    resp <- runAction st cn (AudioDeviceEdit eid aid backend' model' options)
     case resp of
       RespAudioDeviceOk -> pure CGVm.Vm'editAudioDevice'results
       _ -> throwError resp
@@ -493,6 +498,7 @@ instance CGVm.Vm'server_ VmCap where
   vm'addNetIf (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'addNetIf'params {params = CGVm.NetIfAddParams {..}} -> do
       iface <- enumOrThrow (fromCapnpNetInterfaceType type_)
+      model' <- enumOrThrow (fromCapnpNetworkDeviceModel model)
       mNetId <- case fromCapnpRefMaybe networkRef of
         Just r -> Just <$> (resolveOrThrow =<< resolveNetwork r (ssDbPool st))
         Nothing -> pure Nothing
@@ -500,6 +506,7 @@ instance CGVm.Vm'server_ VmCap where
             NetIfAdd
               { niaVmId = eid
               , niaType = iface
+              , niaModel = model'
               , niaHostDevice = hostDevice
               , niaMacAddress = if macAddress == "" then Nothing else Just macAddress
               , niaNetworkId = mNetId
@@ -520,6 +527,13 @@ instance CGVm.Vm'server_ VmCap where
     case resp of
       RespNetIfList nis ->
         pure CGVm.Vm'listNetIfs'results {CGVm.netIfs = map toCapnpNetIfInfo nis}
+      _ -> throwError resp
+
+  vm'editNetIf (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'editNetIf'params {CGVm.netIfId = nid, CGVm.model = model} -> do
+    model' <- enumOrThrow (fromCapnpNetworkDeviceModel model)
+    resp <- runAction st cn (NetIfEdit eid nid model')
+    case resp of
+      RespOk -> pure CGVm.Vm'editNetIf'results
       _ -> throwError resp
 
   -- -------------------------------------------------------------------

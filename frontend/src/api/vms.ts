@@ -46,6 +46,7 @@ export interface NetIfInfo {
   type: string;
   host_device: string;
   mac_address: string;
+  model: NetworkDeviceModel;
   network: NamedRef | null;
   guest_ip_addresses: string | null;
   ip_address: string | null;
@@ -64,7 +65,15 @@ export interface AudioDeviceInfo {
   id: number;
   backend: "pulse" | "pipewire" | "spice";
   options: string;
+  model: AudioDeviceModel;
 }
+
+export type AudioDeviceModel = "virtio-sound" | "intel-hda" | "ich9-intel-hda" | "AC97";
+export type NetworkDeviceModel =
+  | "virtio-net-pci"
+  | "virtio-net-pci-non-transitional"
+  | "virtio-net-pci-transitional"
+  | "e1000";
 
 /** Per-drive cumulative I/O counters from QEMU query-blockstats. */
 export interface DriveIo {
@@ -145,12 +154,12 @@ export interface VmCreateBody {
   reboot_quirk?: boolean;
   cpu_model?: string;
   graphics_adapter?: GraphicsAdapter;
-  audio_devices?: [AudioDeviceInfo["backend"], string][];
+  audio_devices?: [AudioDeviceInfo["backend"], string, AudioDeviceModel][];
 }
 
 export function addAudioDevice(
   vmId: number,
-  body: Pick<AudioDeviceInfo, "backend" | "options">,
+  body: Pick<AudioDeviceInfo, "backend" | "options" | "model">,
 ): Promise<{ audio_device_id: number }> {
   return apiSend<{ audio_device_id: number }>("POST", `/vms/${vmId}/audio-devices`, body);
 }
@@ -158,7 +167,7 @@ export function addAudioDevice(
 export function editAudioDevice(
   vmId: number,
   deviceId: number,
-  body: Pick<AudioDeviceInfo, "backend" | "options">,
+  body: Pick<AudioDeviceInfo, "backend" | "options" | "model">,
 ): Promise<{ status: string }> {
   return apiSend<{ status: string }>("PUT", `/vms/${vmId}/audio-devices/${deviceId}`, body);
 }
@@ -195,10 +204,19 @@ export interface NetIfAddBody {
   host_device?: string | null;
   mac_address?: string | null;
   network_ref?: string | null;
+  model?: NetworkDeviceModel;
 }
 
 export function addNetIf(vmId: number, body: NetIfAddBody): Promise<{ net_if_id: number }> {
   return apiSend<{ net_if_id: number }>("POST", `/vms/${vmId}/net-ifs`, body);
+}
+
+export function editNetIf(
+  vmId: number,
+  netIfId: number,
+  model: NetworkDeviceModel,
+): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("PUT", `/vms/${vmId}/net-ifs/${netIfId}`, { model });
 }
 
 export function removeNetIf(vmId: number, netIfId: number): Promise<{ status: string }> {

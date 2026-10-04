@@ -312,6 +312,7 @@ export default function TemplateDetail() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Type</TableHead>
+                  <TableHead>Model</TableHead>
                   <TableHead>Host device</TableHead>
                 </TableRow>
               </TableHeader>
@@ -319,7 +320,38 @@ export default function TemplateDetail() {
                 {t.net_ifs.map((n, idx) => (
                   <TableRow key={idx}>
                     <TableCell>{n.type}</TableCell>
+                    <TableCell>{n.model}</TableCell>
                     <TableCell className="font-mono text-xs">{n.host_device ?? "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Audio devices</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {t.audio_devices.length === 0 ? (
+            <p className="px-6 pb-6 text-sm text-muted-foreground">No audio devices.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Backend</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Options</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {t.audio_devices.map((device, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell>{device.backend}</TableCell>
+                    <TableCell>{device.model}</TableCell>
+                    <TableCell className="font-mono text-xs">{device.options || "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

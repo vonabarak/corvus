@@ -168,14 +168,15 @@ data Command
     SharedDirRemove !Text !Text
   | -- | List shared directories for VM
     SharedDirList !Text
-  | AudioDeviceAdd !Text !Text !Text
-  | AudioDeviceEdit !Text !Int64 !Text !Text
+  | AudioDeviceAdd !Text !Text !Text !Text
+  | AudioDeviceEdit !Text !Int64 !Text !Text !(Maybe Text)
   | AudioDeviceRemove !Text !Int64
   | AudioDeviceList !Text
   | -- Network interface commands
 
     -- | Add network interface to VM (vmRef, type, hostDevice, mac, networkRef)
-    NetIfAdd !Text !Text !Text !(Maybe Text) !(Maybe Text)
+    NetIfAdd !Text !Text !Text !(Maybe Text) !(Maybe Text) !Text
+  | NetIfEdit !Text !Int64 !Text
   | -- | Remove network interface from VM (vmRef, netIfId)
     NetIfRemove !Text !Int64
   | -- | List network interfaces for VM

@@ -54,6 +54,14 @@ netIfAddCommand =
               <> completer networkCompleter
           )
       )
+    <*> (T.pack <$> strOption (long "model" <> metavar "MODEL" <> value "virtio-net-pci" <> showDefault <> completeWith ["virtio-net-pci", "virtio-net-pci-non-transitional", "virtio-net-pci-transitional", "e1000"] <> help "Network device model"))
+
+netIfEditCommand :: Parser Command
+netIfEditCommand =
+  NetIfEdit
+    <$> argument (T.pack <$> str) (metavar "VM" <> completer vmCompleter)
+    <*> argument auto (metavar "NETIF_ID")
+    <*> (T.pack <$> strOption (long "model" <> metavar "MODEL" <> completeWith ["virtio-net-pci", "virtio-net-pci-non-transitional", "virtio-net-pci-transitional", "e1000"] <> help "Network device model"))
 
 -- | Parser for net-if remove
 netIfRemoveCommand :: Parser Command
@@ -89,6 +97,7 @@ netIfCommandParser =
     ( command
         "add"
         (info netIfAddCommand (progDesc "Add a network interface to a VM"))
+        <> command "edit" (info netIfEditCommand (progDesc "Change a network interface model"))
         <> command
           "remove"
           (info netIfRemoveCommand (progDesc "Remove a network interface from a VM"))
