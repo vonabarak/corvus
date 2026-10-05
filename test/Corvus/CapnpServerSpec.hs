@@ -138,7 +138,7 @@ spec = withTestDb $ sequential $ do
     it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do
         -- Empty node ref → daemon's scheduler picks the seeded test-node.
-        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False False False "host" M.GraphicsVirtioVga
+        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True
         vms <- CR.rpcVmList conn
         length vms `shouldBe` 1
         CR.rpcVmDelete conn (WC.RefById vid) False False
@@ -147,7 +147,7 @@ spec = withTestDb $ sequential $ do
 
     it "vm delete reports vm_must_be_stopped unless forced, and force resets first" $ \env -> do
       withCapnpDaemon env $ \conn -> do
-        vid <- CR.rpcVmCreate conn "running-delete" "" 1 1024 Nothing True False False False False False "host" M.GraphicsVirtioVga
+        vid <- CR.rpcVmCreate conn "running-delete" "" 1 1024 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True
         -- The in-process nodeagent has no QEMU for this VM, so reset's
         -- idempotent "already stopped" response is enough to exercise the
         -- force path without launching a guest.
@@ -179,7 +179,7 @@ spec = withTestDb $ sequential $ do
       -- via 'validateTransition'. Easier than spinning up an inner
       -- corvus-netd in the in-process daemon fixture.
       withCapnpDaemon env $ \conn -> do
-        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1024 Nothing True False False False False False "host" M.GraphicsVirtioVga
+        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1024 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True
         -- Pretend it's already running so the next start is invalid.
         runSqlPool
           (update (toSqlKey vid :: M.VmId) [M.VmStatus =. M.VmRunning])

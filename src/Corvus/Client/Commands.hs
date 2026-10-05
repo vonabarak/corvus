@@ -156,8 +156,8 @@ runCommand opts = do
             emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
-      VmCreate name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm graphicsAdapter ->
-        handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm graphicsAdapter
+      VmCreate name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng ->
+        handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng
       VmDelete vmRef keepDisks force -> handleVmDelete fmt conn vmRef keepDisks force
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
@@ -166,8 +166,8 @@ runCommand opts = do
       VmReset vmRef ->
         handleVmAction fmt "reset" vmRef (CR.rpcVmReset conn (entityRefFromText vmRef))
       VmSave vmRef waitOpts -> handleVmSave fmt conn vmRef waitOpts
-      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter ->
-        handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter
+      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng ->
+        handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef

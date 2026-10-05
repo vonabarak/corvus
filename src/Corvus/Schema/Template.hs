@@ -28,6 +28,9 @@ data TemplateYaml = TemplateYaml
   , tyDescription :: Maybe Text
   , tyHeadless :: Bool
   , tyGraphicsAdapter :: GraphicsAdapter
+  , tyVsock :: Bool
+  , tyBalloon :: Bool
+  , tyRng :: Bool
   , tyCloudInit :: Bool
   , tyGuestAgent :: Bool
   , tyTpm :: Bool
@@ -51,6 +54,9 @@ instance FromJSON TemplateYaml where
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "graphicsAdapter" .!= GraphicsVirtioVga
+      <*> o .:? "vsock" .!= True
+      <*> o .:? "balloon" .!= True
+      <*> o .:? "rng" .!= True
       <*> o .:? "cloudInit" .!= False
       <*> o .:? "guestAgent" .!= False
       <*> o .:? "tpm" .!= False

@@ -69,7 +69,10 @@ data instance C.Parsed VmInfo
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,cpuModel :: (RP.Parsed Basics.Text)
         ,tpm :: (RP.Parsed Std_.Bool)
-        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
+        ,vsock :: (RP.Parsed Std_.Bool)
+        ,balloon :: (RP.Parsed Std_.Bool)
+        ,rng :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmInfo))
 deriving instance (Std_.Eq (C.Parsed VmInfo))
@@ -88,7 +91,10 @@ instance (C.Parse VmInfo (C.Parsed VmInfo)) where
                          <*> (GH.parseField #node raw_)
                          <*> (GH.parseField #cpuModel raw_)
                          <*> (GH.parseField #tpm raw_)
-                         <*> (GH.parseField #graphicsAdapter raw_))
+                         <*> (GH.parseField #graphicsAdapter raw_)
+                         <*> (GH.parseField #vsock raw_)
+                         <*> (GH.parseField #balloon raw_)
+                         <*> (GH.parseField #rng raw_))
 instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
     marshalInto raw_ VmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -106,6 +112,9 @@ instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
         (GH.encodeField #cpuModel cpuModel raw_)
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
+        (GH.encodeField #vsock vsock raw_)
+        (GH.encodeField #balloon balloon raw_)
+        (GH.encodeField #rng rng raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmInfo Std_.Int64) where
@@ -138,6 +147,12 @@ instance (GH.HasField "tpm" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 21 1 1 0)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
     fieldByLabel  = (GH.dataField 32 2 16 0)
+instance (GH.HasField "vsock" GH.Slot VmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 22 1 1 1)
+instance (GH.HasField "balloon" GH.Slot VmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 23 1 1 1)
+instance (GH.HasField "rng" GH.Slot VmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 24 1 1 1)
 data VmDetails 
 type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
@@ -184,7 +199,10 @@ data instance C.Parsed VmDetails
         ,stats :: (RP.Parsed VmStats)
         ,tpm :: (RP.Parsed Std_.Bool)
         ,audioDevices :: (RP.Parsed (R.List AudioDeviceInfo))
-        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
+        ,vsock :: (RP.Parsed Std_.Bool)
+        ,balloon :: (RP.Parsed Std_.Bool)
+        ,rng :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDetails))
 deriving instance (Std_.Eq (C.Parsed VmDetails))
@@ -218,7 +236,10 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #stats raw_)
                             <*> (GH.parseField #tpm raw_)
                             <*> (GH.parseField #audioDevices raw_)
-                            <*> (GH.parseField #graphicsAdapter raw_))
+                            <*> (GH.parseField #graphicsAdapter raw_)
+                            <*> (GH.parseField #vsock raw_)
+                            <*> (GH.parseField #balloon raw_)
+                            <*> (GH.parseField #rng raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
     marshalInto raw_ VmDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -251,6 +272,9 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #audioDevices audioDevices raw_)
         (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
+        (GH.encodeField #vsock vsock raw_)
+        (GH.encodeField #balloon balloon raw_)
+        (GH.encodeField #rng rng raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmDetails Std_.Int64) where
@@ -313,6 +337,12 @@ instance (GH.HasField "audioDevices" GH.Slot VmDetails (R.List AudioDeviceInfo))
     fieldByLabel  = (GH.ptrField 13)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmDetails Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
     fieldByLabel  = (GH.dataField 32 4 16 0)
+instance (GH.HasField "vsock" GH.Slot VmDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 22 2 1 1)
+instance (GH.HasField "balloon" GH.Slot VmDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 23 2 1 1)
+instance (GH.HasField "rng" GH.Slot VmDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 24 2 1 1)
 data VmStats 
 type instance (R.ReprFor VmStats) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStats) where
@@ -833,7 +863,10 @@ data instance C.Parsed VmCreateParams
         ,cpuModel :: (RP.Parsed Basics.Text)
         ,tpm :: (RP.Parsed Std_.Bool)
         ,audioDevices :: (RP.Parsed (R.List AudioDeviceParams))
-        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
+        ,vsock :: (RP.Parsed Std_.Bool)
+        ,balloon :: (RP.Parsed Std_.Bool)
+        ,rng :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmCreateParams))
 deriving instance (Std_.Eq (C.Parsed VmCreateParams))
@@ -851,7 +884,10 @@ instance (C.Parse VmCreateParams (C.Parsed VmCreateParams)) where
                                  <*> (GH.parseField #cpuModel raw_)
                                  <*> (GH.parseField #tpm raw_)
                                  <*> (GH.parseField #audioDevices raw_)
-                                 <*> (GH.parseField #graphicsAdapter raw_))
+                                 <*> (GH.parseField #graphicsAdapter raw_)
+                                 <*> (GH.parseField #vsock raw_)
+                                 <*> (GH.parseField #balloon raw_)
+                                 <*> (GH.parseField #rng raw_))
 instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
     marshalInto raw_ VmCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -868,6 +904,9 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #audioDevices audioDevices raw_)
         (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
+        (GH.encodeField #vsock vsock raw_)
+        (GH.encodeField #balloon balloon raw_)
+        (GH.encodeField #rng rng raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
@@ -898,6 +937,12 @@ instance (GH.HasField "audioDevices" GH.Slot VmCreateParams (R.List AudioDeviceP
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmCreateParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
     fieldByLabel  = (GH.dataField 16 1 16 0)
+instance (GH.HasField "vsock" GH.Slot VmCreateParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 6 1 1 1)
+instance (GH.HasField "balloon" GH.Slot VmCreateParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 7 1 1 1)
+instance (GH.HasField "rng" GH.Slot VmCreateParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 8 1 1 1)
 data VmEditParams 
 type instance (R.ReprFor VmEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmEditParams) where
@@ -938,7 +983,13 @@ data instance C.Parsed VmEditParams
         ,hasTpm :: (RP.Parsed Std_.Bool)
         ,tpm :: (RP.Parsed Std_.Bool)
         ,hasGraphicsAdapter :: (RP.Parsed Std_.Bool)
-        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
+        ,hasVsock :: (RP.Parsed Std_.Bool)
+        ,vsock :: (RP.Parsed Std_.Bool)
+        ,hasBalloon :: (RP.Parsed Std_.Bool)
+        ,balloon :: (RP.Parsed Std_.Bool)
+        ,hasRng :: (RP.Parsed Std_.Bool)
+        ,rng :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmEditParams))
 deriving instance (Std_.Eq (C.Parsed VmEditParams))
@@ -966,7 +1017,13 @@ instance (C.Parse VmEditParams (C.Parsed VmEditParams)) where
                                <*> (GH.parseField #hasTpm raw_)
                                <*> (GH.parseField #tpm raw_)
                                <*> (GH.parseField #hasGraphicsAdapter raw_)
-                               <*> (GH.parseField #graphicsAdapter raw_))
+                               <*> (GH.parseField #graphicsAdapter raw_)
+                               <*> (GH.parseField #hasVsock raw_)
+                               <*> (GH.parseField #vsock raw_)
+                               <*> (GH.parseField #hasBalloon raw_)
+                               <*> (GH.parseField #balloon raw_)
+                               <*> (GH.parseField #hasRng raw_)
+                               <*> (GH.parseField #rng raw_))
 instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
     marshalInto raw_ VmEditParams{..} = (do
         (GH.encodeField #hasName hasName raw_)
@@ -993,6 +1050,12 @@ instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #hasGraphicsAdapter hasGraphicsAdapter raw_)
         (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
+        (GH.encodeField #hasVsock hasVsock raw_)
+        (GH.encodeField #vsock vsock raw_)
+        (GH.encodeField #hasBalloon hasBalloon raw_)
+        (GH.encodeField #balloon balloon raw_)
+        (GH.encodeField #hasRng hasRng raw_)
+        (GH.encodeField #rng rng raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "hasName" GH.Slot VmEditParams Std_.Bool) where
@@ -1043,6 +1106,18 @@ instance (GH.HasField "hasGraphicsAdapter" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 17 0 1 0)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmEditParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
     fieldByLabel  = (GH.dataField 32 1 16 0)
+instance (GH.HasField "hasVsock" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 18 0 1 0)
+instance (GH.HasField "vsock" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 19 0 1 1)
+instance (GH.HasField "hasBalloon" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 20 0 1 0)
+instance (GH.HasField "balloon" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 21 0 1 1)
+instance (GH.HasField "hasRng" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 22 0 1 0)
+instance (GH.HasField "rng" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 23 0 1 1)
 data DriveAttachParams 
 type instance (R.ReprFor DriveAttachParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DriveAttachParams) where

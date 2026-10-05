@@ -122,10 +122,6 @@ import Database.Persist.Sql (PersistFieldSql (..), SqlType (..), fromSqlKey, toS
 import Database.Persist.TH
 import GHC.Generics (Generic)
 
---------------------------------------------------------------------------------
--- EnumText type class - shared interface for all text-serializable enums
---------------------------------------------------------------------------------
-
 -- | Type class for enums that serialize to/from Text
 class (Eq a) => EnumText a where
   -- | The mapping between enum values and their text representations
@@ -166,10 +162,6 @@ enumToPersistValue = PersistText . enumToText
 enumFromPersistValue :: forall a. (EnumText a) => PersistValue -> Either Text a
 enumFromPersistValue (PersistText t) = enumFromText t
 enumFromPersistValue x = Left $ "Expected Text for " <> enumTypeName @a <> ", got: " <> T.pack (show x)
-
---------------------------------------------------------------------------------
--- VmStatus
---------------------------------------------------------------------------------
 
 data VmStatus
   = VmStopped
@@ -727,6 +719,9 @@ Vm
     autostart Bool default=false
     spicePort Int Maybe default=NULL
     vsockCid Int Maybe default=NULL
+    vsock Bool default=true
+    balloon Bool default=true
+    rng Bool default=true
     errorMessage Text Maybe default=NULL
     lastErrorAt UTCTime Maybe default=NULL
     rebootQuirk Bool default=false
@@ -895,6 +890,9 @@ TemplateVm
     rebootQuirk Bool default=false
     createdAt UTCTime
     graphicsAdapter GraphicsAdapter default='virtio-vga'
+    vsock Bool default=true
+    balloon Bool default=true
+    rng Bool default=true
     UniqueTemplateVmName name
     deriving Show Eq Generic
 

@@ -612,6 +612,8 @@ struct VmSpec {
   runtimeGeneration @21 :Int64;
   audioDevices @22 :List(VmAudioDeviceSpec);
   graphicsAdapter @23 :Enums.GraphicsAdapter = virtioVga;
+  balloon @24 :Bool = true;
+  rng @25 :Bool = true;
 }
 
 struct VmAudioDeviceSpec {

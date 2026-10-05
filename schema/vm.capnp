@@ -38,6 +38,9 @@ struct VmInfo {
   # Attach a software-emulated TPM 2.0 device backed by swtpm.
   tpm             @13 :Bool;
   graphicsAdapter @14 :Enums.GraphicsAdapter = virtioVga;
+  vsock           @15 :Bool = true;
+  balloon         @16 :Bool = true;
+  rng             @17 :Bool = true;
 }
 
 struct VmDetails {
@@ -82,6 +85,9 @@ struct VmDetails {
   tpm                 @27 :Bool;
   audioDevices        @28 :List(AudioDeviceInfo);
   graphicsAdapter     @29 :Enums.GraphicsAdapter = virtioVga;
+  vsock               @30 :Bool = true;
+  balloon             @31 :Bool = true;
+  rng                 @32 :Bool = true;
 }
 
 # Per-VM resource consumption sample. Cumulative counters + the
@@ -220,6 +226,9 @@ struct VmCreateParams {
   tpm             @11 :Bool = false;
   audioDevices    @12 :List(AudioDeviceParams);
   graphicsAdapter @13 :Enums.GraphicsAdapter = virtioVga;
+  vsock           @14 :Bool = true;
+  balloon         @15 :Bool = true;
+  rng             @16 :Bool = true;
 }
 
 struct VmEditParams {
@@ -249,6 +258,12 @@ struct VmEditParams {
   tpm                @21 :Bool;
   hasGraphicsAdapter @22 :Bool;
   graphicsAdapter    @23 :Enums.GraphicsAdapter = virtioVga;
+  hasVsock           @24 :Bool;
+  vsock              @25 :Bool = true;
+  hasBalloon         @26 :Bool;
+  balloon            @27 :Bool = true;
+  hasRng             @28 :Bool;
+  rng                @29 :Bool = true;
 }
 
 struct DriveAttachParams {

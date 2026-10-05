@@ -53,6 +53,9 @@ qemu-system-x86_64
 
 ```text
 -device vhost-vsock-pci,guest-cid=1000,id=vsock0
+-device virtio-balloon-pci,id=balloon0
+-object rng-random,id=rng0,filename=/dev/urandom
+-device virtio-rng-pci,rng=rng0,id=virtio-rng0
 -device virtio-serial,id=virtio-serial0
 -chardev socket,id=qga0,path=/run/user/1000/corvus/vms/1/qga.sock,server=on,wait=off
 -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0
@@ -63,6 +66,9 @@ qemu-system-x86_64
 
 - `vhost-vsock-pci` supplies host/guest vsock communication; this guest's
   context ID (CID) is `1000`.
+- `virtio-balloon-pci` lets the host adjust the guest's usable memory.
+- `rng-random` and `virtio-rng-pci` provide host entropy to the guest.
+  Vsock, balloon, and RNG are each enabled by default and can be disabled per VM.
 - `virtio-serial` supplies guest serial ports for the guest agent and SPICE
   agent.
 - The `qga0` socket listens for QEMU guest agent traffic without delaying VM

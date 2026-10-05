@@ -52,6 +52,8 @@ data VmSpec = VmSpec
   , vsGuestAgent :: !Bool
   , vsTpm :: !Bool
   , vsVsockCid :: !(Maybe Word32)
+  , vsBalloon :: !Bool
+  , vsRng :: !Bool
   , vsSpicePort :: !(Maybe Int32)
   , vsDrives :: ![VmDriveSpec]
   , vsNetIfs :: ![VmNetIfSpec]

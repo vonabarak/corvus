@@ -89,6 +89,9 @@ listVms = do
         , viRebootQuirk = vmRebootQuirk vm
         , viCpuModel = vmCpuModel vm
         , viGraphicsAdapter = vmGraphicsAdapter vm
+        , viVsock = vmVsock vm
+        , viBalloon = vmBalloon vm
+        , viRng = vmRng vm
         }
 
 -- | Get full VM details. Re-exported so 'Corvus.Handlers.Build' can
@@ -155,6 +158,9 @@ getVmDetails config vmId = do
             , vdMonitorSocket = T.pack monitorSock
             , vdSpicePort = vmSpicePort vm
             , vdVsockCid = vmVsockCid vm
+            , vdVsock = vmVsock vm
+            , vdBalloon = vmBalloon vm
+            , vdRng = vmRng vm
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm

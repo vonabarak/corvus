@@ -39,6 +39,9 @@ data TemplateVmInfo = TemplateVmInfo
   , tviAutostart :: !Bool
   , tviRebootQuirk :: !Bool
   , tviGraphicsAdapter :: !GraphicsAdapter
+  , tviVsock :: !Bool
+  , tviBalloon :: !Bool
+  , tviRng :: !Bool
   }
   deriving (Eq, Show, Generic)
 
@@ -118,6 +121,9 @@ data TemplateDetails = TemplateDetails
   , tvdSharedDirs :: ![TemplateSharedDirInfo]
   , tvdAudioDevices :: ![TemplateAudioDeviceInfo]
   , tvdGraphicsAdapter :: !GraphicsAdapter
+  , tvdVsock :: !Bool
+  , tvdBalloon :: !Bool
+  , tvdRng :: !Bool
   }
   deriving (Eq, Show, Generic)
 

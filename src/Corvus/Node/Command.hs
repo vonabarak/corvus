@@ -65,6 +65,8 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , staticScsiPortArgs
       , scsiControllerArgs
       , vsockArgs
+      , balloonArgs
+      , rngArgs
       , guestAgentArgs
       , tpmArgs
       , displayArgs
@@ -166,6 +168,13 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
         , "vhost-vsock-pci,guest-cid=" ++ show cid ++ ",id=vsock0"
         ]
       Nothing -> []
+
+    balloonArgs = if VS.vsBalloon spec then ["-device", "virtio-balloon-pci,id=balloon0"] else []
+
+    rngArgs =
+      if VS.vsRng spec
+        then ["-object", "rng-random,id=rng0,filename=/dev/urandom", "-device", "virtio-rng-pci,rng=rng0,id=virtio-rng0"]
+        else []
 
     guestAgentArgs =
       [ "-device"

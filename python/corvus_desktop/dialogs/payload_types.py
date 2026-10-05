@@ -19,6 +19,9 @@ class VmCreatePayload(TypedDict):
     cloud_init: bool
     autostart: bool
     reboot_quirk: bool
+    vsock: bool
+    balloon: bool
+    rng: bool
 
 
 class VmEditPayload(TypedDict, total=False):
@@ -34,6 +37,9 @@ class VmEditPayload(TypedDict, total=False):
     cloud_init: bool
     autostart: bool
     reboot_quirk: bool
+    vsock: bool
+    balloon: bool
+    rng: bool
 
 
 class NodePayload(TypedDict):

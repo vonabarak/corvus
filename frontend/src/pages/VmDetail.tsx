@@ -400,6 +400,9 @@ export default function VmDetail() {
           <Field label="Node" value={vm.node.name} />
           <Field label="CPU" value={`${vm.cpu_count} × ${vm.cpu_model}`} />
           <Field label="Graphics adapter" value={vm.graphics_adapter} />
+          <Field label="VirtIO vsock" value={vm.vsock ? "yes" : "no"} />
+          <Field label="VirtIO balloon" value={vm.balloon ? "yes" : "no"} />
+          <Field label="VirtIO RNG" value={vm.rng ? "yes" : "no"} />
           <Field label="RAM" value={`${vm.ram_mb} MB`} />
           <Field label="Created" value={new Date(vm.created_at).toLocaleString()} />
           {vm.description && <Field label="Description" value={vm.description} />}

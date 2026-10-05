@@ -246,7 +246,7 @@ startQemuAndMonitor ctx vmId vm nextStatus = do
   case spiceResult of
     Left err -> recordPreStartFailure state vmId vm pool "Failed to allocate SPICE port" err
     Right _ -> do
-      cidResult <- liftIO $ ensureFreeVsockCid state vmId vm
+      cidResult <- if vmVsock vm then liftIO (ensureFreeVsockCid state vmId vm) else pure (Right 0)
       case cidResult of
         Left err ->
           recordPreStartFailure state vmId vm pool "Failed to secure a free vsock CID" err
@@ -368,7 +368,7 @@ launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
                 updated <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) VmRunning) (ssDbPool state)
                 pure $ if updated then RespVmStateChanged VmRunning else RespInvalidTransition nextStatus "VM lifecycle operation was superseded"
           Right NOA.VmStartVsockCidBusy
-            | attempt == 0 -> retryWithFreshVsockCid
+            | attempt == 0 && vmVsock vm -> retryWithFreshVsockCid
             | otherwise ->
                 recordPreStartFailure
                   state

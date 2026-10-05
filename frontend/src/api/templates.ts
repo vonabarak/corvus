@@ -13,6 +13,9 @@ export interface TemplateVmInfo {
   autostart: boolean;
   description: string | null;
   graphics_adapter: GraphicsAdapter;
+  vsock: boolean;
+  balloon: boolean;
+  rng: boolean;
 }
 
 export interface TemplateDriveInfo {
@@ -78,6 +81,9 @@ export interface TemplateDetails {
   description: string | null;
   cloud_init_config: CloudInitInfo | null;
   graphics_adapter: GraphicsAdapter;
+  vsock: boolean;
+  balloon: boolean;
+  rng: boolean;
 }
 
 export function listTemplates(signal?: AbortSignal): Promise<TemplateVmInfo[]> {

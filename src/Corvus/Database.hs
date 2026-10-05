@@ -65,7 +65,7 @@ currentSchemaVersion :: Int
 -- drive.disk_image_id nullable to represent a CD-ROM drive with no
 -- media (ejected tray). Version 4 adds daemon-owned VM lifecycle fence
 -- tokens for cold-start/reset races.
-currentSchemaVersion = 7
+currentSchemaVersion = 8
 
 data DatabaseConfig = DatabaseConfig
   { dcEngine :: !DatabaseEngine

@@ -57,6 +57,9 @@ A template is defined by a single YAML document. The same schema is accepted by 
 | `description` | string | no | | Free-form description. |
 | `headless` | bool | no | `false` | `true` = serial console only; `false` = SPICE graphics. |
 | `graphicsAdapter` | enum | no | `virtio-vga` | Display device for graphical VMs: `virtio-vga`, `qxl-vga`, `vga`, `virtio-gpu-pci`, `virtio-vga-gl`, or `virtio-gpu-gl-pci`. Headless VMs retain the value without using it. GL models require host EGL support. |
+| `vsock` | bool | no | `true` | Attach a VirtIO vsock device to instantiated VMs. |
+| `balloon` | bool | no | `true` | Attach a VirtIO memory balloon. |
+| `rng` | bool | no | `true` | Attach a VirtIO random number generator backed by `/dev/urandom`. |
 | `cloudInit` | bool | no | `false` | Enable cloud-init ISO generation for instantiated VMs. |
 | `guestAgent` | bool | no | `false` | Enable QEMU guest agent on instantiated VMs. |
 | `tpm` | bool | no | `false` | Enable an emulated TPM 2.0 CRB device backed by persistent swtpm state. |

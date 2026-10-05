@@ -27,6 +27,9 @@ export interface VmInfo {
   reboot_quirk: boolean;
   cpu_model: string;
   graphics_adapter: GraphicsAdapter;
+  vsock: boolean;
+  balloon: boolean;
+  rng: boolean;
 }
 
 export interface DriveInfo {
@@ -154,6 +157,9 @@ export interface VmCreateBody {
   reboot_quirk?: boolean;
   cpu_model?: string;
   graphics_adapter?: GraphicsAdapter;
+  vsock?: boolean;
+  balloon?: boolean;
+  rng?: boolean;
   audio_devices?: [AudioDeviceInfo["backend"], string, AudioDeviceModel][];
 }
 

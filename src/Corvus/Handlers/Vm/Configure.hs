@@ -65,8 +65,11 @@ handleVmCreate
   -- ^ cpuModel (empty == "host")
   -> [(AudioBackend, AudioDeviceModel, Text)]
   -> GraphicsAdapter
+  -> Bool
+  -> Bool
+  -> Bool
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter =
+handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng =
   case validateName "VM" name >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
@@ -83,20 +86,23 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             -- — QEMU will start without a vhost-vsock-pci device
             -- and operators just lose the @ssh user\@vsock/CID@
             -- shortcut for that VM.
-            eVmId <- do
-              r <-
-                withAllocatedVsockCid state nodeKey $ \cid ->
-                  runSqlPool
-                    (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid))
-                    pool
-              case r of
-                Right vmId -> pure (Right vmId)
-                Left _ -> do
-                  vmId <-
-                    runSqlPool
-                      (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing)
-                      pool
-                  pure (Right vmId)
+            eVmId <-
+              if not vsock
+                then Right <$> runSqlPool (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng) pool
+                else do
+                  r <-
+                    withAllocatedVsockCid state nodeKey $ \cid ->
+                      runSqlPool
+                        (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng)
+                        pool
+                  case r of
+                    Right vmId -> pure (Right vmId)
+                    Left _ -> do
+                      vmId <-
+                        runSqlPool
+                          (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng)
+                          pool
+                      pure (Right vmId)
             case eVmId of
               Left err -> pure $ RespError err
               Right vmId -> do
@@ -151,8 +157,11 @@ handleVmEdit
   -> Maybe Text
   -- ^ cpuModel
   -> Maybe GraphicsAdapter
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
   -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter = do
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
@@ -172,16 +181,19 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit m
               , isJust mTpm
               , isJust mCloudInit
               , isJust mGraphicsAdapter
+              , isJust mVsock
+              , isJust mBalloon
+              , isJust mRng
               ]
        in if hasRuntimeEdits && status /= VmStopped
             then pure RespVmMustBeStopped
             else do
               hasRamSnapshots <-
-                if maybe False (/= vmGraphicsAdapter vm) mGraphicsAdapter
+                if or [maybe False (/= vmGraphicsAdapter vm) mGraphicsAdapter, maybe False (/= vmVsock vm) mVsock, maybe False (/= vmBalloon vm) mBalloon, maybe False (/= vmRng vm) mRng]
                   then runSqlPool (vmHasRamSnapshots vmId) (ssDbPool state)
                   else pure False
               if hasRamSnapshots
-                then pure (RespError "Cannot change graphics adapter while an attached disk has a RAM snapshot")
+                then pure (RespError "Cannot change virtual devices while an attached disk has a RAM snapshot")
                 else do
                   tpmDeleteResult <-
                     if vmTpm vm && mTpm == Just False
@@ -204,6 +216,9 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit m
                             mRebootQuirk
                             mCpuModel
                             mGraphicsAdapter
+                            mVsock
+                            mBalloon
+                            mRng
                         )
                         (ssDbPool state)
                       pure RespVmEdited
@@ -237,8 +252,11 @@ createVm
   -- ^ cpuModel
   -> GraphicsAdapter
   -> Maybe Int
+  -> Bool
+  -> Bool
+  -> Bool
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid = do
+createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -259,6 +277,9 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudIn
           , vmAutostart = autostart
           , vmSpicePort = Nothing
           , vmVsockCid = vsockCid
+          , vmVsock = vsock
+          , vmBalloon = balloon
+          , vmRng = rng
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
           , vmRebootQuirk = rebootQuirk
@@ -282,8 +303,11 @@ editVm
   -> Maybe Bool
   -> Maybe Text
   -> Maybe GraphicsAdapter
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
   -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter = do
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -297,6 +321,9 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mR
           ++ maybe [] (\rq -> [M.VmRebootQuirk =. rq]) mRebootQuirk
           ++ maybe [] (\cm -> [M.VmCpuModel =. cm]) mCpuModel
           ++ maybe [] (\ga -> [M.VmGraphicsAdapter =. ga]) mGraphicsAdapter
+          ++ maybe [] (\enabled -> (M.VmVsock =. enabled) : [M.VmVsockCid =. Nothing | not enabled]) mVsock
+          ++ maybe [] (\enabled -> [M.VmBalloon =. enabled]) mBalloon
+          ++ maybe [] (\enabled -> [M.VmRng =. enabled]) mRng
   case updates of
     [] -> pure ()
     us -> update key us
@@ -320,6 +347,9 @@ data VmCreate = VmCreate
   , vcrCpuModel :: Text
   , vcrAudioDevices :: [(AudioBackend, AudioDeviceModel, Text)]
   , vcrGraphicsAdapter :: GraphicsAdapter
+  , vcrVsock :: Bool
+  , vcrBalloon :: Bool
+  , vcrRng :: Bool
   -- ^ QEMU @-cpu@ model. Empty == use the daemon default
   -- ('host'); see the schema field comment on
   -- @schema/vm.capnp::VmInfo.cpuModel@ for the
@@ -347,6 +377,9 @@ instance Action VmCreate where
       (vcrCpuModel a)
       (vcrAudioDevices a)
       (vcrGraphicsAdapter a)
+      (vcrVsock a)
+      (vcrBalloon a)
+      (vcrRng a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64
@@ -361,6 +394,9 @@ data VmEdit = VmEdit
   , vedRebootQuirk :: Maybe Bool
   , vedCpuModel :: Maybe Text
   , vedGraphicsAdapter :: Maybe GraphicsAdapter
+  , vedVsock :: Maybe Bool
+  , vedBalloon :: Maybe Bool
+  , vedRng :: Maybe Bool
   }
 
 instance Action VmEdit where
@@ -382,3 +418,6 @@ instance Action VmEdit where
       (vedRebootQuirk a)
       (vedCpuModel a)
       (vedGraphicsAdapter a)
+      (vedVsock a)
+      (vedBalloon a)
+      (vedRng a)

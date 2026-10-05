@@ -220,5 +220,8 @@ insertVmOnNode name nodeKey = do
           , M.vmRebootQuirk = False
           , M.vmCpuModel = "host"
           , M.vmGraphicsAdapter = M.GraphicsVirtioVga
+          , M.vmVsock = True
+          , M.vmBalloon = True
+          , M.vmRng = True
           }
   pure $ fromSqlKey key

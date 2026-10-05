@@ -146,6 +146,9 @@ class VmDetailWidget(QWidget):
         self._node = QLabel("—")
         self._created = QLabel("—")
         self._tpm = QLabel("—")
+        self._vsock = QLabel("—")
+        self._balloon = QLabel("—")
+        self._rng = QLabel("—")
         self._graphics_adapter = QLabel("—")
         self._error = QLabel("")
         self._error.setStyleSheet("color: #991b1b;")
@@ -165,6 +168,9 @@ class VmDetailWidget(QWidget):
         form.addRow("RAM:", self._ram)
         form.addRow("Created:", self._created)
         form.addRow("TPM 2.0:", self._tpm)
+        form.addRow("VirtIO vsock:", self._vsock)
+        form.addRow("VirtIO balloon:", self._balloon)
+        form.addRow("VirtIO RNG:", self._rng)
 
         # Summary pane is its own tab (no QGroupBox — the tab header
         # already labels it).
@@ -336,6 +342,9 @@ class VmDetailWidget(QWidget):
             self._node,
             self._created,
             self._tpm,
+            self._vsock,
+            self._balloon,
+            self._rng,
             self._graphics_adapter,
         ):
             label.setText("—")
@@ -363,6 +372,9 @@ class VmDetailWidget(QWidget):
         self._ram.setText(f"{info.ram_mb} MB")
         self._created.setText(info.created_at.isoformat(sep=" ", timespec="seconds"))
         self._tpm.setText("enabled" if info.tpm else "disabled")
+        self._vsock.setText("enabled" if info.vsock else "disabled")
+        self._balloon.setText("enabled" if info.balloon else "disabled")
+        self._rng.setText("enabled" if info.rng else "disabled")
         self._error.setText(info.error_message or "")
         self._fill_drives(info.drives)
         self._fill_netifs(info.net_ifs)

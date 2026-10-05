@@ -198,8 +198,11 @@ rpcVmCreate
   -> Text
   -- ^ cpuModel
   -> GraphicsAdapter
+  -> Bool
+  -> Bool
+  -> Bool
   -> IO Int64
-rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm graphicsAdapter = do
+rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm graphicsAdapter vsock balloon rng = do
   CGCorvus.Daemon'vms'results {CGCorvus.mgr = mgr} <-
     callOn #vms CGCorvus.Daemon'vms'params (ccDaemon conn)
   let inner =
@@ -218,6 +221,9 @@ rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm g
           , CGVm.cpuModel = cm
           , CGVm.audioDevices = []
           , CGVm.graphicsAdapter = toCapnpGraphicsAdapter graphicsAdapter
+          , CGVm.vsock = vsock
+          , CGVm.balloon = balloon
+          , CGVm.rng = rng
           }
   CGVm.VmManager'create'results {CGVm.vm = vmClient} <-
     callOn #create CGVm.VmManager'create'params {CGVm.params = inner} mgr
@@ -302,8 +308,11 @@ rpcVmEdit
   -> Maybe Text
   -- ^ new cpuModel
   -> Maybe GraphicsAdapter
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
   -> IO ()
-rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter = do
+rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng = do
   vmClient <- getVmClient conn ref
   let p =
         CGVm.VmEditParams
@@ -331,6 +340,12 @@ rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphics
           , CGVm.cpuModel = fromMaybe "" mCm
           , CGVm.hasGraphicsAdapter = isJust mGraphicsAdapter
           , CGVm.graphicsAdapter = toCapnpGraphicsAdapter (fromMaybe GraphicsVirtioVga mGraphicsAdapter)
+          , CGVm.hasVsock = isJust mVsock
+          , CGVm.vsock = fromMaybe True mVsock
+          , CGVm.hasBalloon = isJust mBalloon
+          , CGVm.balloon = fromMaybe True mBalloon
+          , CGVm.hasRng = isJust mRng
+          , CGVm.rng = fromMaybe True mRng
           }
   _ <- callOn #edit CGVm.Vm'edit'params {CGVm.params = p} vmClient
   pure ()

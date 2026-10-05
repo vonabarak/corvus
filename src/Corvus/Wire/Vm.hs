@@ -107,6 +107,9 @@ toCapnpVmInfo P.VmInfo {..} =
     , CGVm.rebootQuirk = viRebootQuirk
     , CGVm.cpuModel = viCpuModel
     , CGVm.graphicsAdapter = toCapnpGraphicsAdapter viGraphicsAdapter
+    , CGVm.vsock = viVsock
+    , CGVm.balloon = viBalloon
+    , CGVm.rng = viRng
     }
 
 fromCapnpVmInfo :: C.Parsed CGVm.VmInfo -> Either WireError P.VmInfo
@@ -130,6 +133,9 @@ fromCapnpVmInfo CGVm.VmInfo {..} = do
       , P.viRebootQuirk = rebootQuirk
       , P.viCpuModel = cpuModel
       , P.viGraphicsAdapter = graphicsAdapter'
+      , P.viVsock = vsock
+      , P.viBalloon = balloon
+      , P.viRng = rng
       }
 
 -- ---------------------------------------------------------------------
@@ -242,6 +248,9 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
     , CGVm.monitorSocket = vdMonitorSocket
     , CGVm.spicePort = maybe 0 fromIntegral vdSpicePort
     , CGVm.vsockCid = maybe 0 fromIntegral vdVsockCid
+    , CGVm.vsock = vdVsock
+    , CGVm.balloon = vdBalloon
+    , CGVm.rng = vdRng
     , CGVm.serialSocket = vdSerialSocket
     , CGVm.guestAgentSocket = vdGuestAgentSocket
     , CGVm.guestAgent = vdGuestAgent
@@ -307,6 +316,9 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdMonitorSocket = monitorSocket
         , P.vdSpicePort = if spicePort == 0 then Nothing else Just (fromIntegral spicePort)
         , P.vdVsockCid = if vsockCid == 0 then Nothing else Just (fromIntegral vsockCid)
+        , P.vdVsock = vsock
+        , P.vdBalloon = balloon
+        , P.vdRng = rng
         , P.vdSerialSocket = serialSocket
         , P.vdGuestAgentSocket = guestAgentSocket
         , P.vdGuestAgent = guestAgent

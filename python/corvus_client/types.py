@@ -95,6 +95,9 @@ class VmInfo:
     reboot_quirk: bool = False
     cpu_model: str = "host"
     graphics_adapter: str = "virtio-vga"
+    vsock: bool = True
+    balloon: bool = True
+    rng: bool = True
 
 
 @dataclass(frozen=True)
@@ -172,6 +175,9 @@ class VmDetails:
     cpu_model: str = "host"
     graphics_adapter: str = "virtio-vga"
     stats: VmStats | None = None
+    vsock: bool = True
+    balloon: bool = True
+    rng: bool = True
     # ^ Most-recent resource-consumption sample from the daemon.
     # `None` only on legacy responses that predate the field.
     # The daemon emits a zero-filled placeholder when the VM has no
@@ -457,6 +463,9 @@ class TemplateVmInfo:
     autostart: bool
     description: str | None = None
     graphics_adapter: str = "virtio-vga"
+    vsock: bool = True
+    balloon: bool = True
+    rng: bool = True
 
 
 @dataclass(frozen=True)
@@ -522,6 +531,9 @@ class TemplateDetails:
     description: str | None = None
     cloud_init_config: CloudInitInfo | None = None
     graphics_adapter: str = "virtio-vga"
+    vsock: bool = True
+    balloon: bool = True
+    rng: bool = True
 
 
 # ---------------------------------------------------------------------------

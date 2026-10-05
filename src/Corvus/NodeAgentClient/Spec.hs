@@ -113,7 +113,9 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
                   , VS.vsHeadless = vmHeadless vm
                   , VS.vsGuestAgent = vmGuestAgent vm
                   , VS.vsTpm = vmTpm vm
-                  , VS.vsVsockCid = fmap fromIntegral (vmVsockCid vm)
+                  , VS.vsVsockCid = if vmVsock vm then fmap fromIntegral (vmVsockCid vm) else Nothing
+                  , VS.vsBalloon = vmBalloon vm
+                  , VS.vsRng = vmRng vm
                   , VS.vsSpicePort = fmap fromIntegral (vmSpicePort vm)
                   , VS.vsDrives = driveSpecs
                   , VS.vsNetIfs = netIfSpecs

@@ -21,6 +21,8 @@ baseSpec =
     , vsGuestAgent = False
     , vsTpm = False
     , vsVsockCid = Nothing
+    , vsBalloon = True
+    , vsRng = True
     , vsSpicePort = Nothing
     , vsDrives = []
     , vsNetIfs = []
@@ -76,6 +78,20 @@ scsiDrive =
 
 spec :: Spec
 spec = describe "buildQemuCommandFromSpec" $ do
+  it "attaches the optional VirtIO devices when enabled" $ do
+    let args = qemuArgs baseSpec {vsVsockCid = Just 1000}
+    args `shouldContain` ["vhost-vsock-pci,guest-cid=1000,id=vsock0"]
+    args `shouldContain` ["virtio-balloon-pci,id=balloon0"]
+    args `shouldContain` ["rng-random,id=rng0,filename=/dev/urandom"]
+    args `shouldContain` ["virtio-rng-pci,rng=rng0,id=virtio-rng0"]
+
+  it "omits optional VirtIO devices when disabled" $ do
+    let args = qemuArgs baseSpec {vsVsockCid = Nothing, vsBalloon = False, vsRng = False}
+    args `shouldNotContain` ["vhost-vsock-pci,guest-cid=1000,id=vsock0"]
+    args `shouldNotContain` ["virtio-balloon-pci,id=balloon0"]
+    args `shouldNotContain` ["rng-random,id=rng0,filename=/dev/urandom"]
+    args `shouldNotContain` ["virtio-rng-pci,rng=rng0,id=virtio-rng0"]
+
   it "uses the selected graphics device with SPICE" $ do
     let args = qemuArgs baseSpec {vsHeadless = False, vsSpicePort = Just 5901, vsGraphicsAdapter = GraphicsQxlVga}
     args `shouldContain` ["-vga", "none", "-device", "qxl-vga"]

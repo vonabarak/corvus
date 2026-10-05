@@ -76,6 +76,9 @@ class AsyncVmManager:
         reboot_quirk: bool = False,
         cpu_model: str = "host",
         graphics_adapter: str = "virtio-vga",
+        vsock: bool = True,
+        balloon: bool = True,
+        rng: bool = True,
         audio_devices: Sequence[tuple[str, str] | tuple[str, str, str]] | None = None,
     ) -> AsyncVm:
         """Create a bare VM record.
@@ -107,6 +110,9 @@ class AsyncVmManager:
         params.rebootQuirk = reboot_quirk
         params.cpuModel = cpu_model
         params.graphicsAdapter = to_wire(graphics_adapter)
+        params.vsock = vsock
+        params.balloon = balloon
+        params.rng = rng
         if audio_devices:
             devices = params.init("audioDevices", len(audio_devices))
             for device, config in zip(devices, audio_devices, strict=True):
@@ -171,6 +177,9 @@ class AsyncVm:
         reboot_quirk: bool | None = None,
         cpu_model: str | None = None,
         graphics_adapter: str | None = None,
+        vsock: bool | None = None,
+        balloon: bool | None = None,
+        rng: bool | None = None,
     ) -> None:
         params = _schema.vm.VmEditParams.new_message()
         _set_optional(params, "hasName", "name", name)
@@ -183,6 +192,9 @@ class AsyncVm:
         _set_optional(params, "hasCloudInit", "cloudInit", cloud_init)
         _set_optional(params, "hasAutostart", "autostart", autostart)
         _set_optional(params, "hasRebootQuirk", "rebootQuirk", reboot_quirk)
+        _set_optional(params, "hasVsock", "vsock", vsock)
+        _set_optional(params, "hasBalloon", "balloon", balloon)
+        _set_optional(params, "hasRng", "rng", rng)
         _set_optional(params, "hasCpuModel", "cpuModel", cpu_model)
         _set_optional(
             params,

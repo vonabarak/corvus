@@ -52,6 +52,9 @@ data VmInfo = VmInfo
   , viRebootQuirk :: !Bool
   , viCpuModel :: !Text
   , viGraphicsAdapter :: !GraphicsAdapter
+  , viVsock :: !Bool
+  , viBalloon :: !Bool
+  , viRng :: !Bool
   -- ^ QEMU @-cpu@ model. Default @"host"@ for back-compat; see
   -- @schema/vm.capnp::VmInfo.cpuModel@ for migration-safety
   -- trade-off.
@@ -120,9 +123,10 @@ data VmDetails = VmDetails
   -- ^ TCP port QEMU is serving SPICE on (when the VM is running and
   -- not headless). 'Nothing' for headless VMs or stopped VMs.
   , vdVsockCid :: !(Maybe Int)
-  -- ^ AF_VSOCK CID assigned to the VM at creation, used as
-  -- @guest-cid=@ on the @vhost-vsock-pci@ device. Stable across
-  -- starts. 'Nothing' only for legacy rows that predate this field.
+  -- ^ Actual assigned CID, if vsock is enabled and allocation succeeded.
+  , vdVsock :: !Bool
+  , vdBalloon :: !Bool
+  , vdRng :: !Bool
   , vdSerialSocket :: !Text
   -- ^ Path to serial console socket
   , vdGuestAgentSocket :: !Text

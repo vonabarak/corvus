@@ -145,6 +145,9 @@ handleTemplateList state = do
         , tviAutostart = templateVmAutostart t
         , tviRebootQuirk = templateVmRebootQuirk t
         , tviGraphicsAdapter = templateVmGraphicsAdapter t
+        , tviVsock = templateVmVsock t
+        , tviBalloon = templateVmBalloon t
+        , tviRng = templateVmRng t
         }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
@@ -196,6 +199,9 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
                 ""
                 [(tvadiBackend audioDevice, tvadiModel audioDevice, tvadiOptions audioDevice) | audioDevice <- tvdAudioDevices details]
                 (tvdGraphicsAdapter details)
+                (tvdVsock details)
+                (tvdBalloon details)
+                (tvdRng details)
             )
       case vmResp of
         RespVmCreated vmIdLong -> do
@@ -268,7 +274,7 @@ insertTemplateYaml ty now = do
         then pure $ Left "Template has SSH keys but cloud-init is not enabled"
         else case (sequence mDiskIds, sequence mKeyIds) of
           (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty)
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty)
             case mTid of
               Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
               Just tid -> do
@@ -468,6 +474,9 @@ getTemplateDetails tid = do
             , tvdSharedDirs = sharedDirInfos
             , tvdAudioDevices = audioDeviceInfos
             , tvdGraphicsAdapter = templateVmGraphicsAdapter t
+            , tvdVsock = templateVmVsock t
+            , tvdBalloon = templateVmBalloon t
+            , tvdRng = templateVmRng t
             }
 
 deleteTemplate :: TemplateVmId -> SqlPersistT IO ()

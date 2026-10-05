@@ -126,6 +126,9 @@ vmCreateCommand =
           <> showDefaultWith (T.unpack . enumToText)
           <> help "Graphics adapter: virtio-vga, qxl-vga, vga, virtio-gpu-pci, virtio-vga-gl, virtio-gpu-gl-pci"
       )
+    <*> (not <$> switch (long "no-vsock" <> help "Do not attach a VirtIO vsock device"))
+    <*> (not <$> switch (long "no-balloon" <> help "Do not attach a VirtIO memory balloon device"))
+    <*> (not <$> switch (long "no-rng" <> help "Do not attach a VirtIO RNG device"))
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -339,6 +342,9 @@ vmEditCommand =
               <> help "New graphics adapter (requires stopped VM)"
           )
       )
+    <*> optional (option readBool (long "vsock" <> metavar "BOOL" <> help "Enable/disable VirtIO vsock (true/false; requires stopped VM)" <> completeWith ["true", "false"]))
+    <*> optional (option readBool (long "balloon" <> metavar "BOOL" <> help "Enable/disable VirtIO memory balloon (true/false; requires stopped VM)" <> completeWith ["true", "false"]))
+    <*> optional (option readBool (long "rng" <> metavar "BOOL" <> help "Enable/disable VirtIO RNG (true/false; requires stopped VM)" <> completeWith ["true", "false"]))
 
 -- | Parser for vm view
 vmViewCommand :: Parser Command

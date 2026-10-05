@@ -163,6 +163,9 @@ insertVm name status = do
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           , vmGraphicsAdapter = GraphicsVirtioVga
+          , vmVsock = True
+          , vmBalloon = True
+          , vmRng = True
           }
   pure $ fromSqlKey key
 
@@ -199,6 +202,9 @@ insertRunningVmWithGuestAgent name = do
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           , vmGraphicsAdapter = GraphicsVirtioVga
+          , vmVsock = True
+          , vmBalloon = True
+          , vmRng = True
           }
   pure $ fromSqlKey key
 
@@ -234,6 +240,9 @@ insertHeadlessVm name status = do
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           , vmGraphicsAdapter = GraphicsVirtioVga
+          , vmVsock = True
+          , vmBalloon = True
+          , vmRng = True
           }
   pure $ fromSqlKey key
 
@@ -275,6 +284,9 @@ insertVmFull name status cpus ramMb desc _pid = do
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           , vmGraphicsAdapter = GraphicsVirtioVga
+          , vmVsock = True
+          , vmBalloon = True
+          , vmRng = True
           }
   pure $ fromSqlKey key
 
@@ -309,6 +321,9 @@ defaultVm = do
       , vmRebootQuirk = False
       , vmCpuModel = "host"
       , vmGraphicsAdapter = GraphicsVirtioVga
+      , vmVsock = True
+      , vmBalloon = True
+      , vmRng = True
       }
 
 --------------------------------------------------------------------------------
@@ -662,6 +677,9 @@ givenCloudInitVmExists name = do
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           , vmGraphicsAdapter = GraphicsVirtioVga
+          , vmVsock = True
+          , vmBalloon = True
+          , vmRng = True
           }
   pure $ fromSqlKey key
 

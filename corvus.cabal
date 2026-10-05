@@ -270,6 +270,7 @@ library
       Corvus.Database.Migrations.V005
       Corvus.Database.Migrations.V006
       Corvus.Database.Migrations.V007
+      Corvus.Database.Migrations.V008
       Corvus.Handlers.AudioDevice
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate

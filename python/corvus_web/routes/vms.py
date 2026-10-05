@@ -121,6 +121,9 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
     cloud_init: bool = False
     autostart: bool = False
     reboot_quirk: bool = False
+    vsock: bool = True
+    balloon: bool = True
+    rng: bool = True
     cpu_model: str = Field(
         "host",
         description=(
@@ -159,6 +162,9 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
             reboot_quirk=body.reboot_quirk,
             cpu_model=body.cpu_model,
             graphics_adapter=body.graphics_adapter,
+            vsock=body.vsock,
+            balloon=body.balloon,
+            rng=body.rng,
             audio_devices=body.audio_devices,
         )
     except CorvusError as exc:

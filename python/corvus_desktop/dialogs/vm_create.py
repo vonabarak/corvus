@@ -52,6 +52,12 @@ class VmCreateDialog(FormDialog):
         self._description.setMaximumHeight(80)
         self._headless = QCheckBox()
         self._guest_agent = QCheckBox()
+        self._vsock = QCheckBox()
+        self._vsock.setChecked(True)
+        self._balloon = QCheckBox()
+        self._balloon.setChecked(True)
+        self._rng = QCheckBox()
+        self._rng.setChecked(True)
         self._tpm = QCheckBox()
         self._cloud_init = QCheckBox()
         self._autostart = QCheckBox()
@@ -68,6 +74,9 @@ class VmCreateDialog(FormDialog):
         form.addRow("Description:", self._description)
         form.addRow("Headless:", self._headless)
         form.addRow("Guest agent:", self._guest_agent)
+        form.addRow("VirtIO vsock:", self._vsock)
+        form.addRow("VirtIO balloon:", self._balloon)
+        form.addRow("VirtIO RNG:", self._rng)
         form.addRow("TPM 2.0:", self._tpm)
         form.addRow("Cloud-init:", self._cloud_init)
         form.addRow("Autostart:", self._autostart)
@@ -88,6 +97,9 @@ class VmCreateDialog(FormDialog):
             "graphics_adapter": self._graphics_adapter.currentText(),
             "headless": self._headless.isChecked(),
             "guest_agent": self._guest_agent.isChecked(),
+            "vsock": self._vsock.isChecked(),
+            "balloon": self._balloon.isChecked(),
+            "rng": self._rng.isChecked(),
             "tpm": self._tpm.isChecked(),
             "cloud_init": self._cloud_init.isChecked(),
             "autostart": self._autostart.isChecked(),

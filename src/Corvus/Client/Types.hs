@@ -102,7 +102,7 @@ data Command
     VmList
   | VmShow !Text
   | -- | Create a new VM (name, nodeRef, cpuCount, ramMb, description, headless, guestAgent, tpm, cloudInit, autostart, rebootQuirk, cpuModel)
-    VmCreate !Text !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool !Bool !Bool !Text !GraphicsAdapter
+    VmCreate !Text !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool !Bool !Bool !Text !GraphicsAdapter !Bool !Bool !Bool
   | -- | Delete a VM (vmRef, keepDisks, force)
     VmDelete !Text !Bool !Bool
   | VmStart !Text !WaitOptions
@@ -115,7 +115,7 @@ data Command
   | -- | Connect to VM's HMP monitor
     VmMonitor !Text
   | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, tpm, cloudInit, autostart, rebootQuirk, cpuModel)
-    VmEdit !Text !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Text) !(Maybe GraphicsAdapter)
+    VmEdit !Text !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Text) !(Maybe GraphicsAdapter) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- | Generate/regenerate cloud-init ISO for a VM
     CloudInitGenerate !Text
   | -- | Execute a command in a VM via guest agent (vmRef, command)

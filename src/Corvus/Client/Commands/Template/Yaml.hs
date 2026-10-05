@@ -42,6 +42,9 @@ templateDetailsToValue t =
     , "ramMb" .= tvdRamMb t
     , "headless" .= tvdHeadless t
     , "graphicsAdapter" .= tvdGraphicsAdapter t
+    , "vsock" .= tvdVsock t
+    , "balloon" .= tvdBalloon t
+    , "rng" .= tvdRng t
     , "cloudInit" .= tvdCloudInit t
     , "guestAgent" .= tvdGuestAgent t
     , "tpm" .= tvdTpm t
@@ -127,6 +130,9 @@ skeletonTemplateYaml =
   \ramMb: 1024\n\
   \headless: false\n\
   \graphicsAdapter: virtio-vga\n\
+  \vsock: true\n\
+  \balloon: true\n\
+  \rng: true\n\
   \cloudInit: false\n\
   \guestAgent: false\n\
   \tpm: false\n\

@@ -147,6 +147,8 @@ decodeVmSpec
     , CGNA.loadFromSavedState = lfs
     , CGNA.cpuModel = cm
     , CGNA.startPaused = sps
+    , CGNA.balloon = balloon
+    , CGNA.rng = rng
     } =
     ( \adapter ->
         VS.VmSpec
@@ -161,6 +163,8 @@ decodeVmSpec
           , VS.vsGuestAgent = g
           , VS.vsTpm = tpm
           , VS.vsVsockCid = if hvc then Just vc else Nothing
+          , VS.vsBalloon = balloon
+          , VS.vsRng = rng
           , VS.vsSpicePort = if hsp then Just sp else Nothing
           , VS.vsDrives = map decodeVmDriveSpec ds
           , VS.vsNetIfs = map decodeVmNetIfSpec nis

@@ -32,6 +32,7 @@ crv vm create my-vm --cpus 2 --ram 2048 -d "Web server"    # With description
 crv vm create my-vm --cpus 2 --ram 2048 --node alpha       # Pin to a specific node
 crv vm create my-vm --cpus 2 --ram 2048 --cpu-model qemu64 # Migratable CPU model (see below)
 crv vm create my-vm --graphics-adapter qxl-vga              # QXL display adapter
+crv vm create my-vm --no-vsock --no-balloon --no-rng         # Omit optional VirtIO devices
 ```
 
 When omitted, `--cpus` defaults to `1` and `--ram` defaults to `1024` MB.
@@ -109,12 +110,14 @@ crv vm edit my-vm --tpm false                 # Disable TPM and erase persistent
 crv vm edit my-vm --headless true             # Switch to serial console
 crv vm edit my-vm --graphics-adapter qxl-vga   # Change display adapter
 crv vm edit my-vm --autostart true            # Enable autostart
+crv vm edit my-vm --vsock false --balloon false --rng false  # Remove devices on next boot
 crv vm edit my-vm --description "New desc"    # Update description
 ```
 
-Changing the graphics adapter requires the VM to be stopped. It is rejected
-while an attached disk has a snapshot containing VM memory state; remove that
-snapshot first.
+Changing the graphics adapter or optional VirtIO devices requires the VM to be
+stopped. The change is rejected while an attached disk has a snapshot containing
+VM memory state; remove that snapshot first. A saved RAM image retains its
+original device layout, so resume it before changing devices.
 
 ## Starting and Stopping
 
@@ -340,7 +343,7 @@ The buffer persists across guest reboots (the QEMU process stays alive) and is c
 
 ### SSH over vsock
 
-Every VM is launched with a `vhost-vsock-pci` device and a unique AF_VSOCK CID. `crv vm show` prints the CID and a ready-to-paste invocation:
+Vsock is enabled by default. A VM with vsock enabled launches with a `vhost-vsock-pci` device and a unique AF_VSOCK CID. `crv vm show` prints the CID and a ready-to-paste invocation. Disabling vsock clears the CID and omits the device on the next start:
 
 ```
 $ crv vm show my-vm

@@ -64,7 +64,10 @@ data instance C.Parsed TemplateVmInfo
         ,autostart :: (RP.Parsed Std_.Bool)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,tpm :: (RP.Parsed Std_.Bool)
-        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
+        ,vsock :: (RP.Parsed Std_.Bool)
+        ,balloon :: (RP.Parsed Std_.Bool)
+        ,rng :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateVmInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateVmInfo))
@@ -79,7 +82,10 @@ instance (C.Parse TemplateVmInfo (C.Parsed TemplateVmInfo)) where
                                  <*> (GH.parseField #autostart raw_)
                                  <*> (GH.parseField #rebootQuirk raw_)
                                  <*> (GH.parseField #tpm raw_)
-                                 <*> (GH.parseField #graphicsAdapter raw_))
+                                 <*> (GH.parseField #graphicsAdapter raw_)
+                                 <*> (GH.parseField #vsock raw_)
+                                 <*> (GH.parseField #balloon raw_)
+                                 <*> (GH.parseField #rng raw_))
 instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
     marshalInto raw_ TemplateVmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -93,6 +99,9 @@ instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
+        (GH.encodeField #vsock vsock raw_)
+        (GH.encodeField #balloon balloon raw_)
+        (GH.encodeField #rng rng raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateVmInfo Std_.Int64) where
@@ -117,6 +126,12 @@ instance (GH.HasField "tpm" GH.Slot TemplateVmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 4 2 1 0)
 instance (GH.HasField "graphicsAdapter" GH.Slot TemplateVmInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
     fieldByLabel  = (GH.dataField 16 2 16 0)
+instance (GH.HasField "vsock" GH.Slot TemplateVmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 5 2 1 1)
+instance (GH.HasField "balloon" GH.Slot TemplateVmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 6 2 1 1)
+instance (GH.HasField "rng" GH.Slot TemplateVmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 7 2 1 1)
 data TemplateDriveInfo 
 type instance (R.ReprFor TemplateDriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDriveInfo) where
@@ -417,7 +432,10 @@ data instance C.Parsed TemplateDetails
         ,sharedDirs :: (RP.Parsed (R.List TemplateSharedDirInfo))
         ,tpm :: (RP.Parsed Std_.Bool)
         ,audioDevices :: (RP.Parsed (R.List TemplateAudioDeviceInfo))
-        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)}
+        ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
+        ,vsock :: (RP.Parsed Std_.Bool)
+        ,balloon :: (RP.Parsed Std_.Bool)
+        ,rng :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateDetails))
 deriving instance (Std_.Eq (C.Parsed TemplateDetails))
@@ -440,7 +458,10 @@ instance (C.Parse TemplateDetails (C.Parsed TemplateDetails)) where
                                   <*> (GH.parseField #sharedDirs raw_)
                                   <*> (GH.parseField #tpm raw_)
                                   <*> (GH.parseField #audioDevices raw_)
-                                  <*> (GH.parseField #graphicsAdapter raw_))
+                                  <*> (GH.parseField #graphicsAdapter raw_)
+                                  <*> (GH.parseField #vsock raw_)
+                                  <*> (GH.parseField #balloon raw_)
+                                  <*> (GH.parseField #rng raw_))
 instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
     marshalInto raw_ TemplateDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -462,6 +483,9 @@ instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
         (GH.encodeField #tpm tpm raw_)
         (GH.encodeField #audioDevices audioDevices raw_)
         (GH.encodeField #graphicsAdapter graphicsAdapter raw_)
+        (GH.encodeField #vsock vsock raw_)
+        (GH.encodeField #balloon balloon raw_)
+        (GH.encodeField #rng rng raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateDetails Std_.Int64) where
@@ -502,6 +526,12 @@ instance (GH.HasField "audioDevices" GH.Slot TemplateDetails (R.List TemplateAud
     fieldByLabel  = (GH.ptrField 7)
 instance (GH.HasField "graphicsAdapter" GH.Slot TemplateDetails Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
     fieldByLabel  = (GH.dataField 16 2 16 0)
+instance (GH.HasField "vsock" GH.Slot TemplateDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 6 2 1 1)
+instance (GH.HasField "balloon" GH.Slot TemplateDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 7 2 1 1)
+instance (GH.HasField "rng" GH.Slot TemplateDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 8 2 1 1)
 data TemplateManager 
 type instance (R.ReprFor TemplateManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TemplateManager) where

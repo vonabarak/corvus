@@ -240,6 +240,9 @@ export default function TemplateDetail() {
           <Field label="RAM" value={formatMb(t.ram_mb)} />
           <Field label="Headless" value={t.headless ? "yes" : "no"} />
           <Field label="Graphics adapter" value={t.graphics_adapter} />
+          <Field label="VirtIO vsock" value={t.vsock ? "yes" : "no"} />
+          <Field label="VirtIO balloon" value={t.balloon ? "yes" : "no"} />
+          <Field label="VirtIO RNG" value={t.rng ? "yes" : "no"} />
           <Field label="Guest agent" value={t.guest_agent ? "yes" : "no"} />
           <Field label="TPM 2.0" value={t.tpm ? "yes" : "no"} />
           <Field label="Cloud-init" value={t.cloud_init ? "yes" : "no"} />

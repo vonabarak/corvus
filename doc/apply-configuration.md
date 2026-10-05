@@ -392,6 +392,9 @@ vms:
     description: <string>      # Optional. Human-readable description.
     headless: <boolean>        # Optional. Default: false. Serial console instead of SPICE.
     graphicsAdapter: <string>  # Optional. Default: virtio-vga. Ignored while headless.
+    vsock: <boolean>           # Optional. Default: true. Attach VirtIO vsock.
+    balloon: <boolean>         # Optional. Default: true. Attach VirtIO memory balloon.
+    rng: <boolean>             # Optional. Default: true. Attach VirtIO RNG.
     guestAgent: <boolean>      # Optional. Default: false. Enable QEMU guest agent channel.
     tpm: <boolean>             # Optional. Default: false. Enable an emulated TPM 2.0 CRB device.
     cloudInit: <boolean>       # Optional. See Cloud-Init Behavior below.
@@ -556,6 +559,9 @@ templates:
     description: <string>       # Optional.
     headless: <bool>            # Optional. Default: false.
     graphicsAdapter: <string>   # Optional. Default: virtio-vga. Ignored while headless.
+    vsock: <bool>               # Optional. Default: true. Attach VirtIO vsock.
+    balloon: <bool>             # Optional. Default: true. Attach VirtIO memory balloon.
+    rng: <bool>                 # Optional. Default: true. Attach VirtIO RNG.
     cloudInit: <bool>           # Optional. Default: false.
     guestAgent: <bool>          # Optional. Default: false. Enable QEMU guest agent.
     tpm: <bool>                 # Optional. Default: false. Enable an emulated TPM 2.0 CRB device.

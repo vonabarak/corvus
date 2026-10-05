@@ -43,6 +43,9 @@ sampleDetails =
     , tvdCloudInit = True
     , tvdGuestAgent = True
     , tvdTpm = True
+    , tvdVsock = True
+    , tvdBalloon = True
+    , tvdRng = True
     , tvdAutostart = False
     , tvdRebootQuirk = False
     , tvdCloudInitConfig = Nothing
@@ -111,6 +114,9 @@ spec = do
           tyCloudInit ty `shouldBe` True
           tyGuestAgent ty `shouldBe` True
           tyTpm ty `shouldBe` True
+          tyVsock ty `shouldBe` True
+          tyBalloon ty `shouldBe` True
+          tyRng ty `shouldBe` True
           tyAutostart ty `shouldBe` False
           length (tyDrives ty) `shouldBe` 1
           let [d] = tyDrives ty

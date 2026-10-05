@@ -110,9 +110,12 @@ handleVmCreate
   -> Text
   -- ^ cpuModel
   -> GraphicsAdapter
+  -> Bool
+  -> Bool
+  -> Bool
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter)
+handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -203,12 +206,15 @@ handleVmEdit
   -> Maybe Text
   -- ^ cpuModel
   -> Maybe GraphicsAdapter
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
   -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter =
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
-    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter)
+    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng)
 
 -- | Handle @crv vm migrate <VM> --to-node <NODE>@.
 handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
@@ -512,6 +518,9 @@ printVmDetails vm = do
     putStrLn $
       "Graphics adapter: " ++ T.unpack (enumToText (vdGraphicsAdapter vm))
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
+  printField "Vsock" (if vdVsock vm then "enabled" else "disabled")
+  printField "Memory balloon" (if vdBalloon vm then "enabled" else "disabled")
+  printField "VirtIO RNG" (if vdRng vm then "enabled" else "disabled")
   printField "TPM 2.0" (if vdTpm vm then "enabled" else "disabled")
   printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
   printField "Autostart" (if vdAutostart vm then "enabled" else "disabled")

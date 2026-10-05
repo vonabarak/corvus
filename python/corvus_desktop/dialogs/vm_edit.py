@@ -52,6 +52,12 @@ class VmEditDialog(FormDialog):
         self._headless.setChecked(vm.headless)
         self._guest_agent = QCheckBox()
         self._guest_agent.setChecked(vm.guest_agent)
+        self._vsock = QCheckBox()
+        self._vsock.setChecked(vm.vsock)
+        self._balloon = QCheckBox()
+        self._balloon.setChecked(vm.balloon)
+        self._rng = QCheckBox()
+        self._rng.setChecked(vm.rng)
         self._tpm = QCheckBox()
         self._tpm.setChecked(vm.tpm)
         self._cloud_init = QCheckBox()
@@ -71,6 +77,9 @@ class VmEditDialog(FormDialog):
         form.addRow("Description:", self._description)
         form.addRow("Headless:", self._headless)
         form.addRow("Guest agent:", self._guest_agent)
+        form.addRow("VirtIO vsock:", self._vsock)
+        form.addRow("VirtIO balloon:", self._balloon)
+        form.addRow("VirtIO RNG:", self._rng)
         form.addRow("TPM 2.0:", self._tpm)
         form.addRow("Cloud-init:", self._cloud_init)
         form.addRow("Autostart:", self._autostart)
@@ -96,6 +105,9 @@ class VmEditDialog(FormDialog):
         for field_name, attr, widget in (
             ("headless", "headless", self._headless),
             ("guest_agent", "guest_agent", self._guest_agent),
+            ("vsock", "vsock", self._vsock),
+            ("balloon", "balloon", self._balloon),
+            ("rng", "rng", self._rng),
             ("tpm", "tpm", self._tpm),
             ("cloud_init", "cloud_init", self._cloud_init),
             ("autostart", "autostart", self._autostart),

@@ -109,6 +109,9 @@ def vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.VmInfo:
         reboot_quirk=r.rebootQuirk,
         cpu_model=r.cpuModel,
         graphics_adapter=from_wire(r.graphicsAdapter),
+        vsock=r.vsock,
+        balloon=r.balloon,
+        rng=r.rng,
     )
 
 
@@ -191,6 +194,9 @@ def vm_details(r: capnp.lib.capnp._DynamicStructReader) -> t.VmDetails:
         cpu_model=r.cpuModel,
         graphics_adapter=from_wire(r.graphicsAdapter),
         stats=vm_stats(r.stats),
+        vsock=r.vsock,
+        balloon=r.balloon,
+        rng=r.rng,
     )
 
 
@@ -404,6 +410,9 @@ def template_vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateVmInf
         tpm=r.tpm,
         autostart=r.autostart,
         graphics_adapter=from_wire(r.graphicsAdapter),
+        vsock=r.vsock,
+        balloon=r.balloon,
+        rng=r.rng,
     )
 
 
@@ -480,6 +489,9 @@ def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetai
         shared_dirs=[template_shared_dir_info(s) for s in r.sharedDirs],
         audio_devices=[template_audio_device_info(a) for a in r.audioDevices],
         graphics_adapter=from_wire(r.graphicsAdapter),
+        vsock=r.vsock,
+        balloon=r.balloon,
+        rng=r.rng,
     )
 
 

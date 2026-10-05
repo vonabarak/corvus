@@ -21,6 +21,9 @@ struct TemplateVmInfo {
   rebootQuirk @8 :Bool;
   tpm         @9 :Bool;
   graphicsAdapter @10 :Enums.GraphicsAdapter = virtioVga;
+  vsock           @11 :Bool = true;
+  balloon         @12 :Bool = true;
+  rng             @13 :Bool = true;
 }
 
 struct TemplateDriveInfo {
@@ -94,6 +97,9 @@ struct TemplateDetails {
   tpm             @16 :Bool;
   audioDevices    @17 :List(TemplateAudioDeviceInfo);
   graphicsAdapter @18 :Enums.GraphicsAdapter = virtioVga;
+  vsock           @19 :Bool = true;
+  balloon         @20 :Bool = true;
+  rng             @21 :Bool = true;
 }
 
 # ---------------------------------------------------------------------

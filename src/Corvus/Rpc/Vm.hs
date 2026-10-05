@@ -158,6 +158,9 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrCpuModel = cpuModel
               , vcrAudioDevices = parsedAudioDevices
               , vcrGraphicsAdapter = parsedGraphicsAdapter
+              , vcrVsock = vsock
+              , vcrBalloon = balloon
+              , vcrRng = rng
               }
       resp <- runAction st cn act
       case resp of
@@ -278,6 +281,9 @@ instance CGVm.Vm'server_ VmCap where
               , vedRebootQuirk = if hasRebootQuirk then Just rebootQuirk else Nothing
               , vedCpuModel = if hasCpuModel then Just cpuModel else Nothing
               , vedGraphicsAdapter = parsedGraphicsAdapter
+              , vedVsock = if hasVsock then Just vsock else Nothing
+              , vedBalloon = if hasBalloon then Just balloon else Nothing
+              , vedRng = if hasRng then Just rng else Nothing
               }
       resp <- runAction st cn act
       case resp of

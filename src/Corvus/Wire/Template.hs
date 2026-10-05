@@ -94,6 +94,9 @@ toCapnpTemplateVmInfo P.TemplateVmInfo {..} =
     , CGT.autostart = tviAutostart
     , CGT.rebootQuirk = tviRebootQuirk
     , CGT.graphicsAdapter = toCapnpGraphicsAdapter tviGraphicsAdapter
+    , CGT.vsock = tviVsock
+    , CGT.balloon = tviBalloon
+    , CGT.rng = tviRng
     }
 
 fromCapnpTemplateVmInfo :: C.Parsed CGT.TemplateVmInfo -> Either WireError P.TemplateVmInfo
@@ -112,6 +115,9 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} = do
       , P.tviAutostart = autostart
       , P.tviRebootQuirk = rebootQuirk
       , P.tviGraphicsAdapter = graphicsAdapter'
+      , P.tviVsock = vsock
+      , P.tviBalloon = balloon
+      , P.tviRng = rng
       }
 
 -- ---------------------------------------------------------------------
@@ -259,6 +265,9 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     , CGT.sharedDirs = map toCapnpTemplateSharedDirInfo tvdSharedDirs
     , CGT.audioDevices = map toCapnpTemplateAudioDeviceInfo tvdAudioDevices
     , CGT.graphicsAdapter = toCapnpGraphicsAdapter tvdGraphicsAdapter
+    , CGT.vsock = tvdVsock
+    , CGT.balloon = tvdBalloon
+    , CGT.rng = tvdRng
     }
 
 fromCapnpTemplateDetails
@@ -293,4 +302,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       , P.tvdSharedDirs = sharedDirs'
       , P.tvdAudioDevices = audioDevices'
       , P.tvdGraphicsAdapter = graphicsAdapter'
+      , P.tvdVsock = vsock
+      , P.tvdBalloon = balloon
+      , P.tvdRng = rng
       }

@@ -243,6 +243,9 @@ data ApplyVm = ApplyVm
   , avRebootQuirk :: Bool
   , avCpuModel :: Text
   , avGraphicsAdapter :: GraphicsAdapter
+  , avVsock :: Bool
+  , avBalloon :: Bool
+  , avRng :: Bool
   -- ^ QEMU @-cpu@ model. Default @"host"@ exposes the host CPU
   -- (best perf, not safe for cross-host migration); set to a
   -- stable model (e.g. @"qemu64"@) per VM for migratable
@@ -272,6 +275,9 @@ instance FromJSON ApplyVm where
       <*> o .:? "rebootQuirk" .!= False
       <*> o .:? "cpuModel" .!= "host"
       <*> o .:? "graphicsAdapter" .!= GraphicsVirtioVga
+      <*> o .:? "vsock" .!= True
+      <*> o .:? "balloon" .!= True
+      <*> o .:? "rng" .!= True
 
 data ApplyDrive = ApplyDrive
   { adrDisk :: Text

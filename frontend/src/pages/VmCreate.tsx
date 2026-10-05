@@ -64,6 +64,9 @@ export default function VmCreate() {
   const [rebootQuirk, setRebootQuirk] = useState(false);
   const [cpuModel, setCpuModel] = useState("host");
   const [graphicsAdapter, setGraphicsAdapter] = useState<GraphicsAdapter>("virtio-vga");
+  const [vsock, setVsock] = useState(true);
+  const [balloon, setBalloon] = useState(true);
+  const [rng, setRng] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const mutation = useMutation({
@@ -91,6 +94,9 @@ export default function VmCreate() {
       reboot_quirk: rebootQuirk,
       cpu_model: cpuModel.trim() || "host",
       graphics_adapter: graphicsAdapter,
+      vsock,
+      balloon,
+      rng,
     });
   };
 
@@ -231,6 +237,27 @@ export default function VmCreate() {
               hint="VM transitions through `starting` until first QGA ping; needs the qemu-guest-agent package in the guest."
               checked={guestAgent}
               onChange={setGuestAgent}
+            />
+            <CheckboxField
+              id="vsock"
+              label="VirtIO vsock"
+              hint="Enable host-to-guest vsock communication."
+              checked={vsock}
+              onChange={setVsock}
+            />
+            <CheckboxField
+              id="balloon"
+              label="VirtIO memory balloon"
+              hint="Allow the host to reclaim guest memory."
+              checked={balloon}
+              onChange={setBalloon}
+            />
+            <CheckboxField
+              id="rng"
+              label="VirtIO RNG"
+              hint="Provide guest entropy from the host."
+              checked={rng}
+              onChange={setRng}
             />
             <CheckboxField
               id="tpm"
