@@ -21,9 +21,13 @@ STACK_BUILD_FLAGS ?=
 # Default target: build
 all: build
 
-# Build the project
+# Build the project. Resolve the destination with the same compiler flags
+# as the build, and stop if path lookup fails instead of copying to /bin.
 build:
-	PATH="$$(stack path --local-install-root)/bin:$$PATH" stack --local-bin-path "$$(stack path --local-install-root)/bin" build --copy-bins $(STACK_BUILD_FLAGS)
+	set -eu; \
+	  stack_install_root=$$(stack $(STACK_BUILD_FLAGS) path --local-install-root); \
+	  test -n "$$stack_install_root"; \
+	  PATH="$$stack_install_root/bin:$$PATH" stack $(STACK_BUILD_FLAGS) --local-bin-path "$$stack_install_root/bin" build --copy-bins
 
 # Regenerate src-generated/Capnp/Gen/*.hs from schema/*.capnp.
 # The capnp CLI invokes the `capnpc-haskell` plugin shipped with the
