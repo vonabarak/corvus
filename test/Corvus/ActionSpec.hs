@@ -70,3 +70,10 @@ spec = describe "classifyResponse" $ do
 
     it "RespOk is TaskSuccess with no message" $
       classifyResponse RespOk `shouldBe` (TaskSuccess, Nothing)
+
+  describe "balloon failures" $ do
+    it "records expected failures as failed tasks" $ do
+      map
+        (fst . classifyResponse)
+        [RespBalloonDeviceNotEnabled, RespBalloonDriverNotReady, RespInvalidBalloonTarget, RespBalloonError "QMP unavailable"]
+        `shouldBe` replicate 4 TaskError

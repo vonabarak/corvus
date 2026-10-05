@@ -440,6 +440,10 @@ cancelRemainingSubtasks pool parentId = do
 classifyResponse :: Response -> (TaskResult, Maybe Text)
 classifyResponse = \case
   -- Errors
+  RespBalloonDeviceNotEnabled -> (TaskError, Just "VM has no VirtIO balloon device")
+  RespBalloonDriverNotReady -> (TaskError, Just "VirtIO balloon guest driver is not ready")
+  RespInvalidBalloonTarget -> (TaskError, Just "Balloon target must be positive and not exceed the VM RAM ceiling")
+  RespBalloonError msg -> (TaskError, Just msg)
   RespError msg -> (TaskError, Just msg)
   RespVmNotFound -> (TaskError, Just "VM not found")
   RespDiskNotFound -> (TaskError, Just "Disk not found")

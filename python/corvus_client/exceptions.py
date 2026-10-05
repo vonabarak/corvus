@@ -43,6 +43,22 @@ class ServerError(CorvusError):
     """The daemon returned a generic error (`internal_error` code)."""
 
 
+class BalloonDeviceNotEnabled(CorvusError):
+    """Balloon operation failed with `balloon_device_not_enabled`."""
+
+
+class BalloonDriverNotReady(CorvusError):
+    """Balloon operation failed with `balloon_driver_not_ready`."""
+
+
+class InvalidBalloonTarget(CorvusError):
+    """Balloon operation failed with `invalid_balloon_target`."""
+
+
+class BalloonError(CorvusError):
+    """Balloon operation failed with `balloon_error`."""
+
+
 class BadEnvelope(CorvusError):
     """The envelope bytes were malformed — client bug, not a daemon issue."""
 
@@ -210,6 +226,10 @@ _CODE_MAP: dict[str, type[CorvusError]] = {
     "guest_agent_not_enabled": GuestAgentNotEnabled,
     "guest_agent_error": GuestAgentError,
     "ambiguous_ref": AmbiguousRef,
+    "balloon_device_not_enabled": BalloonDeviceNotEnabled,
+    "balloon_driver_not_ready": BalloonDriverNotReady,
+    "invalid_balloon_target": InvalidBalloonTarget,
+    "balloon_error": BalloonError,
     "internal_error": ServerError,
     "protocol_error": ProtocolError,
 }

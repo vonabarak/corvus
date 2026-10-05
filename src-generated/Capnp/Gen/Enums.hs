@@ -861,6 +861,10 @@ data ErrorCode
     | ErrorCode'internalError 
     | ErrorCode'protocolError 
     | ErrorCode'audioDeviceNotFound 
+    | ErrorCode'balloonDeviceNotEnabled 
+    | ErrorCode'balloonDriverNotReady 
+    | ErrorCode'invalidBalloonTarget 
+    | ErrorCode'balloonError 
     | ErrorCode'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -928,6 +932,14 @@ instance (Std_.Enum ErrorCode) where
             ErrorCode'protocolError
         28 ->
             ErrorCode'audioDeviceNotFound
+        29 ->
+            ErrorCode'balloonDeviceNotEnabled
+        30 ->
+            ErrorCode'balloonDriverNotReady
+        31 ->
+            ErrorCode'invalidBalloonTarget
+        32 ->
+            ErrorCode'balloonError
         tag_ ->
             (ErrorCode'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
@@ -989,6 +1001,14 @@ instance (Std_.Enum ErrorCode) where
             27
         (ErrorCode'audioDeviceNotFound) ->
             28
+        (ErrorCode'balloonDeviceNotEnabled) ->
+            29
+        (ErrorCode'balloonDriverNotReady) ->
+            30
+        (ErrorCode'invalidBalloonTarget) ->
+            31
+        (ErrorCode'balloonError) ->
+            32
         (ErrorCode'unknown' tag_) ->
             (Std_.fromIntegral tag_)
 instance (C.IsWord ErrorCode) where

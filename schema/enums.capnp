@@ -185,4 +185,8 @@ enum ErrorCode {
   internalError         @26;
   protocolError         @27;
   audioDeviceNotFound   @28;
+  balloonDeviceNotEnabled @29;
+  balloonDriverNotReady @30;
+  invalidBalloonTarget @31;
+  balloonError @32;
 }

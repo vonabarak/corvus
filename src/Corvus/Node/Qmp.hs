@@ -33,6 +33,8 @@ module Corvus.Node.Qmp
   , waitForQmpReady
   , qmpQueryBlockstats
   , qmpQueryBalloon
+  , QmpBalloonFailure (..)
+  , qmpSetBalloon
   , classifyQmpResponse
   , extractReplyLine
   , qmpQQ
@@ -42,5 +44,5 @@ import Corvus.Node.Qmp.Block
 import Corvus.Node.Qmp.Runtime
 import Corvus.Node.Qmp.Snapshot
 import Corvus.Node.Qmp.Transport (classifyQmpResponse, extractReplyLine)
-import Corvus.Node.Qmp.Types (QmpMigrationStatus (..), QmpResult (..))
+import Corvus.Node.Qmp.Types (QmpBalloonFailure (..), QmpMigrationStatus (..), QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)

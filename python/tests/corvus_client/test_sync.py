@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TypeVar, cast
 
 import pytest
-from corvus_client import Client, DiskNotFound
+from corvus_client import Client, DiskNotFound, VmNotRunning
 from corvus_client._async.task import AsyncTaskManager
 from corvus_client._runloop import SyncRunloop
 from corvus_client._sync.task import SyncTaskManager
@@ -119,3 +119,19 @@ def test_sync_task_subscription_bridges_callback_and_closes() -> None:
     sub.close()
     sub.close()
     assert async_manager.subscription.close_calls == 1
+
+
+def test_sync_balloon_validation(daemon_socket: Path) -> None:
+    with Client(unix_socket=str(daemon_socket)) as c:
+        vm = c.vms.create("balloon-validation", cpu_count=1, ram_mb=256, headless=True)
+        for target in (0, -1, 2**64):
+            with pytest.raises(ValueError):
+                vm.set_balloon(target_bytes=target)
+        for invalid_type in (True, 1.5, "128M"):
+            with pytest.raises(TypeError):
+                vm.set_balloon(target_bytes=cast(int, invalid_type))
+        with pytest.raises(VmNotRunning):
+            vm.set_balloon(target_bytes=128 * 1024**2)
+        assert (vm.show()).ram_mb == 256
+        c.ping()
+        vm.delete()

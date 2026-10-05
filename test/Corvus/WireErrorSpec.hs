@@ -33,6 +33,9 @@ staticResponses =
   , RespDiskInUse [NamedRef 1 "vm"]
   , RespDiskHasOverlays [NamedRef 1 "vm"]
   , RespVmMustBeStopped
+  , RespBalloonDeviceNotEnabled
+  , RespBalloonDriverNotReady
+  , RespInvalidBalloonTarget
   , RespVmNotRunning
   , RespVmHeadless
   , RespNetworkNotFound
@@ -45,9 +48,9 @@ staticResponses =
 spec :: Spec
 spec = do
   describe "allErrorCodes" $ do
-    it "has exactly 29 codes, matching the schema enum" $
-      length allErrorCodes `shouldBe` 29
-    it "produces 28 distinct snake_case tokens" $
+    it "has exactly 33 codes, matching the schema enum" $
+      length allErrorCodes `shouldBe` 33
+    it "produces distinct snake_case tokens" $
       length (nub [errorCodeText code | code <- allErrorCodes])
         `shouldBe` length allErrorCodes
 
@@ -156,6 +159,12 @@ spec = do
         `shouldBe` (GuestAgentError, "freeze failed")
       responseError (RespNodeInUse "node is draining")
         `shouldBe` (NodeInUse, "node is draining")
+
+    it "maps balloon failures to specific codes" $ do
+      responseError RespBalloonDeviceNotEnabled `shouldBe` (BalloonDeviceNotEnabled, "VM has no VirtIO balloon device")
+      responseError RespBalloonDriverNotReady `shouldBe` (BalloonDriverNotReady, "VirtIO balloon guest driver is not ready")
+      responseError RespInvalidBalloonTarget `shouldBe` (InvalidBalloonTarget, "Balloon target must be positive and not exceed the VM RAM ceiling")
+      responseError (RespBalloonError "QMP unavailable") `shouldBe` (BalloonError, "QMP unavailable")
 
     it "maps an ambiguous ref to its own code, keeping the message" $
       let msg = "VM 'shared' is ambiguous: 2 matches across nodes; use the numeric id"

@@ -10,6 +10,7 @@ crv vm edit <vm>                  # Edit VM settings
 crv vm delete <vm> [--force]      # Delete a VM
 crv vm start <vm>                 # Start a stopped/paused VM
 crv vm stop <vm>                  # Graceful shutdown
+crv vm balloon <vm> <size>        # Set guest RAM target (e.g. 768M)
 crv vm pause <vm>                 # Pause execution (in-RAM, not persistent)
 crv vm save <vm>                  # Save running/paused state to disk and stop QEMU
 crv vm reset <vm>                 # Force stop (SIGKILL); drops saved-state file
@@ -234,6 +235,37 @@ CPU model: the saved RAM image is bound to the source's `-machine` /
 host-CPU clusters the practical risk. If your cluster mixes CPU
 generations, stop the VM cleanly before `vm migrate` so QEMU cold-boots
 on the destination instead of trying to resume incompatible state.
+
+## Adjusting the memory balloon
+
+```bash
+crv vm balloon my-vm 768M
+crv vm balloon my-vm 1G
+```
+
+The size is the absolute guest RAM target. Lower targets inflate the VirtIO
+balloon to reclaim guest memory; higher targets deflate it. CLI sizes require
+an integer and a case-insensitive `B`, `K`, `M`, `G`, or `T` suffix, using
+powers of 1024 (`1K` is 1024 bytes).
+
+The VM must be running with its balloon device enabled and a ready guest
+VirtIO balloon driver. Missing devices return `balloon_device_not_enabled`; inactive drivers return
+`balloon_driver_not_ready`. Invalid targets return `invalid_balloon_target`,
+and node/QMP failures return `balloon_error`.
+Driver readiness is checked through QEMU’s `x-query-virtio-status` command
+(available since QEMU 7.2). The target must be
+positive and no greater than the VM's live RAM ceiling. Acceptance does not
+mean the guest has reached the target; the guest balloon driver responds
+asynchronously. Check `vm show` statistics for `balloon_actual_bytes`.
+This runtime adjustment does not change configured RAM or scheduler reservations.
+
+Python clients accept bytes only:
+
+```python
+vm.set_balloon(target_bytes=768 * 1024**2)
+# Async client:
+await vm.set_balloon(target_bytes=1024 * 1024**2)
+```
 
 ## Inspecting Resource Usage
 

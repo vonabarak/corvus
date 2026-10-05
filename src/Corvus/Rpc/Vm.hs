@@ -58,6 +58,7 @@ import Corvus.Handlers.Vm
   , handleVmShow
   , handleVmViewGrant
   )
+import Corvus.Handlers.Vm.Balloon (VmSetBalloon (..))
 import Corvus.Handlers.Vm.Migrate (VmMigrate (..))
 import Corvus.Handlers.Vm.Snapshot
   ( VmSnapshotCreate (..)
@@ -357,6 +358,12 @@ instance CGVm.Vm'server_ VmCap where
       RespInvalidTransition status msg ->
         throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
       _ -> throwError resp
+
+  vm'setBalloon (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'setBalloon'params {CGVm.targetBytes = target} -> do
+    resp <- runAction st cn (VmSetBalloon eid target)
+    case resp of
+      RespOk -> pure CGVm.Vm'setBalloon'results
+      other -> throwError other
 
   vm'sendCtrlAltDel (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleVmSendCtrlAltDel st eid

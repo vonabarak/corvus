@@ -186,7 +186,7 @@ Example: `vm_not_found :: VM 'web-1' not found`
 #### Error Code Enum
 
 The `ErrorCode` enum in `schema/enums.capnp` defines the complete set
-of machine-readable codes (28 codes in protocol version 2):
+of machine-readable codes:
 
 | Code | Meaning | HTTP Status (web gateway) |
 |---|---|---|
@@ -216,6 +216,10 @@ of machine-readable codes (28 codes in protocol version 2):
 | `guest_agent_not_enabled` | QEMU guest agent not enabled | 503 |
 | `guest_agent_error` | Guest agent communication failed | 503 |
 | `ambiguous_ref` | Name matched multiple entities across nodes | 400 |
+| `balloon_device_not_enabled` | VM has no balloon device | 409 |
+| `balloon_driver_not_ready` | Guest balloon driver is not ready | 409 |
+| `invalid_balloon_target` | Balloon target is outside the live RAM bounds | 400 |
+| `balloon_error` | Node or QMP balloon operation failed | 503 |
 | `internal_error` | Generic daemon error | 500 |
 | `protocol_error` | Malformed request or unknown enum | 400 |
 

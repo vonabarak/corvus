@@ -23,6 +23,7 @@ where
 import Corvus.Model (GraphicsAdapter)
 import Data.Int (Int64)
 import Data.Text (Text)
+import Data.Word (Word64)
 
 -- | Output format for CLI commands
 data OutputFormat = TextOutput | JsonOutput | YamlOutput
@@ -108,6 +109,7 @@ data Command
   | VmStart !Text !WaitOptions
   | VmStop !Text !WaitOptions
   | VmPause !Text
+  | VmSetBalloon !Text !Word64
   | VmReset !Text
   | VmSave !Text !WaitOptions
   | -- | View VM via SPICE (runs remote-viewer)

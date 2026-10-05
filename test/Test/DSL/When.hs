@@ -13,6 +13,7 @@ module Test.DSL.When
   , vmStop
   , vmPause
   , vmReset
+  , vmSetBalloon
 
     -- * Disk commands
   , diskCreate
@@ -141,6 +142,7 @@ import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyCreate (..), SshKeyDelet
 import Corvus.Handlers.Template (TemplateCreate (..), TemplateDelete (..), TemplateInstantiate (..), TemplateUpdate (..), handleTemplateList, handleTemplateShow)
 import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..), VmStart (..), VmStop (..), handleVmList, handleVmShow)
 import qualified Corvus.Handlers.Vm as VmHandlers
+import Corvus.Handlers.Vm.Balloon (VmSetBalloon (..))
 import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..), VmSnapshotRollback (..), handleVmSnapshotList)
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, NetworkDeviceModel (..), SharedDirCache)
 import qualified Corvus.Model as M
@@ -153,6 +155,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
+import Data.Word (Word64)
 import Database.Persist.Sql (SqlBackend, toSqlKey)
 import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
 import qualified Test.Database as DB
@@ -281,6 +284,9 @@ vmStop vmId = withState (\st -> runAction st "alice" (VmStop vmId 300))
 
 vmPause :: Int64 -> TestM Response
 vmPause vmId = withState (\st -> runAction st "alice" (VmPause vmId))
+
+vmSetBalloon :: Int64 -> Word64 -> TestM Response
+vmSetBalloon vmId target = withState (\st -> runAction st "alice" (VmSetBalloon vmId target))
 
 vmReset :: Int64 -> TestM Response
 vmReset vmId = withState (\st -> runAction st "alice" (VmReset vmId))

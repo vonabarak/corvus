@@ -166,6 +166,10 @@ class SyncVm(LoopBoundResource):
     def reset(self) -> str:
         return self._rl.run(self._a.reset())
 
+    def set_balloon(self, *, target_bytes: int) -> None:
+        """Set the running guest's RAM target in bytes; returns on acceptance."""
+        return self._rl.run(self._a.set_balloon(target_bytes=target_bytes))
+
     def save(self, *, wait: bool = False) -> str:
         return self._rl.run(self._a.save(wait=wait))
 

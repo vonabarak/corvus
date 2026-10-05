@@ -16,6 +16,9 @@ from contextlib import AsyncExitStack, asynccontextmanager
 import capnp
 from corvus_client import AsyncClient
 from corvus_client.exceptions import (
+    BalloonDeviceNotEnabled,
+    BalloonDriverNotReady,
+    BalloonError,
     ConnectError,
     CorvusError,
     DiskHasOverlays,
@@ -85,6 +88,8 @@ _NOT_FOUND_EXCEPTIONS: tuple[type[CorvusError], ...] = (
 )
 
 _CONFLICT_EXCEPTIONS: tuple[type[CorvusError], ...] = (
+    BalloonDeviceNotEnabled,
+    BalloonDriverNotReady,
     InvalidTransition,
     VmRunning,
     VmMustBeStopped,
@@ -117,7 +122,7 @@ def _corvus_error_status(exc: CorvusError) -> int:
         return 404
     if isinstance(exc, _CONFLICT_EXCEPTIONS):
         return 409
-    if isinstance(exc, GuestAgentError):
+    if isinstance(exc, (GuestAgentError, BalloonError)):
         return 503
     return 400
 

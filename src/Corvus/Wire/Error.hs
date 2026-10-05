@@ -65,6 +65,10 @@ data ErrorCode
   | InternalError
   | ProtocolError
   | AudioDeviceNotFound
+  | BalloonDeviceNotEnabled
+  | BalloonDriverNotReady
+  | InvalidBalloonTarget
+  | BalloonError
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Every code in declaration order.
@@ -103,6 +107,10 @@ errorCodeText = \case
   InternalError -> "internal_error"
   ProtocolError -> "protocol_error"
   AudioDeviceNotFound -> "audio_device_not_found"
+  BalloonError -> "balloon_error"
+  InvalidBalloonTarget -> "invalid_balloon_target"
+  BalloonDriverNotReady -> "balloon_driver_not_ready"
+  BalloonDeviceNotEnabled -> "balloon_device_not_enabled"
 
 -- | A wire error: one code plus the human-readable message.
 data WireErrorInfo

@@ -1557,9 +1557,10 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'editAudioDevice) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'removeAudioDevice) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'listAudioDevices) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'editNetIf) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'editNetIf) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'setBalloon) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1640,6 +1641,8 @@ class (Vm'server_ s_) where
     vm'listAudioDevices _ = GH.methodUnimplemented
     vm'editNetIf :: s_ -> (GH.MethodHandler Vm'editNetIf'params Vm'editNetIf'results)
     vm'editNetIf _ = GH.methodUnimplemented
+    vm'setBalloon :: s_ -> (GH.MethodHandler Vm'setBalloon'params Vm'setBalloon'results)
+    vm'setBalloon _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1720,6 +1723,8 @@ instance (GH.HasMethod "listAudioDevices" Vm Vm'listAudioDevices'params Vm'listA
     methodByLabel  = (GH.Method 17269745093196220462 38)
 instance (GH.HasMethod "editNetIf" Vm Vm'editNetIf'params Vm'editNetIf'results) where
     methodByLabel  = (GH.Method 17269745093196220462 39)
+instance (GH.HasMethod "setBalloon" Vm Vm'setBalloon'params Vm'setBalloon'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 40)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -4000,6 +4005,61 @@ instance (C.Parse Vm'editNetIf'results (C.Parsed Vm'editNetIf'results)) where
     parse raw_ = (Std_.pure Vm'editNetIf'results)
 instance (C.Marshal Vm'editNetIf'results (C.Parsed Vm'editNetIf'results)) where
     marshalInto _raw (Vm'editNetIf'results) = (Std_.pure ())
+data Vm'setBalloon'params 
+type instance (R.ReprFor Vm'setBalloon'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'setBalloon'params) where
+    typeId  = 14814234761160561505
+instance (C.TypedStruct Vm'setBalloon'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'setBalloon'params) where
+    type AllocHint Vm'setBalloon'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'setBalloon'params (C.Parsed Vm'setBalloon'params))
+instance (C.AllocateList Vm'setBalloon'params) where
+    type ListAllocHint Vm'setBalloon'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'setBalloon'params (C.Parsed Vm'setBalloon'params))
+data instance C.Parsed Vm'setBalloon'params
+    = Vm'setBalloon'params 
+        {targetBytes :: (RP.Parsed Std_.Word64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'setBalloon'params))
+deriving instance (Std_.Eq (C.Parsed Vm'setBalloon'params))
+instance (C.Parse Vm'setBalloon'params (C.Parsed Vm'setBalloon'params)) where
+    parse raw_ = (Vm'setBalloon'params <$> (GH.parseField #targetBytes raw_))
+instance (C.Marshal Vm'setBalloon'params (C.Parsed Vm'setBalloon'params)) where
+    marshalInto raw_ Vm'setBalloon'params{..} = (do
+        (GH.encodeField #targetBytes targetBytes raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "targetBytes" GH.Slot Vm'setBalloon'params Std_.Word64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Vm'setBalloon'results 
+type instance (R.ReprFor Vm'setBalloon'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'setBalloon'results) where
+    typeId  = 14123431378626582212
+instance (C.TypedStruct Vm'setBalloon'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'setBalloon'results) where
+    type AllocHint Vm'setBalloon'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'setBalloon'results (C.Parsed Vm'setBalloon'results))
+instance (C.AllocateList Vm'setBalloon'results) where
+    type ListAllocHint Vm'setBalloon'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'setBalloon'results (C.Parsed Vm'setBalloon'results))
+data instance C.Parsed Vm'setBalloon'results
+    = Vm'setBalloon'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'setBalloon'results))
+deriving instance (Std_.Eq (C.Parsed Vm'setBalloon'results))
+instance (C.Parse Vm'setBalloon'results (C.Parsed Vm'setBalloon'results)) where
+    parse raw_ = (Std_.pure Vm'setBalloon'results)
+instance (C.Marshal Vm'setBalloon'results (C.Parsed Vm'setBalloon'results)) where
+    marshalInto _raw (Vm'setBalloon'results) = (Std_.pure ())
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

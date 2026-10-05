@@ -17,6 +17,7 @@ module Corvus.Client.Capnp.Rpc.Vm
   , rpcVmStart
   , rpcVmStop
   , rpcVmPause
+  , rpcVmSetBalloon
   , rpcVmReset
   , rpcVmSave
   , rpcVmDelete
@@ -122,7 +123,7 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Word (Word32)
+import Data.Word (Word32, Word64)
 
 -- | Call a method on a cap and return its parsed results struct.
 callOn
@@ -252,6 +253,12 @@ rpcVmPause :: CapnpConnection -> EntityRef -> IO ()
 rpcVmPause conn ref = do
   vmClient <- getVmClient conn ref
   _ <- callOn #pause CGVm.Vm'pause'params vmClient
+  pure ()
+
+rpcVmSetBalloon :: CapnpConnection -> EntityRef -> Word64 -> IO ()
+rpcVmSetBalloon conn ref target = do
+  vmClient <- getVmClient conn ref
+  _ <- callOn #setBalloon CGVm.Vm'setBalloon'params {CGVm.targetBytes = target} vmClient
   pure ()
 
 rpcVmReset :: CapnpConnection -> EntityRef -> IO ()

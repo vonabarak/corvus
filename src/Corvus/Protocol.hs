@@ -120,6 +120,10 @@ data Response
   = RespPong
   | RespStatus {info :: !StatusInfo}
   | RespShutdownAck {ack :: !Bool}
+  | RespBalloonDeviceNotEnabled
+  | RespBalloonDriverNotReady
+  | RespInvalidBalloonTarget
+  | RespBalloonError !Text
   | RespError {message :: !Text}
   | -- | A textual entity reference matched more than one row and the
     -- operator must disambiguate with a numeric id.

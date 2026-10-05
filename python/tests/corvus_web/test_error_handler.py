@@ -20,10 +20,14 @@ from collections.abc import Callable
 
 import pytest
 from corvus_client.exceptions import (
+    BalloonDeviceNotEnabled,
+    BalloonDriverNotReady,
+    BalloonError,
     ConnectError,
     CorvusError,
     DiskInUse,
     GuestAgentError,
+    InvalidBalloonTarget,
     InvalidTransition,
     NetworkNotFound,
     ServerError,
@@ -56,6 +60,10 @@ def _render(exc: CorvusError) -> tuple[int, dict[str, object]]:
         # Not-found.
         (lambda: VmNotFound("VM 'web-1' not found"), 404, "VM 'web-1' not found"),
         (lambda: NetworkNotFound("Network 'br0' not found"), 404, "br0"),
+        (lambda: BalloonDeviceNotEnabled("missing balloon"), 409, "balloon"),
+        (lambda: BalloonDriverNotReady("driver not ready"), 409, "driver"),
+        (lambda: InvalidBalloonTarget("invalid target"), 400, "target"),
+        (lambda: BalloonError("QMP unavailable"), 503, "QMP"),
         # State-conflict.
         (lambda: DiskInUse("Disk in use by VM 'web-1'"), 409, "Disk in use"),
         # Downstream unavailability.

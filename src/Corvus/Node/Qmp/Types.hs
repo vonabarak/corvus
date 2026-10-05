@@ -2,6 +2,7 @@
 module Corvus.Node.Qmp.Types
   ( QmpResult (..)
   , QmpMigrationStatus (..)
+  , QmpBalloonFailure (..)
   )
 where
 
@@ -24,4 +25,8 @@ data QmpMigrationStatus
   | MigActive
   | MigCompleted
   | MigFailed !Text
+  deriving (Eq, Show)
+
+-- | Balloon failures distinguish driver readiness from QMP communication errors.
+data QmpBalloonFailure = QmpBalloonDriverNotReady | QmpBalloonError !Text
   deriving (Eq, Show)

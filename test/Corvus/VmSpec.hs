@@ -13,6 +13,7 @@
 -- those branches deliberately.
 module Corvus.VmSpec (spec) where
 
+import qualified Data.Text as T
 import Test.Prelude
 
 import Corvus.Handlers.Vm.Db
@@ -30,6 +31,35 @@ import Test.DSL.Core (runDb)
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "manual balloon targets" $ do
+    testCase "rejects a missing VM" $ do
+      resp <- vmSetBalloon 999 1
+      liftIO $ resp `shouldBe` RespVmNotFound
+    testCase "rejects a stopped VM" $ do
+      vid <- insertVm "balloon-stopped" VmStopped
+      resp <- vmSetBalloon vid 1
+      liftIO $ resp `shouldBe` RespVmNotRunning
+    testCase "rejects a disabled balloon" $ do
+      vid <- insertVm "balloon-disabled" VmRunning
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmBalloon =. False]
+      resp <- vmSetBalloon vid 1
+      liftIO $ resp `shouldBe` RespBalloonDeviceNotEnabled
+    testCase "rejects zero and targets above configured RAM" $ do
+      vid <- insertVm "balloon-bounds" VmRunning
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmBalloon =. True, M.VmRamMb =. 256]
+      zero <- vmSetBalloon vid 0
+      high <- vmSetBalloon vid (257 * 1024 ^ 2)
+      liftIO $ do
+        zero `shouldBe` RespInvalidBalloonTarget
+        high `shouldBe` zero
+    testCase "reports an unavailable node for a valid target" $ do
+      vid <- insertVm "balloon-unavailable" VmRunning
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmBalloon =. True]
+      resp <- vmSetBalloon vid 1
+      liftIO $ case resp of
+        RespBalloonError err -> err `shouldSatisfy` T.isPrefixOf "nodeagent unavailable:"
+        _ -> expectationFailure "expected nodeagent unavailable"
+
   describe "guarded runtime completions" $ do
     testCase "completes a matching start claim" $ do
       given $ do

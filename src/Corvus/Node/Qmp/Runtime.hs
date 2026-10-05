@@ -8,7 +8,7 @@ module Corvus.Node.Qmp.Runtime where
 import Control.Concurrent (threadDelay)
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), EnumText (..))
 import Corvus.Node.Qmp.Transport (classifyQmpResponse, extractReplyLine, sendQmpCommand, sendQmpRaw)
-import Corvus.Node.Qmp.Types (QmpMigrationStatus (..), QmpResult (..))
+import Corvus.Node.Qmp.Types (QmpBalloonFailure (..), QmpMigrationStatus (..), QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Node.Runtime (shellQuotePath)
 import Corvus.Qemu.Config (QemuConfig)
@@ -35,6 +35,43 @@ qmpShutdown config vmId =
 qmpContinue :: QemuConfig -> Int64 -> IO QmpResult
 qmpContinue config vmId =
   sendQmpCommand config vmId [qmpQQ| { "execute": "cont" } |]
+
+-- | Request an absolute guest RAM target in bytes. Acceptance is asynchronous
+-- with respect to the guest balloon driver's response.
+qmpSetBalloon :: QemuConfig -> Int64 -> Word64 -> IO (Either QmpBalloonFailure ())
+qmpSetBalloon config vmId target = do
+  -- QEMU's balloon command only updates the requested target, even when
+  -- there is no guest driver. Check DRIVER_OK rather than guest statistics:
+  -- statistics are optional and may retain values from an unloaded driver.
+  raw <-
+    sendQmpRaw
+      config
+      vmId
+      [qmpQQ| { "execute": "x-query-virtio-status", "arguments": { "path": "/machine/peripheral/balloon0/virtio-backend" } } |]
+  case raw of
+    Left err -> pure (Left (QmpBalloonError err))
+    Right bytes -> case extractReplyLine bytes >>= \line -> either (Left . T.pack) Right (A.eitherDecodeStrict line) of
+      Left err -> pure (Left (QmpBalloonError ("Cannot check balloon driver readiness: " <> err <> "; " <> T.pack (BS.unpack bytes))))
+      Right (BalloonDriverReply ready)
+        | not ready -> pure (Left QmpBalloonDriverNotReady)
+        | otherwise -> do
+            result <- sendQmpCommand config vmId [qmpQQ| { "execute": "balloon", "arguments": { "value": #{target} } } |]
+            pure $ case result of
+              QmpSuccess -> Right ()
+              QmpError err -> Left (QmpBalloonError err)
+              QmpConnectionFailed err -> Left (QmpBalloonError err)
+
+newtype BalloonDriverReply = BalloonDriverReply Bool
+
+instance A.FromJSON BalloonDriverReply where
+  parseJSON = A.withObject "BalloonDriverReply" $ \o -> do
+    ret <- o A..: "return"
+    status <- ret A..: "status"
+    statuses <- status A..: "statuses"
+    broken <- ret A..: "broken"
+    pure $
+      BalloonDriverReply
+        (not broken && any (T.isPrefixOf "VIRTIO_CONFIG_S_DRIVER_OK:") (statuses :: [Text]))
 
 -- | Send stop command via QMP (pause VM)
 qmpStop :: QemuConfig -> Int64 -> IO QmpResult

@@ -179,7 +179,7 @@ task-progress streams.
 The Python wrappers mirror every cap method in the Haskell client
 (`Corvus.Client.Capnp.Rpc`):
 
-- **VM**: `vms.list/get/create`; `Vm.show/start/stop/pause/reset/edit/delete`,
+- **VM**: `vms.list/get/create`; `Vm.show/start/stop/pause/reset/edit/delete/set_balloon`,
   `cloud_init`, `view_grant`, `guest_exec`, `send_ctrl_alt_del`, attach/detach
   disks, network ifs, shared dirs, snapshots, SSH keys, serial console,
   HMP monitor, guest-agent subscriptions, console flush.
@@ -204,3 +204,20 @@ make python-test
 
 The daemon binary is taken from `~/.local/bin/corvus` (preferred) or
 `$PATH`; override with `$CORVUS_BIN`.
+
+### Manual memory balloon adjustment
+
+```python
+vm.set_balloon(target_bytes=768 * 1024**2)
+# With AsyncClient:
+await vm.set_balloon(target_bytes=1024 * 1024**2)
+```
+
+`target_bytes` is a positive integer byte count, representing the absolute
+guest RAM target. Lower targets inflate the balloon; higher targets deflate it.
+The VM must be running with a balloon device and a ready guest driver.
+Missing devices raise `BalloonDeviceNotEnabled`; inactive drivers raise
+`BalloonDriverNotReady`. Out-of-range targets raise `InvalidBalloonTarget`,
+and node/QMP failures raise `BalloonError`. The target cannot exceed
+its live RAM ceiling. The call returns on QEMU acceptance, before guest
+convergence. Configured RAM and scheduler reservations remain unchanged.

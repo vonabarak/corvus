@@ -381,9 +381,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'vmChangeMedia) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'prepareTpmMigration) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'restoreTpmMigration) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'cleanupTpmMigrationArchive) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'cleanupTpmMigrationArchive) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmSetBalloon) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -486,6 +487,8 @@ class (Session'server_ s_) where
     session'restoreTpmMigration _ = GH.methodUnimplemented
     session'cleanupTpmMigrationArchive :: s_ -> (GH.MethodHandler Session'cleanupTpmMigrationArchive'params Session'cleanupTpmMigrationArchive'results)
     session'cleanupTpmMigrationArchive _ = GH.methodUnimplemented
+    session'vmSetBalloon :: s_ -> (GH.MethodHandler Session'vmSetBalloon'params Session'vmSetBalloon'results)
+    session'vmSetBalloon _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -588,6 +591,8 @@ instance (GH.HasMethod "restoreTpmMigration" Session Session'restoreTpmMigration
     methodByLabel  = (GH.Method 11450192344861352079 49)
 instance (GH.HasMethod "cleanupTpmMigrationArchive" Session Session'cleanupTpmMigrationArchive'params Session'cleanupTpmMigrationArchive'results) where
     methodByLabel  = (GH.Method 11450192344861352079 50)
+instance (GH.HasMethod "vmSetBalloon" Session Session'vmSetBalloon'params Session'vmSetBalloon'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 51)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -3868,6 +3873,76 @@ instance (C.Parse Session'cleanupTpmMigrationArchive'results (C.Parsed Session'c
     parse raw_ = (Std_.pure Session'cleanupTpmMigrationArchive'results)
 instance (C.Marshal Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results)) where
     marshalInto _raw (Session'cleanupTpmMigrationArchive'results) = (Std_.pure ())
+data Session'vmSetBalloon'params 
+type instance (R.ReprFor Session'vmSetBalloon'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmSetBalloon'params) where
+    typeId  = 17201424421732847586
+instance (C.TypedStruct Session'vmSetBalloon'params) where
+    numStructWords  = 2
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmSetBalloon'params) where
+    type AllocHint Session'vmSetBalloon'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmSetBalloon'params (C.Parsed Session'vmSetBalloon'params))
+instance (C.AllocateList Session'vmSetBalloon'params) where
+    type ListAllocHint Session'vmSetBalloon'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmSetBalloon'params (C.Parsed Session'vmSetBalloon'params))
+data instance C.Parsed Session'vmSetBalloon'params
+    = Session'vmSetBalloon'params 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,targetBytes :: (RP.Parsed Std_.Word64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmSetBalloon'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmSetBalloon'params))
+instance (C.Parse Session'vmSetBalloon'params (C.Parsed Session'vmSetBalloon'params)) where
+    parse raw_ = (Session'vmSetBalloon'params <$> (GH.parseField #vmId raw_)
+                                              <*> (GH.parseField #targetBytes raw_))
+instance (C.Marshal Session'vmSetBalloon'params (C.Parsed Session'vmSetBalloon'params)) where
+    marshalInto raw_ Session'vmSetBalloon'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #targetBytes targetBytes raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmSetBalloon'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "targetBytes" GH.Slot Session'vmSetBalloon'params Std_.Word64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data Session'vmSetBalloon'results 
+type instance (R.ReprFor Session'vmSetBalloon'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmSetBalloon'results) where
+    typeId  = 11405991015675800505
+instance (C.TypedStruct Session'vmSetBalloon'results) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Session'vmSetBalloon'results) where
+    type AllocHint Session'vmSetBalloon'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmSetBalloon'results (C.Parsed Session'vmSetBalloon'results))
+instance (C.AllocateList Session'vmSetBalloon'results) where
+    type ListAllocHint Session'vmSetBalloon'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmSetBalloon'results (C.Parsed Session'vmSetBalloon'results))
+data instance C.Parsed Session'vmSetBalloon'results
+    = Session'vmSetBalloon'results 
+        {status :: (RP.Parsed BalloonStatus)
+        ,message :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmSetBalloon'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmSetBalloon'results))
+instance (C.Parse Session'vmSetBalloon'results (C.Parsed Session'vmSetBalloon'results)) where
+    parse raw_ = (Session'vmSetBalloon'results <$> (GH.parseField #status raw_)
+                                               <*> (GH.parseField #message raw_))
+instance (C.Marshal Session'vmSetBalloon'results (C.Parsed Session'vmSetBalloon'results)) where
+    marshalInto raw_ Session'vmSetBalloon'results{..} = (do
+        (GH.encodeField #status status raw_)
+        (GH.encodeField #message message raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "status" GH.Slot Session'vmSetBalloon'results BalloonStatus) where
+    fieldByLabel  = (GH.dataField 0 0 16 0)
+instance (GH.HasField "message" GH.Slot Session'vmSetBalloon'results Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where
@@ -5333,3 +5408,57 @@ instance (GH.HasField "prefix" GH.Slot GuestIpAddress Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 0 32 0)
 instance (GH.HasField "ipAddrType" GH.Slot GuestIpAddress Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
+data BalloonStatus 
+    = BalloonStatus'success 
+    | BalloonStatus'notRunning 
+    | BalloonStatus'deviceNotEnabled 
+    | BalloonStatus'driverNotReady 
+    | BalloonStatus'invalidTarget 
+    | BalloonStatus'failed 
+    | BalloonStatus'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor BalloonStatus) = (R.Data R.Sz16)
+instance (C.HasTypeId BalloonStatus) where
+    typeId  = 18219374694533557778
+instance (Std_.Enum BalloonStatus) where
+    toEnum n_ = case n_ of
+        0 ->
+            BalloonStatus'success
+        1 ->
+            BalloonStatus'notRunning
+        2 ->
+            BalloonStatus'deviceNotEnabled
+        3 ->
+            BalloonStatus'driverNotReady
+        4 ->
+            BalloonStatus'invalidTarget
+        5 ->
+            BalloonStatus'failed
+        tag_ ->
+            (BalloonStatus'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (BalloonStatus'success) ->
+            0
+        (BalloonStatus'notRunning) ->
+            1
+        (BalloonStatus'deviceNotEnabled) ->
+            2
+        (BalloonStatus'driverNotReady) ->
+            3
+        (BalloonStatus'invalidTarget) ->
+            4
+        (BalloonStatus'failed) ->
+            5
+        (BalloonStatus'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord BalloonStatus) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse BalloonStatus BalloonStatus) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList BalloonStatus) where
+    type ListAllocHint BalloonStatus = Std_.Int
+instance (C.EstimateListAlloc BalloonStatus BalloonStatus)

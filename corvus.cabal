@@ -50,6 +50,7 @@ library
       Corvus.Handlers
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
+      Corvus.Handlers.Vm.Balloon
       Corvus.Handlers.Vm.Query
       Corvus.Handlers.Vm.Configure
       Corvus.Handlers.Vm.Delete
@@ -279,6 +280,7 @@ library
       Corvus.Node.Caps.Session.Utils
       Corvus.Node.Caps.Session.Vm
       Corvus.Node.Caps.Session.Vm.Access
+      Corvus.Node.Caps.Session.Vm.Balloon
       Corvus.Node.Caps.Session.Vm.Lifecycle
       Corvus.Node.Caps.Session.Vm.Process
       Corvus.Node.Caps.Session.Vm.Start
@@ -744,6 +746,7 @@ test-suite corvus-test
   other-modules:
       Corvus.ActionSpec
       Corvus.ApplySpec
+      Corvus.BalloonParserSpec
       Corvus.BuildCacheHashSpec
       Corvus.BuildCachePruneSpec
       Corvus.BuildCleanupSpec

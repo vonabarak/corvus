@@ -266,6 +266,9 @@ interface Session {
   # QMP `stop` — freeze CPU execution. VM stays in memory; ledger
   # entry stays in place.
   vmPause @18 (vmId :Int64) -> ();
+  # Set an absolute guest RAM target in bytes, validated against the live spec.
+  # Returns when QEMU accepts the command; the guest responds asynchronously.
+  vmSetBalloon @51 (vmId :Int64, targetBytes :UInt64) -> (status :BalloonStatus, message :Text);
 
   # QMP `cont` — resume from pause.
   vmResume @19 (vmId :Int64) -> ();
@@ -783,4 +786,14 @@ struct GuestIpAddress {
   ipAddress  @0 :Text;
   prefix     @1 :Int32;
   ipAddrType @2 :Text;   # "ipv4" / "ipv6"
+}
+
+# Expected balloon failures remain typed across the node-agent boundary.
+enum BalloonStatus {
+  success @0;
+  notRunning @1;
+  deviceNotEnabled @2;
+  driverNotReady @3;
+  invalidTarget @4;
+  failed @5;
 }

@@ -15,6 +15,9 @@ import capnp
 import pytest
 from corvus_client.exceptions import (
     AmbiguousRef,
+    BalloonDeviceNotEnabled,
+    BalloonDriverNotReady,
+    BalloonError,
     CorvusError,
     DiskHasOverlays,
     DiskInUse,
@@ -23,6 +26,7 @@ from corvus_client.exceptions import (
     FormatNotSupported,
     GuestAgentError,
     GuestAgentNotEnabled,
+    InvalidBalloonTarget,
     InvalidTransition,
     NetIfNotFound,
     NetworkAlreadyRunning,
@@ -83,6 +87,10 @@ _CODE_TO_EXC = {
     "guest_agent_not_enabled": GuestAgentNotEnabled,
     "guest_agent_error": GuestAgentError,
     "ambiguous_ref": AmbiguousRef,
+    "balloon_device_not_enabled": BalloonDeviceNotEnabled,
+    "balloon_driver_not_ready": BalloonDriverNotReady,
+    "invalid_balloon_target": InvalidBalloonTarget,
+    "balloon_error": BalloonError,
     "internal_error": ServerError,
     "protocol_error": ProtocolError,
 }

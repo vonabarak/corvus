@@ -54,6 +54,10 @@ responseError = \case
   RespFormatNotSupported message -> (FormatNotSupported, message)
   RespGuestAgentNotEnabled -> (GuestAgentNotEnabled, "Guest agent not enabled")
   RespGuestAgentError message -> (GuestAgentError, message)
+  RespBalloonDeviceNotEnabled -> (BalloonDeviceNotEnabled, "VM has no VirtIO balloon device")
+  RespBalloonDriverNotReady -> (BalloonDriverNotReady, "VirtIO balloon guest driver is not ready")
+  RespInvalidBalloonTarget -> (InvalidBalloonTarget, "Balloon target must be positive and not exceed the VM RAM ceiling")
+  RespBalloonError message -> (BalloonError, message)
   RespError message -> (InternalError, message)
   RespNetworkError message -> (InternalError, message)
   -- Success constructors never reach here; a method that throws on

@@ -158,6 +158,20 @@ class AsyncVm:
         resp = await self._cap.reset()
         return str(resp.status)
 
+    async def set_balloon(self, *, target_bytes: int) -> None:
+        """Set the running guest's RAM target in bytes.
+
+        Lower targets inflate the balloon; higher targets deflate it.
+        Returns when QEMU accepts the request, before guest convergence.
+        Raises BalloonDeviceNotEnabled, BalloonDriverNotReady,
+        InvalidBalloonTarget, or BalloonError for daemon rejections.
+        """
+        if not isinstance(target_bytes, int) or isinstance(target_bytes, bool):
+            raise TypeError("target_bytes must be an integer byte count")
+        if not 0 < target_bytes < 2**64:
+            raise ValueError("target_bytes must be positive and fit in UInt64")
+        await self._cap.setBalloon(targetBytes=target_bytes)
+
     async def save(self, *, wait: bool = False) -> str:
         resp = await self._cap.save(wait=wait)
         return str(resp.status)

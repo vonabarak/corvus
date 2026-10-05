@@ -79,6 +79,7 @@ import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, r
 
 import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, tshow, vmOpLockFor, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
+import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
@@ -470,6 +471,10 @@ instance CGNA.Session'server_ SessionCap where
   session'vmPause sc =
     handleParsed $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->
       handleVmPause sc vid
+
+  session'vmSetBalloon sc =
+    handleParsedAsync $ \CGNA.Session'vmSetBalloon'params {CGNA.vmId = vid, CGNA.targetBytes = target} ->
+      withVmOpLock sc vid (handleVmSetBalloon sc vid target)
 
   session'vmResume sc =
     handleParsed $ \CGNA.Session'vmResume'params {CGNA.vmId = vid} ->

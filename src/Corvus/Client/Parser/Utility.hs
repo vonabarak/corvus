@@ -6,6 +6,7 @@ module Corvus.Client.Parser.Utility
   ( -- * Option readers
     readBool
   , parseSizeWithUnit
+  , parseSizeBytes
 
     -- * Shared option parsers
   , waitOptionsParser
@@ -13,8 +14,9 @@ module Corvus.Client.Parser.Utility
 where
 
 import Corvus.Client.Types
-import Data.Char (toLower)
+import Data.Char (isDigit, toLower, toUpper)
 import Data.Int (Int64)
+import Data.Word (Word64)
 import Options.Applicative
 
 -- | Reader for boolean values (true/false/yes/no/1/0, case-insensitive).
@@ -37,6 +39,21 @@ parseSizeWithUnit = eitherReader $ \s ->
     [(n, "G")] -> Right (n * 1024)
     [(n, "T")] -> Right (n * 1024 * 1024)
     _ -> Left $ "Invalid size format: " ++ s ++ " (use number with optional M/G/T suffix)"
+
+-- | Parse a positive integer with a binary B/K/M/G/T suffix into bytes.
+-- Compute in Integer before narrowing so multiplication cannot overflow.
+parseSizeBytes :: ReadM Word64
+parseSizeBytes = eitherReader $ \raw ->
+  let (digits, suffix) = span isDigit raw
+      units = zip "BKMGT" [0 :: Int ..]
+   in case (reads digits :: [(Integer, String)], map toUpper suffix) of
+        ([(n, "")], [unit])
+          | Just power <- lookup unit units ->
+              let bytes = n * 1024 ^ power
+               in if bytes > 0 && bytes <= toInteger (maxBound :: Word64)
+                    then Right (fromInteger bytes)
+                    else Left "Size must be positive and fit in UInt64 bytes"
+        _ -> Left "Expected a positive integer with a B/K/M/G/T suffix (e.g. 768M)"
 
 -- | Parser for the shared @--wait@ option.
 waitOptionsParser :: Parser WaitOptions

@@ -129,6 +129,7 @@ class Vm:
     headless: bool = True
     guest_agent: bool = True
     tpm: bool = False
+    balloon: bool = True
     cloud_init: bool = False
     reboot_quirk: bool = False
     # When True, `__enter__` blocks until the inner daemon reports the
@@ -194,6 +195,7 @@ class Vm:
                 headless=self.headless,
                 guest_agent=self.guest_agent,
                 tpm=self.tpm,
+                balloon=self.balloon,
                 cloud_init=self.cloud_init,
                 reboot_quirk=self.reboot_quirk,
             )

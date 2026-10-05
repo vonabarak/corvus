@@ -163,6 +163,8 @@ runCommand opts = do
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
       VmPause vmRef ->
         handleVmAction fmt "pause" vmRef (CR.rpcVmPause conn (entityRefFromText vmRef))
+      VmSetBalloon vmRef target ->
+        handleVmAction fmt "balloon target accepted" vmRef (CR.rpcVmSetBalloon conn (entityRefFromText vmRef) target)
       VmReset vmRef ->
         handleVmAction fmt "reset" vmRef (CR.rpcVmReset conn (entityRefFromText vmRef))
       VmSave vmRef waitOpts -> handleVmSave fmt conn vmRef waitOpts

@@ -8,9 +8,10 @@ concern; the conftest daemon fixture doesn't depend on that).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
-from corvus_client import AsyncClient, VmNotFound
+from corvus_client import AsyncClient, VmNotFound, VmNotRunning
 
 from ._helpers import with_client
 
@@ -80,3 +81,23 @@ def test_vm_attach_detach_disk(daemon_socket: Path) -> None:
         await disk.delete()
 
     run(go)
+
+
+def test_balloon_validation(daemon_socket: Path) -> None:
+    async def go(c: AsyncClient) -> None:
+        vm = await c.vms.create(
+            "balloon-validation", cpu_count=1, ram_mb=256, headless=True
+        )
+        for target in (0, -1, 2**64):
+            with pytest.raises(ValueError):
+                await vm.set_balloon(target_bytes=target)
+        for invalid_type in (True, 1.5, "128M"):
+            with pytest.raises(TypeError):
+                await vm.set_balloon(target_bytes=cast(int, invalid_type))
+        with pytest.raises(VmNotRunning):
+            await vm.set_balloon(target_bytes=128 * 1024**2)
+        assert (await vm.show()).ram_mb == 256
+        await c.ping()
+        await vm.delete()
+
+    with_client(daemon_socket)(go)

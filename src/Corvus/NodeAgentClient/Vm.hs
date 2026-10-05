@@ -11,6 +11,7 @@ module Corvus.NodeAgentClient.Vm
   , vmStopHard
   , vmPause
   , vmResume
+  , vmSetBalloon
   , vmSave
   , deleteSavedState
   , deleteTpmState
@@ -57,7 +58,7 @@ import Corvus.Wire.Enums (toCapnpGraphicsAdapter)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
-import Data.Word (Word32)
+import Data.Word (Word32, Word64)
 
 data VmStartOutcome
   = VmStartStarted VmRuntimeInfo
@@ -293,6 +294,15 @@ vmResume nac vmId = remote $ do
       CGNA.Session'vmResume'params {CGNA.vmId = vmId}
       (nacSession nac)
   pure ()
+
+vmSetBalloon :: NodeAgentClient -> Int64 -> Word64 -> IO (Either NodeAgentError (CGNA.BalloonStatus, T.Text))
+vmSetBalloon nac vmId target = remote $ do
+  CGNA.Session'vmSetBalloon'results status message <-
+    callOn
+      #vmSetBalloon
+      CGNA.Session'vmSetBalloon'params {CGNA.vmId = vmId, CGNA.targetBytes = target}
+      (nacSession nac)
+  pure (status, message)
 
 -- | Ask the agent to save the VM's running state to disk
 -- (QMP @migrate file:…@), wait for completion, then terminate

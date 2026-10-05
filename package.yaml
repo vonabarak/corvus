@@ -109,6 +109,7 @@ library:
     - Corvus.Handlers
     - Corvus.Handlers.Core
     - Corvus.Handlers.Vm
+    - Corvus.Handlers.Vm.Balloon
     - Corvus.Handlers.Vm.Query
     - Corvus.Handlers.Vm.Configure
     - Corvus.Handlers.Vm.Delete

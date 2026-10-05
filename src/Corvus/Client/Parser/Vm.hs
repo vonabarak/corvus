@@ -210,6 +210,17 @@ vmPauseCommand =
           <> completer vmCompleter
       )
 
+-- | Set a running guest's RAM target.
+vmBalloonCommand :: Parser Command
+vmBalloonCommand =
+  VmSetBalloon
+    <$> argument
+      (T.pack <$> str)
+      (metavar "VM" <> help "Name or ID of the running VM" <> completer vmCompleter)
+    <*> argument
+      parseSizeBytes
+      (metavar "SIZE" <> help "Guest RAM target with binary B/K/M/G/T suffix (e.g. 768M; 1K = 1024 bytes)")
+
 -- | Parser for vm reset
 vmResetCommand :: Parser Command
 vmResetCommand =
@@ -521,6 +532,9 @@ vmCommandParser =
         <> command
           "pause"
           (info vmPauseCommand (progDesc "Pause a VM (running -> paused)"))
+        <> command
+          "balloon"
+          (info vmBalloonCommand (progDesc "Set the running guest RAM target; returns on QEMU acceptance"))
         <> command
           "reset"
           (info vmResetCommand (progDesc "Reset a VM to stopped state (any -> stopped). For saved VMs this also drops the saved-state file."))
