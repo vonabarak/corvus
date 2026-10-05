@@ -33,10 +33,10 @@ def test_sync_status_and_ping(daemon_socket: Path) -> None:
 
 def test_sync_disk_lifecycle(daemon_socket: Path) -> None:
     with Client(unix_socket=str(daemon_socket)) as c:
-        d = c.disks.create("sync-disk", size_mb=64)
+        d = c.disks.create("sync-disk", size=67108864)
         info = d.show()
         assert info.name == "sync-disk"
-        assert info.size_mb == 64
+        assert info.size == 67108864
         d.delete()
         with pytest.raises(DiskNotFound):
             c.disks.get("sync-disk")
@@ -44,11 +44,11 @@ def test_sync_disk_lifecycle(daemon_socket: Path) -> None:
 
 def test_sync_vm_create_edit_delete(daemon_socket: Path) -> None:
     with Client(unix_socket=str(daemon_socket)) as c:
-        v = c.vms.create("sync-vm", cpu_count=1, ram_mb=256, headless=True)
+        v = c.vms.create("sync-vm", cpu_count=1, ram=268435456, headless=True)
         details = v.show()
         assert details.name == "sync-vm"
-        v.edit(ram_mb=512)
-        assert v.show().ram_mb == 512
+        v.edit(ram=536870912)
+        assert v.show().ram == 536870912
         v.delete()
 
 
@@ -61,8 +61,8 @@ def test_sync_multiple_clients_isolated(daemon_socket: Path) -> None:
         c1.ping()
         c2.ping()
         # Manager caps fetched independently per client.
-        d1 = c1.disks.create("sync-iso-1", size_mb=32)
-        d2 = c2.disks.create("sync-iso-2", size_mb=32)
+        d1 = c1.disks.create("sync-iso-1", size=33554432)
+        d2 = c2.disks.create("sync-iso-2", size=33554432)
         names = [info.name for info in c1.disks.list()]
         assert "sync-iso-1" in names
         assert "sync-iso-2" in names
@@ -123,7 +123,9 @@ def test_sync_task_subscription_bridges_callback_and_closes() -> None:
 
 def test_sync_balloon_validation(daemon_socket: Path) -> None:
     with Client(unix_socket=str(daemon_socket)) as c:
-        vm = c.vms.create("balloon-validation", cpu_count=1, ram_mb=256, headless=True)
+        vm = c.vms.create(
+            "balloon-validation", cpu_count=1, ram=268435456, headless=True
+        )
         for target in (0, -1, 2**64):
             with pytest.raises(ValueError):
                 vm.set_balloon(target_bytes=target)
@@ -132,6 +134,6 @@ def test_sync_balloon_validation(daemon_socket: Path) -> None:
                 vm.set_balloon(target_bytes=cast(int, invalid_type))
         with pytest.raises(VmNotRunning):
             vm.set_balloon(target_bytes=128 * 1024**2)
-        assert (vm.show()).ram_mb == 256
+        assert (vm.show()).ram == 268435456
         c.ping()
         vm.delete()

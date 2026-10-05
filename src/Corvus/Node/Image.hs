@@ -24,7 +24,7 @@ module Corvus.Node.Image
   , resizeImage
   , rebaseImage
   , getImageInfo
-  , getImageSizeMb
+  , getImageSize
   , parseImageInfo
 
     -- * Snapshot operations
@@ -104,8 +104,8 @@ data ImageResult
 -- | Information about a disk image
 data ImageInfo = ImageInfo
   { iiFormat :: !DriveFormat
-  , iiVirtualSizeMb :: !Int64
-  , iiActualSizeMb :: !(Maybe Int64)
+  , iiVirtualSize :: !Int64
+  , iiActualSize :: !(Maybe Int64)
   , iiSnapshots :: ![SnapshotData]
   }
   deriving (Eq, Show)
@@ -114,7 +114,7 @@ data ImageInfo = ImageInfo
 data SnapshotData = SnapshotData
   { sdId :: !Text
   , sdName :: !Text
-  , sdSizeMb :: !(Maybe Int)
+  , sdSize :: !(Maybe Int64)
   }
   deriving (Eq, Show)
 
@@ -137,16 +137,16 @@ createImage
   -> DriveFormat
   -- ^ Format
   -> Int64
-  -- ^ Size in MB
+  -- ^ Size in bytes
   -> IO ImageResult
-createImage path format sizeMb = do
+createImage path format size = do
   createDirectoryIfMissing True (takeDirectory path)
   exists <- doesFileExist path
   if exists
     then pure $ ImageError "File already exists"
     else do
       let formatStr = T.unpack $ enumToText format
-          sizeStr = show sizeMb ++ "M"
+          sizeStr = show size
           args = ["create", "-f", formatStr, path, sizeStr]
       (exitCode, _, stderr) <- readProcessWithExitCode qemuImgBinary args ""
       case exitCode of
@@ -199,14 +199,14 @@ resizeImage
   :: FilePath
   -- ^ File path
   -> Int64
-  -- ^ New size in MB
+  -- ^ New size in bytes
   -> IO ImageResult
-resizeImage path newSizeMb = do
+resizeImage path newSize = do
   exists <- doesFileExist path
   if not exists
     then pure ImageNotFound
     else do
-      let sizeStr = show newSizeMb ++ "M"
+      let sizeStr = show newSize
           args = ["resize", path, sizeStr]
       (exitCode, _, stderr) <- readProcessWithExitCode qemuImgBinary args ""
       case exitCode of
@@ -261,12 +261,12 @@ getImageInfo path = do
         ExitFailure _ -> pure $ Left $ T.pack stderr
         ExitSuccess -> pure $ parseImageInfo stdout
 
--- | Get the virtual size of a disk image in MB, returning Nothing on any failure.
-getImageSizeMb :: FilePath -> IO (Maybe Int)
-getImageSizeMb path = do
+-- | Get the virtual size of a disk image in bytes, returning Nothing on any failure.
+getImageSize :: FilePath -> IO (Maybe Int64)
+getImageSize path = do
   result <- getImageInfo path
   pure $ case result of
-    Right info -> Just (fromIntegral $ iiVirtualSizeMb info)
+    Right info -> Just (fromIntegral $ iiVirtualSize info)
     Left _ -> Nothing
 
 --------------------------------------------------------------------------------
@@ -317,8 +317,8 @@ parseImageInfo output =
       Right
         ImageInfo
           { iiFormat = format
-          , iiVirtualSizeMb = qimVirtualSize qim `div` (1024 * 1024)
-          , iiActualSizeMb = fmap (`div` (1024 * 1024)) (qimActualSize qim)
+          , iiVirtualSize = qimVirtualSize qim
+          , iiActualSize = qimActualSize qim
           , iiSnapshots = maybe [] (map snapToInfo) (qimSnapshots qim)
           }
   where
@@ -326,7 +326,7 @@ parseImageInfo output =
       SnapshotData
         { sdId = qisId qs
         , sdName = qisName qs
-        , sdSizeMb = fmap (fromIntegral . (`div` (1024 * 1024))) (qisVmStateSize qs)
+        , sdSize = qisVmStateSize qs
         }
 
 --------------------------------------------------------------------------------

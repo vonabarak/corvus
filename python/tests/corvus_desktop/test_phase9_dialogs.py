@@ -34,7 +34,7 @@ def test_blank_tab_requires_name(qapp: QApplication) -> None:
     p = tab.payload()
     assert p is not None
     assert p["mode"] == "blank"
-    assert p["size_mb"] == 10 * 1024
+    assert p["size"] == 10485760 * 1024
 
 
 def test_disk_create_dialog_blank_payload(qapp: QApplication) -> None:

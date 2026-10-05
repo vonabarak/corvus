@@ -676,10 +676,10 @@ Node
     createdAt UTCTime
     -- Populated/refreshed by the agent push (Phase 5).
     cpuCount Int Maybe default=NULL
-    ramMbTotal Int Maybe default=NULL
-    ramMbFree Int Maybe default=NULL
-    storageBytesTotal Int Maybe default=NULL
-    storageBytesFree Int Maybe default=NULL
+    ramTotal Int64 Maybe default=NULL
+    ramFree Int64 Maybe default=NULL
+    storageBytesTotal Int64 Maybe default=NULL
+    storageBytesFree Int64 Maybe default=NULL
     loadAvg1 Double Maybe default=NULL
     loadAvg5 Double Maybe default=NULL
     loadAvg15 Double Maybe default=NULL
@@ -709,7 +709,7 @@ Vm
     -- only after the matching reset/termination has been confirmed.
     runtimeGeneration Int64 Maybe default=NULL
     cpuCount Int
-    ramMb Int
+    ram Int64
     description Text Maybe
     headless Bool default=false
     guestAgent Bool default=false
@@ -733,7 +733,7 @@ Vm
 DiskImage
     name Text
     format DriveFormat
-    sizeMb Int Maybe
+    size Int64 Maybe
     createdAt UTCTime
     backingImageId DiskImageId Maybe
     ephemeral Bool default=false
@@ -758,7 +758,7 @@ Snapshot
     diskImageId DiskImageId
     name Text
     createdAt UTCTime
-    sizeMb Int Maybe
+    size Int64 Maybe
     -- Whether this snapshot was taken against a running VM via QMP
     -- (`True`) versus offline via `qemu-img snapshot -c` (`False`).
     -- Pure operator diagnostic; the qcow2 entry is bit-identical
@@ -880,7 +880,7 @@ VmSshKey
 TemplateVm
     name Text
     cpuCount Int
-    ramMb Int
+    ram Int64
     description Text Maybe
     headless Bool default=false
     cloudInit Bool default=false
@@ -906,7 +906,7 @@ TemplateDrive
     cacheType CacheType
     discard Bool default=false
     cloneStrategy TemplateCloneStrategy
-    sizeMb Int Maybe
+    size Int64 Maybe
     format DriveFormat Maybe
     ephemeral Bool Maybe
     deriving Show Eq Generic

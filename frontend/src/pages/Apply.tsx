@@ -16,7 +16,7 @@ const PLACEHOLDER_YAML = `# crv apply pipeline. See doc/apply-configuration.md f
 #
 # disks:
 #   - name: web-root
-#     sizeMb: 4096
+#     size: 4096M
 #     format: qcow2
 #
 # networks:
@@ -28,7 +28,7 @@ const PLACEHOLDER_YAML = `# crv apply pipeline. See doc/apply-configuration.md f
 # vms:
 #   - name: web-1
 #     cpuCount: 2
-#     ramMb: 1024
+#     ram: 1024M
 #     drives:
 #       - disk: web-root
 #     netIfs:

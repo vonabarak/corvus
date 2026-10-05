@@ -128,7 +128,7 @@ decodeVmSpec
     , CGNA.runtimeGeneration = gen
     , CGNA.name = n
     , CGNA.cpuCount = c
-    , CGNA.ramMb = r
+    , CGNA.ram = r
     , CGNA.headless = h
     , CGNA.graphicsAdapter = graphicsAdapter
     , CGNA.guestAgent = g
@@ -157,7 +157,7 @@ decodeVmSpec
           , VS.vsRuntimeGeneration = gen
           , VS.vsName = n
           , VS.vsCpuCount = c
-          , VS.vsRamMb = r
+          , VS.vsRam = r
           , VS.vsHeadless = h
           , VS.vsGraphicsAdapter = adapter
           , VS.vsGuestAgent = g

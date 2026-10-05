@@ -20,6 +20,7 @@ export default tseslint.config(
       "src/lib/spice/**",
     ],
   },
+  { files: ["tests/**/*.mjs"], languageOptions: { globals: globals.node } },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

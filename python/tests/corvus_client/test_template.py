@@ -11,7 +11,7 @@ from ._helpers import with_client
 TEMPLATE_YAML = """\
 name: py-tpl
 cpuCount: 2
-ramMb: 512
+ram: 512M
 headless: true
 guestAgent: false
 tpm: false
@@ -30,7 +30,7 @@ def test_template_create_show_delete(daemon_socket: Path) -> None:
         details = await tpl.show()
         assert details.name == "py-tpl"
         assert details.cpu_count == 2
-        assert details.ram_mb == 512
+        assert details.ram == 536870912
         assert details.headless is True
         assert details.tpm is False
         listed = await c.templates.list()

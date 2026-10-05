@@ -34,7 +34,7 @@ pipeline:
       templates:
         - name: gentoo-cloud
           cpuCount: 8
-          ramMb: 8192
+          ram: 8G
           cloudInit: true
           guestAgent: true
           description: "Gentoo cloud-init bake host (stage 1)"
@@ -127,7 +127,7 @@ pipeline:
         # gentoo-base-cloud is ~3 GB virtual; +gentoo-sources +grub
         # +utils pushes the overlay well past that, so size up to
         # 12 GB. qcow2 stays sparse on disk.
-        sizeGb: 12
+        size: 12G
         path: BaseImages/Gentoo/
         compact: true
         ifExists: skip
@@ -136,7 +136,7 @@ pipeline:
 
       vm:
         cpuCount: 8
-        ramMb: 8192
+        ram: 8G
 
       shellDefaults:
         preamble: "set -eux"
@@ -269,7 +269,7 @@ pipeline:
       templates:
         - name: gentoo-builder-bake
           cpuCount: 8
-          ramMb: 8192
+          ram: 8G
           cloudInit: true
           guestAgent: true
           description: "Gentoo builder bake VM (stage 2's bake host)"
@@ -334,7 +334,7 @@ pipeline:
 
       target:
         format: qcow2
-        sizeGb: 20
+        size: 20G
         path: BaseImages/Gentoo/
         compact: true
         ifExists: skip
@@ -343,7 +343,7 @@ pipeline:
 
       vm:
         cpuCount: 8
-        ramMb: 8192
+        ram: 8G
 
       shellDefaults:
         preamble: "set -eux"
@@ -735,7 +735,7 @@ pipeline:
       templates:
         - name: gentoo-headless-bake
           cpuCount: 8
-          ramMb: 8192
+          ram: 8G
           cloudInit: false
           guestAgent: true
           headless: true
@@ -789,7 +789,7 @@ pipeline:
 
       vm:
         cpuCount: 8
-        ramMb: 8192
+        ram: 8G
 
       shellDefaults:
         preamble: "set -eux"
@@ -937,7 +937,7 @@ pipeline:
           # the template. Runtime VMs that don't need this much
           # can override per-VM (corvus-test-node.yml's harness
           # apply does exactly that).
-          ramMb: 16384
+          ram: 16G
           cloudInit: false
           guestAgent: true
           headless: true
@@ -948,7 +948,7 @@ pipeline:
               strategy: overlay
               cacheType: writeback
               discard: true
-              sizeMb: 40960
+              size: 40G
           networkInterfaces:
             - network: corvus
           # No 'sshKeys:' — cloud-init is disabled and the daemon
@@ -960,11 +960,11 @@ pipeline:
 
         - name: gentoo-headless-cloudinit
           cpuCount: 8
-          # 16 GB default — see the matching ramMb comment on the
+          # 16 GB default — see the matching ram comment on the
           # `gentoo-headless` template above. The gentoo-test.yml
           # bake VM uses this template and source-builds nodejs /
           # v8 with peak working sets near 12 GB.
-          ramMb: 16384
+          ram: 16G
           cloudInit: true
           guestAgent: true
           headless: true
@@ -975,7 +975,7 @@ pipeline:
               strategy: overlay
               cacheType: writeback
               discard: true
-              sizeMb: 40960
+              size: 40G
           networkInterfaces:
             - network: corvus
           sshKeys:

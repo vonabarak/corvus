@@ -112,7 +112,7 @@ class TestRefusedFromStopped(SingleNodeCase):
         return self.client.vms.create(
             name,
             cpu_count=1,
-            ram_mb=64,
+            ram=67108864,
             headless=True,
             guest_agent=False,
         )
@@ -275,7 +275,7 @@ class TestResetUniversal(SingleNodeCase):
         vm = self.client.vms.create(
             "fsm-reset-stopped",
             cpu_count=1,
-            ram_mb=64,
+            ram=67108864,
             headless=True,
             guest_agent=False,
         )

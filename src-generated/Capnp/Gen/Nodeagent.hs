@@ -662,26 +662,26 @@ data instance C.Parsed Session'diskCreate'params
     = Session'diskCreate'params 
         {path :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Basics.Text)
-        ,sizeMb :: (RP.Parsed Std_.Int64)}
+        ,size :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskCreate'params))
 deriving instance (Std_.Eq (C.Parsed Session'diskCreate'params))
 instance (C.Parse Session'diskCreate'params (C.Parsed Session'diskCreate'params)) where
     parse raw_ = (Session'diskCreate'params <$> (GH.parseField #path raw_)
                                             <*> (GH.parseField #format raw_)
-                                            <*> (GH.parseField #sizeMb raw_))
+                                            <*> (GH.parseField #size raw_))
 instance (C.Marshal Session'diskCreate'params (C.Parsed Session'diskCreate'params)) where
     marshalInto raw_ Session'diskCreate'params{..} = (do
         (GH.encodeField #path path raw_)
         (GH.encodeField #format format raw_)
-        (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #size size raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "path" GH.Slot Session'diskCreate'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "format" GH.Slot Session'diskCreate'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "sizeMb" GH.Slot Session'diskCreate'params Std_.Int64) where
+instance (GH.HasField "size" GH.Slot Session'diskCreate'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 data Session'diskCreate'results 
 type instance (R.ReprFor Session'diskCreate'results) = (R.Ptr (Std_.Just R.Struct))
@@ -861,22 +861,22 @@ instance (C.EstimateListAlloc Session'diskResize'params (C.Parsed Session'diskRe
 data instance C.Parsed Session'diskResize'params
     = Session'diskResize'params 
         {path :: (RP.Parsed Basics.Text)
-        ,newSizeMb :: (RP.Parsed Std_.Int64)}
+        ,newSize :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskResize'params))
 deriving instance (Std_.Eq (C.Parsed Session'diskResize'params))
 instance (C.Parse Session'diskResize'params (C.Parsed Session'diskResize'params)) where
     parse raw_ = (Session'diskResize'params <$> (GH.parseField #path raw_)
-                                            <*> (GH.parseField #newSizeMb raw_))
+                                            <*> (GH.parseField #newSize raw_))
 instance (C.Marshal Session'diskResize'params (C.Parsed Session'diskResize'params)) where
     marshalInto raw_ Session'diskResize'params{..} = (do
         (GH.encodeField #path path raw_)
-        (GH.encodeField #newSizeMb newSizeMb raw_)
+        (GH.encodeField #newSize newSize raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "path" GH.Slot Session'diskResize'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "newSizeMb" GH.Slot Session'diskResize'params Std_.Int64) where
+instance (GH.HasField "newSize" GH.Slot Session'diskResize'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 data Session'diskResize'results 
 type instance (R.ReprFor Session'diskResize'results) = (R.Ptr (Std_.Just R.Struct))
@@ -4237,8 +4237,8 @@ instance (C.EstimateListAlloc DiskInspectInfo (C.Parsed DiskInspectInfo))
 data instance C.Parsed DiskInspectInfo
     = DiskInspectInfo 
         {format :: (RP.Parsed Basics.Text)
-        ,virtualSizeMb :: (RP.Parsed Std_.Int64)
-        ,actualSizeMb :: (RP.Parsed Std_.Int64)
+        ,virtualSize :: (RP.Parsed Std_.Int64)
+        ,actualSize :: (RP.Parsed Std_.Int64)
         ,hasActualSize :: (RP.Parsed Std_.Bool)
         ,snapshots :: (RP.Parsed (R.List DiskSnapshotInfo))}
     deriving(Generics.Generic)
@@ -4246,24 +4246,24 @@ deriving instance (Std_.Show (C.Parsed DiskInspectInfo))
 deriving instance (Std_.Eq (C.Parsed DiskInspectInfo))
 instance (C.Parse DiskInspectInfo (C.Parsed DiskInspectInfo)) where
     parse raw_ = (DiskInspectInfo <$> (GH.parseField #format raw_)
-                                  <*> (GH.parseField #virtualSizeMb raw_)
-                                  <*> (GH.parseField #actualSizeMb raw_)
+                                  <*> (GH.parseField #virtualSize raw_)
+                                  <*> (GH.parseField #actualSize raw_)
                                   <*> (GH.parseField #hasActualSize raw_)
                                   <*> (GH.parseField #snapshots raw_))
 instance (C.Marshal DiskInspectInfo (C.Parsed DiskInspectInfo)) where
     marshalInto raw_ DiskInspectInfo{..} = (do
         (GH.encodeField #format format raw_)
-        (GH.encodeField #virtualSizeMb virtualSizeMb raw_)
-        (GH.encodeField #actualSizeMb actualSizeMb raw_)
+        (GH.encodeField #virtualSize virtualSize raw_)
+        (GH.encodeField #actualSize actualSize raw_)
         (GH.encodeField #hasActualSize hasActualSize raw_)
         (GH.encodeField #snapshots snapshots raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "format" GH.Slot DiskInspectInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "virtualSizeMb" GH.Slot DiskInspectInfo Std_.Int64) where
+instance (GH.HasField "virtualSize" GH.Slot DiskInspectInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "actualSizeMb" GH.Slot DiskInspectInfo Std_.Int64) where
+instance (GH.HasField "actualSize" GH.Slot DiskInspectInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
 instance (GH.HasField "hasActualSize" GH.Slot DiskInspectInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 2 1 0)
@@ -4288,7 +4288,7 @@ data instance C.Parsed DiskSnapshotInfo
     = DiskSnapshotInfo 
         {id :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)
-        ,sizeMb :: (RP.Parsed Std_.Int64)
+        ,size :: (RP.Parsed Std_.Int64)
         ,hasSize :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskSnapshotInfo))
@@ -4296,13 +4296,13 @@ deriving instance (Std_.Eq (C.Parsed DiskSnapshotInfo))
 instance (C.Parse DiskSnapshotInfo (C.Parsed DiskSnapshotInfo)) where
     parse raw_ = (DiskSnapshotInfo <$> (GH.parseField #id raw_)
                                    <*> (GH.parseField #name raw_)
-                                   <*> (GH.parseField #sizeMb raw_)
+                                   <*> (GH.parseField #size raw_)
                                    <*> (GH.parseField #hasSize raw_))
 instance (C.Marshal DiskSnapshotInfo (C.Parsed DiskSnapshotInfo)) where
     marshalInto raw_ DiskSnapshotInfo{..} = (do
         (GH.encodeField #id id raw_)
         (GH.encodeField #name name raw_)
-        (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #size size raw_)
         (GH.encodeField #hasSize hasSize raw_)
         (Std_.pure ())
         )
@@ -4310,7 +4310,7 @@ instance (GH.HasField "id" GH.Slot DiskSnapshotInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "name" GH.Slot DiskSnapshotInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "sizeMb" GH.Slot DiskSnapshotInfo Std_.Int64) where
+instance (GH.HasField "size" GH.Slot DiskSnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "hasSize" GH.Slot DiskSnapshotInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 1 1 0)
@@ -4319,7 +4319,7 @@ type instance (R.ReprFor VmSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSpec) where
     typeId  = 13869854766932503674
 instance (C.TypedStruct VmSpec) where
-    numStructWords  = 6
+    numStructWords  = 7
     numStructPtrs  = 7
 instance (C.Allocate VmSpec) where
     type AllocHint VmSpec = ()
@@ -4334,7 +4334,7 @@ data instance C.Parsed VmSpec
         {vmId :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,headless :: (RP.Parsed Std_.Bool)
         ,guestAgent :: (RP.Parsed Std_.Bool)
         ,vsockCid :: (RP.Parsed Std_.Word32)
@@ -4364,7 +4364,7 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
     parse raw_ = (VmSpec <$> (GH.parseField #vmId raw_)
                          <*> (GH.parseField #name raw_)
                          <*> (GH.parseField #cpuCount raw_)
-                         <*> (GH.parseField #ramMb raw_)
+                         <*> (GH.parseField #ram raw_)
                          <*> (GH.parseField #headless raw_)
                          <*> (GH.parseField #guestAgent raw_)
                          <*> (GH.parseField #vsockCid raw_)
@@ -4392,7 +4392,7 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #vmId vmId raw_)
         (GH.encodeField #name name raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #headless headless raw_)
         (GH.encodeField #guestAgent guestAgent raw_)
         (GH.encodeField #vsockCid vsockCid raw_)
@@ -4423,20 +4423,20 @@ instance (GH.HasField "name" GH.Slot VmSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "cpuCount" GH.Slot VmSpec Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-instance (GH.HasField "ramMb" GH.Slot VmSpec Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 1 32 0)
+instance (GH.HasField "ram" GH.Slot VmSpec Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "headless" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 2 1 0)
+    fieldByLabel  = (GH.dataField 32 1 1 0)
 instance (GH.HasField "guestAgent" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 1 2 1 0)
+    fieldByLabel  = (GH.dataField 33 1 1 0)
 instance (GH.HasField "vsockCid" GH.Slot VmSpec Std_.Word32) where
-    fieldByLabel  = (GH.dataField 32 2 32 0)
-instance (GH.HasField "hasVsockCid" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 2 2 1 0)
-instance (GH.HasField "spicePort" GH.Slot VmSpec Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 3 32 0)
+instance (GH.HasField "hasVsockCid" GH.Slot VmSpec Std_.Bool) where
+    fieldByLabel  = (GH.dataField 34 1 1 0)
+instance (GH.HasField "spicePort" GH.Slot VmSpec Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 3 32 0)
 instance (GH.HasField "hasSpicePort" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 3 2 1 0)
+    fieldByLabel  = (GH.dataField 35 1 1 0)
 instance (GH.HasField "drives" GH.Slot VmSpec (R.List VmDriveSpec)) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "netIfs" GH.Slot VmSpec (R.List VmNetIfSpec)) where
@@ -4444,31 +4444,31 @@ instance (GH.HasField "netIfs" GH.Slot VmSpec (R.List VmNetIfSpec)) where
 instance (GH.HasField "sharedDirs" GH.Slot VmSpec (R.List VmSharedDirSpec)) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "waitForGuestAgentMs" GH.Slot VmSpec Std_.Word32) where
-    fieldByLabel  = (GH.dataField 32 3 32 0)
+    fieldByLabel  = (GH.dataField 0 4 32 0)
 instance (GH.HasField "rebootQuirk" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 4 2 1 0)
+    fieldByLabel  = (GH.dataField 36 1 1 0)
 instance (GH.HasField "spiceBindAddr" GH.Slot VmSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "loadFromSavedState" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 5 2 1 0)
+    fieldByLabel  = (GH.dataField 37 1 1 0)
 instance (GH.HasField "cpuModel" GH.Slot VmSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 5)
 instance (GH.HasField "startPaused" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 6 2 1 0)
+    fieldByLabel  = (GH.dataField 38 1 1 0)
 instance (GH.HasField "tpm" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 7 2 1 0)
+    fieldByLabel  = (GH.dataField 39 1 1 0)
 instance (GH.HasField "lifecycleRevision" GH.Slot VmSpec Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 4 64 0)
-instance (GH.HasField "runtimeGeneration" GH.Slot VmSpec Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
+instance (GH.HasField "runtimeGeneration" GH.Slot VmSpec Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 6 64 0)
 instance (GH.HasField "audioDevices" GH.Slot VmSpec (R.List VmAudioDeviceSpec)) where
     fieldByLabel  = (GH.ptrField 6)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 16 2 16 0)
+    fieldByLabel  = (GH.dataField 48 1 16 0)
 instance (GH.HasField "balloon" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 8 2 1 1)
+    fieldByLabel  = (GH.dataField 40 1 1 1)
 instance (GH.HasField "rng" GH.Slot VmSpec Std_.Bool) where
-    fieldByLabel  = (GH.dataField 9 2 1 1)
+    fieldByLabel  = (GH.dataField 41 1 1 1)
 data VmAudioDeviceSpec 
 type instance (R.ReprFor VmAudioDeviceSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmAudioDeviceSpec) where
@@ -5178,7 +5178,7 @@ type instance (R.ReprFor NodeStats) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeStats) where
     typeId  = 17976094670731628670
 instance (C.TypedStruct NodeStats) where
-    numStructWords  = 7
+    numStructWords  = 8
     numStructPtrs  = 2
 instance (C.Allocate NodeStats) where
     type AllocHint NodeStats = ()
@@ -5191,8 +5191,8 @@ instance (C.EstimateListAlloc NodeStats (C.Parsed NodeStats))
 data instance C.Parsed NodeStats
     = NodeStats 
         {cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMbTotal :: (RP.Parsed Std_.Int32)
-        ,ramMbFree :: (RP.Parsed Std_.Int32)
+        ,ramTotal :: (RP.Parsed Std_.Int64)
+        ,ramFree :: (RP.Parsed Std_.Int64)
         ,storageBytesTotal :: (RP.Parsed Std_.Int64)
         ,storageBytesFree :: (RP.Parsed Std_.Int64)
         ,loadAvg1 :: (RP.Parsed Std_.Double)
@@ -5205,8 +5205,8 @@ deriving instance (Std_.Show (C.Parsed NodeStats))
 deriving instance (Std_.Eq (C.Parsed NodeStats))
 instance (C.Parse NodeStats (C.Parsed NodeStats)) where
     parse raw_ = (NodeStats <$> (GH.parseField #cpuCount raw_)
-                            <*> (GH.parseField #ramMbTotal raw_)
-                            <*> (GH.parseField #ramMbFree raw_)
+                            <*> (GH.parseField #ramTotal raw_)
+                            <*> (GH.parseField #ramFree raw_)
                             <*> (GH.parseField #storageBytesTotal raw_)
                             <*> (GH.parseField #storageBytesFree raw_)
                             <*> (GH.parseField #loadAvg1 raw_)
@@ -5217,8 +5217,8 @@ instance (C.Parse NodeStats (C.Parsed NodeStats)) where
 instance (C.Marshal NodeStats (C.Parsed NodeStats)) where
     marshalInto raw_ NodeStats{..} = (do
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMbTotal ramMbTotal raw_)
-        (GH.encodeField #ramMbFree ramMbFree raw_)
+        (GH.encodeField #ramTotal ramTotal raw_)
+        (GH.encodeField #ramFree ramFree raw_)
         (GH.encodeField #storageBytesTotal storageBytesTotal raw_)
         (GH.encodeField #storageBytesFree storageBytesFree raw_)
         (GH.encodeField #loadAvg1 loadAvg1 raw_)
@@ -5230,20 +5230,20 @@ instance (C.Marshal NodeStats (C.Parsed NodeStats)) where
         )
 instance (GH.HasField "cpuCount" GH.Slot NodeStats Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 0 32 0)
-instance (GH.HasField "ramMbTotal" GH.Slot NodeStats Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 0 32 0)
-instance (GH.HasField "ramMbFree" GH.Slot NodeStats Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 1 32 0)
-instance (GH.HasField "storageBytesTotal" GH.Slot NodeStats Std_.Int64) where
+instance (GH.HasField "ramTotal" GH.Slot NodeStats Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "ramFree" GH.Slot NodeStats Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
-instance (GH.HasField "storageBytesFree" GH.Slot NodeStats Std_.Int64) where
+instance (GH.HasField "storageBytesTotal" GH.Slot NodeStats Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
-instance (GH.HasField "loadAvg1" GH.Slot NodeStats Std_.Double) where
+instance (GH.HasField "storageBytesFree" GH.Slot NodeStats Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 4 64 0)
-instance (GH.HasField "loadAvg5" GH.Slot NodeStats Std_.Double) where
+instance (GH.HasField "loadAvg1" GH.Slot NodeStats Std_.Double) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
-instance (GH.HasField "loadAvg15" GH.Slot NodeStats Std_.Double) where
+instance (GH.HasField "loadAvg5" GH.Slot NodeStats Std_.Double) where
     fieldByLabel  = (GH.dataField 0 6 64 0)
+instance (GH.HasField "loadAvg15" GH.Slot NodeStats Std_.Double) where
+    fieldByLabel  = (GH.dataField 0 7 64 0)
 instance (GH.HasField "kernelRelease" GH.Slot NodeStats Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "agentVersion" GH.Slot NodeStats Basics.Text) where

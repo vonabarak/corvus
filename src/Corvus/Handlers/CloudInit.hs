@@ -324,7 +324,7 @@ ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = run
                 DiskImage
                   { diskImageName = diskName
                   , diskImageFormat = FormatRaw
-                  , diskImageSizeMb = Nothing
+                  , diskImageSize = Nothing
                   , diskImageCreatedAt = now
                   , diskImageBackingImageId = Nothing
                   , -- Cloud-init ISOs are scoped to the lifetime of

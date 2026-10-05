@@ -79,7 +79,7 @@ sshKeys:
 vms:
   - name: web-server
     cpuCount: 2
-    ramMb: 2048
+    ram: 2G
     cloudInit: true   # Required for SSH keys
     sshKeys:
       - admin

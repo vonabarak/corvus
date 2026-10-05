@@ -24,8 +24,8 @@ if TYPE_CHECKING:
         details: VmDetails = client.vms.get("web-1").show()
         build: Iterator[BuildStreamItem] = client.build_stream("build.yml")
         apply: Iterator[ApplyStreamItem] = client.apply_stream("vms.yml")
-        client.vms.create("worker", ram_mb=2048)
-        client.vms.create("worker", ram_mb="large")  # type: ignore[arg-type]
+        client.vms.create("worker", ram=2147483648)
+        client.vms.create("worker", ram="large")  # type: ignore[arg-type]
         client.vms.get("worker").edit(cpu_count="four")  # type: ignore[arg-type]
         _ = (status, vms, details, build, apply)
 

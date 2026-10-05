@@ -28,6 +28,7 @@ import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emit
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
 import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
+import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
@@ -180,7 +181,7 @@ templateVmColumns =
   [ Column "ID" RightAlign (show . tviId)
   , Column "NAME" LeftAlign (T.unpack . tviName)
   , Column "CPUS" RightAlign (show . tviCpuCount)
-  , Column "RAM_MB" RightAlign (show . tviRamMb)
+  , Column "RAM" RightAlign (formatSize . tviRam)
   , Column "TPM" LeftAlign (\t -> if tviTpm t then "+" else "-")
   ]
 
@@ -190,7 +191,7 @@ printTemplateDetails t = do
   printField "Template ID" (show (tvdId t))
   printField "Name" (T.unpack (tvdName t))
   printField "CPUs" (show (tvdCpuCount t))
-  printField "RAM" (show (tvdRamMb t) ++ " MB")
+  printField "RAM" (formatSize (tvdRam t))
   printField "Created At" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (tvdCreatedAt t))
   case tvdDescription t of
     Just desc -> printField "Description" (T.unpack desc)
@@ -221,7 +222,7 @@ printTemplateDetails t = do
           (T.unpack $ enumToText $ tvdiCloneStrategy d)
           (show $ tvdiReadOnly d)
           (T.unpack $ enumToText $ tvdiCacheType d)
-          (maybe "-" show (tvdiSizeMb d))
+          (maybe "-" formatSize (tvdiSize d))
 
   putStrLn "\nNetwork Interfaces:"
   if null (tvdNetIfs t)

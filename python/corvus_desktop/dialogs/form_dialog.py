@@ -80,7 +80,11 @@ class FormDialog(QDialog):
     # ---------------------------------------------------- internals
 
     def _on_accept(self) -> None:
-        payload = self.result_payload()
+        try:
+            payload = self.result_payload()
+        except ValueError as error:
+            self.show_error(str(error))
+            return
         if payload is None:
             return  # show_error already called by subclass
         # Cache for caller pickup via :meth:`payload`.

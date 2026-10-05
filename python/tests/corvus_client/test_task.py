@@ -19,7 +19,7 @@ def test_task_list_after_disk_create(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-task-disk", size_mb=32)
+        disk = await c.disks.create("py-task-disk", size=33554432)
         disk_info = await disk.show()
         tasks = await c.tasks.list(subsystem="disk")
         assert tasks, "expected at least one disk task after create"
@@ -44,7 +44,7 @@ def test_task_cancel_dispatches(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-task-cancel", size_mb=32)
+        disk = await c.disks.create("py-task-cancel", size=33554432)
         info = await disk.show()
         task = next(
             t for t in await c.tasks.list(entity_id=info.id) if t.command == "create"

@@ -1,3 +1,4 @@
+import { formatBytes } from "@/lib/format";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
@@ -87,7 +88,7 @@ function AttachForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
             {(disks ?? []).map((d) => (
               <option key={d.id} value={d.name}>
                 {d.name} ({d.format}
-                {d.size_mb !== null ? `, ${d.size_mb} MB` : ""})
+                {d.size !== null ? `, ${formatBytes(d.size)}` : ""})
               </option>
             ))}
           </select>

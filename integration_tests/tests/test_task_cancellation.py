@@ -64,7 +64,7 @@ class TestTaskCancellation(SingleNodeCase):
                 f"""
                 disks:
                   - name: {keep_name}
-                    sizeMb: 8
+                    size: 8M
                     format: qcow2
                   - name: {import_name}
                     import: {url}
@@ -72,7 +72,7 @@ class TestTaskCancellation(SingleNodeCase):
                 vms:
                   - name: {future_vm}
                     cpuCount: 1
-                    ramMb: 64
+                    ram: 64M
                     headless: true
                 """
             ).strip()

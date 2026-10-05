@@ -302,7 +302,7 @@ sampleVmStats cfg subs clk vmId live = do
         _ -> 0
 
   let spec = L.vlsSpec live
-      balloonMax = if VS.vsBalloon spec then fromIntegral (VS.vsRamMb spec) * 1024 * 1024 else 0 :: Word64
+      balloonMax = if VS.vsBalloon spec then fromIntegral (VS.vsRam spec) else 0 :: Word64
       tapNames = map VS.vnsHostDevice (VS.vsNetIfs spec)
   tapEntries <- mapM sampleTap tapNames
 

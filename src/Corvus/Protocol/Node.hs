@@ -30,10 +30,10 @@ data NodeInfo = NodeInfo
   , noiAdminState :: !NodeAdminState
   , noiCreatedAt :: !UTCTime
   , noiCpuCount :: !(Maybe Int)
-  , noiRamMbTotal :: !(Maybe Int)
-  , noiRamMbFree :: !(Maybe Int)
-  , noiStorageBytesTotal :: !(Maybe Int)
-  , noiStorageBytesFree :: !(Maybe Int)
+  , noiRamTotal :: !(Maybe Int64)
+  , noiRamFree :: !(Maybe Int64)
+  , noiStorageBytesTotal :: !(Maybe Int64)
+  , noiStorageBytesFree :: !(Maybe Int64)
   , noiLoadAvg1 :: !(Maybe Double)
   , noiLastNodeAgentPushAt :: !(Maybe UTCTime)
   , noiLastNetAgentPushAt :: !(Maybe UTCTime)
@@ -60,10 +60,10 @@ data NodeDetails = NodeDetails
   , nodAdminState :: !NodeAdminState
   , nodCreatedAt :: !UTCTime
   , nodCpuCount :: !(Maybe Int)
-  , nodRamMbTotal :: !(Maybe Int)
-  , nodRamMbFree :: !(Maybe Int)
-  , nodStorageBytesTotal :: !(Maybe Int)
-  , nodStorageBytesFree :: !(Maybe Int)
+  , nodRamTotal :: !(Maybe Int64)
+  , nodRamFree :: !(Maybe Int64)
+  , nodStorageBytesTotal :: !(Maybe Int64)
+  , nodStorageBytesFree :: !(Maybe Int64)
   , nodLoadAvg1 :: !(Maybe Double)
   , nodLoadAvg5 :: !(Maybe Double)
   , nodLoadAvg15 :: !(Maybe Double)

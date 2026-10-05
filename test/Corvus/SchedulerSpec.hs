@@ -5,7 +5,7 @@
 --
 -- 'pickNodeForVm' is the only non-trivial picker — it filters
 -- to online nodes, applies the in-memory RAM reservation map on
--- top of the agent-reported @ramMbFree@, scores by (free-RAM,
+-- top of the agent-reported @ramFree@, scores by (free-RAM,
 -- storage GiB, load) and tie-breaks by name. The two "lowest-id
 -- online node" helpers ('pickNodeForDisk' / 'pickNodeForNetwork')
 -- share one code path and get one case each.
@@ -27,6 +27,7 @@ import Corvus.Handlers.Scheduler
 import Corvus.Model (NodeAdminState (..))
 import qualified Corvus.Model as M
 import Corvus.Types (ServerState (..), reserveRam)
+import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -51,8 +52,8 @@ insertNode
   :: Text
   -- ^ name
   -> NodeAdminState
-  -> Maybe Int
-  -- ^ ramMbFree
+  -> Maybe Int64
+  -- ^ ramFree
   -> Maybe Int
   -- ^ storageBytesFree
   -> Maybe Double
@@ -76,8 +77,8 @@ insertNode name adminState ramFree storageFree loadAvg = do
         , M.nodeAdminState = adminState
         , M.nodeCreatedAt = now
         , M.nodeCpuCount = Nothing
-        , M.nodeRamMbTotal = Nothing
-        , M.nodeRamMbFree = ramFree
+        , M.nodeRamTotal = Nothing
+        , M.nodeRamFree = ramFree
         , M.nodeStorageBytesTotal = Nothing
         , M.nodeStorageBytesFree = fmap fromIntegral storageFree
         , M.nodeLoadAvg1 = loadAvg
@@ -109,17 +110,17 @@ spec = sequential $ withTestDb $ do
     testCase "errors when no nodes exist" $ do
       clearNodes
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 512
+      r <- liftIO $ pickNodeForVm state 536870912
       liftIO $ case r of
         Left _ -> pure ()
         Right k -> fail $ "expected Left, got node " <> show (fromSqlKey k)
 
     testCase "errors when every node is in admin state Draining" $ do
       clearNodes
-      _ <- insertNode "drain-a" NodeDraining (Just 16384) Nothing Nothing
-      _ <- insertNode "drain-b" NodeMaintenance (Just 16384) Nothing Nothing
+      _ <- insertNode "drain-a" NodeDraining (Just 17179869184) Nothing Nothing
+      _ <- insertNode "drain-b" NodeMaintenance (Just 17179869184) Nothing Nothing
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 512
+      r <- liftIO $ pickNodeForVm state 536870912
       liftIO $ case r of
         Left _ -> pure ()
         Right k -> fail $ "expected Left, got node " <> show (fromSqlKey k)
@@ -128,16 +129,16 @@ spec = sequential $ withTestDb $ do
       clearNodes
       k <- insertNode "lonely" NodeOnline Nothing Nothing Nothing
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 4096
+      r <- liftIO $ pickNodeForVm state 4294967296
       liftIO $ r `shouldBe` Right k
 
     testCase "picks the node with the most free RAM when stats are present" $ do
       clearNodes
-      _ <- insertNode "small" NodeOnline (Just 2048) Nothing Nothing
-      big <- insertNode "big" NodeOnline (Just 32768) Nothing Nothing
-      _ <- insertNode "mid" NodeOnline (Just 8192) Nothing Nothing
+      _ <- insertNode "small" NodeOnline (Just 2147483648) Nothing Nothing
+      big <- insertNode "big" NodeOnline (Just 34359738368) Nothing Nothing
+      _ <- insertNode "mid" NodeOnline (Just 8589934592) Nothing Nothing
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 1024
+      r <- liftIO $ pickNodeForVm state 1073741824
       liftIO $ r `shouldBe` Right big
 
     testCase "filters out nodes that can't satisfy the RAM request" $ do
@@ -145,20 +146,20 @@ spec = sequential $ withTestDb $ do
       -- 4608 MiB of effective free; the "tight" node sits at
       -- 4096 and gets filtered out; "ok" wins.
       clearNodes
-      _ <- insertNode "tight" NodeOnline (Just 4096) Nothing Nothing
-      ok <- insertNode "ok" NodeOnline (Just 8192) Nothing Nothing
+      _ <- insertNode "tight" NodeOnline (Just 4294967296) Nothing Nothing
+      ok <- insertNode "ok" NodeOnline (Just 8589934592) Nothing Nothing
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 4096
+      r <- liftIO $ pickNodeForVm state 4294967296
       liftIO $ r `shouldBe` Right ok
 
     testCase "tie-breaks by node name when scoring is otherwise equal" $ do
       -- Three identically-equipped nodes; alpha wins on name.
       clearNodes
-      alpha <- insertNode "alpha" NodeOnline (Just 16384) Nothing Nothing
-      _ <- insertNode "bravo" NodeOnline (Just 16384) Nothing Nothing
-      _ <- insertNode "charlie" NodeOnline (Just 16384) Nothing Nothing
+      alpha <- insertNode "alpha" NodeOnline (Just 17179869184) Nothing Nothing
+      _ <- insertNode "bravo" NodeOnline (Just 17179869184) Nothing Nothing
+      _ <- insertNode "charlie" NodeOnline (Just 17179869184) Nothing Nothing
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 1024
+      r <- liftIO $ pickNodeForVm state 1073741824
       liftIO $ r `shouldBe` Right alpha
 
     testCase "subtracts the in-memory RAM reservation from free RAM" $ do
@@ -166,11 +167,11 @@ spec = sequential $ withTestDb $ do
       -- reserving 20 GiB against it the effective free drops
       -- below "mid" and "mid" should win.
       clearNodes
-      big <- insertNode "big" NodeOnline (Just 32768) Nothing Nothing
-      mid <- insertNode "mid" NodeOnline (Just 16384) Nothing Nothing
+      big <- insertNode "big" NodeOnline (Just 34359738368) Nothing Nothing
+      mid <- insertNode "mid" NodeOnline (Just 17179869184) Nothing Nothing
       state <- mkState
-      liftIO $ reserveRam state big 20480
-      r <- liftIO $ pickNodeForVm state 1024
+      liftIO $ reserveRam state big 21474836480
+      r <- liftIO $ pickNodeForVm state 1073741824
       liftIO $ r `shouldBe` Right mid
 
     testCase "factors free storage into the score when free RAM is tied" $ do
@@ -178,20 +179,20 @@ spec = sequential $ withTestDb $ do
       -- storage, "thin" has none. score = ram + gib - 100*load,
       -- so "fat" should win by 100 score points.
       clearNodes
-      _ <- insertNode "thin" NodeOnline (Just 16384) Nothing Nothing
-      fat <- insertNode "fat" NodeOnline (Just 16384) (Just (100 * 1024 * 1024 * 1024)) Nothing
+      _ <- insertNode "thin" NodeOnline (Just 17179869184) Nothing Nothing
+      fat <- insertNode "fat" NodeOnline (Just 17179869184) (Just (100 * 1024 * 1024 * 1024)) Nothing
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 1024
+      r <- liftIO $ pickNodeForVm state 1073741824
       liftIO $ r `shouldBe` Right fat
 
     testCase "penalises load when free RAM is tied" $ do
       -- Both nodes 16 GiB free; "busy" carries loadAvg1=5
       -- (-500 score points), so "calm" should win.
       clearNodes
-      calm <- insertNode "calm" NodeOnline (Just 16384) Nothing Nothing
-      _ <- insertNode "busy" NodeOnline (Just 16384) Nothing (Just 5.0)
+      calm <- insertNode "calm" NodeOnline (Just 17179869184) Nothing Nothing
+      _ <- insertNode "busy" NodeOnline (Just 17179869184) Nothing (Just 5.0)
       state <- mkState
-      r <- liftIO $ pickNodeForVm state 1024
+      r <- liftIO $ pickNodeForVm state 1073741824
       liftIO $ r `shouldBe` Right calm
 
   ----------------------------------------------------------------

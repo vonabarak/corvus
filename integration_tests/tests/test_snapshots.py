@@ -34,7 +34,7 @@ class TestSnapshots(SingleNodeCase):
     def test_snapshot_create_list_delete(self) -> None:
         """Create → list → get → delete round-trip on a fresh qcow2."""
         name = _uniq("snap-crud")
-        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        disk = self.client.disks.create(name, size=8388608, format="qcow2")
         try:
             snap = disk.snapshot_create("only-one")
             assert snap.show().name == "only-one"
@@ -52,7 +52,7 @@ class TestSnapshots(SingleNodeCase):
         """The second `snapshot_create` with the same name on the same
         disk must fail (unique constraint on `(disk_id, name)`)."""
         name = _uniq("snap-dup")
-        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        disk = self.client.disks.create(name, size=8388608, format="qcow2")
         try:
             first = disk.snapshot_create("same-name")
             try:
@@ -76,7 +76,7 @@ class TestSnapshots(SingleNodeCase):
     def test_rapid_sequential_creates(self) -> None:
         """Three snapshots in quick succession all land in the DB."""
         name = _uniq("snap-rapid")
-        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        disk = self.client.disks.create(name, size=8388608, format="qcow2")
         try:
             snaps = [disk.snapshot_create(f"concurrent-{i}") for i in (1, 2, 3)]
             try:
@@ -278,7 +278,7 @@ class TestSnapshots(SingleNodeCase):
         VM-scoped sweep would silently snapshot ALL drives. Pin
         the contract."""
         data_name = _uniq("multi-snap-data")
-        self.client.disks.create(data_name, size_mb=8, format="qcow2")
+        self.client.disks.create(data_name, size=8388608, format="qcow2")
         try:
             with Vm(self) as vm:
                 vm.cap.attach_disk(data_name, interface="virtio")

@@ -215,13 +215,13 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         vm = self.client.vms.create(
             "doubly-nested",
             cpu_count=1,
-            ram_mb=128,
+            ram=134217728,
             headless=True,
         )
         details = vm.show()
         assert details.name == "doubly-nested"
         assert details.cpu_count == 1
-        assert details.ram_mb == 128
+        assert details.ram == 134217728
         vm.delete()
         with pytest.raises(VmNotFound):
             self.client.vms.get("doubly-nested")
@@ -233,7 +233,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         migration safety; the agent renders it into `-cpu host` on
         the QEMU argv (see ``src/Corvus/Node/Command.hs``)."""
         vm = self.client.vms.create(
-            "cpu-default", cpu_count=1, ram_mb=64, headless=True
+            "cpu-default", cpu_count=1, ram=67108864, headless=True
         )
         try:
             assert vm.show().cpu_model == "host"
@@ -250,7 +250,7 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         vm = self.client.vms.create(
             "cpu-roundtrip",
             cpu_count=1,
-            ram_mb=64,
+            ram=67108864,
             headless=True,
             cpu_model="qemu64",
         )
@@ -271,14 +271,14 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         vm = self.client.vms.create(
             "edit-target-noop",
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         vm.edit()
         details = vm.show()
         # Nothing changed.
         assert details.cpu_count == 1
-        assert details.ram_mb == 256
+        assert details.ram == 268435456
         vm.delete()
 
     def test_edit_after_show(self) -> None:
@@ -288,13 +288,13 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         vm = self.client.vms.create(
             "edit-after-show",
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         _ = vm.show()
-        vm.edit(ram_mb=512)
+        vm.edit(ram=536870912)
         details = vm.show()
-        assert details.ram_mb == 512
+        assert details.ram == 536870912
         vm.delete()
 
     def test_edit_via_get(self) -> None:
@@ -308,13 +308,13 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         created = self.client.vms.create(
             "edit-via-get",
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         name = created.show().name  # use created cap once
         fresh = self.client.vms.get(name)
-        fresh.edit(ram_mb=512)
-        assert fresh.show().ram_mb == 512
+        fresh.edit(ram=536870912)
+        assert fresh.show().ram == 536870912
         fresh.delete()
 
     def test_edit_persists(self) -> None:
@@ -322,13 +322,13 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         vm = self.client.vms.create(
             "edit-target",
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
-        vm.edit(cpu_count=2, ram_mb=512, description="from python integration tests")
+        vm.edit(cpu_count=2, ram=536870912, description="from python integration tests")
         details = vm.show()
         assert details.cpu_count == 2
-        assert details.ram_mb == 512
+        assert details.ram == 536870912
         assert details.description == "from python integration tests"
         vm.delete()
 
@@ -690,7 +690,7 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
                 assert b"login:" in data
 
     def test_cpu_and_ram_edit_round_trip(self) -> None:
-        """Boot, read nproc + MemTotal, stop, edit cpu_count+ram_mb,
+        """Boot, read nproc + MemTotal, stop, edit cpu_count+ram,
         boot again, re-read and confirm the values changed.
 
         Uses plain `Vm` (not `VmSsh`) because
@@ -701,7 +701,7 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
 
         class _Sized(Vm):
             cpu_count = 2
-            ram_mb = 1024
+            ram = 1073741824
 
         with _Sized(self) as vm:
             with self.vm_shell(vm.cap) as shell:
@@ -713,7 +713,7 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
                 assert mem_kb >= 0.85 * 1024 * 1024
 
             vm.cap.stop(wait=True)
-            vm.cap.edit(cpu_count=4, ram_mb=2048)
+            vm.cap.edit(cpu_count=4, ram=2147483648)
             vm.cap.start(wait=True)
 
             with self.vm_shell(vm.cap) as shell:

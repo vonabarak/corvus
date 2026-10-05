@@ -57,7 +57,7 @@ handleStatus state = do
           -- 'Data.Binary' protocolVersion is gone.
           -- 2 = structured wire error codes (B3): daemon
           -- exceptions carry a "<code> :: <message>" prefix.
-          siProtocolVersion = 2
+          siProtocolVersion = 3
         , siDatabaseBackend = driBackend dbRuntimeInfo
         , siDatabaseVersion = driVersion dbRuntimeInfo
         }

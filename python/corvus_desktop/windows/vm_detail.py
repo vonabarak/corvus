@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from functools import partial
 from typing import TYPE_CHECKING
 
+from corvus_client.sizes import format_size
 from corvus_client.types import (
     AudioDeviceInfo,
     DriveInfo,
@@ -369,7 +370,7 @@ class VmDetailWidget(QWidget):
         self._node.setText(info.node.name if info.node else "—")
         self._cpu.setText(f"{info.cpu_count} ({info.cpu_model})")
         self._graphics_adapter.setText(info.graphics_adapter)
-        self._ram.setText(f"{info.ram_mb} MB")
+        self._ram.setText(format_size(info.ram))
         self._created.setText(info.created_at.isoformat(sep=" ", timespec="seconds"))
         self._tpm.setText("enabled" if info.tpm else "disabled")
         self._vsock.setText("enabled" if info.vsock else "disabled")

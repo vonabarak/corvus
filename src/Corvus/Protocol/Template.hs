@@ -31,7 +31,7 @@ data TemplateVmInfo = TemplateVmInfo
   { tviId :: !Int64
   , tviName :: !Text
   , tviCpuCount :: !Int
-  , tviRamMb :: !Int
+  , tviRam :: !Int64
   , tviDescription :: !(Maybe Text)
   , tviHeadless :: !Bool
   , tviGuestAgent :: !Bool
@@ -56,7 +56,7 @@ data TemplateDriveInfo = TemplateDriveInfo
   , tvdiCacheType :: !CacheType
   , tvdiDiscard :: !Bool
   , tvdiCloneStrategy :: !TemplateCloneStrategy
-  , tvdiSizeMb :: !(Maybe Int)
+  , tvdiSize :: !(Maybe Int64)
   , tvdiFormat :: !(Maybe DriveFormat)
   , tvdiEphemeral :: !(Maybe Bool)
   -- ^ Per-drive override for the ephemeral flag on disks materialised
@@ -105,7 +105,7 @@ data TemplateDetails = TemplateDetails
   { tvdId :: !Int64
   , tvdName :: !Text
   , tvdCpuCount :: !Int
-  , tvdRamMb :: !Int
+  , tvdRam :: !Int64
   , tvdDescription :: !(Maybe Text)
   , tvdHeadless :: !Bool
   , tvdCloudInit :: !Bool

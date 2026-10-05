@@ -17,7 +17,7 @@ export interface VmInfo {
   node: NamedRef;
   status: string;
   cpu_count: number;
-  ram_mb: number;
+  ram: bigint;
   headless: boolean;
   guest_agent: boolean;
   tpm: boolean;
@@ -147,7 +147,7 @@ export interface VmCreateBody {
   name: string;
   node?: string | null;
   cpu_count?: number;
-  ram_mb?: number;
+  ram?: bigint;
   description?: string | null;
   headless?: boolean;
   guest_agent?: boolean;

@@ -53,17 +53,17 @@ disks:
   # Per-VM overlays (copy-on-write, backed by alpine-base)
   - name: web-root
     overlay: alpine-base
-    sizeMb: 10240
+    size: 10G
     path: web/
   - name: db-root
     overlay: alpine-base
-    sizeMb: 10240
+    size: 10G
     path: db/
 
   # Empty data disk for the database server
   - name: db-data
     format: qcow2
-    sizeMb: 51200
+    size: 50G
     path: db/
 
 networks:
@@ -84,7 +84,7 @@ networks:
 
 _vm_defaults: &vm_defaults
   cpuCount: 2
-  ramMb: 2048
+  ram: 2G
   headless: true
   guestAgent: true
 
@@ -107,7 +107,7 @@ vms:
         cacheType: writeback
         discard: true
     networkInterfaces:
-      - type: vde
+      - type: managed
         network: lab-net
       - type: user
     sharedDirs:
@@ -121,7 +121,7 @@ vms:
   - name: db-server
     <<: *vm_defaults
     cpuCount: 4                    # override anchor default
-    ramMb: 4096                    # override anchor default
+    ram: 4G                    # override anchor default
     description: "Alpine Linux database server"
     cloudInit: true                # explicit (auto-detect would also work here)
     drives:
@@ -138,7 +138,7 @@ vms:
         interface: virtio
         cacheType: none            # safest for data integrity
     networkInterfaces:
-      - type: vde
+      - type: managed
         network: lab-net
         mac: "52:54:00:12:34:56"   # explicit MAC address
     sharedDirs:
@@ -158,7 +158,7 @@ templates:
   - name: alpine-workstation
     description: "Blank Alpine Linux workstation template"
     cpuCount: 2
-    ramMb: 2048
+    ram: 2G
     headless: true
     guestAgent: true
     cloudInit: true

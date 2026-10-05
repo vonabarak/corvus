@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { formatMb } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 
 interface FieldProps {
   label: string;
@@ -237,7 +237,7 @@ export default function TemplateDetail() {
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <Field label="CPU" value={t.cpu_count} />
-          <Field label="RAM" value={formatMb(t.ram_mb)} />
+          <Field label="RAM" value={formatBytes(t.ram)} />
           <Field label="Headless" value={t.headless ? "yes" : "no"} />
           <Field label="Graphics adapter" value={t.graphics_adapter} />
           <Field label="VirtIO vsock" value={t.vsock ? "yes" : "no"} />
@@ -290,7 +290,7 @@ export default function TemplateDetail() {
                     </TableCell>
                     <TableCell>{d.interface}</TableCell>
                     <TableCell>{d.format ?? "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatMb(d.size_mb)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatBytes(d.size)}</TableCell>
                     <TableCell className="space-x-1">
                       {d.read_only && <span className="text-xs text-muted-foreground">RO</span>}
                       {d.discard && <span className="text-xs text-muted-foreground">discard</span>}

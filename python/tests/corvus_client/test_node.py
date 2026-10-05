@@ -186,7 +186,7 @@ def test_vm_create_without_node_uses_scheduler(daemon_socket: Path) -> None:
         nodes = await c.nodes.list()
         self_id = next(n.id for n in nodes if n.name == "self")
 
-        vm = await c.vms.create("py-vm-sched", cpu_count=1, ram_mb=128)
+        vm = await c.vms.create("py-vm-sched", cpu_count=1, ram=134217728)
         # Both list-view and detail-view DTOs carry the node FK
         # and the resolved name; verify the scheduler landed the
         # VM on the single online node.
@@ -208,7 +208,7 @@ def test_disk_create_without_node_uses_scheduler(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-disk-sched", size_mb=1)
+        disk = await c.disks.create("py-disk-sched", size=1048576)
         try:
             info = await disk.show()
             assert len(info.placements) == 1
@@ -275,12 +275,12 @@ def test_cross_node_disk_attach_is_refused(daemon_socket: Path) -> None:
         # (the 'self' node, the only one with a live agent —
         # the 'beta' row exists but its supervisor can't dial
         # its bogus port).
-        disk = await c.disks.create("py-xnode-disk", size_mb=1)
+        disk = await c.disks.create("py-xnode-disk", size=1048576)
         # VM on the 'beta' node — record-only, no start.
         vm = await c.vms.create(
             "py-xnode-vm",
             cpu_count=1,
-            ram_mb=128,
+            ram=134217728,
             node="beta",
             headless=True,
         )

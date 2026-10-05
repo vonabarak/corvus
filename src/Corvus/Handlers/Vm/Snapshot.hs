@@ -498,7 +498,7 @@ collectVmSnapshotInfos vmId = do
           total =
             fromIntegral
               ( sum
-                  [ fromMaybe 0 (snapshotSizeMb s)
+                  [ fromMaybe 0 (snapshotSize s)
                   | s <- siblings
                   ]
               )
@@ -519,7 +519,7 @@ collectVmSnapshotInfos vmId = do
                 , nrName = maybe "" diskImageName mCarrierDisk
                 }
           , vsiDiskCount = length siblings
-          , vsiTotalSizeMb = total
+          , vsiTotalSize = total
           }
 
 --------------------------------------------------------------------------------
@@ -547,7 +547,7 @@ buildVmSnapshotInfo vmId name = do
       let total =
             fromIntegral
               ( sum
-                  [ fromMaybe 0 (snapshotSizeMb s)
+                  [ fromMaybe 0 (snapshotSize s)
                   | s <- siblings
                   ]
               )
@@ -567,6 +567,6 @@ buildVmSnapshotInfo vmId name = do
                   , nrName = maybe "" diskImageName mCarrierDisk
                   }
             , vsiDiskCount = length siblings
-            , vsiTotalSizeMb = total
+            , vsiTotalSize = total
             }
     [] -> pure Nothing

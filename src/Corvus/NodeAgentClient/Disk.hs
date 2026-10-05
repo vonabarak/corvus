@@ -64,14 +64,14 @@ newtype DiskOpResult = DiskOpResult
 data DiskSnapshotInfo = DiskSnapshotInfo
   { dsiId :: !T.Text
   , dsiName :: !T.Text
-  , dsiSizeMb :: !(Maybe Int64)
+  , dsiSize :: !(Maybe Int64)
   }
   deriving (Eq, Show)
 
 data DiskInspectInfo = DiskInspectInfo
   { diiFormat :: !T.Text
-  , diiVirtualSizeMb :: !Int64
-  , diiActualSizeMb :: !(Maybe Int64)
+  , diiVirtualSize :: !Int64
+  , diiActualSize :: !(Maybe Int64)
   , diiSnapshots :: ![DiskSnapshotInfo]
   }
   deriving (Eq, Show)
@@ -91,28 +91,28 @@ decodeDiskSnapshotInfo
   CGNA.DiskSnapshotInfo
     { CGNA.id = i
     , CGNA.name = n
-    , CGNA.sizeMb = sz
+    , CGNA.size = sz
     , CGNA.hasSize = hs
     } =
     DiskSnapshotInfo
       { dsiId = i
       , dsiName = n
-      , dsiSizeMb = if hs then Just sz else Nothing
+      , dsiSize = if hs then Just sz else Nothing
       }
 
 decodeDiskInspectInfo :: C.Parsed CGNA.DiskInspectInfo -> DiskInspectInfo
 decodeDiskInspectInfo
   CGNA.DiskInspectInfo
     { CGNA.format = fmt
-    , CGNA.virtualSizeMb = vs
-    , CGNA.actualSizeMb = ac
+    , CGNA.virtualSize = vs
+    , CGNA.actualSize = ac
     , CGNA.hasActualSize = ha
     , CGNA.snapshots = ss
     } =
     DiskInspectInfo
       { diiFormat = fmt
-      , diiVirtualSizeMb = vs
-      , diiActualSizeMb = if ha then Just ac else Nothing
+      , diiVirtualSize = vs
+      , diiActualSize = if ha then Just ac else Nothing
       , diiSnapshots = map decodeDiskSnapshotInfo ss
       }
 
@@ -125,14 +125,14 @@ diskCreate
   -> T.Text
   -> Int64
   -> IO (Either NodeAgentError DiskOpResult)
-diskCreate nac path format sizeMb = remote $ do
+diskCreate nac path format size = remote $ do
   CGNA.Session'diskCreate'results {CGNA.result = r} <-
     callOn
       #diskCreate
       CGNA.Session'diskCreate'params
         { CGNA.path = path
         , CGNA.format = format
-        , CGNA.sizeMb = sizeMb
+        , CGNA.size = size
         }
       (nacSession nac)
   pure (decodeDiskOpResult r)
@@ -169,13 +169,13 @@ diskResize
   -> T.Text
   -> Int64
   -> IO (Either NodeAgentError DiskOpResult)
-diskResize nac path newSizeMb = remote $ do
+diskResize nac path newSize = remote $ do
   CGNA.Session'diskResize'results {CGNA.result = r} <-
     callOn
       #diskResize
       CGNA.Session'diskResize'params
         { CGNA.path = path
-        , CGNA.newSizeMb = newSizeMb
+        , CGNA.newSize = newSize
         }
       (nacSession nac)
   pure (decodeDiskOpResult r)

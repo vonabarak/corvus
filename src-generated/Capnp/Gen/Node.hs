@@ -40,7 +40,7 @@ type instance (R.ReprFor NodeInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeInfo) where
     typeId  = 14898094878476756240
 instance (C.TypedStruct NodeInfo) where
-    numStructWords  = 10
+    numStructWords  = 11
     numStructPtrs  = 2
 instance (C.Allocate NodeInfo) where
     type AllocHint NodeInfo = ()
@@ -60,8 +60,8 @@ data instance C.Parsed NodeInfo
         ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMbTotal :: (RP.Parsed Std_.Int32)
-        ,ramMbFree :: (RP.Parsed Std_.Int32)
+        ,ramTotal :: (RP.Parsed Std_.Int64)
+        ,ramFree :: (RP.Parsed Std_.Int64)
         ,storageBytesTotal :: (RP.Parsed Std_.Int64)
         ,storageBytesFree :: (RP.Parsed Std_.Int64)
         ,loadAvg1 :: (RP.Parsed Std_.Double)
@@ -81,8 +81,8 @@ instance (C.Parse NodeInfo (C.Parsed NodeInfo)) where
                            <*> (GH.parseField #adminState raw_)
                            <*> (GH.parseField #createdAt raw_)
                            <*> (GH.parseField #cpuCount raw_)
-                           <*> (GH.parseField #ramMbTotal raw_)
-                           <*> (GH.parseField #ramMbFree raw_)
+                           <*> (GH.parseField #ramTotal raw_)
+                           <*> (GH.parseField #ramFree raw_)
                            <*> (GH.parseField #storageBytesTotal raw_)
                            <*> (GH.parseField #storageBytesFree raw_)
                            <*> (GH.parseField #loadAvg1 raw_)
@@ -100,8 +100,8 @@ instance (C.Marshal NodeInfo (C.Parsed NodeInfo)) where
         (GH.encodeField #adminState adminState raw_)
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMbTotal ramMbTotal raw_)
-        (GH.encodeField #ramMbFree ramMbFree raw_)
+        (GH.encodeField #ramTotal ramTotal raw_)
+        (GH.encodeField #ramFree ramFree raw_)
         (GH.encodeField #storageBytesTotal storageBytesTotal raw_)
         (GH.encodeField #storageBytesFree storageBytesFree raw_)
         (GH.encodeField #loadAvg1 loadAvg1 raw_)
@@ -127,20 +127,20 @@ instance (GH.HasField "createdAt" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
 instance (GH.HasField "cpuCount" GH.Slot NodeInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 2 32 0)
-instance (GH.HasField "ramMbTotal" GH.Slot NodeInfo Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 4 32 0)
-instance (GH.HasField "ramMbFree" GH.Slot NodeInfo Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 4 32 0)
-instance (GH.HasField "storageBytesTotal" GH.Slot NodeInfo Std_.Int64) where
+instance (GH.HasField "ramTotal" GH.Slot NodeInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 4 64 0)
+instance (GH.HasField "ramFree" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
-instance (GH.HasField "storageBytesFree" GH.Slot NodeInfo Std_.Int64) where
+instance (GH.HasField "storageBytesTotal" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 6 64 0)
-instance (GH.HasField "loadAvg1" GH.Slot NodeInfo Std_.Double) where
+instance (GH.HasField "storageBytesFree" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 7 64 0)
-instance (GH.HasField "lastNodeAgentPushAt" GH.Slot NodeInfo Std_.Int64) where
+instance (GH.HasField "loadAvg1" GH.Slot NodeInfo Std_.Double) where
     fieldByLabel  = (GH.dataField 0 8 64 0)
-instance (GH.HasField "lastNetAgentPushAt" GH.Slot NodeInfo Std_.Int64) where
+instance (GH.HasField "lastNodeAgentPushAt" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 9 64 0)
+instance (GH.HasField "lastNetAgentPushAt" GH.Slot NodeInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 10 64 0)
 instance (GH.HasField "netdDisabled" GH.Slot NodeInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 2 1 0)
 instance (GH.HasField "netdConnected" GH.Slot NodeInfo Std_.Bool) where
@@ -150,7 +150,7 @@ type instance (R.ReprFor NodeDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeDetails) where
     typeId  = 16495589323068328717
 instance (C.TypedStruct NodeDetails) where
-    numStructWords  = 12
+    numStructWords  = 13
     numStructPtrs  = 6
 instance (C.Allocate NodeDetails) where
     type AllocHint NodeDetails = ()
@@ -172,8 +172,8 @@ data instance C.Parsed NodeDetails
         ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMbTotal :: (RP.Parsed Std_.Int32)
-        ,ramMbFree :: (RP.Parsed Std_.Int32)
+        ,ramTotal :: (RP.Parsed Std_.Int64)
+        ,ramFree :: (RP.Parsed Std_.Int64)
         ,storageBytesTotal :: (RP.Parsed Std_.Int64)
         ,storageBytesFree :: (RP.Parsed Std_.Int64)
         ,loadAvg1 :: (RP.Parsed Std_.Double)
@@ -199,8 +199,8 @@ instance (C.Parse NodeDetails (C.Parsed NodeDetails)) where
                               <*> (GH.parseField #adminState raw_)
                               <*> (GH.parseField #createdAt raw_)
                               <*> (GH.parseField #cpuCount raw_)
-                              <*> (GH.parseField #ramMbTotal raw_)
-                              <*> (GH.parseField #ramMbFree raw_)
+                              <*> (GH.parseField #ramTotal raw_)
+                              <*> (GH.parseField #ramFree raw_)
                               <*> (GH.parseField #storageBytesTotal raw_)
                               <*> (GH.parseField #storageBytesFree raw_)
                               <*> (GH.parseField #loadAvg1 raw_)
@@ -224,8 +224,8 @@ instance (C.Marshal NodeDetails (C.Parsed NodeDetails)) where
         (GH.encodeField #adminState adminState raw_)
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMbTotal ramMbTotal raw_)
-        (GH.encodeField #ramMbFree ramMbFree raw_)
+        (GH.encodeField #ramTotal ramTotal raw_)
+        (GH.encodeField #ramFree ramFree raw_)
         (GH.encodeField #storageBytesTotal storageBytesTotal raw_)
         (GH.encodeField #storageBytesFree storageBytesFree raw_)
         (GH.encodeField #loadAvg1 loadAvg1 raw_)
@@ -259,28 +259,28 @@ instance (GH.HasField "createdAt" GH.Slot NodeDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
 instance (GH.HasField "cpuCount" GH.Slot NodeDetails Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 2 32 0)
-instance (GH.HasField "ramMbTotal" GH.Slot NodeDetails Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 4 32 0)
-instance (GH.HasField "ramMbFree" GH.Slot NodeDetails Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 4 32 0)
-instance (GH.HasField "storageBytesTotal" GH.Slot NodeDetails Std_.Int64) where
+instance (GH.HasField "ramTotal" GH.Slot NodeDetails Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 4 64 0)
+instance (GH.HasField "ramFree" GH.Slot NodeDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
-instance (GH.HasField "storageBytesFree" GH.Slot NodeDetails Std_.Int64) where
+instance (GH.HasField "storageBytesTotal" GH.Slot NodeDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 6 64 0)
-instance (GH.HasField "loadAvg1" GH.Slot NodeDetails Std_.Double) where
+instance (GH.HasField "storageBytesFree" GH.Slot NodeDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 7 64 0)
-instance (GH.HasField "loadAvg5" GH.Slot NodeDetails Std_.Double) where
+instance (GH.HasField "loadAvg1" GH.Slot NodeDetails Std_.Double) where
     fieldByLabel  = (GH.dataField 0 8 64 0)
-instance (GH.HasField "loadAvg15" GH.Slot NodeDetails Std_.Double) where
+instance (GH.HasField "loadAvg5" GH.Slot NodeDetails Std_.Double) where
     fieldByLabel  = (GH.dataField 0 9 64 0)
+instance (GH.HasField "loadAvg15" GH.Slot NodeDetails Std_.Double) where
+    fieldByLabel  = (GH.dataField 0 10 64 0)
 instance (GH.HasField "kernelRelease" GH.Slot NodeDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "agentVersion" GH.Slot NodeDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 5)
 instance (GH.HasField "lastNodeAgentPushAt" GH.Slot NodeDetails Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 10 64 0)
-instance (GH.HasField "lastNetAgentPushAt" GH.Slot NodeDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 11 64 0)
+instance (GH.HasField "lastNetAgentPushAt" GH.Slot NodeDetails Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 12 64 0)
 instance (GH.HasField "netdDisabled" GH.Slot NodeDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 2 1 0)
 instance (GH.HasField "netdConnected" GH.Slot NodeDetails Std_.Bool) where

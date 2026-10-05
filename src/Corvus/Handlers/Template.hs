@@ -137,7 +137,7 @@ handleTemplateList state = do
         { tviId = fromSqlKey tid
         , tviName = templateVmName t
         , tviCpuCount = templateVmCpuCount t
-        , tviRamMb = templateVmRamMb t
+        , tviRam = templateVmRam t
         , tviDescription = templateVmDescription t
         , tviHeadless = templateVmHeadless t
         , tviGuestAgent = templateVmGuestAgent t
@@ -188,7 +188,7 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
                 newVmName
                 nodeRef
                 (tvdCpuCount details)
-                (tvdRamMb details)
+                (tvdRam details)
                 (tvdDescription details)
                 (tvdHeadless details)
                 (tvdGuestAgent details)
@@ -274,7 +274,7 @@ insertTemplateYaml ty now = do
         then pure $ Left "Template has SSH keys but cloud-init is not enabled"
         else case (sequence mDiskIds, sequence mKeyIds) of
           (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty)
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty)
             case mTid of
               Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
               Just tid -> do
@@ -290,7 +290,7 @@ insertTemplateYaml ty now = do
                       (fromMaybe CacheNone (tdyCacheType tdy))
                       (fromMaybe False (tdyDiscard tdy))
                       (tdyStrategy tdy)
-                      (tdySizeMb tdy)
+                      (tdySize tdy)
                       (tdyFormat tdy)
                       (tdyEphemeral tdy)
 
@@ -344,7 +344,7 @@ insertTemplateYaml ty now = do
     validateDrive tdy = case tdyStrategy tdy of
       StrategyCreate ->
         let errs1 = ["format is required for 'create' strategy" | isNothing (tdyFormat tdy)]
-            errs2 = ["sizeMb is required for 'create' strategy" | isNothing (tdySizeMb tdy)]
+            errs2 = ["size is required for 'create' strategy" | isNothing (tdySize tdy)]
          in errs1 ++ errs2
       _ ->
         ["diskImageName is required for '" <> enumToText (tdyStrategy tdy) <> "' strategy" | isNothing (tdyDiskImageName tdy)]
@@ -397,7 +397,7 @@ getTemplateDetails tid = do
             , tvdiCacheType = templateDriveCacheType td
             , tvdiDiscard = templateDriveDiscard td
             , tvdiCloneStrategy = templateDriveCloneStrategy td
-            , tvdiSizeMb = templateDriveSizeMb td
+            , tvdiSize = templateDriveSize td
             , tvdiFormat = templateDriveFormat td
             , tvdiEphemeral = templateDriveEphemeral td
             }
@@ -458,7 +458,7 @@ getTemplateDetails tid = do
             { tvdId = fromSqlKey tid
             , tvdName = templateVmName t
             , tvdCpuCount = templateVmCpuCount t
-            , tvdRamMb = templateVmRamMb t
+            , tvdRam = templateVmRam t
             , tvdDescription = templateVmDescription t
             , tvdHeadless = templateVmHeadless t
             , tvdCloudInit = templateVmCloudInit t
@@ -619,7 +619,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask ctx (DiskClone newName diskIdLong (tvdiSizeMb td) vmDir ephem)
+        resp <- runActionAsSubtask ctx (DiskClone newName diskIdLong (tvdiSize td) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -632,7 +632,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix <> "-overlay"
-        resp <- runActionAsSubtask ctx (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) vmDir ephem)
+        resp <- runActionAsSubtask ctx (DiskCreateOverlay newName diskIdLong (tvdiSize td) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -641,10 +641,10 @@ instantiateDriveIO ctx vmId vmName td = do
               _ -> pure $ Right ()
           RespError err -> pure $ Left err
           _ -> pure $ Left "Unexpected response from disk overlay"
-    StrategyCreate -> case (tvdiFormat td, tvdiSizeMb td) of
-      (Just fmt, Just sizeMb) -> do
+    StrategyCreate -> case (tvdiFormat td, tvdiSize td) of
+      (Just fmt, Just size) -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral sizeMb) vmDir ephem vmNodeRef)
+        resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral size) vmDir ephem vmNodeRef)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -653,7 +653,7 @@ instantiateDriveIO ctx vmId vmName td = do
               _ -> pure $ Right ()
           RespError err -> pure $ Left err
           _ -> pure $ Left "Unexpected response from disk create"
-      _ -> pure $ Left "create strategy requires 'format' and 'sizeMb'"
+      _ -> pure $ Left "create strategy requires 'format' and 'size'"
 
 --------------------------------------------------------------------------------
 -- Action Types

@@ -26,6 +26,7 @@ import Corvus.Client.Output (emitError, emitResult, emitRpcError)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol (ApplyCreated (..), ApplyEvent (..), ApplyResult (..))
+import Corvus.Size (formatSize)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -166,11 +167,7 @@ renderProgress name downloaded total =
 -- | Format a byte count as a short human-readable string (e.g.
 -- @"12.3 MB"@). Used by the live download progress renderer.
 humanBytes :: Int64 -> Text
-humanBytes n
-  | n < 1024 = T.pack (show n) <> " B"
-  | n < 1024 * 1024 = T.pack (printf "%.1f KB" (fromIntegral n / 1024.0 :: Double))
-  | n < 1024 * 1024 * 1024 = T.pack (printf "%.1f MB" (fromIntegral n / (1024 * 1024) :: Double))
-  | otherwise = T.pack (printf "%.2f GB" (fromIntegral n / (1024 * 1024 * 1024) :: Double))
+humanBytes = T.pack . formatSize
 
 -- | Print apply result in human-readable format
 printApplyResult :: ApplyResult -> IO ()

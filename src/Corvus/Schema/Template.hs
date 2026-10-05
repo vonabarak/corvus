@@ -17,6 +17,8 @@ where
 
 import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
+import Corvus.Size (optionalSizeField, sizeField)
+import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Yaml (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import GHC.Generics (Generic)
@@ -24,7 +26,7 @@ import GHC.Generics (Generic)
 data TemplateYaml = TemplateYaml
   { tyName :: Text
   , tyCpuCount :: Int
-  , tyRamMb :: Int
+  , tyRam :: Int64
   , tyDescription :: Maybe Text
   , tyHeadless :: Bool
   , tyGraphicsAdapter :: GraphicsAdapter
@@ -50,7 +52,7 @@ instance FromJSON TemplateYaml where
     TemplateYaml
       <$> o .: "name"
       <*> o .: "cpuCount"
-      <*> o .: "ramMb"
+      <*> sizeField o "ram"
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "graphicsAdapter" .!= GraphicsVirtioVga
@@ -88,7 +90,7 @@ data TemplateDriveYaml = TemplateDriveYaml
   , tdyCacheType :: Maybe CacheType
   , tdyDiscard :: Maybe Bool
   , tdyStrategy :: TemplateCloneStrategy
-  , tdySizeMb :: Maybe Int
+  , tdySize :: Maybe Int64
   , tdyFormat :: Maybe DriveFormat
   , tdyEphemeral :: Maybe Bool
   -- ^ Override the strategy-driven ephemeral default. 'Nothing' picks
@@ -108,7 +110,7 @@ instance FromJSON TemplateDriveYaml where
       <*> o .:? "cacheType"
       <*> o .:? "discard"
       <*> o .: "strategy"
-      <*> o .:? "sizeMb"
+      <*> optionalSizeField o "size"
       <*> o .:? "format"
       <*> o .:? "ephemeral"
 

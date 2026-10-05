@@ -105,7 +105,7 @@ class TestVirtiofs(SingleNodeCase):
             vm = self.client.vms.create(
                 name,
                 cpu_count=1,
-                ram_mb=512,
+                ram=536870912,
                 headless=True,
                 guest_agent=False,
             )

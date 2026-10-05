@@ -10,14 +10,14 @@ _TEMPLATE_SKELETON = """\
 name: "my-template"
 description: "Edit this skeleton"
 cpuCount: 2
-ramMb: 2048
+ram: 2048M
 guestAgent: true
 tpm: false
 drives:
   - diskImageName: "ubuntu-26.04-server-base"
     interface: "virtio"
     strategy: "overlay"
-    sizeMb: 10240
+    size: 10240M
 networkInterfaces:
   - type: "user"
 sshKeys: []

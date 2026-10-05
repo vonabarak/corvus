@@ -77,8 +77,8 @@ class _CachedNode:
     node_id: int
     name: str
     cpu_count: int | None
-    ram_mb_total: int | None
-    ram_mb_free: int | None
+    ram_total: int | None
+    ram_free: int | None
     storage_bytes_total: int | None
     storage_bytes_free: int | None
     load_avg1: float | None
@@ -138,8 +138,8 @@ async def _refresh_once(client: AsyncClient) -> None:
             node_id=n.id,
             name=n.name,
             cpu_count=n.cpu_count,
-            ram_mb_total=n.ram_mb_total,
-            ram_mb_free=n.ram_mb_free,
+            ram_total=n.ram_total,
+            ram_free=n.ram_free,
             storage_bytes_total=n.storage_bytes_total,
             storage_bytes_free=n.storage_bytes_free,
             load_avg1=n.load_avg1,
@@ -335,10 +335,10 @@ def _emit(cache: _MetricsCache) -> bytes:
         nl = (node.name,)
         if node.load_avg1 is not None:
             node_load1.labels(*nl).set(node.load_avg1)
-        if node.ram_mb_total is not None:
-            node_ram_total.labels(*nl).set(node.ram_mb_total * 1024 * 1024)
-        if node.ram_mb_free is not None:
-            node_ram_free.labels(*nl).set(node.ram_mb_free * 1024 * 1024)
+        if node.ram_total is not None:
+            node_ram_total.labels(*nl).set(node.ram_total)
+        if node.ram_free is not None:
+            node_ram_free.labels(*nl).set(node.ram_free)
         if node.storage_bytes_total is not None:
             node_storage_total.labels(*nl).set(node.storage_bytes_total)
         if node.storage_bytes_free is not None:

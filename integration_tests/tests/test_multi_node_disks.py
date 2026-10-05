@@ -148,7 +148,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         on beta — not alpha."""
         name = _uniq("create-on-beta")
         self.client_alpha.disks.create(
-            name, size_mb=16, format="qcow2", node=self.beta_name
+            name, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             assert self._placement_nodes(name) == {self.beta_name}
@@ -164,7 +164,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         that the disk has a single placement and the file is on
         that node."""
         name = _uniq("create-sched")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             placements = self.client_alpha.disks.get(name).show().placements
             assert len(placements) == 1
@@ -206,7 +206,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         the disk's placement stays on beta only."""
         name = _uniq("snap-on-beta")
         self.client_alpha.disks.create(
-            name, size_mb=16, format="qcow2", node=self.beta_name
+            name, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             disk = self.client_alpha.disks.get(name)
@@ -230,7 +230,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         base = _uniq("ovl-base-beta")
         overlay = _uniq("ovl-top-beta")
         self.client_alpha.disks.create(
-            base, size_mb=16, format="qcow2", node=self.beta_name
+            base, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             self.client_alpha.disks.create_overlay(overlay, base)
@@ -246,7 +246,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         src = _uniq("clone-src-beta")
         dst = _uniq("clone-dst-beta")
         self.client_alpha.disks.create(
-            src, size_mb=16, format="qcow2", node=self.beta_name
+            src, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             self.client_alpha.disks.clone(src, dst)
@@ -263,11 +263,11 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         "no placement"."""
         name = _uniq("refresh-beta")
         self.client_alpha.disks.create(
-            name, size_mb=16, format="qcow2", node=self.beta_name
+            name, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             info = self.client_alpha.disks.get(name).refresh()
-            assert info.size_mb is not None
+            assert info.size is not None
         finally:
             self._delete_disk_silent(name)
 
@@ -276,13 +276,13 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         but exercising the qemu-img-mutating path."""
         name = _uniq("resize-beta")
         self.client_alpha.disks.create(
-            name, size_mb=16, format="qcow2", node=self.beta_name
+            name, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             disk = self.client_alpha.disks.get(name)
-            disk.resize(32)
+            disk.resize(32 * 1024 * 1024)
             info = disk.refresh()
-            assert info.size_mb == 32
+            assert info.size == 33554432
         finally:
             self._delete_disk_silent(name)
 
@@ -298,11 +298,11 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         yaml_body = textwrap.dedent(f"""
             disks:
               - name: {alpha_disk}
-                sizeMb: 16
+                size: 16M
                 format: qcow2
                 node: {self.alpha_name}
               - name: {beta_disk}
-                sizeMb: 16
+                size: 16M
                 format: qcow2
                 node: {self.beta_name}
         """).strip()
@@ -332,12 +332,12 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
               - name: {shared}
                 node: {self.alpha_name}
                 cpuCount: 1
-                ramMb: 128
+                ram: 128M
                 headless: true
               - name: {shared}
                 node: {self.beta_name}
                 cpuCount: 1
-                ramMb: 128
+                ram: 128M
                 headless: true
         """).strip()
         # Track ids for cleanup. We can't `vms.get(name, by_name=True)`
@@ -384,13 +384,13 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         disk_name = _uniq("vm-drive-fp")
         vm_name = _uniq("vm-fp-host")
         self.client_alpha.disks.create(
-            disk_name, size_mb=16, format="qcow2", node=self.beta_name
+            disk_name, size=16777216, format="qcow2", node=self.beta_name
         )
         try:
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.beta_name,
                 headless=True,
                 guest_agent=False,

@@ -56,7 +56,7 @@ data instance C.Parsed DiskImageInfo
         ,name :: (RP.Parsed Basics.Text)
         ,placements :: (RP.Parsed (R.List DiskImagePlacement))
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
-        ,sizeMb :: (RP.Parsed Std_.Int64)
+        ,size :: (RP.Parsed Std_.Int64)
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,attachedTo :: (RP.Parsed (R.List DiskAttachment))
         ,backingImage :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
@@ -69,7 +69,7 @@ instance (C.Parse DiskImageInfo (C.Parsed DiskImageInfo)) where
                                 <*> (GH.parseField #name raw_)
                                 <*> (GH.parseField #placements raw_)
                                 <*> (GH.parseField #format raw_)
-                                <*> (GH.parseField #sizeMb raw_)
+                                <*> (GH.parseField #size raw_)
                                 <*> (GH.parseField #createdAt raw_)
                                 <*> (GH.parseField #attachedTo raw_)
                                 <*> (GH.parseField #backingImage raw_)
@@ -80,7 +80,7 @@ instance (C.Marshal DiskImageInfo (C.Parsed DiskImageInfo)) where
         (GH.encodeField #name name raw_)
         (GH.encodeField #placements placements raw_)
         (GH.encodeField #format format raw_)
-        (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #size size raw_)
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #attachedTo attachedTo raw_)
         (GH.encodeField #backingImage backingImage raw_)
@@ -95,7 +95,7 @@ instance (GH.HasField "placements" GH.Slot DiskImageInfo (R.List DiskImagePlacem
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "format" GH.Slot DiskImageInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat) where
     fieldByLabel  = (GH.dataField 0 1 16 0)
-instance (GH.HasField "sizeMb" GH.Slot DiskImageInfo Std_.Int64) where
+instance (GH.HasField "size" GH.Slot DiskImageInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "createdAt" GH.Slot DiskImageInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
@@ -190,7 +190,7 @@ data instance C.Parsed SnapshotInfo
         {id :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
         ,createdAt :: (RP.Parsed Std_.Int64)
-        ,sizeMb :: (RP.Parsed Std_.Int64)
+        ,size :: (RP.Parsed Std_.Int64)
         ,live :: (RP.Parsed Std_.Bool)
         ,quiesced :: (RP.Parsed Std_.Bool)
         ,hasVmstate :: (RP.Parsed Std_.Bool)}
@@ -201,7 +201,7 @@ instance (C.Parse SnapshotInfo (C.Parsed SnapshotInfo)) where
     parse raw_ = (SnapshotInfo <$> (GH.parseField #id raw_)
                                <*> (GH.parseField #name raw_)
                                <*> (GH.parseField #createdAt raw_)
-                               <*> (GH.parseField #sizeMb raw_)
+                               <*> (GH.parseField #size raw_)
                                <*> (GH.parseField #live raw_)
                                <*> (GH.parseField #quiesced raw_)
                                <*> (GH.parseField #hasVmstate raw_))
@@ -210,7 +210,7 @@ instance (C.Marshal SnapshotInfo (C.Parsed SnapshotInfo)) where
         (GH.encodeField #id id raw_)
         (GH.encodeField #name name raw_)
         (GH.encodeField #createdAt createdAt raw_)
-        (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #size size raw_)
         (GH.encodeField #live live raw_)
         (GH.encodeField #quiesced quiesced raw_)
         (GH.encodeField #hasVmstate hasVmstate raw_)
@@ -222,7 +222,7 @@ instance (GH.HasField "name" GH.Slot SnapshotInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "createdAt" GH.Slot SnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-instance (GH.HasField "sizeMb" GH.Slot SnapshotInfo Std_.Int64) where
+instance (GH.HasField "size" GH.Slot SnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "live" GH.Slot SnapshotInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 3 1 0)
@@ -248,7 +248,7 @@ instance (C.EstimateListAlloc DiskCreateParams (C.Parsed DiskCreateParams))
 data instance C.Parsed DiskCreateParams
     = DiskCreateParams 
         {name :: (RP.Parsed Basics.Text)
-        ,sizeMb :: (RP.Parsed Std_.Int64)
+        ,size :: (RP.Parsed Std_.Int64)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
         ,ephemeral :: (RP.Parsed Std_.Bool)
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
@@ -258,7 +258,7 @@ deriving instance (Std_.Show (C.Parsed DiskCreateParams))
 deriving instance (Std_.Eq (C.Parsed DiskCreateParams))
 instance (C.Parse DiskCreateParams (C.Parsed DiskCreateParams)) where
     parse raw_ = (DiskCreateParams <$> (GH.parseField #name raw_)
-                                   <*> (GH.parseField #sizeMb raw_)
+                                   <*> (GH.parseField #size raw_)
                                    <*> (GH.parseField #format raw_)
                                    <*> (GH.parseField #ephemeral raw_)
                                    <*> (GH.parseField #node raw_)
@@ -266,7 +266,7 @@ instance (C.Parse DiskCreateParams (C.Parsed DiskCreateParams)) where
 instance (C.Marshal DiskCreateParams (C.Parsed DiskCreateParams)) where
     marshalInto raw_ DiskCreateParams{..} = (do
         (GH.encodeField #name name raw_)
-        (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #size size raw_)
         (GH.encodeField #format format raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
         (GH.encodeField #node node raw_)
@@ -275,7 +275,7 @@ instance (C.Marshal DiskCreateParams (C.Parsed DiskCreateParams)) where
         )
 instance (GH.HasField "name" GH.Slot DiskCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "sizeMb" GH.Slot DiskCreateParams Std_.Int64) where
+instance (GH.HasField "size" GH.Slot DiskCreateParams Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "format" GH.Slot DiskCreateParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat) where
     fieldByLabel  = (GH.dataField 0 1 16 0)
@@ -2000,18 +2000,18 @@ instance (C.AllocateList Disk'resize'params) where
 instance (C.EstimateListAlloc Disk'resize'params (C.Parsed Disk'resize'params))
 data instance C.Parsed Disk'resize'params
     = Disk'resize'params 
-        {newSizeMb :: (RP.Parsed Std_.Int64)}
+        {newSize :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Disk'resize'params))
 deriving instance (Std_.Eq (C.Parsed Disk'resize'params))
 instance (C.Parse Disk'resize'params (C.Parsed Disk'resize'params)) where
-    parse raw_ = (Disk'resize'params <$> (GH.parseField #newSizeMb raw_))
+    parse raw_ = (Disk'resize'params <$> (GH.parseField #newSize raw_))
 instance (C.Marshal Disk'resize'params (C.Parsed Disk'resize'params)) where
     marshalInto raw_ Disk'resize'params{..} = (do
-        (GH.encodeField #newSizeMb newSizeMb raw_)
+        (GH.encodeField #newSize newSize raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "newSizeMb" GH.Slot Disk'resize'params Std_.Int64) where
+instance (GH.HasField "newSize" GH.Slot Disk'resize'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 data Disk'resize'results 
 type instance (R.ReprFor Disk'resize'results) = (R.Ptr (Std_.Just R.Struct))

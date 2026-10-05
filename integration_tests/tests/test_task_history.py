@@ -74,11 +74,11 @@ class TestTaskHistory(SingleNodeCase):
         token = secrets.token_hex(3)
         disk_name = f"corvus-it-task-disk-{token}"
         vm_name = f"corvus-it-task-vm-{token}"
-        disk = self.client.disks.create(disk_name, size_mb=64, format="qcow2")
+        disk = self.client.disks.create(disk_name, size=67108864, format="qcow2")
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         try:
@@ -123,7 +123,7 @@ class TestTaskHistory(SingleNodeCase):
             for t in tokens:
                 disks.append(
                     self.client.disks.create(
-                        f"corvus-it-task-limit-{t}", size_mb=16, format="qcow2"
+                        f"corvus-it-task-limit-{t}", size=16777216, format="qcow2"
                     )
                 )
             rows = self.client.tasks.list(limit=2)
@@ -143,7 +143,7 @@ class TestTaskHistory(SingleNodeCase):
         (which the daemon stamps from the TLS peer CN)."""
         disk = self.client.disks.create(
             f"corvus-it-task-show-{secrets.token_hex(3)}",
-            size_mb=16,
+            size=16777216,
             format="qcow2",
         )
         try:
@@ -191,7 +191,7 @@ class TestTaskHistory(SingleNodeCase):
         path short-circuits when ``result != running``."""
         disk = self.client.disks.create(
             f"corvus-it-task-wait-{secrets.token_hex(3)}",
-            size_mb=16,
+            size=16777216,
             format="qcow2",
         )
         try:
@@ -241,7 +241,7 @@ class TestTaskHistory(SingleNodeCase):
                 publicKey: "{pubkey}"
             disks:
               - name: {disk_name}
-                sizeMb: 16
+                size: 16M
                 format: qcow2
         """).strip()
         try:
@@ -357,7 +357,7 @@ class TestTaskHistory(SingleNodeCase):
         # Make sure there's at least one fresh disk task in scope.
         disk = self.client.disks.create(
             f"corvus-it-task-cli-{secrets.token_hex(3)}",
-            size_mb=16,
+            size=16777216,
             format="qcow2",
         )
         try:

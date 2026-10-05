@@ -20,7 +20,7 @@ import Corvus.Handlers.Disk.Agent
   , createOverlayViaAgent
   , deleteImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)

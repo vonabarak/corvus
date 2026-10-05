@@ -39,14 +39,14 @@ pytestmark = pytest.mark.timeout(1800)
 _BAKE_TEMPLATE = textwrap.dedent("""
     name: {tpl_name}
     cpuCount: 2
-    ramMb: 1024
+    ram: 1024M
     headless: true
     guestAgent: true
     drives:
       - diskImageName: {base_disk}
         interface: virtio
         strategy: overlay
-        sizeMb: 2048
+        size: 2048M
 """).strip()
 
 
@@ -93,7 +93,9 @@ class TestBuildModes(SingleNodeCase):
         artifact_name = f"corvus-it-build-mode-err-{token}"
         tpl_name = f"corvus-it-build-tpl-err-{token}"
 
-        existing = self.client.disks.create(artifact_name, size_mb=64, format="qcow2")
+        existing = self.client.disks.create(
+            artifact_name, size=67108864, format="qcow2"
+        )
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
@@ -106,10 +108,10 @@ class TestBuildModes(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 1
-                    ramMb: 512
+                    ram: 512M
                   provisioners:
                     - shell: "echo SHOULD NOT RUN"
                   cleanup: always
@@ -130,7 +132,7 @@ class TestBuildModes(SingleNodeCase):
 
             # Pre-existing disk wasn't touched.
             d = self.client.disks.get(artifact_name, by_name=True).show()
-            assert d.size_mb == 64, d
+            assert d.size == 67108864, d
         finally:
             tpl.delete()
             existing.delete()
@@ -148,14 +150,16 @@ class TestBuildModes(SingleNodeCase):
         tpl_name = f"corvus-it-build-tpl-ovw-att-{token}"
         vm_name = f"corvus-it-build-mode-attached-{token}"
 
-        existing = self.client.disks.create(artifact_name, size_mb=64, format="qcow2")
+        existing = self.client.disks.create(
+            artifact_name, size=67108864, format="qcow2"
+        )
         # Attach the pre-existing artifact disk to a stopped VM
         # (read-only — the overwrite check is on attachment, not
         # on r/w semantics).
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         try:
@@ -172,10 +176,10 @@ class TestBuildModes(SingleNodeCase):
                       target:
                         ifExists: overwrite
                         format: qcow2
-                        sizeGb: 1
+                        size: 1G
                       vm:
                         cpuCount: 1
-                        ramMb: 512
+                        ram: 512M
                       provisioners:
                         - shell: "echo SHOULD NOT RUN"
                       cleanup: always
@@ -224,7 +228,7 @@ class TestBuildModes(SingleNodeCase):
         artifact_name = f"corvus-it-build-mode-ovw-{token}"
         tpl_name = f"corvus-it-build-tpl-ovw-{token}"
 
-        stub = self.client.disks.create(artifact_name, size_mb=64, format="qcow2")
+        stub = self.client.disks.create(artifact_name, size=67108864, format="qcow2")
         stub_id = stub.show().id
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
@@ -238,10 +242,10 @@ class TestBuildModes(SingleNodeCase):
                   target:
                     ifExists: overwrite
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 2
-                    ramMb: 1024
+                    ram: 1024M
                   provisioners:
                     - shell: "true"
                   cleanup: always
@@ -256,7 +260,7 @@ class TestBuildModes(SingleNodeCase):
             # Old stub disk is gone; the new disk owns the name.
             replaced = self.client.disks.get(artifact_name, by_name=True).show()
             assert replaced.id != stub_id, (stub_id, replaced.id)
-            assert replaced.size_mb is not None and replaced.size_mb > 64, replaced
+            assert replaced.size is not None and replaced.size > 67108864, replaced
 
             # Bake VM reaped (cleanup: always).
             vm_names = [v.name for v in self.client.vms.list()]
@@ -290,10 +294,10 @@ class TestBuildModes(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 2
-                    ramMb: 1024
+                    ram: 1024M
                   provisioners:
                     - shell: "exit 7"
                   cleanup: onSuccess
@@ -341,10 +345,10 @@ class TestBuildModes(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 2
-                    ramMb: 1024
+                    ram: 1024M
                   provisioners:
                     - shell: "exit 7"
                   cleanup: never
@@ -399,7 +403,7 @@ class TestBuildModes(SingleNodeCase):
                       publicKey: "{pubkey}"
                   disks:
                     - name: {artifact_name}
-                      sizeMb: 64
+                      size: 64M
                       format: qcow2
               - build:
                   name: {artifact_name}
@@ -408,10 +412,10 @@ class TestBuildModes(SingleNodeCase):
                   target:
                     ifExists: skip
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 1
-                    ramMb: 512
+                    ram: 512M
                   provisioners:
                     - shell: "echo SHOULD NOT RUN; exit 1"
                   cleanup: always
@@ -432,7 +436,7 @@ class TestBuildModes(SingleNodeCase):
 
             # Apply step's side-effects landed.
             disk = self.client.disks.get(artifact_name, by_name=True).show()
-            assert disk.size_mb == 64, disk
+            assert disk.size == 67108864, disk
             assert build_step.artifact_disk_id == disk.id, (build_step, disk)
             keys = [k.name for k in self.client.ssh_keys.list()]
             assert key_name in keys, keys

@@ -22,6 +22,7 @@ import textwrap
 
 import pytest
 from corvus_client.exceptions import CorvusError
+from corvus_client.sizes import format_size
 from corvus_test_harness import SingleNodeCase
 
 # Dummy ed25519 public key for templates that reference an SSH key.
@@ -52,7 +53,7 @@ class TestTemplates(SingleNodeCase):
             name: {tpl_name}
             description: A test template
             cpuCount: 2
-            ramMb: 1024
+            ram: 1024M
             headless: true
             guestAgent: true
             cloudInit: true
@@ -68,7 +69,7 @@ class TestTemplates(SingleNodeCase):
               - diskImageName: {base_disk}
                 interface: virtio
                 strategy: overlay
-                sizeMb: 1024
+                size: 1024M
         """).strip()
 
         tpl = self.client.templates.create(body)
@@ -76,7 +77,7 @@ class TestTemplates(SingleNodeCase):
             # ── show: fields land verbatim ──────────────────────────
             details = tpl.show()
             assert details.cpu_count == 2
-            assert details.ram_mb == 1024
+            assert details.ram == 1073741824
             assert details.description == "A test template"
             assert details.cloud_init is True
             assert details.guest_agent is True
@@ -100,7 +101,7 @@ class TestTemplates(SingleNodeCase):
                 info = vm.show()
                 assert info.name == vm_name
                 assert info.cpu_count == 2
-                assert info.ram_mb == 1024
+                assert info.ram == 1073741824
                 assert info.description == "A test template"
                 assert info.cloud_init is True
                 assert info.guest_agent is True
@@ -138,7 +139,7 @@ class TestTemplates(SingleNodeCase):
         body = textwrap.dedent(f"""
             name: {tpl_name}
             cpuCount: 1
-            ramMb: 512
+            ram: 512M
             headless: true
             cloudInit: true
             networkInterfaces:
@@ -203,12 +204,16 @@ class TestTemplates(SingleNodeCase):
         name_other = f"corvus-it-tpl-other-{token}"
 
         def body(
-            template_name: str, *, cpu: int = 1, ram: int = 512, desc: str | None = None
+            template_name: str,
+            *,
+            cpu: int = 1,
+            ram: int = 536870912,
+            desc: str | None = None,
         ) -> str:
             lines = [
                 f"name: {template_name}",
                 f"cpuCount: {cpu}",
-                f"ramMb: {ram}",
+                f"ram: {format_size(ram)}",
                 "headless: true",
                 "drives: []",
             ]
@@ -222,23 +227,23 @@ class TestTemplates(SingleNodeCase):
             # Happy path. `update` is atomic-replace: the old row is
             # deleted and a new one is inserted, so the existing cap
             # holds a stale id. Re-resolve by name to inspect.
-            tpl.update(body(name, cpu=4, ram=2048, desc="Updated"))
+            tpl.update(body(name, cpu=4, ram=2147483648, desc="Updated"))
             tpl = self.client.templates.get(name, by_name=True)
             d = tpl.show()
             assert d.cpu_count == 4
-            assert d.ram_mb == 2048
+            assert d.ram == 2147483648
             assert d.description == "Updated"
 
             # Rollback: renaming to a colliding name must fail and
             # leave the renamed-to-self row untouched.
-            colliding = body(name_other, cpu=4, ram=2048, desc="Updated")
+            colliding = body(name_other, cpu=4, ram=2147483648, desc="Updated")
             with pytest.raises(CorvusError):
                 tpl.update(colliding)
             # After a failed update, the cap is still valid (rollback
             # left the row in place with its original id).
             d = tpl.show()
             assert d.cpu_count == 4
-            assert d.ram_mb == 2048
+            assert d.ram == 2147483648
         finally:
             tpl.delete()
             other.delete()
@@ -250,7 +255,7 @@ class TestTemplates(SingleNodeCase):
         body = textwrap.dedent(f"""
             name: {name}
             cpuCount: 1
-            ramMb: 512
+            ram: 512M
             headless: true
             drives: []
         """).strip()
@@ -283,31 +288,31 @@ class TestTemplates(SingleNodeCase):
         for strategy in ("clone", "overlay", "direct", "create"):
             tpl_name = f"corvus-it-strat-{strategy}-{token}"
             vm_name = f"corvus-it-strat-vm-{strategy}-{token}"
-            # ``create`` requires ``format`` + ``sizeMb`` and skips
+            # ``create`` requires ``format`` + ``size`` and skips
             # ``diskImageName``; the other three require the base.
             if strategy == "create":
                 body = textwrap.dedent(f"""
                     name: {tpl_name}
                     cpuCount: 1
-                    ramMb: 256
+                    ram: 256M
                     headless: true
                     drives:
                       - interface: virtio
                         strategy: create
                         format: qcow2
-                        sizeMb: 32
+                        size: 32M
                 """).strip()
             else:
                 body = textwrap.dedent(f"""
                     name: {tpl_name}
                     cpuCount: 1
-                    ramMb: 256
+                    ram: 256M
                     headless: true
                     drives:
                       - diskImageName: {base_disk}
                         interface: virtio
                         strategy: {strategy}
-                        sizeMb: 1024
+                        size: 1024M
                 """).strip()
 
             tpl = self.client.templates.create(body)
@@ -382,13 +387,13 @@ class TestTemplates(SingleNodeCase):
             body = textwrap.dedent(f"""
                 name: {tpl_name}
                 cpuCount: 1
-                ramMb: 256
+                ram: 256M
                 headless: true
                 drives:
                   - diskImageName: {base_disk}
                     interface: virtio
                     strategy: overlay
-                    sizeMb: 1024
+                    size: 1024M
                 sharedDirs:
                   - path: {host_path}
                     tag: tpl-share
@@ -438,13 +443,13 @@ class TestTemplates(SingleNodeCase):
         body = textwrap.dedent(f"""
             name: corvus-it-tpl-{token}
             cpuCount: 1
-            ramMb: 512
+            ram: 512M
             headless: true
             drives:
               - diskImageName: {ghost}
                 interface: virtio
                 strategy: overlay
-                sizeMb: 1024
+                size: 1024M
         """).strip()
         with pytest.raises(CorvusError) as excinfo:
             self.client.templates.create(body)

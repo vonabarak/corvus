@@ -12,7 +12,7 @@ const SKELETON = `# Template YAML — see doc/templates.md for the full field li
 # name: web-server
 # description: Debian 12 + nginx, 2 vCPU / 2 GiB.
 # cpuCount: 2
-# ramMb: 2048
+# ram: 2048M
 # headless: true
 # graphicsAdapter: virtio-vga
 # guestAgent: true

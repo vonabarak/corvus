@@ -21,6 +21,7 @@ import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NodeAdminState)
 import qualified Corvus.Model as M
 import Corvus.Protocol (NodeDetails (..), NodeInfo (..))
+import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Maybe (fromMaybe)
@@ -117,10 +118,10 @@ handleNodeShow fmt conn nRef = do
       printField "Kernel" (maybe "(unknown)" T.unpack (nodKernelRelease d))
       printField "Agent version" (maybe "(unknown)" T.unpack (nodAgentVersion d))
       printField "CPUs (total)" (maybe "--" show (nodCpuCount d))
-      printField "RAM total (MiB)" (maybe "--" show (nodRamMbTotal d))
-      printField "RAM free (MiB)" (maybe "--" show (nodRamMbFree d))
-      printField "Storage total (B)" (maybe "--" show (nodStorageBytesTotal d))
-      printField "Storage free (B)" (maybe "--" show (nodStorageBytesFree d))
+      printField "RAM total" (maybe "--" formatSize (nodRamTotal d))
+      printField "RAM free" (maybe "--" formatSize (nodRamFree d))
+      printField "Storage total" (maybe "--" formatSize (nodStorageBytesTotal d))
+      printField "Storage free" (maybe "--" formatSize (nodStorageBytesFree d))
       printField "Load avg (1/5/15)" $
         loadStr (nodLoadAvg1 d) (nodLoadAvg5 d) (nodLoadAvg15 d)
       printField "Nodeagent last push" $
@@ -240,11 +241,11 @@ nodeColumns =
   , Column "STATE" LeftAlign (T.unpack . enumToText . noiAdminState)
   , Column "NETD" LeftAlign netdState
   , Column "CPUS" RightAlign (maybe "--" show . noiCpuCount)
-  , Column "RAM_FREE" RightAlign (maybe "--" show . noiRamMbFree)
-  , Column "DISK_FREE_GB" RightAlign $ \n ->
+  , Column "RAM_FREE" RightAlign (maybe "--" formatSize . noiRamFree)
+  , Column "DISK_FREE" RightAlign $ \n ->
       maybe
         "--"
-        (\b -> show ((fromIntegral b :: Integer) `div` (1024 * 1024 * 1024)))
+        formatSize
         (noiStorageBytesFree n)
   , Column "LOAD1" RightAlign (maybe "--" (formatLoad . (\x -> x :: Double)) . noiLoadAvg1)
   ]

@@ -10,10 +10,10 @@ export interface NodeInfo {
   admin_state: string;
   created_at: string;
   cpu_count: number | null;
-  ram_mb_total: number | null;
-  ram_mb_free: number | null;
-  storage_bytes_total: number | null;
-  storage_bytes_free: number | null;
+  ram_total: bigint | null;
+  ram_free: bigint | null;
+  storage_bytes_total: bigint | null;
+  storage_bytes_free: bigint | null;
   load_avg1: number | null;
   last_node_agent_push_at: string | null;
   last_net_agent_push_at: string | null;

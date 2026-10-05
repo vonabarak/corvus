@@ -18,7 +18,7 @@ def test_cloudinit_set_get_delete(daemon_socket: Path) -> None:
         vm = await c.vms.create(
             "py-ci-vm",
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
             cloud_init=True,
         )

@@ -171,7 +171,7 @@ class TestWebRestSurface(SingleNodeCase):
                     {
                         "name": vm_name,
                         "cpu_count": 1,
-                        "ram_mb": 64,
+                        "ram": 67108864,
                         "headless": True,
                     }
                 ).encode("utf-8")
@@ -190,7 +190,7 @@ class TestWebRestSurface(SingleNodeCase):
 
                 assert created["name"] == vm_name, created
                 assert created["cpu_count"] == 1
-                assert created["ram_mb"] == 64
+                assert created["ram"] == 67108864
                 new_id = created["id"]
 
                 # Inner pycapnp sees the new row.
@@ -260,7 +260,7 @@ class TestSerialConsoleWebSocket(SingleNodeCase):
         vm = self.client.vms.create(
             "web-serial-stopped",
             cpu_count=1,
-            ram_mb=64,
+            ram=67108864,
             headless=True,
             guest_agent=False,
         )

@@ -234,7 +234,7 @@ class TestComponentRestart(SingleNodeCase):
 
         marker = f"corvus-nodeagent-restart-{secrets.token_hex(6)}"
         data_disk = f"{marker}-data"
-        self.client.disks.create(data_disk, size_mb=8, format="raw")
+        self.client.disks.create(data_disk, size=8388608, format="raw")
         try:
             with Vm(self) as vm:
                 vm_id = vm.cap.show().id

@@ -46,8 +46,8 @@ statsWithVersion :: T.Text -> C.Parsed CGNA.NodeStats
 statsWithVersion ver =
   CGNA.NodeStats
     { CGNA.cpuCount = 0
-    , CGNA.ramMbTotal = 0
-    , CGNA.ramMbFree = 0
+    , CGNA.ramTotal = 0
+    , CGNA.ramFree = 0
     , CGNA.storageBytesTotal = 0
     , CGNA.storageBytesFree = 0
     , CGNA.loadAvg1 = 0

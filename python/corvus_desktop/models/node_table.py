@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from corvus_client.sizes import format_size
 from corvus_client.types import NodeInfo
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -12,16 +13,6 @@ from PySide6.QtCore import (
 )
 
 _INVALID_PARENT: QModelIndex = QModelIndex()
-
-
-def _bytes_human(b: int | None) -> str:
-    if b is None or b <= 0:
-        return "—"
-    gb = b / (1024**3)
-    if gb >= 1:
-        return f"{gb:.1f} GiB"
-    mb = b / (1024**2)
-    return f"{mb:.0f} MiB"
 
 
 class NodeTableModel(QAbstractTableModel):
@@ -103,15 +94,15 @@ class NodeTableModel(QAbstractTableModel):
             if col == self.COL_CPU:
                 return node.cpu_count
             if col == self.COL_RAM:
-                free = node.ram_mb_free
-                total = node.ram_mb_total
+                free = node.ram_free
+                total = node.ram_total
                 if not total:
                     return "—"
-                return f"{free} / {total} MB"
+                return f"{format_size(free)} / {format_size(total)}"
             if col == self.COL_STORAGE:
                 return (
-                    f"{_bytes_human(node.storage_bytes_free)} / "
-                    f"{_bytes_human(node.storage_bytes_total)}"
+                    f"{format_size(node.storage_bytes_free)} / "
+                    f"{format_size(node.storage_bytes_total)}"
                 )
             if col == self.COL_LOAD:
                 la = node.load_avg1

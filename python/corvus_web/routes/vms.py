@@ -113,7 +113,9 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
     name: str = Field(..., min_length=1, description="VM name (unique).")
     node: str | None = Field(None, description="Pin to a specific node by name or id.")
     cpu_count: int = Field(1, ge=1, le=256)
-    ram_mb: int = Field(1024, ge=64)
+    ram: int = Field(
+        1073741824, ge=67108864, le=(1 << 63) - 1, multiple_of=1048576, strict=True
+    )
     description: str | None = Field(None, max_length=1024)
     headless: bool = False
     guest_agent: bool = False
@@ -152,7 +154,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
             body.name,
             node=body.node,
             cpu_count=body.cpu_count,
-            ram_mb=body.ram_mb,
+            ram=body.ram,
             description=body.description,
             headless=body.headless,
             guest_agent=body.guest_agent,

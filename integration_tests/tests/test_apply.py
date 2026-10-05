@@ -87,7 +87,7 @@ class TestApply(SingleNodeCase):
             vms:
               - name: {vm1_name}
                 cpuCount: 2
-                ramMb: 512
+                ram: 512M
                 headless: true
                 guestAgent: true
                 drives:
@@ -99,7 +99,7 @@ class TestApply(SingleNodeCase):
                     network: {net_name}
               - name: {vm2_name}
                 cpuCount: 2
-                ramMb: 512
+                ram: 512M
                 headless: true
                 guestAgent: true
                 drives:
@@ -183,12 +183,12 @@ class TestApply(SingleNodeCase):
             disks:
               - name: {root_name}
                 overlay: {base_disk}
-                sizeMb: 2048
+                size: 2048M
                 ephemeral: true
             vms:
               - name: {vm_name}
                 cpuCount: 1
-                ramMb: 512
+                ram: 512M
                 headless: true
                 guestAgent: true
                 cloudInit: true
@@ -256,12 +256,12 @@ class TestApply(SingleNodeCase):
             disks:
               - name: {root_name}
                 overlay: {base_disk}
-                sizeMb: 2048
+                size: 2048M
                 ephemeral: true
             vms:
               - name: {vm_name}
                 cpuCount: 1
-                ramMb: 512
+                ram: 512M
                 headless: true
                 guestAgent: true
                 cloudInit: true
@@ -344,7 +344,7 @@ class TestApply(SingleNodeCase):
             disks:
               - name: {root_name}
                 overlay: {base_disk}
-                sizeMb: 1024
+                size: 1024M
                 ephemeral: true
             networks:
               - name: {net_name}
@@ -352,7 +352,7 @@ class TestApply(SingleNodeCase):
             vms:
               - name: {vm_name}
                 cpuCount: 1
-                ramMb: 256
+                ram: 256M
                 headless: true
                 guestAgent: false
                 drives:
@@ -405,7 +405,7 @@ class TestApply(SingleNodeCase):
             vms:
               - name: {vm_name}
                 cpuCount: 1
-                ramMb: 256
+                ram: 256M
                 headless: true
                 drives:
                   - disk: {ghost}
@@ -440,7 +440,7 @@ class TestApply(SingleNodeCase):
         # Create a source qcow2 and serve it via Python's
         # http.server. Mirrors the helper in test_disk.py's
         # test_import_from_http_url.
-        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
         try:
             src_path = src.show().placements[0].file_path
             srv_dir = f"/tmp/md5-srv-{token}"
@@ -499,7 +499,7 @@ class TestApply(SingleNodeCase):
         yaml_body = (
             "_template: &vmcommon\n"
             "  cpuCount: 1\n"
-            "  ramMb: 128\n"
+            "  ram: 128M\n"
             "  headless: true\n"
             "  guestAgent: false\n"
             f"networks:\n"
@@ -517,7 +517,7 @@ class TestApply(SingleNodeCase):
             b = self.client.vms.get(vm_b, by_name=True).show()
             for v in (a, b):
                 assert v.cpu_count == 1, v
-                assert v.ram_mb == 128, v
+                assert v.ram == 134217728, v
                 assert v.headless is True, v
                 assert v.guest_agent is False, v
         finally:
@@ -540,10 +540,10 @@ class TestApply(SingleNodeCase):
         yaml_body = textwrap.dedent(f"""
             disks:
               - name: {dup_name}
-                sizeMb: 8
+                size: 8M
                 format: qcow2
               - name: {dup_name}
-                sizeMb: 16
+                size: 16M
                 format: qcow2
         """).strip()
         try:
@@ -577,18 +577,18 @@ class TestApply(SingleNodeCase):
             yaml_first = textwrap.dedent(f"""
                 disks:
                   - name: {disk_name}
-                    sizeMb: 8
+                    size: 8M
                     format: qcow2
             """).strip()
             self.client.apply(yaml_first, wait=True)
             first = self.client.disks.get(disk_name, by_name=True).show()
-            assert first.size_mb == 8
+            assert first.size == 8388608
 
             yaml_second = textwrap.dedent(f"""
                 ifExists: overwrite
                 disks:
                   - name: {disk_name}
-                    sizeMb: 32
+                    size: 32M
                     format: qcow2
             """).strip()
             self.client.apply(yaml_second, wait=True)
@@ -600,7 +600,7 @@ class TestApply(SingleNodeCase):
                 f"(id stayed at {first.id}); the dispatcher's "
                 f"IfExistsOverwrite branch must call delete first"
             )
-            assert second.size_mb == 32, second
+            assert second.size == 33554432, second
         finally:
             try:
                 self.client.disks.get(disk_name, by_name=True).delete()

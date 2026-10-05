@@ -21,7 +21,7 @@ import Corvus.Handlers.Disk.Agent
   , createOverlayViaAgent
   , deleteImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
@@ -53,21 +53,21 @@ import Corvus.Handlers.Disk.Placement (nodeBasePathFor, withSelectedDiskNode)
 -- | Create a new disk image. An empty/zero @nodeRefText@ means
 -- "no explicit placement" — defer to 'pickNodeForDisk'.
 handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Response
-handleDiskCreate state name format sizeMb mPath ephemeral nodeRefText = runServerLogging state $ do
-  logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show sizeMb) <> " MB)"
+handleDiskCreate state name format size mPath ephemeral nodeRefText = runServerLogging state $ do
+  logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show size) <> " bytes)"
   case sanitizeDiskName name of
     Left err -> do
       logWarnN $ "Invalid disk name: " <> err
       pure $ RespError err
     Right safeName ->
       withSelectedDiskNode state nodeRefText $
-        createDiskOnNode state safeName format sizeMb mPath ephemeral
+        createDiskOnNode state safeName format size mPath ephemeral
 
-createDiskOnNode state safeName format sizeMb mPath ephemeral nid = do
+createDiskOnNode state safeName format size mPath ephemeral nid = do
   basePath <- liftIO $ nodeBasePathFor state nid
   let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
   filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
-  result <- liftIO $ createImageViaAgent state nid filePath format sizeMb
+  result <- liftIO $ createImageViaAgent state nid filePath format size
   case result of
     ImageError err -> do
       logWarnN $ "Failed to create image: " <> err
@@ -75,6 +75,7 @@ createDiskOnNode state safeName format sizeMb mPath ephemeral nid = do
     ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
     ImageNotFound -> pure $ RespError "Unexpected error during creation"
     ImageSuccess -> do
+      actualSize <- liftIO $ getImageSizeViaAgent state nid filePath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath filePath
       diskId <-
@@ -86,7 +87,7 @@ createDiskOnNode state safeName format sizeMb mPath ephemeral nid = do
                     DiskImage
                       { diskImageName = safeName
                       , diskImageFormat = format
-                      , diskImageSizeMb = Just (fromIntegral sizeMb)
+                      , diskImageSize = actualSize
                       , diskImageCreatedAt = now
                       , diskImageBackingImageId = Nothing
                       , diskImageEphemeral = ephemeral
@@ -130,7 +131,7 @@ registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
           then T.unpack storedPath
           else basePath </> T.unpack storedPath
   format <- resolveRegisteredFormat state nid resolvedPath mFormat
-  sizeMb <- liftIO $ getImageSizeMbViaAgent state nid resolvedPath
+  size <- liftIO $ getImageSizeViaAgent state nid resolvedPath
   now <- liftIO getCurrentTime
   mExisting <-
     liftIO $
@@ -153,7 +154,7 @@ registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
                       DiskImage
                         { diskImageName = name
                         , diskImageFormat = format
-                        , diskImageSizeMb = sizeMb
+                        , diskImageSize = size
                         , diskImageCreatedAt = now
                         , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
                         , diskImageEphemeral = ephemeral
@@ -202,7 +203,7 @@ recordRegisteredPlacement state diskKey nid storedPath message = do
 data DiskCreate = DiskCreate
   { dcrName :: Text
   , dcrFormat :: DriveFormat
-  , dcrSizeMb :: Int64
+  , dcrSize :: Int64
   , dcrPath :: Maybe Text
   , dcrEphemeral :: Bool
   , dcrNodeRef :: Text
@@ -214,7 +215,7 @@ instance Action DiskCreate where
   actionSubsystem _ = SubDisk
   actionCommand _ = "create"
   actionEntityName = Just . dcrName
-  actionExecute ctx a = handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSizeMb a) (dcrPath a) (dcrEphemeral a) (dcrNodeRef a)
+  actionExecute ctx a = handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSize a) (dcrPath a) (dcrEphemeral a) (dcrNodeRef a)
 
 data DiskRegister = DiskRegister
   { drgName :: Text

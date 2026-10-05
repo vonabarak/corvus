@@ -57,7 +57,7 @@ data instance C.Parsed TemplateVmInfo
         {id :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,description :: (RP.Parsed Basics.Text)
         ,headless :: (RP.Parsed Std_.Bool)
         ,guestAgent :: (RP.Parsed Std_.Bool)
@@ -75,7 +75,7 @@ instance (C.Parse TemplateVmInfo (C.Parsed TemplateVmInfo)) where
     parse raw_ = (TemplateVmInfo <$> (GH.parseField #id raw_)
                                  <*> (GH.parseField #name raw_)
                                  <*> (GH.parseField #cpuCount raw_)
-                                 <*> (GH.parseField #ramMb raw_)
+                                 <*> (GH.parseField #ram raw_)
                                  <*> (GH.parseField #description raw_)
                                  <*> (GH.parseField #headless raw_)
                                  <*> (GH.parseField #guestAgent raw_)
@@ -91,7 +91,7 @@ instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
         (GH.encodeField #id id raw_)
         (GH.encodeField #name name raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #description description raw_)
         (GH.encodeField #headless headless raw_)
         (GH.encodeField #guestAgent guestAgent raw_)
@@ -110,28 +110,28 @@ instance (GH.HasField "name" GH.Slot TemplateVmInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "cpuCount" GH.Slot TemplateVmInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-instance (GH.HasField "ramMb" GH.Slot TemplateVmInfo Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 1 32 0)
+instance (GH.HasField "ram" GH.Slot TemplateVmInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "description" GH.Slot TemplateVmInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "headless" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 2 1 0)
+    fieldByLabel  = (GH.dataField 32 1 1 0)
 instance (GH.HasField "guestAgent" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 1 2 1 0)
+    fieldByLabel  = (GH.dataField 33 1 1 0)
 instance (GH.HasField "autostart" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 2 2 1 0)
+    fieldByLabel  = (GH.dataField 34 1 1 0)
 instance (GH.HasField "rebootQuirk" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 3 2 1 0)
+    fieldByLabel  = (GH.dataField 35 1 1 0)
 instance (GH.HasField "tpm" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 4 2 1 0)
+    fieldByLabel  = (GH.dataField 36 1 1 0)
 instance (GH.HasField "graphicsAdapter" GH.Slot TemplateVmInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 16 2 16 0)
+    fieldByLabel  = (GH.dataField 48 1 16 0)
 instance (GH.HasField "vsock" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 5 2 1 1)
+    fieldByLabel  = (GH.dataField 37 1 1 1)
 instance (GH.HasField "balloon" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 6 2 1 1)
+    fieldByLabel  = (GH.dataField 38 1 1 1)
 instance (GH.HasField "rng" GH.Slot TemplateVmInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 7 2 1 1)
+    fieldByLabel  = (GH.dataField 39 1 1 1)
 data TemplateDriveInfo 
 type instance (R.ReprFor TemplateDriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDriveInfo) where
@@ -157,7 +157,7 @@ data instance C.Parsed TemplateDriveInfo
         ,cacheType :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.CacheType)
         ,discard :: (RP.Parsed Std_.Bool)
         ,cloneStrategy :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TemplateCloneStrategy)
-        ,sizeMb :: (RP.Parsed Std_.Int64)
+        ,size :: (RP.Parsed Std_.Int64)
         ,hasFormat :: (RP.Parsed Std_.Bool)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
         ,hasEphemeral :: (RP.Parsed Std_.Bool)
@@ -174,7 +174,7 @@ instance (C.Parse TemplateDriveInfo (C.Parsed TemplateDriveInfo)) where
                                     <*> (GH.parseField #cacheType raw_)
                                     <*> (GH.parseField #discard raw_)
                                     <*> (GH.parseField #cloneStrategy raw_)
-                                    <*> (GH.parseField #sizeMb raw_)
+                                    <*> (GH.parseField #size raw_)
                                     <*> (GH.parseField #hasFormat raw_)
                                     <*> (GH.parseField #format raw_)
                                     <*> (GH.parseField #hasEphemeral raw_)
@@ -189,7 +189,7 @@ instance (C.Marshal TemplateDriveInfo (C.Parsed TemplateDriveInfo)) where
         (GH.encodeField #cacheType cacheType raw_)
         (GH.encodeField #discard discard raw_)
         (GH.encodeField #cloneStrategy cloneStrategy raw_)
-        (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #size size raw_)
         (GH.encodeField #hasFormat hasFormat raw_)
         (GH.encodeField #format format raw_)
         (GH.encodeField #hasEphemeral hasEphemeral raw_)
@@ -212,7 +212,7 @@ instance (GH.HasField "discard" GH.Slot TemplateDriveInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 18 0 1 0)
 instance (GH.HasField "cloneStrategy" GH.Slot TemplateDriveInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.TemplateCloneStrategy) where
     fieldByLabel  = (GH.dataField 0 1 16 0)
-instance (GH.HasField "sizeMb" GH.Slot TemplateDriveInfo Std_.Int64) where
+instance (GH.HasField "size" GH.Slot TemplateDriveInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "hasFormat" GH.Slot TemplateDriveInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 19 0 1 0)
@@ -417,7 +417,7 @@ data instance C.Parsed TemplateDetails
         {id :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,description :: (RP.Parsed Basics.Text)
         ,headless :: (RP.Parsed Std_.Bool)
         ,cloudInit :: (RP.Parsed Std_.Bool)
@@ -443,7 +443,7 @@ instance (C.Parse TemplateDetails (C.Parsed TemplateDetails)) where
     parse raw_ = (TemplateDetails <$> (GH.parseField #id raw_)
                                   <*> (GH.parseField #name raw_)
                                   <*> (GH.parseField #cpuCount raw_)
-                                  <*> (GH.parseField #ramMb raw_)
+                                  <*> (GH.parseField #ram raw_)
                                   <*> (GH.parseField #description raw_)
                                   <*> (GH.parseField #headless raw_)
                                   <*> (GH.parseField #cloudInit raw_)
@@ -467,7 +467,7 @@ instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
         (GH.encodeField #id id raw_)
         (GH.encodeField #name name raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #description description raw_)
         (GH.encodeField #headless headless raw_)
         (GH.encodeField #cloudInit cloudInit raw_)
@@ -494,18 +494,18 @@ instance (GH.HasField "name" GH.Slot TemplateDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "cpuCount" GH.Slot TemplateDetails Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-instance (GH.HasField "ramMb" GH.Slot TemplateDetails Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 1 32 0)
+instance (GH.HasField "ram" GH.Slot TemplateDetails Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "description" GH.Slot TemplateDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "headless" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 2 1 0)
+    fieldByLabel  = (GH.dataField 32 1 1 0)
 instance (GH.HasField "cloudInit" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 1 2 1 0)
+    fieldByLabel  = (GH.dataField 33 1 1 0)
 instance (GH.HasField "guestAgent" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 2 2 1 0)
+    fieldByLabel  = (GH.dataField 34 1 1 0)
 instance (GH.HasField "autostart" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 3 2 1 0)
+    fieldByLabel  = (GH.dataField 35 1 1 0)
 instance (GH.HasField "cloudInitConfig" GH.Slot TemplateDetails Capnp.Gen.ById.Xeb6a435f11477f84.CloudInitInfo) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "createdAt" GH.Slot TemplateDetails Std_.Int64) where
@@ -517,21 +517,21 @@ instance (GH.HasField "netIfs" GH.Slot TemplateDetails (R.List TemplateNetIfInfo
 instance (GH.HasField "sshKeys" GH.Slot TemplateDetails (R.List TemplateSshKeyInfo)) where
     fieldByLabel  = (GH.ptrField 5)
 instance (GH.HasField "rebootQuirk" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 4 2 1 0)
+    fieldByLabel  = (GH.dataField 36 1 1 0)
 instance (GH.HasField "sharedDirs" GH.Slot TemplateDetails (R.List TemplateSharedDirInfo)) where
     fieldByLabel  = (GH.ptrField 6)
 instance (GH.HasField "tpm" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 5 2 1 0)
+    fieldByLabel  = (GH.dataField 37 1 1 0)
 instance (GH.HasField "audioDevices" GH.Slot TemplateDetails (R.List TemplateAudioDeviceInfo)) where
     fieldByLabel  = (GH.ptrField 7)
 instance (GH.HasField "graphicsAdapter" GH.Slot TemplateDetails Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 16 2 16 0)
+    fieldByLabel  = (GH.dataField 48 1 16 0)
 instance (GH.HasField "vsock" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 6 2 1 1)
+    fieldByLabel  = (GH.dataField 38 1 1 1)
 instance (GH.HasField "balloon" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 7 2 1 1)
+    fieldByLabel  = (GH.dataField 39 1 1 1)
 instance (GH.HasField "rng" GH.Slot TemplateDetails Std_.Bool) where
-    fieldByLabel  = (GH.dataField 8 2 1 1)
+    fieldByLabel  = (GH.dataField 40 1 1 1)
 data TemplateManager 
 type instance (R.ReprFor TemplateManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TemplateManager) where

@@ -22,7 +22,7 @@ import Corvus.Handlers.Disk.Agent
   , createOverlayViaAgent
   , deleteImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
@@ -63,15 +63,15 @@ handleDiskRefresh state diskId = runServerLogging state $ do
         Just _disk -> do
           let key = toSqlKey diskId :: DiskImageId
           resolvedPath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) key nid
-          mSize <- liftIO $ getImageSizeMbViaAgent state nid resolvedPath
+          mSize <- liftIO $ getImageSizeViaAgent state nid resolvedPath
           case mSize of
             Nothing -> pure $ RespError "Could not determine disk image size"
             Just newSize -> do
               liftIO $
                 runSqlPool
-                  (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                  (update (toSqlKey diskId :: DiskImageId) [DiskImageSize =. Just newSize])
                   (ssDbPool state)
-              logInfoN $ "Updated size to " <> T.pack (show newSize) <> " MB"
+              logInfoN $ "Updated size to " <> T.pack (show newSize) <> " bytes"
               pure RespDiskOk
 
 -- | Delete a disk image. Walks every 'DiskImageNode' placement
@@ -127,8 +127,8 @@ handleDiskDelete state diskId = runServerLogging state $ do
 -- | Resize a disk image (VM must be stopped). Resizes on every
 -- node that hosts a placement, then updates the logical size.
 handleDiskResize :: ServerState -> Int64 -> Int64 -> IO Response
-handleDiskResize state diskId newSizeMb = runServerLogging state $ do
-  logInfoN $ "Resizing disk image " <> T.pack (show diskId) <> " to " <> T.pack (show newSizeMb) <> " MB"
+handleDiskResize state diskId newSize = runServerLogging state $ do
+  logInfoN $ "Resizing disk image " <> T.pack (show diskId) <> " to " <> T.pack (show newSize) <> " bytes"
 
   let key = toSqlKey diskId :: DiskImageId
       pool = ssDbPool state
@@ -148,7 +148,7 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
               outcomes <- liftIO $ forM placements $ \(Entity _ row) -> do
                 let nid = diskImageNodeNodeId row
                 filePath <- resolveDiskPath pool (ssQemuConfig state) key nid
-                result <- resizeImageViaAgent state nid filePath newSizeMb
+                result <- resizeImageViaAgent state nid filePath newSize
                 pure (nid, result)
               let failures =
                     [ "node " <> T.pack (show (fromSqlKey nid)) <> ": " <> renderResizeFailure result
@@ -161,9 +161,15 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
                   logWarnN msg
                   pure $ RespError msg
                 else do
+                  actualSize <- liftIO $ case placements of
+                    Entity _ placement : _ -> do
+                      let nid = diskImageNodeNodeId placement
+                      filePath <- resolveDiskPath pool (ssQemuConfig state) key nid
+                      getImageSizeViaAgent state nid filePath
+                    [] -> pure Nothing
                   liftIO $
                     runSqlPool
-                      (update key [M.DiskImageSizeMb =. Just (fromIntegral newSizeMb)])
+                      (update key [M.DiskImageSize =. actualSize])
                       pool
                   logInfoN "Disk resized successfully on every placement"
                   pure RespDiskOk
@@ -184,14 +190,14 @@ instance Action DiskDelete where
 
 data DiskResize = DiskResize
   { drzDiskId :: Int64
-  , drzNewSizeMb :: Int64
+  , drzNewSize :: Int64
   }
 
 instance Action DiskResize where
   actionSubsystem _ = SubDisk
   actionCommand _ = "resize"
   actionEntityId = Just . fromIntegral . drzDiskId
-  actionExecute ctx a = handleDiskResize (acState ctx) (drzDiskId a) (drzNewSizeMb a)
+  actionExecute ctx a = handleDiskResize (acState ctx) (drzDiskId a) (drzNewSize a)
 
 newtype DiskRefresh = DiskRefresh {drfDiskId :: Int64}
 

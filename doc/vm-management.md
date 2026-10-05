@@ -5,7 +5,7 @@
 ```bash
 crv vm list                       # List all VMs
 crv vm show <vm>                  # Show VM details (drives, network, sockets)
-crv vm create <name> [--cpus COUNT] [--ram MB] # Create a VM
+crv vm create <name> [--cpus COUNT] [--ram SIZE] # Create a VM
 crv vm edit <vm>                  # Edit VM settings
 crv vm delete <vm> [--force]      # Delete a VM
 crv vm start <vm>                 # Start a stopped/paused VM
@@ -23,20 +23,20 @@ crv vm monitor <vm>               # Connect to HMP monitor
 ## Creating a VM
 
 ```bash
-crv vm create my-vm --cpus 2 --ram 2048                    # 2 CPUs, 2 GB RAM
-crv vm create my-vm --cpus 4 --ram 4096 --headless         # Serial console only
-crv vm create my-vm --cpus 2 --ram 2048 --cloud-init       # Enable cloud-init
-crv vm create my-vm --cpus 2 --ram 2048 --guest-agent      # Enable guest agent
-crv vm create my-vm --cpus 2 --ram 2048 --tpm              # Attach an emulated TPM 2.0 CRB device
-crv vm create my-vm --cpus 2 --ram 2048 --autostart        # Auto-start on daemon startup
-crv vm create my-vm --cpus 2 --ram 2048 -d "Web server"    # With description
-crv vm create my-vm --cpus 2 --ram 2048 --node alpha       # Pin to a specific node
-crv vm create my-vm --cpus 2 --ram 2048 --cpu-model qemu64 # Migratable CPU model (see below)
+crv vm create my-vm --cpus 2 --ram 2G                    # 2 CPUs, 2 GB RAM
+crv vm create my-vm --cpus 4 --ram 4G --headless         # Serial console only
+crv vm create my-vm --cpus 2 --ram 2G --cloud-init       # Enable cloud-init
+crv vm create my-vm --cpus 2 --ram 2G --guest-agent      # Enable guest agent
+crv vm create my-vm --cpus 2 --ram 2G --tpm              # Attach an emulated TPM 2.0 CRB device
+crv vm create my-vm --cpus 2 --ram 2G --autostart        # Auto-start on daemon startup
+crv vm create my-vm --cpus 2 --ram 2G -d "Web server"    # With description
+crv vm create my-vm --cpus 2 --ram 2G --node alpha       # Pin to a specific node
+crv vm create my-vm --cpus 2 --ram 2G --cpu-model qemu64 # Migratable CPU model (see below)
 crv vm create my-vm --graphics-adapter qxl-vga              # QXL display adapter
 crv vm create my-vm --no-vsock --no-balloon --no-rng         # Omit optional VirtIO devices
 ```
 
-When omitted, `--cpus` defaults to `1` and `--ram` defaults to `1024` MB.
+When omitted, `--cpus` defaults to `1` and `--ram` defaults to `1G`.
 
 `--graphics-adapter` defaults to `virtio-vga`. Supported values are
 `virtio-vga`, `qxl-vga`, `vga`, `virtio-gpu-pci`, `virtio-vga-gl`, and
@@ -102,7 +102,7 @@ The VM must be stopped to edit.
 
 ```bash
 crv vm edit my-vm --cpus 4                    # Change CPU count
-crv vm edit my-vm --ram 8192                  # Change RAM
+crv vm edit my-vm --ram 8192M                  # Change RAM
 crv vm edit my-vm --cpu-model qemu64          # Change QEMU CPU model (see Creating a VM)
 crv vm edit my-vm --cloud-init true           # Enable cloud-init
 crv vm edit my-vm --guest-agent true          # Enable guest agent

@@ -296,8 +296,8 @@ vmReset vmId = withState (\st -> runAction st "alice" (VmReset vmId))
 --------------------------------------------------------------------------------
 
 diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
-diskCreate name format sizeMb =
-  withState (\st -> runAction st "alice" (DiskCreate name format sizeMb Nothing False ""))
+diskCreate name format size =
+  withState (\st -> runAction st "alice" (DiskCreate name format size Nothing False ""))
 
 diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM Response
 diskCreateOverlay name baseDiskId mPath =
@@ -329,8 +329,8 @@ diskDelete :: Int64 -> TestM Response
 diskDelete diskId = withState (\st -> runAction st "alice" (DiskDelete diskId))
 
 diskResize :: Int64 -> Int64 -> TestM Response
-diskResize diskId newSizeMb =
-  withState (\st -> runAction st "alice" (DiskResize diskId newSizeMb))
+diskResize diskId newSize =
+  withState (\st -> runAction st "alice" (DiskResize diskId newSize))
 
 diskList :: TestM Response
 diskList = withState handleDiskList
@@ -465,7 +465,7 @@ whenSshKeyListForVm vmId = withState (`handleSshKeyListForVm` vmId)
 -- VM Edit / Create / Delete
 --------------------------------------------------------------------------------
 
-whenVmEdit :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> TestM Response
+whenVmEdit :: Int64 -> Maybe Int -> Maybe Int64 -> Maybe Text -> Maybe Bool -> TestM Response
 whenVmEdit vmId mCpus mRam mDesc mHeadless =
   withState (\st -> runAction st "alice" (VmEdit vmId mCpus mRam mDesc mHeadless Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing))
 
@@ -473,11 +473,11 @@ whenVmSetTpm :: Int64 -> Bool -> TestM Response
 whenVmSetTpm vmId enabled =
   withState (\st -> runAction st "alice" (VmEdit vmId Nothing Nothing Nothing Nothing Nothing (Just enabled) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing))
 
-whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM Response
-whenVmCreate name cpuCount ramMb description =
+whenVmCreate :: Text -> Int -> Int64 -> Maybe Text -> TestM Response
+whenVmCreate name cpuCount ram description =
   -- Empty node ref triggers the scheduler, which picks the
   -- seeded 'test-node' (DB id 1).
-  withState (\st -> runAction st "alice" (VmHandlers.VmCreate name "" cpuCount ramMb description False False False False False False "" [] M.GraphicsVirtioVga True True True))
+  withState (\st -> runAction st "alice" (VmHandlers.VmCreate name "" cpuCount ram description False False False False False False "" [] M.GraphicsVirtioVga True True True))
 
 whenVmDelete :: Int64 -> TestM Response
 whenVmDelete vmId =

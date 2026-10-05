@@ -39,6 +39,7 @@ from types import TracebackType
 from typing import ClassVar
 
 from corvus_client import Client
+from corvus_client.sizes import format_size
 
 import yaml as _yaml
 
@@ -450,7 +451,7 @@ class Topology:
         short_name: str,
         *,
         cpu_count: int = 8,
-        ram_mb: int = 8192,
+        ram: int = 8589934592,  # 8Gb
         extra_shared_dirs: list[tuple[str, str, bool]] | None = None,
         role: NodeRole = NodeRole.FULL_STACK,
         ca_key: str = "shared",
@@ -531,7 +532,7 @@ class Topology:
                 {
                     "name": node_name,
                     "cpuCount": cpu_count,
-                    "ramMb": ram_mb,
+                    "ram": format_size(ram),
                     # The integration-test image bakes the harness's
                     # SSH key into /home/corvus/.ssh/authorized_keys at
                     # build time, so we don't need cloud-init at apply

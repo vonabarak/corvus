@@ -1,3 +1,4 @@
+import { parseSize } from "@/lib/format";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
@@ -54,7 +55,7 @@ export default function VmCreate() {
   const [name, setName] = useState("");
   const [node, setNode] = useState("");
   const [cpuCount, setCpuCount] = useState<number>(1);
-  const [ramMb, setRamMb] = useState<number>(1024);
+  const [ram, setRam] = useState("1G");
   const [description, setDescription] = useState("");
   const [headless, setHeadless] = useState(false);
   const [guestAgent, setGuestAgent] = useState(false);
@@ -80,24 +81,28 @@ export default function VmCreate() {
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim().length === 0) return;
-    mutation.mutate({
-      name: name.trim(),
-      node: node.trim() || null,
-      cpu_count: cpuCount,
-      ram_mb: ramMb,
-      description: description.trim() || null,
-      headless,
-      guest_agent: guestAgent,
-      tpm,
-      cloud_init: cloudInit,
-      autostart,
-      reboot_quirk: rebootQuirk,
-      cpu_model: cpuModel.trim() || "host",
-      graphics_adapter: graphicsAdapter,
-      vsock,
-      balloon,
-      rng,
-    });
+    try {
+      mutation.mutate({
+        name: name.trim(),
+        node: node.trim() || null,
+        cpu_count: cpuCount,
+        ram: parseSize(ram, true),
+        description: description.trim() || null,
+        headless,
+        guest_agent: guestAgent,
+        tpm,
+        cloud_init: cloudInit,
+        autostart,
+        reboot_quirk: rebootQuirk,
+        cpu_model: cpuModel.trim() || "host",
+        graphics_adapter: graphicsAdapter,
+        vsock,
+        balloon,
+        rng,
+      });
+    } catch (error) {
+      window.alert((error as Error).message);
+    }
   };
 
   return (
@@ -169,14 +174,14 @@ export default function VmCreate() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ram">RAM (MB)</Label>
+                <Label htmlFor="ram">RAM (e.g. 1G)</Label>
                 <Input
                   id="ram"
-                  type="number"
-                  min={64}
-                  step={64}
-                  value={ramMb}
-                  onChange={(e) => setRamMb(Math.max(64, Number(e.target.value) || 1024))}
+                  type="text"
+                  required
+                  pattern="[0-9]+[BbKkMmGgTt]"
+                  value={ram}
+                  onChange={(e) => setRam(e.target.value)}
                 />
               </div>
             </div>

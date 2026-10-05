@@ -59,14 +59,14 @@ class _ClassifiedEvents(TypedDict):
 _BAKE_TEMPLATE = textwrap.dedent("""
     name: {tpl_name}
     cpuCount: 2
-    ramMb: 1024
+    ram: 1024M
     headless: true
     guestAgent: true
     drives:
       - diskImageName: {base_disk}
         interface: virtio
         strategy: overlay
-        sizeMb: 2048
+        size: 2048M
 """).strip()
 
 
@@ -97,12 +97,12 @@ def _three_step_pipeline(
               cacheMode: disk
               target:
                 format: qcow2
-                sizeGb: 2
+                size: 2G
                 compact: true
                 ifExists: overwrite
               vm:
                 cpuCount: 2
-                ramMb: 1024
+                ram: 1024M
               provisioners:
                 - shell: |
                     set -eux
@@ -533,12 +533,12 @@ class TestBuildCache(SingleNodeCase):
                       cacheMode: memory
                       target:
                         format: qcow2
-                        sizeGb: 2
+                        size: 2G
                         compact: true
                         ifExists: overwrite
                       vm:
                         cpuCount: 2
-                        ramMb: 1024
+                        ram: 1024M
                       provisioners:
                         - shell: |
                             set -eux

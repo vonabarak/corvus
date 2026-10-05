@@ -164,12 +164,12 @@ data ServerState = ServerState
   -- 'TaskCancelledException' here to interrupt an action blocked in
   -- an in-flight RPC that no cooperative checkpoint can reach.
   -- Same lifecycle as 'ssTaskCancels'.
-  , ssReservedRam :: TVar (Map.Map M.NodeId Int)
+  , ssReservedRam :: TVar (Map.Map M.NodeId Int64)
   -- ^ Scheduler reservation bookkeeping: RAM (MiB) the
   -- scheduler has handed out for VMs created via 'pickNodeForVm'
   -- since the last agent push reset the relevant entry. The
   -- scheduler subtracts the per-node reservation from each
-  -- node's reported @ramMbFree@ when scoring candidates, so
+  -- node's reported @ramFree@ when scoring candidates, so
   -- back-to-back creates within the same daemon don't all
   -- pile onto the same (now-no-longer-empty) node before the
   -- agent's next push reflects reality. The Phase 5 agent
@@ -401,15 +401,15 @@ removeNodeConns state nid = do
 -- 'pickNodeForVm' (or any explicit-placement path) right after
 -- the new 'Vm' row is inserted, so the next scheduler pass
 -- doesn't double-spend the same headroom.
-reserveRam :: ServerState -> M.NodeId -> Int -> IO ()
-reserveRam state nid ramMb =
+reserveRam :: ServerState -> M.NodeId -> Int64 -> IO ()
+reserveRam state nid ram =
   atomically $
     modifyTVar' (ssReservedRam state) $
-      Map.insertWith (+) nid ramMb
+      Map.insertWith (+) nid ram
 
 -- | Read the current reserved-RAM total for a node (0 if none).
 -- Phase-1 helper for the scheduler.
-reservedRamFor :: ServerState -> M.NodeId -> IO Int
+reservedRamFor :: ServerState -> M.NodeId -> IO Int64
 reservedRamFor state nid = do
   m <- readTVarIO (ssReservedRam state)
   pure $ Map.findWithDefault 0 nid m
@@ -417,7 +417,7 @@ reservedRamFor state nid = do
 -- | Reset a node's reservation back to zero. Called when fresh
 -- 'NodeStats' from the agent push arrive (Phase 5) so the
 -- scheduler stops double-counting reserved RAM already
--- reflected in the agent's reported @ramMbFree@.
+-- reflected in the agent's reported @ramFree@.
 clearReservation :: ServerState -> M.NodeId -> IO ()
 clearReservation state nid =
   atomically $

@@ -96,10 +96,10 @@ spec = do
           b2 = b1 {buildTarget = t {btFormat = FormatRaw}}
       envelopeHash b1 `shouldNotBe` envelopeHash b2
 
-    it "DOES change when target.sizeGb changes" $ do
+    it "DOES change when target.size changes" $ do
       let b1 = threeStepBuild
           t = buildTarget b1
-          b2 = b1 {buildTarget = t {btSizeGb = btSizeGb t + 5}}
+          b2 = b1 {buildTarget = t {btSize = btSize t + 5}}
       envelopeHash b1 `shouldNotBe` envelopeHash b2
 
     it "does NOT change when target.path changes (operator policy — where to publish)" $ do

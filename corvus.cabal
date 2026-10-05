@@ -41,8 +41,11 @@ library
       Corvus.Protocol.Build
       Corvus.Protocol.Task
       Corvus.Types
+      Corvus.Size
+      Corvus.Client.Human
       Corvus.Database
       Corvus.Database.Migration
+      Corvus.Database.Migrations
       Corvus.Tls
       Corvus.Server
       Corvus.Action
@@ -265,13 +268,13 @@ library
       Corvus.Client.Commands.AudioDevice
       Corvus.Client.Commands.Network
       Corvus.Client.Parser.AudioDevice
-      Corvus.Database.Migrations
       Corvus.Database.Migrations.V003
       Corvus.Database.Migrations.V004
       Corvus.Database.Migrations.V005
       Corvus.Database.Migrations.V006
       Corvus.Database.Migrations.V007
       Corvus.Database.Migrations.V008
+      Corvus.Database.Migrations.V009
       Corvus.Handlers.AudioDevice
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
@@ -780,6 +783,8 @@ test-suite corvus-test
       Corvus.ResolveSpec
       Corvus.SchedulerSpec
       Corvus.SharedDirSpec
+      Corvus.SizeSpec
+      Corvus.SizeYamlSpec
       Corvus.SnapshotLiveSpec
       Corvus.SnapshotSpec
       Corvus.SocketBufferSpec

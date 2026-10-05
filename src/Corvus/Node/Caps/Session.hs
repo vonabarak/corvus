@@ -109,7 +109,7 @@ instance CGNA.Session'server_ SessionCap where
       \CGNA.Session'diskCreate'params
         { CGNA.path = p
         , CGNA.format = fmt
-        , CGNA.sizeMb = sz
+        , CGNA.size = sz
         } -> do
           format <- parseFormat fmt
           result <- NI.createImage (T.unpack p) format sz
@@ -144,7 +144,7 @@ instance CGNA.Session'server_ SessionCap where
     handleParsed $
       \CGNA.Session'diskResize'params
         { CGNA.path = p
-        , CGNA.newSizeMb = sz
+        , CGNA.newSize = sz
         } -> do
           result <- NI.resizeImage (T.unpack p) sz
           pure

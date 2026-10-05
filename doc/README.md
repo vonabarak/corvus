@@ -134,7 +134,7 @@ crv disk import alpine https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/clou
 crv disk overlay my-root alpine
 
 # Create the VM
-crv vm create my-vm --cpus 2 --ram 2048 --cloud-init --guest-agent
+crv vm create my-vm --cpus 2 --ram 2G --cloud-init --guest-agent
 
 # Attach the disk and a network interface
 crv disk attach my-vm my-root --interface virtio

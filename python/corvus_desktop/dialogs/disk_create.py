@@ -18,11 +18,12 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
-    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from corvus_desktop.widgets.size_input import SizeInput
 
 from ..widgets.entity_combo import EntityCombo
 
@@ -36,7 +37,7 @@ _FORMATS = ("qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx")
 class BlankDiskPayload(TypedDict):
     mode: Literal["blank"]
     name: str
-    size_mb: int
+    size: int
     format: str
     node: int | None
     ephemeral: bool
@@ -96,10 +97,8 @@ class _BlankTab(QWidget):
     def __init__(self, bridge: CorvusBridge) -> None:
         super().__init__()
         self.name = QLineEdit()
-        self.size_mb = QSpinBox()
-        self.size_mb.setRange(1, 4 * 1024 * 1024)
-        self.size_mb.setValue(10 * 1024)
-        self.size_mb.setSuffix(" MB")
+        self.size = SizeInput()
+        self.size.setValue(10 * 1024**3)
         self.format = _format_combo()
         self.node = EntityCombo(
             bridge.request_node_list,
@@ -109,7 +108,7 @@ class _BlankTab(QWidget):
         self.ephemeral = QCheckBox()
         form = QFormLayout(self)
         form.addRow("Name:", self.name)
-        form.addRow("Size:", self.size_mb)
+        form.addRow("Size:", self.size)
         form.addRow("Format:", self.format)
         form.addRow("Node:", self.node)
         form.addRow("Ephemeral:", self.ephemeral)
@@ -120,7 +119,7 @@ class _BlankTab(QWidget):
         return {
             "mode": "blank",
             "name": self.name.text().strip(),
-            "size_mb": self.size_mb.value(),
+            "size": self.size.value(),
             "format": self.format.currentText(),
             "node": self.node.selected_id(),
             "ephemeral": self.ephemeral.isChecked(),
@@ -293,7 +292,11 @@ class DiskCreateDialog(QDialog):
         if isinstance(
             tab, (_BlankTab, _OverlayTab, _CloneTab, _RegisterTab, _ImportUrlTab)
         ):
-            payload = tab.payload()
+            try:
+                payload = tab.payload()
+            except ValueError as error:
+                self._error.setText(str(error))
+                return
         else:
             payload = None
         if payload is None:

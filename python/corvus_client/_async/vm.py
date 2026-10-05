@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, cast
 
 import capnp
 
+from corvus_client.sizes import validate_size
+
 from .. import _schema
 from .. import types as t
 from .._device_models import audio_to_wire, network_to_wire
@@ -66,7 +68,7 @@ class AsyncVmManager:
         *,
         node: str | None = None,
         cpu_count: int = 1,
-        ram_mb: int = 1024,
+        ram: int = 1073741824,
         description: str | None = None,
         headless: bool = False,
         guest_agent: bool = False,
@@ -99,7 +101,7 @@ class AsyncVmManager:
         if node is not None:
             params.node = entity_ref(node)
         params.cpuCount = cpu_count
-        params.ramMb = ram_mb
+        params.ram = validate_size(ram, ram=True)
         if description is not None:
             params.description = description
         params.headless = headless
@@ -181,7 +183,7 @@ class AsyncVm:
         *,
         name: str | None = None,
         cpu_count: int | None = None,
-        ram_mb: int | None = None,
+        ram: int | None = None,
         description: str | None = None,
         headless: bool | None = None,
         guest_agent: bool | None = None,
@@ -198,7 +200,12 @@ class AsyncVm:
         params = _schema.vm.VmEditParams.new_message()
         _set_optional(params, "hasName", "name", name)
         _set_optional(params, "hasCpuCount", "cpuCount", cpu_count)
-        _set_optional(params, "hasRamMb", "ramMb", ram_mb)
+        _set_optional(
+            params,
+            "hasRam",
+            "ram",
+            None if ram is None else validate_size(ram, ram=True),
+        )
         _set_optional(params, "hasDescription", "description", description)
         _set_optional(params, "hasHeadless", "headless", headless)
         _set_optional(params, "hasGuestAgent", "guestAgent", guest_agent)

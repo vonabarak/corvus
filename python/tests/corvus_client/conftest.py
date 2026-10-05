@@ -282,7 +282,7 @@ def _ensure_self_node(sock: Path, agent_port: int) -> None:
         last_err: BaseException | None = None
         while time.monotonic() < deadline:
             try:
-                d = c.disks.create("__conftest_probe__", size_mb=1)
+                d = c.disks.create("__conftest_probe__", size=1048576)
                 d.delete()
                 return
             except CorvusError as e:

@@ -22,7 +22,7 @@ import Corvus.Handlers.Disk.Path (resolveDiskPath)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
-import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
+import Corvus.Handlers.Disk.Agent (getImageSizeViaAgent, rebaseImageViaAgent)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
@@ -70,12 +70,12 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                                 (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Nothing])
                                 (ssDbPool state)
                             -- Refresh size since flatten merges backing data
-                            mSize <- liftIO $ getImageSizeMbViaAgent state nid overlayPath
+                            mSize <- liftIO $ getImageSizeViaAgent state nid overlayPath
                             case mSize of
                               Just newSize ->
                                 liftIO $
                                   runSqlPool
-                                    (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                    (update (toSqlKey diskId :: DiskImageId) [DiskImageSize =. Just newSize])
                                     (ssDbPool state)
                               Nothing -> pure ()
                             logInfoN "Overlay flattened successfully"
@@ -113,12 +113,12 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                                         (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Just (toSqlKey newBackingId)])
                                         (ssDbPool state)
                                     -- Refresh size
-                                    mSize <- liftIO $ getImageSizeMbViaAgent state nid overlayPath
+                                    mSize <- liftIO $ getImageSizeViaAgent state nid overlayPath
                                     case mSize of
                                       Just newSize ->
                                         liftIO $
                                           runSqlPool
-                                            (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                            (update (toSqlKey diskId :: DiskImageId) [DiskImageSize =. Just newSize])
                                             (ssDbPool state)
                                       Nothing -> pure ()
                                     logInfoN "Overlay rebased successfully"

@@ -149,7 +149,7 @@ class TestGuestExecRejections(SingleNodeCase):
         vm = self.client.vms.create(
             f"exec-stopped-{secrets.token_hex(3)}",
             cpu_count=1,
-            ram_mb=64,
+            ram=67108864,
             headless=True,
             guest_agent=True,
         )

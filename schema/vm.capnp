@@ -16,7 +16,7 @@ struct VmInfo {
   name            @1  :Text;
   status          @2  :Enums.VmStatus;
   cpuCount        @3  :Int32;
-  ramMb           @4  :Int32;
+  ram           @4  :Int64;
   headless        @5  :Bool;
   guestAgent      @6  :Bool;
   cloudInit       @7  :Bool;
@@ -49,7 +49,7 @@ struct VmDetails {
   createdAt           @2  :Int64;  # POSIX nanoseconds
   status              @3  :Enums.VmStatus;
   cpuCount            @4  :Int32;
-  ramMb               @5  :Int32;
+  ram               @5  :Int64;
   description         @6  :Text;   # empty == none
   drives              @7  :List(DriveInfo);
   netIfs              @8  :List(NetIfInfo);
@@ -190,7 +190,7 @@ struct VmSnapshotInfo {
   vm          @2 :Common.NamedRef;
   carrierDisk @3 :Common.NamedRef;   # the vmstate holder
   diskCount   @4 :UInt32;
-  totalSizeMb @5 :Int64;             # sum of sibling-snapshot sizes
+  totalSize @5 :Int64;             # sum of sibling-snapshot sizes
 }
 
 # ---------------------------------------------------------------------
@@ -209,7 +209,7 @@ struct VmCreateParams {
   # the apply pipeline.
   name            @0  :Text;
   cpuCount        @1  :Int32 = 1;
-  ramMb           @2  :Int32 = 1024;
+  ram           @2  :Int64 = 1024;
   description     @3  :Text;        # empty == none
   headless        @4  :Bool = false;
   guestAgent      @5  :Bool = false;
@@ -238,8 +238,8 @@ struct VmEditParams {
   name               @1  :Text;
   hasCpuCount        @2  :Bool;
   cpuCount           @3  :Int32;
-  hasRamMb           @4  :Bool;
-  ramMb              @5  :Int32;
+  hasRam           @4  :Bool;
+  ram              @5  :Int64;
   hasDescription     @6  :Bool;
   description        @7  :Text;
   hasHeadless        @8  :Bool;

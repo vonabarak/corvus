@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import CorvusError, TemplateNotFound
+from corvus_client.sizes import format_size
 from corvus_client.types import (
     CloudInitInfo,
     TemplateDetails,
@@ -70,8 +71,8 @@ def _drive_to_dict(d: TemplateDriveInfo) -> JsonObject:
         out["diskImageName"] = d.disk_image.name
     if d.media is not None:
         out["media"] = d.media
-    if d.size_mb is not None:
-        out["sizeMb"] = d.size_mb
+    if d.size is not None:
+        out["size"] = format_size(d.size)
     if d.format is not None:
         out["format"] = d.format
     return out
@@ -108,7 +109,7 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
     doc: JsonObject = {
         "name": t.name,
         "cpuCount": t.cpu_count,
-        "ramMb": t.ram_mb,
+        "ram": format_size(t.ram),
         "headless": t.headless,
         "graphicsAdapter": t.graphics_adapter,
         "vsock": t.vsock,

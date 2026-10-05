@@ -24,7 +24,7 @@ class SyncDiskManager:
     def create(
         self,
         name: str,
-        size_mb: int,
+        size: int,
         *,
         format: str | None = None,
         path: str | None = None,
@@ -35,7 +35,7 @@ class SyncDiskManager:
             self._rl.run(
                 self._a.create(
                     name,
-                    size_mb,
+                    size,
                     format=format,
                     path=path,
                     ephemeral=ephemeral,
@@ -240,8 +240,8 @@ class SyncDisk(LoopBoundResource):
     def refresh(self) -> types.DiskImageInfo:
         return self._rl.run(self._a.refresh())
 
-    def resize(self, new_size_mb: int) -> None:
-        return self._rl.run(self._a.resize(new_size_mb))
+    def resize(self, new_size: int) -> None:
+        return self._rl.run(self._a.resize(new_size))
 
     def snapshot_create(
         self,

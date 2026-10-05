@@ -65,11 +65,11 @@ vms:
   - name: web
     node: alpha           # pinned
     cpuCount: 2
-    ramMb: 2048
+    ram: 2G
 
   - name: worker
     cpuCount: 1            # scheduler picks
-    ramMb: 1024
+    ram: 1G
 
 networks:
   - name: lab-net
@@ -107,7 +107,7 @@ Anchors can be defined on an ignored top-level key (any key other than `sshKeys`
 ```yaml
 _vm_defaults: &vm_defaults
   cpuCount: 2
-  ramMb: 2048
+  ram: 2G
   headless: true
   guestAgent: true
 
@@ -157,7 +157,7 @@ disks:
     overlay: <string>         # Option C: Name of backing disk for qcow2 overlay.
     clone: <string>           # Option D: Name of disk to clone (full copy).
     format: <string>          # Disk format (for create; auto-detected on import/register). See below.
-    sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
+    size: <size>              # Size with a B/K/M/G/T suffix (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
     backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
     checksum:                 # Optional integrity check for HTTP/HTTPS imports; see below.
@@ -175,7 +175,7 @@ Exactly one creation strategy must be specified:
 | **Register** | `register` | Register an existing local file in the database without copying it. |
 | **Overlay** | `overlay` | Create a qcow2 overlay backed by the named disk. |
 | **Clone** | `clone` | Full copy of a disk image (including snapshots). |
-| **Create** | `format` + `sizeMb` | Create a new empty disk image. |
+| **Create** | `format` + `size` | Create a new empty disk image. |
 
 Specifying more than one of `import`, `register`, `overlay`, `clone` is an error.
 
@@ -242,7 +242,7 @@ If a local file is already registered in the database (same path), the existing 
 
 ### Overlay
 
-Creates a qcow2 copy-on-write overlay backed by the named disk. The backing disk can be defined earlier in the same `disks` section or already exist in the database. The optional `sizeMb` field triggers a resize of the overlay after creation.
+Creates a qcow2 copy-on-write overlay backed by the named disk. The backing disk can be defined earlier in the same `disks` section or already exist in the database. The optional `size` field triggers a resize of the overlay after creation.
 
 ### Clone
 
@@ -252,7 +252,7 @@ This is useful for UEFI OVMF variables: import the template once, then clone it 
 
 ### Create
 
-Creates a new empty disk image. Both `format` and `sizeMb` are required. The file is created in the selected node's base images directory.
+Creates a new empty disk image. Both `format` and `size` are required. The file is created in the selected node's base images directory.
 
 ### Custom Path
 
@@ -306,7 +306,7 @@ disks:
   # Create overlay backed by the alpine-base image
   - name: web-root
     overlay: alpine-base
-    sizeMb: 10240
+    size: 10G
 
   # Clone OVMF UEFI vars template (each VM needs its own writable copy)
   - name: ovmf-vars-template
@@ -335,12 +335,12 @@ disks:
   # Create a new empty data disk
   - name: data-disk
     format: qcow2
-    sizeMb: 20480
+    size: 20G
 
   # Create a data disk in a specific directory
   - name: vm1-data
     format: qcow2
-    sizeMb: 51200
+    size: 50G
     path: "vm1/"
 ```
 
@@ -388,7 +388,7 @@ networks:
 vms:
   - name: <string>            # Required. Unique VM name.
     cpuCount: <integer>        # Required. Number of virtual CPUs.
-    ramMb: <integer>           # Required. RAM in megabytes.
+    ram: <size>           # Required. RAM with a B/K/M/G/T suffix (whole MiB).
     description: <string>      # Optional. Human-readable description.
     headless: <boolean>        # Optional. Default: false. Serial console instead of SPICE.
     graphicsAdapter: <string>  # Optional. Default: virtio-vga. Ignored while headless.
@@ -555,7 +555,7 @@ without change.
 templates:
   - name: <string>              # Required. Unique template name.
     cpuCount: <integer>         # Required. vCPU count for instantiated VMs.
-    ramMb: <integer>            # Required. RAM in MB.
+    ram: <size>                 # Required. RAM with a B/K/M/G/T suffix (whole MiB).
     description: <string>       # Optional.
     headless: <bool>            # Optional. Default: false.
     graphicsAdapter: <string>   # Optional. Default: virtio-vga. Ignored while headless.
@@ -578,7 +578,7 @@ templates:
         readOnly: <bool>        # Optional.
         cacheType: <none|writeback|writethrough|directsync|unsafe>  # Optional.
         discard: <bool>         # Optional.
-        sizeMb: <integer>       # Optional. Size in MB: disk size for create, resize after clone/overlay.
+        size: <size>            # Optional. Size with a B/K/M/G/T suffix: disk size for create, resize after clone/overlay.
     networkInterfaces:          # Optional.
       - type: <user|tap|bridge|macvtap|vde|managed>
         model: <virtio-net-pci|virtio-net-pci-non-transitional|virtio-net-pci-transitional|e1000>  # Optional.
@@ -589,7 +589,7 @@ templates:
       - path: <absolute-host-path>
         tag: <virtiofs-tag>
         cache: <always|auto|never>  # Optional. Default: auto.
-        readOnly: <bool>              # Optional. Default: false.
+        readOnly: <bool>        # Optional. Default: false.
     audioDevices:               # Optional. Same fields as VM-level audioDevices above.
       - backend: <pulse|pipewire|spice>
         model: <virtio-sound|intel-hda|ich9-intel-hda|AC97>  # Optional.
@@ -662,7 +662,7 @@ Custom configs can also be managed via the CLI: `crv cloud-init set`, `crv cloud
 The daemon validates the configuration before creating any resources:
 
 - No duplicate names within each section (SSH keys, disks, networks, VMs).
-- Each disk must use exactly one creation strategy (`import`, `register`, `overlay`, `clone`, or `format` + `sizeMb`).
+- Each disk must use exactly one creation strategy (`import`, `register`, `overlay`, `clone`, or `format` + `size`).
 - A disk cannot specify more than one of `import`, `register`, `overlay`, `clone`.
 - The `path` field can only be used with `import`, `overlay`, `clone`, or `create` strategies (not `register`).
 - The `backing` field can only be used with the `register` strategy.
@@ -726,7 +726,7 @@ disks:
   # Per-VM overlay (copy-on-write, backed by alpine-base)
   - name: web-root
     overlay: alpine-base
-    sizeMb: 10240
+    size: 10G
 
   # OVMF UEFI variables template (register in place, clone per-VM)
   - name: ovmf-vars-template
@@ -740,7 +740,7 @@ disks:
   # Empty data disk
   - name: data-disk
     format: qcow2
-    sizeMb: 51200
+    size: 50G
 
 networks:
   - name: lab-net
@@ -751,7 +751,7 @@ networks:
 vms:
   - name: web-server
     cpuCount: 4
-    ramMb: 4096
+    ram: 4G
     description: "Alpine Linux web server"
     headless: true
     guestAgent: true

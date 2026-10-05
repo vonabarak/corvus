@@ -41,7 +41,7 @@ pipeline:
 
       target:
         format: qcow2
-        sizeGb: 1
+        size: 1G
         compact: true
         # Place the artifact under `<basePath>/BaseImages/Alpine/`
         # alongside the multi-os/ base images. The integration-test
@@ -53,7 +53,7 @@ pipeline:
 
       vm:
         cpuCount: 4
-        ramMb: 2048
+        ram: 2G
 
       cleanup: onSuccess
 

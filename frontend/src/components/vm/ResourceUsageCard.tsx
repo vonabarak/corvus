@@ -1,3 +1,4 @@
+import { formatBytes } from "@/lib/format";
 /**
  * Live resource-usage panel for `VmDetail`.
  *
@@ -268,17 +269,6 @@ function aggregateNetRate(
   const rx = (sumKey(cur.nets, "rx_bytes_total") - sumKey(prior.nets, "rx_bytes_total")) / wallSec;
   const tx = (sumKey(cur.nets, "tx_bytes_total") - sumKey(prior.nets, "tx_bytes_total")) / wallSec;
   return { rx, tx, total: rx + tx };
-}
-
-function formatBytes(n: number): string {
-  const u = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let i = 0;
-  let x = n;
-  while (x >= 1024 && i < u.length - 1) {
-    x /= 1024;
-    i += 1;
-  }
-  return `${x.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
 function formatRate(bytesPerSec: number): string {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from corvus_client.sizes import format_size
 from corvus_client.types import NodeDetails
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
@@ -129,14 +130,16 @@ class NodeDetailWidget(QWidget):
         )
         self._base_path.setText(info.base_path or "—")
         self._cpu.setText(str(info.cpu_count))
-        if info.ram_mb_total:
-            self._ram.setText(f"{info.ram_mb_free or 0} / {info.ram_mb_total} MB free")
+        if info.ram_total:
+            self._ram.setText(
+                f"{format_size(info.ram_free)} / {format_size(info.ram_total)} free"
+            )
         else:
             self._ram.setText("—")
         if info.storage_bytes_total:
-            free_gib = (info.storage_bytes_free or 0) / (1024**3)
-            total_gib = info.storage_bytes_total / (1024**3)
-            self._storage.setText(f"{free_gib:.1f} / {total_gib:.1f} GiB free")
+            self._storage.setText(
+                f"{format_size(info.storage_bytes_free)} / {format_size(info.storage_bytes_total)} free"
+            )
         else:
             self._storage.setText("—")
         loads = [info.load_avg1, info.load_avg5, info.load_avg15]

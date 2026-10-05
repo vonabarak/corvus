@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { formatMb } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 
 function FlagBadges({ t }: { t: TemplateVmInfo }) {
   return (
@@ -115,7 +115,7 @@ export default function TemplateList() {
                     {t.cpu_count}
                   </span>
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatMb(t.ram_mb)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatBytes(t.ram)}</TableCell>
                 <TableCell>
                   <FlagBadges t={t} />
                 </TableCell>

@@ -5,7 +5,7 @@
 module Corvus.Client.Parser.Utility
   ( -- * Option readers
     readBool
-  , parseSizeWithUnit
+  , parseSize
   , parseSizeBytes
 
     -- * Shared option parsers
@@ -14,7 +14,8 @@ module Corvus.Client.Parser.Utility
 where
 
 import Corvus.Client.Types
-import Data.Char (isDigit, toLower, toUpper)
+import Corvus.Size (parseBytes)
+import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.Word (Word64)
 import Options.Applicative
@@ -30,30 +31,13 @@ readBool = eitherReader $ \s -> case map toLower s of
   "0" -> Right False
   _ -> Left $ "Invalid boolean: " ++ s ++ " (use true/false)"
 
--- | Parse a size with an optional unit suffix (M/G/T). Returns megabytes.
-parseSizeWithUnit :: ReadM Int64
-parseSizeWithUnit = eitherReader $ \s ->
-  case reads s of
-    [(n, "")] -> Right n
-    [(n, "M")] -> Right n
-    [(n, "G")] -> Right (n * 1024)
-    [(n, "T")] -> Right (n * 1024 * 1024)
-    _ -> Left $ "Invalid size format: " ++ s ++ " (use number with optional M/G/T suffix)"
+-- | Parse an exact byte size with a required binary suffix.
+parseSize :: ReadM Int64
+parseSize = eitherReader parseBytes
 
--- | Parse a positive integer with a binary B/K/M/G/T suffix into bytes.
--- Compute in Integer before narrowing so multiplication cannot overflow.
+-- | Balloon byte quantities retain their UInt64 range.
 parseSizeBytes :: ReadM Word64
-parseSizeBytes = eitherReader $ \raw ->
-  let (digits, suffix) = span isDigit raw
-      units = zip "BKMGT" [0 :: Int ..]
-   in case (reads digits :: [(Integer, String)], map toUpper suffix) of
-        ([(n, "")], [unit])
-          | Just power <- lookup unit units ->
-              let bytes = n * 1024 ^ power
-               in if bytes > 0 && bytes <= toInteger (maxBound :: Word64)
-                    then Right (fromInteger bytes)
-                    else Left "Size must be positive and fit in UInt64 bytes"
-        _ -> Left "Expected a positive integer with a B/K/M/G/T suffix (e.g. 768M)"
+parseSizeBytes = eitherReader parseBytes
 
 -- | Parser for the shared @--wait@ option.
 waitOptionsParser :: Parser WaitOptions

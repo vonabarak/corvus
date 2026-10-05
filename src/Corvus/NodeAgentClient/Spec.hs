@@ -109,7 +109,7 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
                   , VS.vsRuntimeGeneration = runtimeGeneration
                   , VS.vsName = vmName vm
                   , VS.vsCpuCount = fromIntegral (vmCpuCount vm) :: Int32
-                  , VS.vsRamMb = fromIntegral (vmRamMb vm) :: Int32
+                  , VS.vsRam = vmRam vm
                   , VS.vsHeadless = vmHeadless vm
                   , VS.vsGuestAgent = vmGuestAgent vm
                   , VS.vsTpm = vmTpm vm

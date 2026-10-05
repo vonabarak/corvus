@@ -31,6 +31,7 @@ import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Qemu (QemuConfig, getGuestAgentSocket, getMonitorSocket, getSerialSocket)
+import Corvus.Size (validateRam)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
@@ -52,7 +53,7 @@ handleVmCreate
   -> Text
   -- ^ node ref (name or id); empty = defer to scheduler
   -> Int
-  -> Int
+  -> Int64
   -> Maybe Text
   -> Bool
   -> Bool
@@ -69,8 +70,8 @@ handleVmCreate
   -> Bool
   -> Bool
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng =
-  case validateName "VM" name >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
+handleVmCreate state name nodeRefText cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng =
+  case validateName "VM" name >> either (Left . T.pack) (const (Right ())) (validateRam ram) >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
       let pool = ssDbPool state
@@ -88,19 +89,19 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             -- shortcut for that VM.
             eVmId <-
               if not vsock
-                then Right <$> runSqlPool (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng) pool
+                then Right <$> runSqlPool (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng) pool
                 else do
                   r <-
                     withAllocatedVsockCid state nodeKey $ \cid ->
                       runSqlPool
-                        (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng)
+                        (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng)
                         pool
                   case r of
                     Right vmId -> pure (Right vmId)
                     Left _ -> do
                       vmId <-
                         runSqlPool
-                          (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng)
+                          (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng)
                           pool
                       pure (Right vmId)
             case eVmId of
@@ -116,14 +117,14 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
                 -- before the agent's next stats push) doesn't
                 -- double-spend this VM's RAM share. The reservation
                 -- clears when fresh 'NodeStats' arrive (Phase 5).
-                reserveRam state nodeKey ramMb
+                reserveRam state nodeKey ram
                 pure $ RespVmCreated vmId
       -- Empty text == operator did not pass @--node@; capnp's
       -- unset-EntityRef default ('byId 0') also lands here.
       -- Either way, defer to the scheduler.
       if T.null nodeRefText || nodeRefText == "0"
         then do
-          eNid <- pickNodeForVm state ramMb
+          eNid <- pickNodeForVm state ram
           case eNid of
             Left err -> pure $ RespError err
             Right nodeKey -> placeOn nodeKey
@@ -145,7 +146,7 @@ handleVmEdit
   :: ServerState
   -> Int64
   -> Maybe Int
-  -> Maybe Int
+  -> Maybe Int64
   -> Maybe Text
   -> Maybe Bool
   -> Maybe Bool
@@ -161,67 +162,69 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng = do
-  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  case result of
-    Nothing -> pure RespVmNotFound
-    Just (vm, status) ->
-      -- 'rebootQuirk' and 'cpuModel' are consumed only at the next
-      -- 'vmStart' (via 'VmSpec'), so flipping them on a running VM
-      -- has no effect until the next start; allow it without
-      -- forcing a stop — matches 'autostart's relaxed-edit
-      -- semantics.
-      let hasRuntimeEdits =
-            or
-              [ isJust mCpus
-              , isJust mRam
-              , isJust mDesc
-              , isJust mHeadless
-              , isJust mGuestAgent
-              , isJust mTpm
-              , isJust mCloudInit
-              , isJust mGraphicsAdapter
-              , isJust mVsock
-              , isJust mBalloon
-              , isJust mRng
-              ]
-       in if hasRuntimeEdits && status /= VmStopped
-            then pure RespVmMustBeStopped
-            else do
-              hasRamSnapshots <-
-                if or [maybe False (/= vmGraphicsAdapter vm) mGraphicsAdapter, maybe False (/= vmVsock vm) mVsock, maybe False (/= vmBalloon vm) mBalloon, maybe False (/= vmRng vm) mRng]
-                  then runSqlPool (vmHasRamSnapshots vmId) (ssDbPool state)
-                  else pure False
-              if hasRamSnapshots
-                then pure (RespError "Cannot change virtual devices while an attached disk has a RAM snapshot")
-                else do
-                  tpmDeleteResult <-
-                    if vmTpm vm && mTpm == Just False
-                      then deleteTpmStateForVm state vmId (vmName vm)
-                      else pure (Right ())
-                  case tpmDeleteResult of
-                    Left err -> pure (RespError err)
-                    Right () -> do
-                      runSqlPool
-                        ( editVm
-                            vmId
-                            mCpus
-                            mRam
-                            mDesc
-                            mHeadless
-                            mGuestAgent
-                            mTpm
-                            mCloudInit
-                            mAutostart
-                            mRebootQuirk
-                            mCpuModel
-                            mGraphicsAdapter
-                            mVsock
-                            mBalloon
-                            mRng
-                        )
-                        (ssDbPool state)
-                      pure RespVmEdited
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng = case traverse validateRam mRam of
+  Left err -> pure (RespError (T.pack err))
+  Right _ -> do
+    result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+    case result of
+      Nothing -> pure RespVmNotFound
+      Just (vm, status) ->
+        -- 'rebootQuirk' and 'cpuModel' are consumed only at the next
+        -- 'vmStart' (via 'VmSpec'), so flipping them on a running VM
+        -- has no effect until the next start; allow it without
+        -- forcing a stop — matches 'autostart's relaxed-edit
+        -- semantics.
+        let hasRuntimeEdits =
+              or
+                [ isJust mCpus
+                , isJust mRam
+                , isJust mDesc
+                , isJust mHeadless
+                , isJust mGuestAgent
+                , isJust mTpm
+                , isJust mCloudInit
+                , isJust mGraphicsAdapter
+                , isJust mVsock
+                , isJust mBalloon
+                , isJust mRng
+                ]
+         in if hasRuntimeEdits && status /= VmStopped
+              then pure RespVmMustBeStopped
+              else do
+                hasRamSnapshots <-
+                  if or [maybe False (/= vmGraphicsAdapter vm) mGraphicsAdapter, maybe False (/= vmVsock vm) mVsock, maybe False (/= vmBalloon vm) mBalloon, maybe False (/= vmRng vm) mRng]
+                    then runSqlPool (vmHasRamSnapshots vmId) (ssDbPool state)
+                    else pure False
+                if hasRamSnapshots
+                  then pure (RespError "Cannot change virtual devices while an attached disk has a RAM snapshot")
+                  else do
+                    tpmDeleteResult <-
+                      if vmTpm vm && mTpm == Just False
+                        then deleteTpmStateForVm state vmId (vmName vm)
+                        else pure (Right ())
+                    case tpmDeleteResult of
+                      Left err -> pure (RespError err)
+                      Right () -> do
+                        runSqlPool
+                          ( editVm
+                              vmId
+                              mCpus
+                              mRam
+                              mDesc
+                              mHeadless
+                              mGuestAgent
+                              mTpm
+                              mCloudInit
+                              mAutostart
+                              mRebootQuirk
+                              mCpuModel
+                              mGraphicsAdapter
+                              mVsock
+                              mBalloon
+                              mRng
+                          )
+                          (ssDbPool state)
+                        pure RespVmEdited
 
 vmHasRamSnapshots :: Int64 -> SqlPersistT IO Bool
 vmHasRamSnapshots vmId = do
@@ -239,7 +242,7 @@ createVm
   :: Text
   -> M.NodeId
   -> Int
-  -> Int
+  -> Int64
   -> Maybe Text
   -> Bool
   -> Bool
@@ -256,7 +259,7 @@ createVm
   -> Bool
   -> Bool
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng = do
+createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -267,7 +270,7 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudIn
           , vmLifecycleRevision = 0
           , vmRuntimeGeneration = Nothing
           , vmCpuCount = cpuCount
-          , vmRamMb = ramMb
+          , vmRam = ram
           , vmDescription = description
           , vmHeadless = headless
           , vmGuestAgent = guestAgent
@@ -293,7 +296,7 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudIn
 editVm
   :: Int64
   -> Maybe Int
-  -> Maybe Int
+  -> Maybe Int64
   -> Maybe Text
   -> Maybe Bool
   -> Maybe Bool
@@ -311,7 +314,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mR
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
-          ++ maybe [] (\ram -> [M.VmRamMb =. ram]) mRam
+          ++ maybe [] (\ram -> [M.VmRam =. ram]) mRam
           ++ maybe [] (\desc -> [M.VmDescription =. Just desc]) mDesc
           ++ maybe [] (\h -> [M.VmHeadless =. h]) mHeadless
           ++ maybe [] (\ga -> [M.VmGuestAgent =. ga]) mGuestAgent
@@ -336,7 +339,7 @@ data VmCreate = VmCreate
   -- 'Corvus.Handlers.Scheduler.pickNodeForVm'; non-empty is
   -- resolved by 'handleVmCreate'.
   , vcrCpuCount :: Int
-  , vcrRamMb :: Int
+  , vcrRam :: Int64
   , vcrDescription :: Maybe Text
   , vcrHeadless :: Bool
   , vcrGuestAgent :: Bool
@@ -366,7 +369,7 @@ instance Action VmCreate where
       (vcrName a)
       (vcrNodeRef a)
       (vcrCpuCount a)
-      (vcrRamMb a)
+      (vcrRam a)
       (vcrDescription a)
       (vcrHeadless a)
       (vcrGuestAgent a)
@@ -384,7 +387,7 @@ instance Action VmCreate where
 data VmEdit = VmEdit
   { vedVmId :: Int64
   , vedCpus :: Maybe Int
-  , vedRam :: Maybe Int
+  , vedRam :: Maybe Int64
   , vedDesc :: Maybe Text
   , vedHeadless :: Maybe Bool
   , vedGuestAgent :: Maybe Bool

@@ -120,7 +120,7 @@ envelopeValue b =
 -- | Only the target fields that affect what the BAKE produces go
 -- into the hash. The bake VM gets a target disk created with the
 -- target's @format@ (qcow2 vs raw changes the QEMU drive driver
--- and snapshot support) and @sizeGb@ (the disk's virtual size),
+-- and snapshot support) and @size@ (the disk's virtual size),
 -- so those affect bake behaviour. Everything else is operator
 -- policy applied to the FINAL published artifact AFTER the bake
 -- completes:
@@ -141,14 +141,14 @@ targetValue :: BuildTarget -> Value
 targetValue t =
   obj
     [ ("format", String (enumToText (btFormat t)))
-    , ("sizeGb", intValue (btSizeGb t))
+    , ("size", intValue (btSize t))
     ]
 
 buildVmValue :: BuildVm -> Value
 buildVmValue v =
   obj
     [ ("cpuCount", intValue (bvmCpuCount v))
-    , ("ramMb", intValue (bvmRamMb v))
+    , ("ram", intValue (bvmRam v))
     ]
 
 shellDefaultsValue :: ShellDefaults -> Value
@@ -236,7 +236,7 @@ obj kvs =
 envObject :: [(Text, Text)] -> Value
 envObject = obj . map (Data.Bifunctor.second String) . L.sortOn fst
 
-intValue :: Int -> Value
+intValue :: (Integral a) => a -> Value
 intValue = Number . fromIntegral
 
 strategyText :: BuildStrategy -> Text

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from corvus_client.sizes import format_size
 from corvus_client.types import TemplateVmInfo
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -90,7 +91,7 @@ class TemplateTableModel(QAbstractTableModel):
             if col == self.COL_CPU:
                 return t.cpu_count
             if col == self.COL_RAM:
-                return t.ram_mb
+                return format_size(t.ram)
             if col == self.COL_FLAGS:
                 return _flags(t)
             if col == self.COL_DESCRIPTION:

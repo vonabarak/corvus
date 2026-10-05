@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from corvus_client.sizes import format_size
 from corvus_client.types import VmInfo
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -102,7 +103,7 @@ class VmTableModel(QAbstractTableModel):
             if col == self.COL_CPU:
                 return vm.cpu_count
             if col == self.COL_RAM:
-                return vm.ram_mb
+                return format_size(vm.ram)
             if col == self.COL_FLAGS:
                 return _flags(vm)
         if role == Qt.ItemDataRole.TextAlignmentRole and col in (

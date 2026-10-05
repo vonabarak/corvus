@@ -43,8 +43,8 @@ spec = do
       case parseImageInfo fixture of
         Right info -> do
           iiFormat info `shouldBe` FormatQcow2
-          iiVirtualSizeMb info `shouldBe` 10240
-          iiActualSizeMb info `shouldSatisfy` maybe False (>= 0)
+          iiVirtualSize info `shouldBe` 10737418240
+          iiActualSize info `shouldSatisfy` maybe False (>= 0)
         Left err -> fail $ "Parse failed: " ++ show err
 
     it "parses raw image info" $ do
@@ -61,7 +61,7 @@ spec = do
       case parseImageInfo fixture of
         Right info -> do
           iiFormat info `shouldBe` FormatRaw
-          iiVirtualSizeMb info `shouldBe` 1024
+          iiVirtualSize info `shouldBe` 1073741824
         Left err -> fail $ "Parse failed: " ++ show err
 
     it "parses vpc image info" $ do
@@ -78,7 +78,7 @@ spec = do
       case parseImageInfo fixture of
         Right info -> do
           iiFormat info `shouldBe` FormatVpc
-          iiVirtualSizeMb info `shouldBe` 2048
+          iiVirtualSize info `shouldBe` 2147483648
         Left err -> fail $ "Parse failed: " ++ show err
 
     it "parses image with snapshots" $ do
@@ -147,7 +147,7 @@ spec = do
                 }
               |]
       case parseImageInfo fixture of
-        Right info -> iiActualSizeMb info `shouldBe` Nothing
+        Right info -> iiActualSize info `shouldBe` Nothing
         Left err -> fail $ "Parse failed: " ++ show err
 
     it "returns error for non-JSON output" $

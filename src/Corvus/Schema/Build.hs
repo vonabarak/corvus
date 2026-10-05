@@ -39,9 +39,11 @@ where
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..))
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
+import Corvus.Size (defaultSizeField)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
+import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), Value (..), withObject, withText, (.!=), (.:), (.:?))
@@ -238,7 +240,7 @@ instance FromJSON ShellDefaults where
 --     errors regardless of the policy.
 data BuildTarget = BuildTarget
   { btFormat :: DriveFormat
-  , btSizeGb :: Int
+  , btSize :: Int64
   , btCompact :: Bool
   , btPath :: Maybe Text
   , btIfExists :: IfExists
@@ -249,7 +251,7 @@ instance FromJSON BuildTarget where
   parseJSON = withObject "BuildTarget" $ \o ->
     BuildTarget
       <$> o .:? "format" .!= FormatQcow2
-      <*> o .:? "sizeGb" .!= 10
+      <*> defaultSizeField o "size" 10737418240
       <*> o .:? "compact" .!= True
       <*> o .:? "path"
       <*> o .:? "ifExists" .!= IfExistsError
@@ -269,18 +271,18 @@ instance FromJSON BuildStrategy where
 
 data BuildVm = BuildVm
   { bvmCpuCount :: Int
-  , bvmRamMb :: Int
+  , bvmRam :: Int64
   }
   deriving (Show)
 
 defaultBuildVm :: BuildVm
-defaultBuildVm = BuildVm 4 4096
+defaultBuildVm = BuildVm 4 4294967296
 
 instance FromJSON BuildVm where
   parseJSON = withObject "BuildVm" $ \o ->
     BuildVm
       <$> o .:? "cpuCount" .!= 4
-      <*> o .:? "ramMb" .!= 4096
+      <*> defaultSizeField o "ram" 4294967296
 
 -- | A single step inside a build.
 data Provisioner

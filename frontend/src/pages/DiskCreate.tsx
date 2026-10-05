@@ -1,3 +1,4 @@
+import { formatBytes, parseSize } from "@/lib/format";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
@@ -117,7 +118,7 @@ function DiskSelect({
       {(disks ?? []).map((d) => (
         <option key={d.id} value={d.name}>
           {d.name} ({d.format}
-          {d.size_mb !== null ? `, ${d.size_mb} MB` : ""})
+          {d.size !== null ? `, ${formatBytes(d.size)}` : ""})
         </option>
       ))}
     </select>
@@ -166,7 +167,7 @@ function BlankForm({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
-  const [sizeMb, setSizeMb] = useState<number>(4096);
+  const [size, setSize] = useState("4G");
   const [format, setFormat] = useState<string>("qcow2");
   const [path, setPath] = useState("");
   const [node, setNode] = useState("");
@@ -176,7 +177,7 @@ function BlankForm({
     mutationFn: () =>
       createDisk({
         name: name.trim(),
-        size_mb: sizeMb,
+        size: parseSize(size),
         format,
         path: path.trim() || null,
         ephemeral,
@@ -209,13 +210,14 @@ function BlankForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="blank-size">Size (MB)</Label>
+          <Label htmlFor="blank-size">Size (e.g. 4G)</Label>
           <Input
             id="blank-size"
-            type="number"
-            min={1}
-            value={sizeMb}
-            onChange={(e) => setSizeMb(Math.max(1, Number(e.target.value) || 1))}
+            type="text"
+            required
+            pattern="[0-9]+[BbKkMmGgTt]"
+            value={size}
+            onChange={(e) => setSize(e.target.value)}
           />
         </div>
         <div className="space-y-1.5">

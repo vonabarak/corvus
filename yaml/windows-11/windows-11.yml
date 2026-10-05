@@ -67,7 +67,7 @@ pipeline:
         - name: windows-11-installer
           description: "Windows 11 Pro unattended installer (bake-only)"
           cpuCount: 4
-          ramMb: 8192
+          ram: 8G
           headless: false
           cloudInit: false
           # The retained bake VM keeps this TPM state after installation, so
@@ -84,7 +84,7 @@ pipeline:
               media: disk
               strategy: create
               format: qcow2
-              sizeMb: 81920
+              size: 80G
               cacheType: writeback
             - *ovmf_code
             - *ovmf_vars
@@ -127,7 +127,7 @@ pipeline:
 
       vm:
         cpuCount: 4
-        ramMb: 8192
+        ram: 8G
 
       # Dismiss OVMF's short "Press any key to boot from CD or DVD" prompt.
       bootKeys:

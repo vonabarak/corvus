@@ -18,7 +18,7 @@
 --
 --   * 'pickNodeForVm' filters to @adminState = NodeOnline@ and,
 --     when the agent push has populated stats, requires
---     @ramMbFree >= requestedRamMb + 'ramSafetyMb'@. It scores
+--     @ramFree >= requestedRam + 'ramSafety'@. It scores
 --     by free RAM, free storage (in GiB), and a small load
 --     penalty, breaking ties by node name. When stats are still
 --     'Nothing' (e.g. before the first nodeagent push), the
@@ -39,7 +39,9 @@ where
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Corvus.Model as M
+import Corvus.Size (formatSize)
 import Corvus.Types (ServerState (..), reservedRamFor)
+import Data.Int (Int64)
 import Data.List (sortBy)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ord (Down (..), comparing)
@@ -51,12 +53,12 @@ import Database.Persist.Sql (runSqlPool)
 tshow :: (Show a) => a -> Text
 tshow = T.pack . show
 
--- | Safety margin on top of the VM's @ramMb@ request when
+-- | Safety margin on top of the VM's @ram@ request when
 -- filtering candidate nodes. Picked deliberately small in
 -- Phase 1 (no over-commit) — Phase 2's scheduler may tune this
 -- once we have real observations.
-ramSafetyMb :: Int
-ramSafetyMb = 512
+ramSafety :: Int64
+ramSafety = 536870912
 
 -- | Pick a node to place a new VM on.
 --
@@ -66,10 +68,10 @@ ramSafetyMb = 512
 pickNodeForVm
   :: (MonadIO m)
   => ServerState
-  -> Int
+  -> Int64
   -- ^ requested RAM (MiB)
   -> m (Either Text M.NodeId)
-pickNodeForVm state requestedRamMb = do
+pickNodeForVm state requestedRam = do
   nodes <- liftIO $ runSqlPool (selectList [M.NodeAdminState ==. M.NodeOnline] []) (ssDbPool state)
   case nodes of
     [] -> pure $ Left "no online node available to place this VM (register one with `crv node add`)"
@@ -81,7 +83,7 @@ pickNodeForVm state requestedRamMb = do
       -- same daemon won't pile onto the same node before the
       -- agent's next 'NodeStats' push refreshes the raw value.
       annotated <- liftIO $ traverse withReservation candidates
-      let withStats = filter (hasEnoughRam requestedRamMb) annotated
+      let withStats = filter (hasEnoughRam requestedRam) annotated
           chosen =
             if null withStats
               then -- Fall back to "first online node" while node stats are
@@ -93,11 +95,11 @@ pickNodeForVm state requestedRamMb = do
           pure $
             Left $
               "no online node has capacity for "
-                <> tshow requestedRamMb
-                <> " MiB RAM"
+                <> T.pack (formatSize requestedRam)
+                <> " RAM"
         ((Entity k _, _) : _) -> pure $ Right k
   where
-    withReservation :: Entity M.Node -> IO (Entity M.Node, Int)
+    withReservation :: Entity M.Node -> IO (Entity M.Node, Int64)
     withReservation e@(Entity k _) = do
       r <- reservedRamFor state k
       pure (e, r)
@@ -105,9 +107,9 @@ pickNodeForVm state requestedRamMb = do
     -- Effective free RAM = reported free minus already-reserved.
     -- 'Nothing' (no stats yet) is treated as "accept" — degrades
     -- to the first-online-node fallback at the call site.
-    hasEnoughRam reqRam (Entity _ n, reserved) = case M.nodeRamMbFree n of
+    hasEnoughRam reqRam (Entity _ n, reserved) = case M.nodeRamFree n of
       Nothing -> True
-      Just free -> (free - reserved) >= reqRam + ramSafetyMb
+      Just free -> (free - reserved) >= reqRam + ramSafety
 
     -- Higher score = better placement. Tie-break by node name
     -- so two equally good nodes resolve deterministically.
@@ -115,10 +117,10 @@ pickNodeForVm state requestedRamMb = do
       comparing (Down . scoreNode)
         <> comparing (M.nodeName . entityVal . fst)
 
-    scoreNode :: (Entity M.Node, Int) -> Double
+    scoreNode :: (Entity M.Node, Int64) -> Double
     scoreNode (Entity _ n, reserved) =
-      let effectiveFree = fromMaybe 0 (M.nodeRamMbFree n) - reserved
-          ram = fromIntegral (effectiveFree - requestedRamMb) :: Double
+      let effectiveFree = fromMaybe 0 (M.nodeRamFree n) - reserved
+          ram = fromIntegral (effectiveFree - requestedRam) / 1048576 :: Double
           gib = case M.nodeStorageBytesFree n of
             Nothing -> 0
             Just b -> fromIntegral (b `div` (1024 * 1024 * 1024)) :: Double
@@ -126,21 +128,21 @@ pickNodeForVm state requestedRamMb = do
        in ram + gib - 100 * load
 
 -- | Predicate: does the named node currently have enough free
--- RAM to host a new VM that needs @requestedRamMb@ MiB?
+-- RAM to host a new VM that needs @requestedRam@?
 --
 -- 'Left' carries a human-readable diagnostic ("not online",
 -- "insufficient RAM") that callers (e.g. migration pre-check)
 -- can surface directly to the operator. Reservations and the
--- 'ramSafetyMb' margin are applied exactly as in
+-- 'ramSafety' margin are applied exactly as in
 -- 'pickNodeForVm'.
 hasCapacityFor
   :: (MonadIO m)
   => ServerState
   -> M.NodeId
-  -> Int
+  -> Int64
   -- ^ requested RAM (MiB)
   -> m (Either Text ())
-hasCapacityFor state nodeId requestedRamMb = do
+hasCapacityFor state nodeId requestedRam = do
   mRow <- liftIO $ runSqlPool (selectList [M.NodeId ==. nodeId] []) (ssDbPool state)
   case mRow of
     [] -> pure (Left ("node " <> tshow (M.fromSqlKey nodeId) <> " not found"))
@@ -149,10 +151,10 @@ hasCapacityFor state nodeId requestedRamMb = do
           pure (Left ("node " <> M.nodeName node <> " is not online"))
       | otherwise -> do
           reserved <- liftIO $ reservedRamFor state nodeId
-          case M.nodeRamMbFree node of
+          case M.nodeRamFree node of
             Nothing -> pure (Right ()) -- no stats yet → optimistic, like the scheduler's pre-push fallback
             Just free ->
-              if free - reserved >= requestedRamMb + ramSafetyMb
+              if free - reserved >= requestedRam + ramSafety
                 then pure (Right ())
                 else
                   pure $
@@ -160,10 +162,10 @@ hasCapacityFor state nodeId requestedRamMb = do
                       "node "
                         <> M.nodeName node
                         <> " has insufficient free RAM ("
-                        <> tshow (free - reserved)
-                        <> " MiB available, need "
-                        <> tshow (requestedRamMb + ramSafetyMb)
-                        <> " MiB with safety margin)"
+                        <> T.pack (formatSize (free - reserved))
+                        <> " available, need "
+                        <> T.pack (formatSize (requestedRam + ramSafety))
+                        <> " with safety margin)"
 
 -- | Pick a node to host a new disk image. No backing-image
 -- affinity to take into account, so we pick the lowest-id

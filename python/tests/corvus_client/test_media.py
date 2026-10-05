@@ -27,9 +27,11 @@ def test_media_eject_and_change_stopped_vm(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk_a = await c.disks.create("py-cd-a", size_mb=16)
-        disk_b = await c.disks.create("py-cd-b", size_mb=16)
-        vm = await c.vms.create("py-vm-media", cpu_count=1, ram_mb=256, headless=True)
+        disk_a = await c.disks.create("py-cd-a", size=16777216)
+        disk_b = await c.disks.create("py-cd-b", size=16777216)
+        vm = await c.vms.create(
+            "py-vm-media", cpu_count=1, ram=268435456, headless=True
+        )
         try:
             a = await disk_a.show()
             b = await disk_b.show()
@@ -66,9 +68,9 @@ def test_media_eject_rejected_on_plain_disk(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-plain-disk", size_mb=16)
+        disk = await c.disks.create("py-plain-disk", size=16777216)
         vm = await c.vms.create(
-            "py-vm-media-reject", cpu_count=1, ram_mb=256, headless=True
+            "py-vm-media-reject", cpu_count=1, ram=268435456, headless=True
         )
         try:
             info = await disk.show()

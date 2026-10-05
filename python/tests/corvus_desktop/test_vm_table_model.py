@@ -17,7 +17,7 @@ def _vm(
     node_name: str = "node-a",
     status: str = "running",
     cpu_count: int = 2,
-    ram_mb: int = 1024,
+    ram: int = 1073741824,
     headless: bool = False,
     guest_agent: bool = True,
     tpm: bool = False,
@@ -30,7 +30,7 @@ def _vm(
         node=NamedRef(id=99, name=node_name),
         status=status,
         cpu_count=cpu_count,
-        ram_mb=ram_mb,
+        ram=ram,
         headless=headless,
         guest_agent=guest_agent,
         tpm=tpm,
@@ -58,7 +58,7 @@ def test_display_values_for_each_column(model: VmTableModel) -> None:
                 node_name="node-1",
                 status="running",
                 cpu_count=4,
-                ram_mb=8192,
+                ram=8589934592,
                 headless=False,
                 guest_agent=True,
                 cloud_init=True,
@@ -75,7 +75,7 @@ def test_display_values_for_each_column(model: VmTableModel) -> None:
     assert cell(VmTableModel.COL_NODE) == "node-1"
     assert cell(VmTableModel.COL_STATUS) == "running"
     assert cell(VmTableModel.COL_CPU) == 4
-    assert cell(VmTableModel.COL_RAM) == 8192
+    assert cell(VmTableModel.COL_RAM) == "8G"
     flags = cell(VmTableModel.COL_FLAGS)
     assert isinstance(flags, str)
     assert "QGA" in flags

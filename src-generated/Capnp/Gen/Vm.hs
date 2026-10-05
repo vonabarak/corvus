@@ -43,7 +43,7 @@ type instance (R.ReprFor VmInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmInfo) where
     typeId  = 14337324896033347465
 instance (C.TypedStruct VmInfo) where
-    numStructWords  = 4
+    numStructWords  = 5
     numStructPtrs  = 3
 instance (C.Allocate VmInfo) where
     type AllocHint VmInfo = ()
@@ -59,7 +59,7 @@ data instance C.Parsed VmInfo
         ,name :: (RP.Parsed Basics.Text)
         ,status :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.VmStatus)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,headless :: (RP.Parsed Std_.Bool)
         ,guestAgent :: (RP.Parsed Std_.Bool)
         ,cloudInit :: (RP.Parsed Std_.Bool)
@@ -81,7 +81,7 @@ instance (C.Parse VmInfo (C.Parsed VmInfo)) where
                          <*> (GH.parseField #name raw_)
                          <*> (GH.parseField #status raw_)
                          <*> (GH.parseField #cpuCount raw_)
-                         <*> (GH.parseField #ramMb raw_)
+                         <*> (GH.parseField #ram raw_)
                          <*> (GH.parseField #headless raw_)
                          <*> (GH.parseField #guestAgent raw_)
                          <*> (GH.parseField #cloudInit raw_)
@@ -101,7 +101,7 @@ instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
         (GH.encodeField #name name raw_)
         (GH.encodeField #status status raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #headless headless raw_)
         (GH.encodeField #guestAgent guestAgent raw_)
         (GH.encodeField #cloudInit cloudInit raw_)
@@ -125,8 +125,8 @@ instance (GH.HasField "status" GH.Slot VmInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.V
     fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "cpuCount" GH.Slot VmInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 1 32 0)
-instance (GH.HasField "ramMb" GH.Slot VmInfo Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 2 32 0)
+instance (GH.HasField "ram" GH.Slot VmInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "headless" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 1 1 0)
 instance (GH.HasField "guestAgent" GH.Slot VmInfo Std_.Bool) where
@@ -146,7 +146,7 @@ instance (GH.HasField "cpuModel" GH.Slot VmInfo Basics.Text) where
 instance (GH.HasField "tpm" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 21 1 1 0)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 32 2 16 0)
+    fieldByLabel  = (GH.dataField 0 4 16 0)
 instance (GH.HasField "vsock" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 22 1 1 1)
 instance (GH.HasField "balloon" GH.Slot VmInfo Std_.Bool) where
@@ -158,7 +158,7 @@ type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
     typeId  = 12709035652582668216
 instance (C.TypedStruct VmDetails) where
-    numStructWords  = 7
+    numStructWords  = 8
     numStructPtrs  = 14
 instance (C.Allocate VmDetails) where
     type AllocHint VmDetails = ()
@@ -175,7 +175,7 @@ data instance C.Parsed VmDetails
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,status :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.VmStatus)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,description :: (RP.Parsed Basics.Text)
         ,drives :: (RP.Parsed (R.List DriveInfo))
         ,netIfs :: (RP.Parsed (R.List NetIfInfo))
@@ -212,7 +212,7 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #createdAt raw_)
                             <*> (GH.parseField #status raw_)
                             <*> (GH.parseField #cpuCount raw_)
-                            <*> (GH.parseField #ramMb raw_)
+                            <*> (GH.parseField #ram raw_)
                             <*> (GH.parseField #description raw_)
                             <*> (GH.parseField #drives raw_)
                             <*> (GH.parseField #netIfs raw_)
@@ -247,7 +247,7 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #status status raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #description description raw_)
         (GH.encodeField #drives drives raw_)
         (GH.encodeField #netIfs netIfs raw_)
@@ -287,8 +287,8 @@ instance (GH.HasField "status" GH.Slot VmDetails Capnp.Gen.ById.Xbf9b09f64c0dd40
     fieldByLabel  = (GH.dataField 0 2 16 0)
 instance (GH.HasField "cpuCount" GH.Slot VmDetails Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 2 32 0)
-instance (GH.HasField "ramMb" GH.Slot VmDetails Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 3 32 0)
+instance (GH.HasField "ram" GH.Slot VmDetails Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 3 64 0)
 instance (GH.HasField "description" GH.Slot VmDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "drives" GH.Slot VmDetails (R.List DriveInfo)) where
@@ -302,9 +302,9 @@ instance (GH.HasField "headless" GH.Slot VmDetails Std_.Bool) where
 instance (GH.HasField "monitorSocket" GH.Slot VmDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 5)
 instance (GH.HasField "spicePort" GH.Slot VmDetails Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 3 32 0)
-instance (GH.HasField "vsockCid" GH.Slot VmDetails Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 4 32 0)
+instance (GH.HasField "vsockCid" GH.Slot VmDetails Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 4 32 0)
 instance (GH.HasField "serialSocket" GH.Slot VmDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 6)
 instance (GH.HasField "guestAgentSocket" GH.Slot VmDetails Basics.Text) where
@@ -336,7 +336,7 @@ instance (GH.HasField "tpm" GH.Slot VmDetails Std_.Bool) where
 instance (GH.HasField "audioDevices" GH.Slot VmDetails (R.List AudioDeviceInfo)) where
     fieldByLabel  = (GH.ptrField 13)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmDetails Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 32 4 16 0)
+    fieldByLabel  = (GH.dataField 0 7 16 0)
 instance (GH.HasField "vsock" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 22 2 1 1)
 instance (GH.HasField "balloon" GH.Slot VmDetails Std_.Bool) where
@@ -800,7 +800,7 @@ data instance C.Parsed VmSnapshotInfo
         ,vm :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,carrierDisk :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,diskCount :: (RP.Parsed Std_.Word32)
-        ,totalSizeMb :: (RP.Parsed Std_.Int64)}
+        ,totalSize :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSnapshotInfo))
 deriving instance (Std_.Eq (C.Parsed VmSnapshotInfo))
@@ -810,7 +810,7 @@ instance (C.Parse VmSnapshotInfo (C.Parsed VmSnapshotInfo)) where
                                  <*> (GH.parseField #vm raw_)
                                  <*> (GH.parseField #carrierDisk raw_)
                                  <*> (GH.parseField #diskCount raw_)
-                                 <*> (GH.parseField #totalSizeMb raw_))
+                                 <*> (GH.parseField #totalSize raw_))
 instance (C.Marshal VmSnapshotInfo (C.Parsed VmSnapshotInfo)) where
     marshalInto raw_ VmSnapshotInfo{..} = (do
         (GH.encodeField #name name raw_)
@@ -818,7 +818,7 @@ instance (C.Marshal VmSnapshotInfo (C.Parsed VmSnapshotInfo)) where
         (GH.encodeField #vm vm raw_)
         (GH.encodeField #carrierDisk carrierDisk raw_)
         (GH.encodeField #diskCount diskCount raw_)
-        (GH.encodeField #totalSizeMb totalSizeMb raw_)
+        (GH.encodeField #totalSize totalSize raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot VmSnapshotInfo Basics.Text) where
@@ -831,7 +831,7 @@ instance (GH.HasField "carrierDisk" GH.Slot VmSnapshotInfo Capnp.Gen.ById.X9b137
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "diskCount" GH.Slot VmSnapshotInfo Std_.Word32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-instance (GH.HasField "totalSizeMb" GH.Slot VmSnapshotInfo Std_.Int64) where
+instance (GH.HasField "totalSize" GH.Slot VmSnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
 data VmCreateParams 
 type instance (R.ReprFor VmCreateParams) = (R.Ptr (Std_.Just R.Struct))
@@ -852,7 +852,7 @@ data instance C.Parsed VmCreateParams
     = VmCreateParams 
         {name :: (RP.Parsed Basics.Text)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,description :: (RP.Parsed Basics.Text)
         ,headless :: (RP.Parsed Std_.Bool)
         ,guestAgent :: (RP.Parsed Std_.Bool)
@@ -873,7 +873,7 @@ deriving instance (Std_.Eq (C.Parsed VmCreateParams))
 instance (C.Parse VmCreateParams (C.Parsed VmCreateParams)) where
     parse raw_ = (VmCreateParams <$> (GH.parseField #name raw_)
                                  <*> (GH.parseField #cpuCount raw_)
-                                 <*> (GH.parseField #ramMb raw_)
+                                 <*> (GH.parseField #ram raw_)
                                  <*> (GH.parseField #description raw_)
                                  <*> (GH.parseField #headless raw_)
                                  <*> (GH.parseField #guestAgent raw_)
@@ -892,7 +892,7 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
     marshalInto raw_ VmCreateParams{..} = (do
         (GH.encodeField #name name raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #description description raw_)
         (GH.encodeField #headless headless raw_)
         (GH.encodeField #guestAgent guestAgent raw_)
@@ -913,42 +913,42 @@ instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "cpuCount" GH.Slot VmCreateParams Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 0 32 1)
-instance (GH.HasField "ramMb" GH.Slot VmCreateParams Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 0 32 1024)
+instance (GH.HasField "ram" GH.Slot VmCreateParams Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 1024)
 instance (GH.HasField "description" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "headless" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 1 1 0)
+    fieldByLabel  = (GH.dataField 32 0 1 0)
 instance (GH.HasField "guestAgent" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 1 1 1 0)
+    fieldByLabel  = (GH.dataField 33 0 1 0)
 instance (GH.HasField "cloudInit" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 2 1 1 0)
+    fieldByLabel  = (GH.dataField 34 0 1 0)
 instance (GH.HasField "autostart" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 3 1 1 0)
+    fieldByLabel  = (GH.dataField 35 0 1 0)
 instance (GH.HasField "node" GH.Slot VmCreateParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "rebootQuirk" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 4 1 1 0)
+    fieldByLabel  = (GH.dataField 36 0 1 0)
 instance (GH.HasField "cpuModel" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "tpm" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 5 1 1 0)
+    fieldByLabel  = (GH.dataField 37 0 1 0)
 instance (GH.HasField "audioDevices" GH.Slot VmCreateParams (R.List AudioDeviceParams)) where
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmCreateParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 16 1 16 0)
+    fieldByLabel  = (GH.dataField 48 0 16 0)
 instance (GH.HasField "vsock" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 6 1 1 1)
+    fieldByLabel  = (GH.dataField 38 0 1 1)
 instance (GH.HasField "balloon" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 7 1 1 1)
+    fieldByLabel  = (GH.dataField 39 0 1 1)
 instance (GH.HasField "rng" GH.Slot VmCreateParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 8 1 1 1)
+    fieldByLabel  = (GH.dataField 40 0 1 1)
 data VmEditParams 
 type instance (R.ReprFor VmEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmEditParams) where
     typeId  = 10951018206413285449
 instance (C.TypedStruct VmEditParams) where
-    numStructWords  = 2
+    numStructWords  = 3
     numStructPtrs  = 3
 instance (C.Allocate VmEditParams) where
     type AllocHint VmEditParams = ()
@@ -964,8 +964,8 @@ data instance C.Parsed VmEditParams
         ,name :: (RP.Parsed Basics.Text)
         ,hasCpuCount :: (RP.Parsed Std_.Bool)
         ,cpuCount :: (RP.Parsed Std_.Int32)
-        ,hasRamMb :: (RP.Parsed Std_.Bool)
-        ,ramMb :: (RP.Parsed Std_.Int32)
+        ,hasRam :: (RP.Parsed Std_.Bool)
+        ,ram :: (RP.Parsed Std_.Int64)
         ,hasDescription :: (RP.Parsed Std_.Bool)
         ,description :: (RP.Parsed Basics.Text)
         ,hasHeadless :: (RP.Parsed Std_.Bool)
@@ -998,8 +998,8 @@ instance (C.Parse VmEditParams (C.Parsed VmEditParams)) where
                                <*> (GH.parseField #name raw_)
                                <*> (GH.parseField #hasCpuCount raw_)
                                <*> (GH.parseField #cpuCount raw_)
-                               <*> (GH.parseField #hasRamMb raw_)
-                               <*> (GH.parseField #ramMb raw_)
+                               <*> (GH.parseField #hasRam raw_)
+                               <*> (GH.parseField #ram raw_)
                                <*> (GH.parseField #hasDescription raw_)
                                <*> (GH.parseField #description raw_)
                                <*> (GH.parseField #hasHeadless raw_)
@@ -1030,8 +1030,8 @@ instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
         (GH.encodeField #name name raw_)
         (GH.encodeField #hasCpuCount hasCpuCount raw_)
         (GH.encodeField #cpuCount cpuCount raw_)
-        (GH.encodeField #hasRamMb hasRamMb raw_)
-        (GH.encodeField #ramMb ramMb raw_)
+        (GH.encodeField #hasRam hasRam raw_)
+        (GH.encodeField #ram ram raw_)
         (GH.encodeField #hasDescription hasDescription raw_)
         (GH.encodeField #description description raw_)
         (GH.encodeField #hasHeadless hasHeadless raw_)
@@ -1066,10 +1066,10 @@ instance (GH.HasField "hasCpuCount" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
 instance (GH.HasField "cpuCount" GH.Slot VmEditParams Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 0 32 0)
-instance (GH.HasField "hasRamMb" GH.Slot VmEditParams Std_.Bool) where
+instance (GH.HasField "hasRam" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 2 0 1 0)
-instance (GH.HasField "ramMb" GH.Slot VmEditParams Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 1 32 0)
+instance (GH.HasField "ram" GH.Slot VmEditParams Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
 instance (GH.HasField "hasDescription" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 3 0 1 0)
 instance (GH.HasField "description" GH.Slot VmEditParams Basics.Text) where
@@ -1105,7 +1105,7 @@ instance (GH.HasField "tpm" GH.Slot VmEditParams Std_.Bool) where
 instance (GH.HasField "hasGraphicsAdapter" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 17 0 1 0)
 instance (GH.HasField "graphicsAdapter" GH.Slot VmEditParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter) where
-    fieldByLabel  = (GH.dataField 32 1 16 0)
+    fieldByLabel  = (GH.dataField 0 2 16 0)
 instance (GH.HasField "hasVsock" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 18 0 1 0)
 instance (GH.HasField "vsock" GH.Slot VmEditParams Std_.Bool) where

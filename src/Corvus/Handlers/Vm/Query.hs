@@ -79,7 +79,7 @@ listVms = do
               }
         , viStatus = vmStatus vm
         , viCpuCount = vmCpuCount vm
-        , viRamMb = vmRamMb vm
+        , viRam = vmRam vm
         , viHeadless = vmHeadless vm
         , viGuestAgent = vmGuestAgent vm
         , viTpm = vmTpm vm
@@ -146,7 +146,7 @@ getVmDetails config vmId = do
             , vdCreatedAt = vmCreatedAt vm
             , vdStatus = vmStatus vm
             , vdCpuCount = vmCpuCount vm
-            , vdRamMb = vmRamMb vm
+            , vdRam = vmRam vm
             , vdDescription = vmDescription vm
             , vdDrives = driveInfos
             , vdNetIfs = netIfInfos

@@ -6,7 +6,7 @@ export interface TemplateVmInfo {
   id: number;
   name: string;
   cpu_count: number;
-  ram_mb: number;
+  ram: bigint;
   headless: boolean;
   guest_agent: boolean;
   tpm: boolean;
@@ -26,7 +26,7 @@ export interface TemplateDriveInfo {
   clone_strategy: string;
   disk_image: NamedRef | null;
   media: string | null;
-  size_mb: number | null;
+  size: bigint | null;
   format: string | null;
 }
 
@@ -66,7 +66,7 @@ export interface TemplateDetails {
   id: number;
   name: string;
   cpu_count: number;
-  ram_mb: number;
+  ram: bigint;
   headless: boolean;
   cloud_init: boolean;
   guest_agent: boolean;

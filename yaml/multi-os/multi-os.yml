@@ -34,7 +34,7 @@ vars:
 
 _defaults: &defaults
   cpuCount: 4
-  ramMb: 4096
+  ram: 4G
   cloudInit: true
   guestAgent: true
 

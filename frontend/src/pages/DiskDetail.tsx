@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatMb } from "@/lib/format";
+import { formatBytes, parseSize } from "@/lib/format";
 
 interface FieldProps {
   label: string;
@@ -53,7 +53,7 @@ function Field({ label, value }: FieldProps) {
 function ResizeButton({ disk }: { disk: DiskImageInfo }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: (newSizeMb: number) => resizeDisk(disk.id, newSizeMb),
+    mutationFn: (newSize: bigint) => resizeDisk(disk.id, newSize),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["disk", disk.id] });
       queryClient.invalidateQueries({ queryKey: ["disks"] });
@@ -67,16 +67,15 @@ function ResizeButton({ disk }: { disk: DiskImageInfo }) {
       disabled={mutation.isPending}
       onClick={() => {
         const answer = window.prompt(
-          `New size for "${disk.name}" in MB (current: ${disk.size_mb ?? "unknown"} MB). Shrinking is not allowed.`,
-          disk.size_mb !== null ? String(disk.size_mb) : "",
+          `New size for "${disk.name}" with a suffix (current: ${formatBytes(disk.size)}). Shrinking is not allowed.`,
+          disk.size !== null ? formatBytes(disk.size) : "",
         );
         if (answer === null) return;
-        const newSize = Number(answer);
-        if (!Number.isFinite(newSize) || newSize <= 0) {
-          toast.error("Please enter a positive integer.");
-          return;
+        try {
+          mutation.mutate(parseSize(answer));
+        } catch (error) {
+          toast.error((error as Error).message);
         }
-        mutation.mutate(newSize);
       }}
     >
       <Maximize2 className="h-3.5 w-3.5" />
@@ -178,7 +177,7 @@ function SnapshotRow({ diskId, snapshot }: { diskId: number; snapshot: SnapshotI
       <TableCell className="text-muted-foreground">
         {new Date(snapshot.created_at).toLocaleString()}
       </TableCell>
-      <TableCell className="text-right tabular-nums">{formatMb(snapshot.size_mb)}</TableCell>
+      <TableCell className="text-right tabular-nums">{formatBytes(snapshot.size)}</TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-1">
           <Button
@@ -296,7 +295,7 @@ export default function DiskDetail() {
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <Field label="Format" value={<span className="font-mono">{disk.format}</span>} />
-          <Field label="Size" value={formatMb(disk.size_mb)} />
+          <Field label="Size" value={formatBytes(disk.size)} />
           <Field label="Created" value={new Date(disk.created_at).toLocaleString()} />
           <Field
             label="Backing"

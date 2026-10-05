@@ -37,7 +37,7 @@ from corvus_client.types import VmDetails
 
 with Client(unix_socket="/run/corvus/corvus.sock") as client:
     details: VmDetails = client.vms.get("web-1").show()
-    client.vms.create("worker", ram_mb=2048)  # checked keyword arguments
+    client.vms.create("worker", ram=2 * 1024**3)  # checked keyword arguments
 ```
 
 Build/apply streams yield typed event dataclasses followed by a
@@ -63,10 +63,10 @@ with Client(unix_socket="/run/user/1000/corvus/corvus.sock") as c:
     # matching the `crv` CLI heuristic).
     vm = c.vms.get("web-1")
     details = vm.show()
-    print(details.cpu_count, "vCPUs,", details.ram_mb, "MB")
+    print(details.cpu_count, "vCPUs,", details.ram, "bytes")
 
     # Mutate
-    vm.edit(ram_mb=2048)
+    vm.edit(ram=2 * 1024**3)
     vm.start(wait=True)
 ```
 

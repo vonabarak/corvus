@@ -36,7 +36,7 @@ sampleDetails =
     { tvdId = 42
     , tvdName = "sample-tpl"
     , tvdCpuCount = 2
-    , tvdRamMb = 4096
+    , tvdRam = 4294967296
     , tvdDescription = Just "A sample template"
     , tvdHeadless = False
     , tvdGraphicsAdapter = GraphicsQxlVga
@@ -59,7 +59,7 @@ sampleDetails =
             , tvdiCacheType = CacheWriteback
             , tvdiDiscard = True
             , tvdiCloneStrategy = StrategyOverlay
-            , tvdiSizeMb = Just 20480
+            , tvdiSize = Just 21474836480
             , tvdiFormat = Nothing
             , tvdiEphemeral = Just True
             }
@@ -107,7 +107,7 @@ spec = do
         Right (ty :: TemplateYaml) -> do
           tyName ty `shouldBe` "sample-tpl"
           tyCpuCount ty `shouldBe` 2
-          tyRamMb ty `shouldBe` 4096
+          tyRam ty `shouldBe` 4294967296
           tyDescription ty `shouldBe` Just "A sample template"
           tyHeadless ty `shouldBe` False
           tyGraphicsAdapter ty `shouldBe` GraphicsQxlVga
@@ -127,7 +127,7 @@ spec = do
           tdyCacheType d `shouldBe` Just CacheWriteback
           tdyDiscard d `shouldBe` Just True
           tdyStrategy d `shouldBe` StrategyOverlay
-          tdySizeMb d `shouldBe` Just 20480
+          tdySize d `shouldBe` Just 21474836480
           tdyEphemeral d `shouldBe` Just True
           length (tyNetworkInterfaces ty) `shouldBe` 1
           let [n] = tyNetworkInterfaces ty
@@ -159,7 +159,7 @@ spec = do
                       , tvdiCacheType = CacheNone
                       , tvdiDiscard = False
                       , tvdiCloneStrategy = StrategyCreate
-                      , tvdiSizeMb = Just 10240
+                      , tvdiSize = Just 10737418240
                       , tvdiFormat = Just FormatQcow2
                       , tvdiEphemeral = Nothing
                       }
@@ -173,7 +173,7 @@ spec = do
           tdyDiskImageName d `shouldBe` Nothing
           tdyStrategy d `shouldBe` StrategyCreate
           tdyFormat d `shouldBe` Just FormatQcow2
-          tdySizeMb d `shouldBe` Just 10240
+          tdySize d `shouldBe` Just 10737418240
 
     it "omits description when it is Nothing" $ do
       let details = sampleDetails {tvdDescription = Nothing}

@@ -23,7 +23,7 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
         vm = await c.vms.create(
             "py-vm-1",
             cpu_count=2,
-            ram_mb=512,
+            ram=536870912,
             description="from python",
             headless=True,
             autostart=True,
@@ -32,7 +32,7 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
         details = await vm.show()
         assert details.name == "py-vm-1"
         assert details.cpu_count == 2
-        assert details.ram_mb == 512
+        assert details.ram == 536870912
         assert details.headless is True
         assert details.tpm is False
         assert details.autostart is True
@@ -40,11 +40,11 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
         assert details.graphics_adapter == "qxl-vga"
 
         await vm.edit(
-            cpu_count=4, ram_mb=1024, description=None, graphics_adapter="virtio-vga"
+            cpu_count=4, ram=1073741824, description=None, graphics_adapter="virtio-vga"
         )
         details2 = await vm.show()
         assert details2.cpu_count == 4
-        assert details2.ram_mb == 1024
+        assert details2.ram == 1073741824
         assert details2.graphics_adapter == "virtio-vga"
         # description=None on edit means "do not change"; description stays
         assert details2.description == "from python"
@@ -68,8 +68,10 @@ def test_vm_attach_detach_disk(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-attach-disk", size_mb=64)
-        vm = await c.vms.create("py-vm-attach", cpu_count=1, ram_mb=256, headless=True)
+        disk = await c.disks.create("py-attach-disk", size=67108864)
+        vm = await c.vms.create(
+            "py-vm-attach", cpu_count=1, ram=268435456, headless=True
+        )
         info = await disk.show()
         drive_id = await vm.attach_disk(info.id)
         details = await vm.show()
@@ -86,7 +88,7 @@ def test_vm_attach_detach_disk(daemon_socket: Path) -> None:
 def test_balloon_validation(daemon_socket: Path) -> None:
     async def go(c: AsyncClient) -> None:
         vm = await c.vms.create(
-            "balloon-validation", cpu_count=1, ram_mb=256, headless=True
+            "balloon-validation", cpu_count=1, ram=268435456, headless=True
         )
         for target in (0, -1, 2**64):
             with pytest.raises(ValueError):
@@ -96,7 +98,7 @@ def test_balloon_validation(daemon_socket: Path) -> None:
                 await vm.set_balloon(target_bytes=cast(int, invalid_type))
         with pytest.raises(VmNotRunning):
             await vm.set_balloon(target_bytes=128 * 1024**2)
-        assert (await vm.show()).ram_mb == 256
+        assert (await vm.show()).ram == 268435456
         await c.ping()
         await vm.delete()
 

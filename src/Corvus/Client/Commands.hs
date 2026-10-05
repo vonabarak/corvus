@@ -156,8 +156,8 @@ runCommand opts = do
             emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
-      VmCreate name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng ->
-        handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng
+      VmCreate name nodeRef cpuCount ram mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng ->
+        handleVmCreate fmt conn name nodeRef cpuCount ram mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng
       VmDelete vmRef keepDisks force -> handleVmDelete fmt conn vmRef keepDisks force
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
@@ -175,19 +175,19 @@ runCommand opts = do
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
       VmMigrate vmRef toNodeRef -> handleVmMigrate fmt conn vmRef toNodeRef
       -- Disk commands
-      DiskCreate name formatStr sizeMb mPath ephemeral nodeRef -> do
+      DiskCreate name formatStr size mPath ephemeral nodeRef -> do
         case parseFormat formatStr of
           Left err -> do
             emitError fmt "invalid_format" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right format -> handleDiskCreate fmt conn name format sizeMb mPath ephemeral nodeRef
+          Right format -> handleDiskCreate fmt conn name format size mPath ephemeral nodeRef
       DiskCreateOverlay name baseDiskRef optDirPath ephemeral -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath ephemeral
       DiskRegisterCmd name path mFormatStr mBackingRef ephemeral nodeRef -> handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral nodeRef
       DiskImport name source mPath mFormatStr ephemeral nodeRef waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpts
       DiskUpload name source formatStr mPath ephemeral nodeRef overwrite -> handleDiskUpload fmt conn name source formatStr mPath ephemeral nodeRef overwrite
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
-      DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb
+      DiskResize diskRef newSize -> handleDiskResize fmt conn diskRef newSize
       DiskList -> handleDiskList fmt tableOpts conn
       DiskShow diskRef -> handleDiskShow fmt conn diskRef
       DiskClone name baseDiskRef optionalPath ephemeral -> handleDiskClone fmt conn name baseDiskRef optionalPath ephemeral

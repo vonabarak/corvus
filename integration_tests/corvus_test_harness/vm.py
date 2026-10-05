@@ -125,7 +125,7 @@ class Vm:
 
     base_image_key: str = "alpine"
     cpu_count: int = 2
-    ram_mb: int = 1024
+    ram: int = 1073741824  # 1Gb
     headless: bool = True
     guest_agent: bool = True
     tpm: bool = False
@@ -191,7 +191,7 @@ class Vm:
             cap = self.client.vms.create(
                 self.name,
                 cpu_count=self.cpu_count,
-                ram_mb=self.ram_mb,
+                ram=self.ram,
                 headless=self.headless,
                 guest_agent=self.guest_agent,
                 tpm=self.tpm,
@@ -488,7 +488,7 @@ class VmWindows(Vm):
 
     base_image_key = "windows-server-2025-eval"
     cpu_count = 4
-    ram_mb = 4096
+    ram = 4294967296  # 4Gb
     headless = False
     guest_agent = True
     cloud_init = True

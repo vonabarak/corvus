@@ -26,6 +26,8 @@ where
 import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
 import Corvus.Schema.Template (TemplateAudioDeviceYaml, TemplateYaml)
+import Corvus.Size (optionalSizeField, sizeField)
+import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
@@ -168,7 +170,7 @@ instance FromJSON ChecksumSpec where
 data ApplyDisk = ApplyDisk
   { adName :: Text
   , adFormat :: Maybe DriveFormat
-  , adSizeMb :: Maybe Int
+  , adSize :: Maybe Int64
   , adImport :: Maybe Text
   , adOverlay :: Maybe Text
   , adClone :: Maybe Text
@@ -186,7 +188,7 @@ instance FromJSON ApplyDisk where
     ApplyDisk
       <$> o .: "name"
       <*> o .:? "format"
-      <*> o .:? "sizeMb"
+      <*> optionalSizeField o "size"
       <*> o .:? "import"
       <*> o .:? "overlay"
       <*> o .:? "clone"
@@ -227,7 +229,7 @@ data ApplyVm = ApplyVm
   { avName :: Text
   , avNode :: Text
   , avCpuCount :: Int
-  , avRamMb :: Int
+  , avRam :: Int64
   , avDescription :: Maybe Text
   , avHeadless :: Bool
   , avGuestAgent :: Bool
@@ -259,7 +261,7 @@ instance FromJSON ApplyVm where
       <$> o .: "name"
       <*> o .:? "node" .!= ""
       <*> o .: "cpuCount"
-      <*> o .: "ramMb"
+      <*> sizeField o "ram"
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "guestAgent" .!= False

@@ -2,6 +2,7 @@
 
 module Corvus.ClientOutputSpec (spec) where
 
+import Corvus.Client.Human (humanJSON)
 import Corvus.Client.Output
   ( Align (..)
   , BorderStyle (..)
@@ -32,6 +33,21 @@ testTime = posixSecondsToUTCTime 1700000000
 
 spec :: Spec
 spec = sequential $ do
+  describe "human and machine size output" $ do
+    it "keeps numeric bytes in JSON and exact suffixes in human YAML values" $ do
+      let disk = DiskImageInfo 1 "tiny" [] FormatRaw (Just 512) testTime [] Nothing False
+      case (toJSON disk, humanJSON disk) of
+        (Object machine, Object human) -> do
+          KM.lookup "size" machine `shouldBe` Just (Number 512)
+          KM.lookup "size" human `shouldBe` Just (String "512B")
+        _ -> expectationFailure "Expected disk objects"
+    it "preserves unknown sizes and integers larger than JavaScript's safe range" $ do
+      let disk = DiskImageInfo 1 "huge" [] FormatRaw (Just 9007199254740993) testTime [] Nothing False
+      BL.unpack (encode disk) `shouldSatisfy` isInfixOf "9007199254740993"
+      case humanJSON disk of
+        Object human -> KM.lookup "size" human `shouldBe` Just (String "9007199254740993B")
+        _ -> expectationFailure "Expected disk object"
+      humanJSON (disk {diiSize = Nothing}) `shouldBe` toJSON (disk {diiSize = Nothing})
   describe "JSON serialization of Protocol types" $ do
     describe "StatusInfo" $ do
       it "serializes with correct field names" $ do
@@ -71,7 +87,7 @@ spec = sequential $ do
             , "node" .= object ["id" .= (7 :: Int), "name" .= ("alpha" :: String)]
             , "status" .= ("running" :: String)
             , "cpu_count" .= (4 :: Int)
-            , "ram_mb" .= (2048 :: Int)
+            , "ram" .= (2048 :: Int)
             , "headless" .= False
             , "guest_agent" .= False
             , "tpm" .= False
@@ -193,7 +209,7 @@ spec = sequential $ do
           Object obj -> do
             KM.lookup "id" obj `shouldBe` Just (Number 5)
             KM.lookup "name" obj `shouldBe` Just (String "before-upgrade")
-            KM.lookup "size_mb" obj `shouldBe` Just (Number 100)
+            KM.lookup "size" obj `shouldBe` Just (Number 100)
             KM.lookup "live" obj `shouldBe` Just (Bool False)
             KM.lookup "quiesced" obj `shouldBe` Just (Bool False)
             KM.lookup "has_vmstate" obj `shouldBe` Just (Bool False)

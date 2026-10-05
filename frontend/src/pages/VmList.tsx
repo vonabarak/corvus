@@ -1,3 +1,4 @@
+import { formatBytes } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { AlertCircle, Cpu, HardDrive, Plus } from "lucide-react";
@@ -127,7 +128,7 @@ export default function VmList() {
                 <TableCell className="text-right tabular-nums">
                   <span className="inline-flex items-center gap-1">
                     <HardDrive className="h-3 w-3 text-muted-foreground" />
-                    {vm.ram_mb} MB
+                    {formatBytes(vm.ram)}
                   </span>
                 </TableCell>
                 <TableCell>

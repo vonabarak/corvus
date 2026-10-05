@@ -21,6 +21,7 @@ import Corvus.Protocol
   , TemplateSharedDirInfo (..)
   , TemplateSshKeyInfo (..)
   )
+import Corvus.Size (formatSize)
 import Data.Aeson (ToJSON, Value, object, toJSON, (.=))
 import Data.Aeson.Key (Key)
 import Data.Maybe (catMaybes)
@@ -39,7 +40,7 @@ templateDetailsToValue t =
   object $
     [ "name" .= tvdName t
     , "cpuCount" .= tvdCpuCount t
-    , "ramMb" .= tvdRamMb t
+    , "ram" .= formatSize (tvdRam t)
     , "headless" .= tvdHeadless t
     , "graphicsAdapter" .= tvdGraphicsAdapter t
     , "vsock" .= tvdVsock t
@@ -72,7 +73,7 @@ driveToValue d =
       ++ catMaybes
         [ optPair "diskImageName" (nrName <$> tvdiDiskImage d)
         , optPair "media" (tvdiMedia d)
-        , optPair "sizeMb" (tvdiSizeMb d)
+        , optPair "size" (formatSize <$> tvdiSize d)
         , optPair "format" (tvdiFormat d)
         , optPair "ephemeral" (tvdiEphemeral d)
         ]
@@ -127,7 +128,7 @@ skeletonTemplateYaml =
   \name: my-template\n\
   \description: \"\"\n\
   \cpuCount: 1\n\
-  \ramMb: 1024\n\
+  \ram: 1024M\n\
   \headless: false\n\
   \graphicsAdapter: virtio-vga\n\
   \vsock: true\n\
@@ -142,7 +143,7 @@ skeletonTemplateYaml =
   \    interface: virtio\n\
   \    strategy: create  # options are create, clone, overlay, direct\n\
   \    format: qcow2     # only for create strategy\n\
-  \    sizeMb: 8192      # for create, clone, overlay strategies\n\
+  \    size: 8192M      # for create, clone, overlay strategies\n\
   \networkInterfaces: []\n\
   \sshKeys: []\n\
   \sharedDirs: []        # list of {path, tag, cache, readOnly} entries\n\

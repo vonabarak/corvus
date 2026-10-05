@@ -31,11 +31,11 @@ diskCreateCommand =
           <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
       )
     <*> option
-      parseSizeWithUnit
+      parseSize
       ( long "size"
           <> short 's'
           <> metavar "SIZE"
-          <> help "Disk size in MB (or with suffix: 10G, 100M)"
+          <> help "Disk size with a B/K/M/G/T suffix (e.g. 10G)"
       )
     <*> optional
       ( strOption
@@ -70,11 +70,11 @@ diskResizeCommand =
           <> completer diskCompleter
       )
     <*> option
-      parseSizeWithUnit
+      parseSize
       ( long "size"
           <> short 's'
           <> metavar "SIZE"
-          <> help "New size in MB (or with suffix: 20G, 2048M)"
+          <> help "New size with a B/K/M/G/T suffix (e.g. 20G)"
       )
 
 -- | Parser for disk list

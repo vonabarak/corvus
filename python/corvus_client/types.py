@@ -85,7 +85,7 @@ class VmInfo:
     node: NamedRef
     status: str
     cpu_count: int
-    ram_mb: int
+    ram: int
     headless: bool
     guest_agent: bool
     tpm: bool
@@ -151,7 +151,7 @@ class VmDetails:
     created_at: datetime
     status: str
     cpu_count: int
-    ram_mb: int
+    ram: int
     headless: bool
     monitor_socket: str
     serial_socket: str
@@ -263,7 +263,7 @@ class DiskImageInfo:
     created_at: datetime
     placements: list[DiskImagePlacement] = field(default_factory=list)
     attached_to: list[DiskAttachment] = field(default_factory=list)
-    size_mb: int | None = None
+    size: int | None = None
     backing_image: NamedRef | None = None
     ephemeral: bool = False
 
@@ -297,7 +297,7 @@ class SnapshotInfo:
     id: int
     name: str
     created_at: datetime
-    size_mb: int | None = None
+    size: int | None = None
     live: bool = False
     """Whether this snapshot was taken via QMP on a running VM
     (``True``) versus offline via ``qemu-img snapshot -c``
@@ -333,7 +333,7 @@ class VmSnapshotInfo:
     vm: NamedRef
     carrier_disk: NamedRef
     disk_count: int
-    total_size_mb: int
+    total_size: int
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +358,8 @@ class NodeInfo:
     admin_state: str
     created_at: datetime
     cpu_count: int | None = None
-    ram_mb_total: int | None = None
-    ram_mb_free: int | None = None
+    ram_total: int | None = None
+    ram_free: int | None = None
     storage_bytes_total: int | None = None
     storage_bytes_free: int | None = None
     load_avg1: float | None = None
@@ -383,8 +383,8 @@ class NodeDetails:
     created_at: datetime
     description: str | None = None
     cpu_count: int | None = None
-    ram_mb_total: int | None = None
-    ram_mb_free: int | None = None
+    ram_total: int | None = None
+    ram_free: int | None = None
     storage_bytes_total: int | None = None
     storage_bytes_free: int | None = None
     load_avg1: float | None = None
@@ -456,7 +456,7 @@ class TemplateVmInfo:
     id: int
     name: str
     cpu_count: int
-    ram_mb: int
+    ram: int
     headless: bool
     guest_agent: bool
     tpm: bool
@@ -477,7 +477,7 @@ class TemplateDriveInfo:
     clone_strategy: str
     disk_image: NamedRef | None = None
     media: str | None = None
-    size_mb: int | None = None
+    size: int | None = None
     format: str | None = None
 
 
@@ -516,7 +516,7 @@ class TemplateDetails:
     id: int
     name: str
     cpu_count: int
-    ram_mb: int
+    ram: int
     headless: bool
     cloud_init: bool
     guest_agent: bool

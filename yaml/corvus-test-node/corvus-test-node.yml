@@ -14,7 +14,7 @@ pipeline:
 
       vm:
         cpuCount: 8
-        ramMb: 8192
+        ram: 8G
 
       shellDefaults:
         preamble: "set -eux"
@@ -529,7 +529,7 @@ pipeline:
           # inner daemon, Postgres, VDE/dnsmasq, and headroom. The
           # original 4 GiB was sized for the integration-test
           # footprint, not for manual nested-VM testing.
-          ramMb: 16384
+          ram: 16G
           guestAgent: true
           headless: true
           drives:

@@ -148,7 +148,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               { vcrName = name
               , vcrNodeRef = P.unRef nodeRef'
               , vcrCpuCount = fromIntegral cpuCount
-              , vcrRamMb = fromIntegral ramMb
+              , vcrRam = fromIntegral ram
               , vcrDescription = if description == "" then Nothing else Just description
               , vcrHeadless = headless
               , vcrGuestAgent = guestAgent
@@ -272,7 +272,7 @@ instance CGVm.Vm'server_ VmCap where
             VmEdit
               { vedVmId = eid
               , vedCpus = if hasCpuCount then Just (fromIntegral cpuCount) else Nothing
-              , vedRam = if hasRamMb then Just (fromIntegral ramMb) else Nothing
+              , vedRam = if hasRam then Just (fromIntegral ram) else Nothing
               , vedDesc = if hasDescription then Just description else Nothing
               , vedHeadless = if hasHeadless then Just headless else Nothing
               , vedGuestAgent = if hasGuestAgent then Just guestAgent else Nothing

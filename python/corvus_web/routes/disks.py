@@ -29,7 +29,13 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
 class ResizeBody(BaseModel):  # type: ignore[explicit-any]
-    new_size_mb: int = Field(..., gt=0, description="New disk size in MB (must grow).")
+    new_size: int = Field(
+        ...,
+        gt=0,
+        le=(1 << 63) - 1,
+        strict=True,
+        description="New disk size in bytes (must grow).",
+    )
 
 
 class SnapshotCreateBody(BaseModel):  # type: ignore[explicit-any]
@@ -42,7 +48,7 @@ class DiskCreateBody(BaseModel):  # type: ignore[explicit-any]
     """
 
     name: str = Field(..., min_length=1)
-    size_mb: int = Field(..., gt=0)
+    size: int = Field(..., gt=0, le=(1 << 63) - 1, strict=True)
     format: str | None = Field(
         None, description="qcow2 (default) / raw / vmdk / vdi — see DriveFormat enum."
     )
@@ -137,7 +143,7 @@ async def create_disk(body: DiskCreateBody, client: ClientDep) -> JsonObject:
     try:
         disk = await client.disks.create(
             body.name,
-            body.size_mb,
+            body.size,
             format=body.format,
             path=body.path,
             ephemeral=body.ephemeral,
@@ -207,7 +213,7 @@ async def resize_disk(
         disk = await client.disks.get(disk_id)
     except DiskNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    await disk.resize(body.new_size_mb)
+    await disk.resize(body.new_size)
     return {"status": "resized"}
 
 

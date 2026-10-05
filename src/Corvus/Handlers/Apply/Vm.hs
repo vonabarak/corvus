@@ -34,7 +34,7 @@ instance Action ApplyVmCreate where
     pure $ either RespError RespVmCreated result
 
 createOneVm ctx keyMap diskMap nwMap v = do
-  vmResult <- executeCreate ctx (VmCreate (avName v) (avNode v) (avCpuCount v) (avRamMb v) (avDescription v) (avHeadless v) (avGuestAgent v) (avTpm v) (effectiveCloudInit v) (avAutostart v) (avRebootQuirk v) (avCpuModel v) [(tadyBackend audioDevice, tadyModel audioDevice, tadyOptions audioDevice) | audioDevice <- avAudioDevices v] (avGraphicsAdapter v) (avVsock v) (avBalloon v) (avRng v)) (toSqlKey 0)
+  vmResult <- executeCreate ctx (VmCreate (avName v) (avNode v) (avCpuCount v) (avRam v) (avDescription v) (avHeadless v) (avGuestAgent v) (avTpm v) (effectiveCloudInit v) (avAutostart v) (avRebootQuirk v) (avCpuModel v) [(tadyBackend audioDevice, tadyModel audioDevice, tadyOptions audioDevice) | audioDevice <- avAudioDevices v] (avGraphicsAdapter v) (avVsock v) (avBalloon v) (avRng v)) (toSqlKey 0)
   case vmResult of
     Left err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
     Right vmId -> createOneVmAttachments ctx keyMap diskMap nwMap v (toSqlKey vmId)

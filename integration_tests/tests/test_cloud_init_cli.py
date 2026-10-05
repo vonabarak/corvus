@@ -103,7 +103,7 @@ class TestCloudInitCli(SingleNodeCase):
         return self.client.vms.create(
             name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
             cloud_init=True,
         )
@@ -508,7 +508,7 @@ class TestCloudInitCli(SingleNodeCase):
         vm = self.client.vms.create(
             name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
             cloud_init=False,
         )

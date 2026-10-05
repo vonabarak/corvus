@@ -90,7 +90,7 @@ instance CGNA.VmStatusSink'server_ DaemonVmStatusSink where
       -- Per-tick node observation: stamp into the 'Node' row,
       -- bump the healthcheck timestamp, and clear the
       -- scheduler's pending RAM reservation for this node
-      -- (the agent's fresh @ramMbFree@ already reflects the
+      -- (the agent's fresh @ramFree@ already reflects the
       -- newly-created VM's allocation, so re-counting would
       -- double-charge headroom).
       applyNodeStats state nid stats snapMs
@@ -454,7 +454,7 @@ subscriberPushTimeoutMicros = 5000000
 -- clock so the scheduler can filter on freshness. Clears the
 -- scheduler's pending RAM reservation for this node so we
 -- don't double-count headroom that the agent's fresh
--- @ramMbFree@ already reflects.
+-- @ramFree@ already reflects.
 applyNodeStats
   :: ServerState
   -> M.NodeId
@@ -465,8 +465,8 @@ applyNodeStats
 applyNodeStats state nid stats snapMs = do
   let CGNA.NodeStats
         { CGNA.cpuCount = cpus
-        , CGNA.ramMbTotal = ramTotal
-        , CGNA.ramMbFree = ramFree
+        , CGNA.ramTotal = ramTotal
+        , CGNA.ramFree = ramFree
         , CGNA.storageBytesTotal = storTotal
         , CGNA.storageBytesFree = storFree
         , CGNA.loadAvg1 = l1
@@ -493,8 +493,8 @@ applyNodeStats state nid stats snapMs = do
     ( update
         nid
         [ M.NodeCpuCount =. maybeIfNonZero cpus
-        , M.NodeRamMbTotal =. maybeIfNonZero ramTotal
-        , M.NodeRamMbFree =. maybeIfNonZero ramFree
+        , M.NodeRamTotal =. maybeIfNonZero ramTotal
+        , M.NodeRamFree =. maybeIfNonZero ramFree
         , M.NodeStorageBytesTotal =. maybeIfNonZero64 storTotal
         , M.NodeStorageBytesFree =. maybeIfNonZero64 storFree
         , M.NodeLoadAvg1 =. maybeIfNonZeroD l1
@@ -525,7 +525,7 @@ applyNodeStats state nid stats snapMs = do
     )
     $ refuseMismatchedAgent state nid ver
   where
-    maybeIfNonZero64 :: Int64 -> Maybe Int
+    maybeIfNonZero64 :: Int64 -> Maybe Int64
     maybeIfNonZero64 x = if x == 0 then Nothing else Just (fromIntegral x)
 
 -- | Flip a mismatched-agent node to 'NodeDraining' on a newly-

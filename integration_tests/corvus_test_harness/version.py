@@ -3,10 +3,8 @@
 Two things must hold before any integration test is meaningful:
 
 1. The outer Corvus daemon is recent enough that the harness's `crv`
-   calls match what the daemon understands. Right now we just verify
-   that `crv status` succeeds and surfaces the daemon's version; a
-   strict minimum-version gate is left as a TODO until the version
-   string semantics stabilise.
+   calls match what the daemon understands. Protocol 3 is required
+   because the harness supplies suffixed byte sizes in CLI and YAML.
 
 2. The host kernel has nested virtualization enabled — without it,
    QEMU-in-QEMU is unusably slow at best and breaks at worst. The
@@ -105,5 +103,12 @@ def check_outer_version(crv: Crv) -> JsonObject:
     if not version:
         raise RuntimeError(
             f"outer Corvus `status` envelope had no version field. got: {info!r}"
+        )
+    protocol = info.get("protocol_version")
+    if not isinstance(protocol, int) or protocol < 3:
+        raise RuntimeError(
+            "Integration tests require an outer Corvus daemon and CLI with "
+            "protocol 3 (byte sizes and suffixed CLI/YAML input). "
+            f"Installed daemon reports protocol {protocol!r}; upgrade the outer installation."
         )
     return info

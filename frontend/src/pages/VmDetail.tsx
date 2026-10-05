@@ -1,3 +1,4 @@
+import { formatBytes } from "@/lib/format";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -403,7 +404,7 @@ export default function VmDetail() {
           <Field label="VirtIO vsock" value={vm.vsock ? "yes" : "no"} />
           <Field label="VirtIO balloon" value={vm.balloon ? "yes" : "no"} />
           <Field label="VirtIO RNG" value={vm.rng ? "yes" : "no"} />
-          <Field label="RAM" value={`${vm.ram_mb} MB`} />
+          <Field label="RAM" value={formatBytes(vm.ram)} />
           <Field label="Created" value={new Date(vm.created_at).toLocaleString()} />
           {vm.description && <Field label="Description" value={vm.description} />}
           {vm.spice_port !== null && <Field label="SPICE port" value={vm.spice_port} />}

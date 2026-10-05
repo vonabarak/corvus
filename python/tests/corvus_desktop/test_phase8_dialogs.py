@@ -21,7 +21,7 @@ def vm_details() -> VmDetails:
         created_at=datetime.now(timezone.utc),
         status="stopped",
         cpu_count=2,
-        ram_mb=2048,
+        ram=2147483648,
         headless=False,
         monitor_socket="",
         serial_socket="",
@@ -42,7 +42,7 @@ def test_vm_create_requires_name(qapp: QApplication) -> None:
     assert payload is not None
     assert payload["name"] == "web-1"
     assert payload["cpu_count"] == 2
-    assert payload["ram_mb"] == 2048
+    assert payload["ram"] == 2147483648
 
 
 def test_vm_edit_no_changes_returns_none(

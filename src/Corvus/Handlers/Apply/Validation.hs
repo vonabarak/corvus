@@ -66,13 +66,13 @@ validateConfig config = do
           hasClone = isJust (adClone d)
           hasRegister = isJust (adRegister d)
           hasBacking = isJust (adBacking d)
-          hasCreate = isJust (adFormat d) && isJust (adSizeMb d) && not hasImport && not hasOverlay && not hasClone && not hasRegister
+          hasCreate = isJust (adFormat d) && isJust (adSize d) && not hasImport && not hasOverlay && not hasClone && not hasRegister
           strategies = length $ filter id [hasImport, hasOverlay, hasClone, hasRegister]
        in if strategies > 1
             then Left $ "Disk '" <> adName d <> "': cannot specify more than one of 'import', 'overlay', 'clone', 'register'"
             else
               if not hasImport && not hasOverlay && not hasClone && not hasRegister && not hasCreate
-                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', 'register', or both 'format' and 'sizeMb'"
+                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', 'register', or both 'format' and 'size'"
                 else
                   if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate && not hasImport
                     then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'import', 'overlay', 'clone', or 'create'"

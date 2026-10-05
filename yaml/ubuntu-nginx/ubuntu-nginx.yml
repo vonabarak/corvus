@@ -36,7 +36,7 @@ pipeline:
 
       vm:
         cpuCount: 4
-        ramMb: 4096
+        ram: 4G
 
       shellDefaults:
         preamble: "set -eux"

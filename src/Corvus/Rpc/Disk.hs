@@ -93,7 +93,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
             DiskCreate
               { dcrName = name
               , dcrFormat = fmt
-              , dcrSizeMb = sizeMb
+              , dcrSize = size
               , dcrPath = if T.null path then Nothing else Just path
               , dcrEphemeral = ephemeral
               , dcrNodeRef = P.unRef nodeRef'
@@ -142,7 +142,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
             DiskCreateOverlay
               { dcoName = name
               , dcoBaseDiskId = baseId
-              , dcoResizeMb = Nothing
+              , dcoResize = Nothing
               , dcoPath = if T.null path then Nothing else Just path
               , dcoEphemeral = ephemeral
               }
@@ -165,7 +165,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
             DiskClone
               { dclName = newName
               , dclBaseDiskId = srcId
-              , dclResizeMb = Nothing
+              , dclResize = Nothing
               , dclPath = mPath
               , dclEphemeral = ephemeral
               }
@@ -374,7 +374,7 @@ instance CGDisk.Disk'server_ DiskCap where
       _ -> throwError resp
 
   disk'resize (DiskCap st _ eid cn) = handleParsed $ \CGDisk.Disk'resize'params {..} -> do
-    resp <- runAction st cn (DiskResize {drzDiskId = eid, drzNewSizeMb = newSizeMb})
+    resp <- runAction st cn (DiskResize {drzDiskId = eid, drzNewSize = newSize})
     case resp of
       RespDiskOk -> pure CGDisk.Disk'resize'results
       _ -> throwError resp

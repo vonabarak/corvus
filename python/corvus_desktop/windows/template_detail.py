@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from corvus_client.sizes import format_size
 from corvus_client.types import TemplateDetails
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
@@ -73,7 +74,7 @@ class TemplateDetailWidget(QWidget):
 
         self._drives_table = QTableWidget(0, 5)
         self._drives_table.setHorizontalHeaderLabels(
-            ["Disk image", "Interface", "Strategy", "Format", "Size MB"]
+            ["Disk image", "Interface", "Strategy", "Format", "Size"]
         )
         self._drives_table.verticalHeader().setVisible(False)
         self._drives_table.horizontalHeader().setStretchLastSection(True)
@@ -118,7 +119,7 @@ class TemplateDetailWidget(QWidget):
         self._template_name = info.name
         self._title.setText(info.name)
         self._cpu.setText(str(info.cpu_count))
-        self._ram.setText(f"{info.ram_mb} MB")
+        self._ram.setText(format_size(info.ram))
         self._created.setText(info.created_at.isoformat(sep=" ", timespec="seconds"))
         self._description.setText(getattr(info, "description", "") or "—")
         flags: list[str] = []
@@ -142,10 +143,8 @@ class TemplateDetailWidget(QWidget):
                 row, 2, QTableWidgetItem(getattr(d, "clone_strategy", ""))
             )
             self._drives_table.setItem(row, 3, QTableWidgetItem(d.format or ""))
-            size = getattr(d, "size_mb", None)
-            self._drives_table.setItem(
-                row, 4, QTableWidgetItem(str(size) if size is not None else "")
-            )
+            size = getattr(d, "size", None)
+            self._drives_table.setItem(row, 4, QTableWidgetItem(format_size(size)))
         self._drives_table.resizeColumnsToContents()
 
     def _on_action_completed(self, template_id: int, action: str) -> None:

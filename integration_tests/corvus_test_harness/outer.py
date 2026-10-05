@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from corvus_client.sizes import format_size
 from pydantic import JsonValue
 
 JsonObject = dict[str, JsonValue]
@@ -209,14 +210,14 @@ class Crv:
         name: str,
         *,
         cpu_count: int = 1,
-        ram_mb: int = 1024,
+        ram: int = 1073741824,  # 1Gb
         description: str | None = None,
         headless: bool = False,
         guest_agent: bool = False,
         cloud_init: bool = False,
         autostart: bool = False,
     ) -> JsonObject:
-        args = ["vm", "create", name, "-c", str(cpu_count), "-m", str(ram_mb)]
+        args = ["vm", "create", name, "-c", str(cpu_count), "-m", format_size(ram)]
         if description is not None:
             args += ["-d", description]
         if headless:

@@ -21,7 +21,7 @@ import Corvus.Handlers.Disk.Agent
   , createOverlayViaAgent
   , deleteImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
@@ -116,7 +116,7 @@ instance Action DiskUploadFinalize where
 
 handleDiskUploadFinalize :: ServerState -> DiskUploadPlan -> IO Response
 handleDiskUploadFinalize state plan = runServerLogging state $ do
-  sizeMb <- liftIO $ getImageSizeMbViaAgent state (dupNodeId plan) (dupFilePath plan)
+  size <- liftIO $ getImageSizeViaAgent state (dupNodeId plan) (dupFilePath plan)
   now <- liftIO getCurrentTime
   liftIO $
     runSqlPool
@@ -128,7 +128,7 @@ handleDiskUploadFinalize state plan = runServerLogging state $ do
                 DiskImage
                   { diskImageName = dupName plan
                   , diskImageFormat = dupFormat plan
-                  , diskImageSizeMb = sizeMb
+                  , diskImageSize = size
                   , diskImageCreatedAt = now
                   , diskImageBackingImageId = Nothing
                   , diskImageEphemeral = dupEphemeral plan
@@ -138,7 +138,7 @@ handleDiskUploadFinalize state plan = runServerLogging state $ do
                   update
                     key
                     [ DiskImageFormat =. dupFormat plan
-                    , DiskImageSizeMb =. sizeMb
+                    , DiskImageSize =. size
                     , DiskImageEphemeral =. dupEphemeral plan
                     ]
                   pure key

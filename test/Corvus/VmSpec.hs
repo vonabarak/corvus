@@ -46,7 +46,7 @@ spec = sequential $ withTestDb $ do
       liftIO $ resp `shouldBe` RespBalloonDeviceNotEnabled
     testCase "rejects zero and targets above configured RAM" $ do
       vid <- insertVm "balloon-bounds" VmRunning
-      runDb $ update (toSqlKey vid :: M.VmId) [M.VmBalloon =. True, M.VmRamMb =. 256]
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmBalloon =. True, M.VmRam =. 256]
       zero <- vmSetBalloon vid 0
       high <- vmSetBalloon vid (257 * 1024 ^ 2)
       liftIO $ do
@@ -155,7 +155,7 @@ spec = sequential $ withTestDb $ do
 
   describe "whenVmCreate" $ do
     testCase "creates a VM in the stopped state and writes a Task row" $ do
-      when_ $ whenVmCreate "first" 2 1024 (Just "desc")
+      when_ $ whenVmCreate "first" 2 1073741824 (Just "desc")
       then_ $ do
         responseIs $ \case
           RespVmCreated _ -> True
@@ -169,7 +169,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "dup" VmStopped
         pure ()
-      when_ $ whenVmCreate "dup" 1 512 Nothing
+      when_ $ whenVmCreate "dup" 1 536870912 Nothing
       then_ $ do
         -- Persistent's UniqueVmNamePerNode constraint surfaces as
         -- a generic error; we just assert no second row landed.
@@ -190,7 +190,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "to-edit" VmStopped
         pure ()
-      when_ $ whenVmEdit 1 (Just 4) (Just 8192) (Just "new-desc") (Just True)
+      when_ $ whenVmEdit 1 (Just 4) (Just 8589934592) (Just "new-desc") (Just True)
       then_ $ responseIs (== RespVmEdited)
 
     testCase "enables TPM on a stopped VM" $ do

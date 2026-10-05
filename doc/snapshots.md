@@ -104,7 +104,7 @@ captures the whole machine atomically: the qcow2 active state
 crv disk snapshot create my-vm-disk pre-experiment --with-ram
 
 # crv disk snapshot list shows the new `V` column on the carrier row:
-#   ID | NAME             | CREATED | SIZE_MB | LIVE | Q | V
+#   ID | NAME             | CREATED | SIZE | LIVE | Q | V
 #   -- | pre-experiment   | …       | …       | +    | - | +
 crv disk snapshot list my-vm-disk
 
@@ -133,7 +133,7 @@ benefit.
 **Storage cost.** Each vmstate snapshot adds roughly the VM's RAM
 size to the carrier qcow2 (e.g. ≈8 GB for an 8 GB-RAM VM). Disk
 snapshots are still copy-on-write deltas of the writable disks.
-`crv disk snapshot list` reports `size_mb` per row so you can see
+`crv disk snapshot list` reports `size` per row so you can see
 where the bytes went.
 
 **Rollback semantics differ from disk-only.** A vmstate rollback
@@ -164,7 +164,7 @@ crv vm snapshot create my-vm pre-upgrade
 # Inspect all VM-scoped snapshots for this VM. The carrier column
 # shows which disk holds the vmstate.
 crv vm snapshot list my-vm
-#   NAME         CREATED               CARRIER     DISKS  SIZE_MB
+#   NAME         CREATED               CARRIER     DISKS  SIZE
 #   pre-upgrade  2026-06-16 11:02:14   my-vm-boot  2      2148
 
 # Roll back. Works regardless of current VM state:

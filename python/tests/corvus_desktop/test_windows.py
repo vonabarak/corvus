@@ -161,8 +161,8 @@ class _MockBridge(QObject):
     def request_snapshot_list(self, disk_id: int) -> None:
         self.snapshot_list_calls.append(disk_id)
 
-    def disk_resize(self, disk_id: int, new_size_mb: int) -> None:
-        self.disk_resizes.append((disk_id, new_size_mb))
+    def disk_resize(self, disk_id: int, new_size: int) -> None:
+        self.disk_resizes.append((disk_id, new_size))
 
     def disk_delete(self, disk_id: int) -> None:
         self.disk_deletes.append(disk_id)
@@ -232,7 +232,7 @@ class _MockBridge(QObject):
     def vm_guest_exec(self, vm_id: int, command: str) -> None: ...
 
     def disk_create(
-        self, name: str, size_mb: int, **kwargs: str | int | bool | None
+        self, name: str, size: int, **kwargs: str | int | bool | None
     ) -> None: ...
     def disk_register(
         self, name: str, file_path: str, **kwargs: str | int | bool | None
@@ -375,7 +375,7 @@ def _vm(vm_id: int = 1, name: str = "web-1", status: str = "running") -> VmInfo:
         node=NamedRef(id=99, name="node-a"),
         status=status,
         cpu_count=2,
-        ram_mb=1024,
+        ram=1073741824,
         headless=False,
         guest_agent=True,
         tpm=False,
@@ -384,7 +384,9 @@ def _vm(vm_id: int = 1, name: str = "web-1", status: str = "running") -> VmInfo:
     )
 
 
-def _disk(disk_id: int = 1, name: str = "root", size_mb: int = 4096) -> DiskImageInfo:
+def _disk(
+    disk_id: int = 1, name: str = "root", size: int = 4294967296
+) -> DiskImageInfo:
     return DiskImageInfo(
         id=disk_id,
         name=name,
@@ -394,7 +396,7 @@ def _disk(disk_id: int = 1, name: str = "root", size_mb: int = 4096) -> DiskImag
             DiskImagePlacement(node=NamedRef(id=1, name="node-a"), file_path="/x")
         ],
         attached_to=[],
-        size_mb=size_mb,
+        size=size,
     )
 
 
@@ -408,16 +410,16 @@ def _attached_disk(disk_id: int = 1, vm_name: str = "web-1") -> DiskImageInfo:
             DiskImagePlacement(node=NamedRef(id=1, name="node-a"), file_path="/x")
         ],
         attached_to=[DiskAttachment(vm=NamedRef(id=9, name=vm_name))],
-        size_mb=1024,
+        size=1073741824,
     )
 
 
-def _snap(name: str, snap_id: int = 1, size_mb: int = 64) -> SnapshotInfo:
+def _snap(name: str, snap_id: int = 1, size: int = 67108864) -> SnapshotInfo:
     return SnapshotInfo(
         id=snap_id,
         name=name,
         created_at=datetime.now(timezone.utc),
-        size_mb=size_mb,
+        size=size,
     )
 
 
@@ -429,7 +431,7 @@ def _vm_details(vm_id: int = 1, status: str = "running") -> VmDetails:
         created_at=datetime.now(timezone.utc),
         status=status,
         cpu_count=2,
-        ram_mb=1024,
+        ram=1073741824,
         headless=False,
         monitor_socket="",
         serial_socket="",

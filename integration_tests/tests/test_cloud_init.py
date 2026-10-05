@@ -54,7 +54,7 @@ class _CIBase(VmCloudInit):
     the matrix without slowing down the fast ones."""
 
     cpu_count = 2
-    ram_mb = 2048
+    ram = 2147483648
 
 
 class TestCloudInit(SingleNodeCase):
@@ -256,7 +256,7 @@ class TestCloudInit(SingleNodeCase):
         vm = self.client.vms.create(
             name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
             cloud_init=True,
         )

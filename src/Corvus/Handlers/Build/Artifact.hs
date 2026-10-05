@@ -22,7 +22,7 @@ import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action (mkActionContext, runActionAsSubtask)
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , rebaseImageViaAgent
   )
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
@@ -117,7 +117,7 @@ publishArtifactByClone state srcDiskId name target = do
         ImageFormatNotSupported msg -> pure $ Left $ "publish clone: " <> msg
         ImageSuccess -> do
           now <- liftIO getCurrentTime
-          mSize <- liftIO $ getImageSizeMbViaAgent state nid destPath
+          mSize <- liftIO $ getImageSizeViaAgent state nid destPath
           let storedPath =
                 if (basePath ++ "/") `Data.List.isPrefixOf` destPath
                   then T.pack (drop (length basePath + 1) destPath)
@@ -129,7 +129,7 @@ publishArtifactByClone state srcDiskId name target = do
                     DiskImage
                       { diskImageName = name
                       , diskImageFormat = btFormat target
-                      , diskImageSizeMb = mSize
+                      , diskImageSize = mSize
                       , diskImageCreatedAt = now
                       , diskImageBackingImageId = Nothing
                       , diskImageEphemeral = False
@@ -273,14 +273,14 @@ compactDisk state diskId = do
           result <- liftIO $ rebaseImageViaAgent state nid path Nothing False
           case result of
             ImageSuccess -> do
-              mSize <- liftIO $ getImageSizeMbViaAgent state nid path
+              mSize <- liftIO $ getImageSizeViaAgent state nid path
               case mSize of
                 Just newSize ->
                   liftIO $
                     runSqlPool
                       ( update
                           (toSqlKey diskId :: DiskImageId)
-                          [DiskImageSizeMb =. Just newSize]
+                          [DiskImageSize =. Just newSize]
                       )
                       (ssDbPool state)
                 Nothing -> pure ()

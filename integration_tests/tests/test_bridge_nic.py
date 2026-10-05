@@ -151,7 +151,7 @@ class TestBridgeNic(SingleNodeCase):
         vm = self.client.vms.create(
             f"brrej-{secrets.token_hex(3)}",
             cpu_count=1,
-            ram_mb=128,
+            ram=134217728,
             headless=True,
             guest_agent=False,
         )

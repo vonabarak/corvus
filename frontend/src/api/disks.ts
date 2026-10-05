@@ -20,7 +20,7 @@ export interface DiskImageInfo {
   created_at: string;
   placements: DiskImagePlacement[];
   attached_to: DiskAttachment[];
-  size_mb: number | null;
+  size: bigint | null;
   backing_image: NamedRef | null;
   ephemeral: boolean;
 }
@@ -29,7 +29,7 @@ export interface SnapshotInfo {
   id: number;
   name: string;
   created_at: string;
-  size_mb: number | null;
+  size: bigint | null;
 }
 
 export function listDisks(signal?: AbortSignal): Promise<DiskImageInfo[]> {
@@ -40,7 +40,7 @@ export function listDisks(signal?: AbortSignal): Promise<DiskImageInfo[]> {
  * Match python/corvus_web/routes/disks.py Disk*Body classes. */
 export interface DiskCreateBody {
   name: string;
-  size_mb: number;
+  size: bigint;
   format?: string | null;
   path?: string | null;
   ephemeral?: boolean;
@@ -90,8 +90,8 @@ export function getDisk(id: number, signal?: AbortSignal): Promise<DiskImageInfo
   return apiGet<DiskImageInfo>(`/disks/${id}`, signal);
 }
 
-export function resizeDisk(id: number, newSizeMb: number): Promise<{ status: string }> {
-  return apiSend<{ status: string }>("POST", `/disks/${id}/resize`, { new_size_mb: newSizeMb });
+export function resizeDisk(id: number, newSize: bigint): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("POST", `/disks/${id}/resize`, { new_size: newSize });
 }
 
 export function deleteDisk(id: number): Promise<{ status: string }> {

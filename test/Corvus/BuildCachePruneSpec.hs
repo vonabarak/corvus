@@ -116,7 +116,7 @@ seedCacheRows pipelineKey n = do
                 -- guarantee distinctness for each i.
                 M.snapshotName = "cache-" <> chain
               , M.snapshotCreatedAt = now
-              , M.snapshotSizeMb = Nothing
+              , M.snapshotSize = Nothing
               , M.snapshotLive = True
               , M.snapshotQuiesced = False
               , M.snapshotHasVmstate = False

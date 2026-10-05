@@ -126,9 +126,9 @@ encodeDiskInspectInfo :: NI.ImageInfo -> CGNA.Parsed CGNA.DiskInspectInfo
 encodeDiskInspectInfo info =
   CGNA.DiskInspectInfo
     { CGNA.format = M.enumToText (NI.iiFormat info)
-    , CGNA.virtualSizeMb = NI.iiVirtualSizeMb info
-    , CGNA.actualSizeMb = fromMaybe 0 (NI.iiActualSizeMb info)
-    , CGNA.hasActualSize = isJust (NI.iiActualSizeMb info)
+    , CGNA.virtualSize = NI.iiVirtualSize info
+    , CGNA.actualSize = fromMaybe 0 (NI.iiActualSize info)
+    , CGNA.hasActualSize = isJust (NI.iiActualSize info)
     , CGNA.snapshots = map encodeDiskSnapshotInfo (NI.iiSnapshots info)
     }
 
@@ -137,8 +137,8 @@ encodeDiskSnapshotInfo s =
   CGNA.DiskSnapshotInfo
     { CGNA.id = NI.sdId s
     , CGNA.name = NI.sdName s
-    , CGNA.sizeMb = maybe 0 fromIntegral (NI.sdSizeMb s) :: Int64
-    , CGNA.hasSize = isJust (NI.sdSizeMb s)
+    , CGNA.size = maybe 0 fromIntegral (NI.sdSize s) :: Int64
+    , CGNA.hasSize = isJust (NI.sdSize s)
     }
 
 -- ---------------------------------------------------------------------------

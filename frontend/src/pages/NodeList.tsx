@@ -13,12 +13,12 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { NodeStateBadge } from "@/components/NodeStateBadge";
-import { formatBytes, formatMb } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 
 function ramText(n: NodeInfo): string {
-  if (n.ram_mb_total === null) return "—";
-  if (n.ram_mb_free === null) return formatMb(n.ram_mb_total);
-  return `${formatMb(n.ram_mb_free)} / ${formatMb(n.ram_mb_total)} free`;
+  if (n.ram_total === null) return "—";
+  if (n.ram_free === null) return formatBytes(n.ram_total);
+  return `${formatBytes(n.ram_free)} / ${formatBytes(n.ram_total)} free`;
 }
 
 function storageText(n: NodeInfo): string {

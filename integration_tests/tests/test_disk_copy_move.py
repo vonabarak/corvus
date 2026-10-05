@@ -124,7 +124,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         ``<name>.qcow2``); the assertion now makes it
         load-bearing so a regression flips the test."""
         name = _uniq("copy")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             assert self._placement_nodes(name) == {self.alpha_name}
             tid = self.client_alpha.disks.copy(name, self.beta_name)
@@ -151,7 +151,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """Create on alpha; move to beta. One placement (beta);
         source file unlinked."""
         name = _uniq("move")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             alpha_path = self._placement_path_on(name, self.alpha_name)
             tid = self.client_alpha.disks.move(name, self.beta_name)
@@ -171,12 +171,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         test; here we only assert the copy path."""
         disk_name = _uniq("copy-ro")
         vm_name = _uniq("copy-ro-vm")
-        self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
         try:
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -229,12 +229,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """An r/w-attached disk can only move via `vm.migrate`."""
         disk_name = _uniq("rw-copy")
         vm_name = _uniq("rw-copy-vm")
-        self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
         try:
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -256,12 +256,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
     def test_move_refuses_rw_attached(self) -> None:
         disk_name = _uniq("rw-move")
         vm_name = _uniq("rw-move-vm")
-        self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
         try:
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -285,12 +285,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         allowed for the read-only case."""
         disk_name = _uniq("ro-move")
         vm_name = _uniq("ro-move-vm")
-        self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
         try:
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -313,7 +313,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """A second copy to the same node refuses with a placement
         conflict message."""
         name = _uniq("dup")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             tid = self.client_alpha.disks.copy(name, self.beta_name)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
@@ -331,7 +331,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         on the destination is refused, with a clear hint message."""
         base_name = _uniq("ovl-base")
         overlay_name = _uniq("ovl-top")
-        self.client_alpha.disks.create(base_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(base_name, size=16777216, format="qcow2")
         try:
             self.client_alpha.disks.create_overlay(overlay_name, base_name)
             try:
@@ -351,7 +351,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         succeeds — both placements exist on both nodes."""
         base_name = _uniq("chain-base")
         overlay_name = _uniq("chain-top")
-        self.client_alpha.disks.create(base_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(base_name, size=16777216, format="qcow2")
         try:
             self.client_alpha.disks.create_overlay(overlay_name, base_name)
             try:
@@ -389,7 +389,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         base_name = _uniq("wbc-base")
         mid_name = _uniq("wbc-mid")
         top_name = _uniq("wbc-top")
-        self.client_alpha.disks.create(base_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(base_name, size=16777216, format="qcow2")
         try:
             self.client_alpha.disks.create_overlay(mid_name, base_name)
             try:
@@ -427,7 +427,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """Drain beta, then attempt copy — should refuse. Restore
         beta to `online` before leaving so subsequent tests work."""
         name = _uniq("draining")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         beta_cap = self.client_alpha.nodes.get(self.beta_name)
         try:
             beta_cap.drain()
@@ -447,7 +447,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """Copying to the source node is a no-op the daemon refuses
         outright (the planner can't find a non-target placement)."""
         name = _uniq("self")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             self._assert_transfer_fails(
                 self.client_alpha.disks.copy,
@@ -475,13 +475,13 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
     def _beta_base(self) -> str:
         return self.client_alpha.nodes.get(self.beta_name).show().base_path
 
-    def _stage_qcow2(self, node: TestNode, path: str, size_mb: int = 4) -> None:
+    def _stage_qcow2(self, node: TestNode, path: str, size: int = 4194304) -> None:
         """Create a real qcow2 file at `path` on `node` (parent
         directory is created if missing)."""
         parent = path.rsplit("/", 1)[0] if "/" in path else "."
         node.run(f"mkdir -p {parent!r}", check=True, timeout_sec=10.0)
         node.run(
-            f"qemu-img create -f qcow2 {path!r} {size_mb}M",
+            f"qemu-img create -f qcow2 {path!r} {size}",
             check=True,
             timeout_sec=15.0,
         )
@@ -519,7 +519,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         checking the file lives at ``<beta.basePath>/staging/x.qcow2``.
         """
         name = _uniq("tp-rel")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             tid = self.client_alpha.disks.copy(
                 name, self.beta_name, to_path="staging/x.qcow2"
@@ -538,7 +538,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         next operation)."""
         name = _uniq("tp-abs")
         abs_dest = f"/tmp/explicit-{name}.qcow2"
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             tid = self.client_alpha.disks.copy(name, self.beta_name, to_path=abs_dest)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
@@ -552,7 +552,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """[Issue 1] Move with `to_path`: source row + file gone,
         destination at the requested path."""
         name = _uniq("mv-tp")
-        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         try:
             # `disks.show()` returns the placement path already
             # absolutised, so it's safe to use directly with `test -f`.
@@ -768,8 +768,8 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         a = _uniq("col-a")
         b = _uniq("col-b")
         contended = "contended/x.qcow2"
-        self.client_alpha.disks.create(a, size_mb=16, format="qcow2")
-        self.client_alpha.disks.create(b, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(a, size=16777216, format="qcow2")
+        self.client_alpha.disks.create(b, size=16777216, format="qcow2")
         try:
             tid_a = self.client_alpha.disks.copy(a, self.beta_name, to_path=contended)
             self.wait_for_task(self.client_alpha, tid_a, timeout_sec=60.0)
@@ -797,8 +797,8 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         a = _uniq("mv-col-a")
         b = _uniq("mv-col-b")
         contended = "contended-mv/x.qcow2"
-        self.client_alpha.disks.create(a, size_mb=16, format="qcow2")
-        self.client_alpha.disks.create(b, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(a, size=16777216, format="qcow2")
+        self.client_alpha.disks.create(b, size=16777216, format="qcow2")
         try:
             # First move places disk A at the contended path.
             tid_a = self.client_alpha.disks.move(a, self.beta_name, to_path=contended)

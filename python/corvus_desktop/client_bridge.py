@@ -85,7 +85,7 @@ class _VmCreateKwargs(TypedDict, total=False):
     name: str
     node: str | None
     cpu_count: int
-    ram_mb: int
+    ram: int
     description: str | None
     headless: bool
     guest_agent: bool
@@ -103,7 +103,7 @@ class _VmCreateKwargs(TypedDict, total=False):
 class _VmEditKwargs(TypedDict, total=False):
     name: str | None
     cpu_count: int | None
-    ram_mb: int | None
+    ram: int | None
     description: str | None
     headless: bool | None
     guest_agent: bool | None
@@ -389,9 +389,9 @@ class CorvusBridge(QObject):
         """List snapshots on ``disk_id``; emit :attr:`snapshot_list_ready`."""
         self._enqueue(self._do_snapshot_list(disk_id))
 
-    def disk_resize(self, disk_id: int, new_size_mb: int) -> None:
-        """Grow a qcow2 disk to ``new_size_mb``."""
-        self._enqueue(self._do_disk_resize(disk_id, new_size_mb))
+    def disk_resize(self, disk_id: int, new_size: int) -> None:
+        """Grow a qcow2 disk to ``new_size``."""
+        self._enqueue(self._do_disk_resize(disk_id, new_size))
 
     def disk_delete(self, disk_id: int) -> None:
         """Delete a disk (must not be attached to any VM)."""
@@ -604,13 +604,13 @@ class CorvusBridge(QObject):
     def disk_create(
         self,
         name: str,
-        size_mb: int,
+        size: int,
         *,
         format: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ) -> None:
-        self._enqueue(self._do_disk_create(name, size_mb, format, ephemeral, node))
+        self._enqueue(self._do_disk_create(name, size, format, ephemeral, node))
 
     def disk_register(
         self,
@@ -1081,14 +1081,14 @@ class CorvusBridge(QObject):
             return
         self.snapshot_list_ready.emit(disk_id, snaps)
 
-    async def _do_disk_resize(self, disk_id: int, new_size_mb: int) -> None:
+    async def _do_disk_resize(self, disk_id: int, new_size: int) -> None:
         client = self._client
         if client is None:
             self.operation_failed.emit("disk_resize", "not connected")
             return
         try:
             disk = await client.disks.get(disk_id)
-            await disk.resize(new_size_mb)
+            await disk.resize(new_size)
         except CorvusError as e:
             self.operation_failed.emit("disk_resize", _friendly_error(e))
             return
@@ -1711,7 +1711,7 @@ class CorvusBridge(QObject):
     async def _do_disk_create(
         self,
         name: str,
-        size_mb: int,
+        size: int,
         format: str | None,
         ephemeral: bool,
         node: int | str | None,
@@ -1722,7 +1722,7 @@ class CorvusBridge(QObject):
             return
         try:
             await client.disks.create(
-                name, size_mb, format=format, ephemeral=ephemeral, node=node
+                name, size, format=format, ephemeral=ephemeral, node=node
             )
         except CorvusError as e:
             self.operation_failed.emit("disk_create", _friendly_error(e))

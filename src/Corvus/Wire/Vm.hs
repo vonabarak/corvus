@@ -97,7 +97,7 @@ toCapnpVmInfo P.VmInfo {..} =
     , CGVm.node = toCapnpNamedRef viNode
     , CGVm.status = toCapnpVmStatus viStatus
     , CGVm.cpuCount = fromIntegral viCpuCount
-    , CGVm.ramMb = fromIntegral viRamMb
+    , CGVm.ram = fromIntegral viRam
     , CGVm.headless = viHeadless
     , CGVm.guestAgent = viGuestAgent
     , CGVm.tpm = viTpm
@@ -123,7 +123,7 @@ fromCapnpVmInfo CGVm.VmInfo {..} = do
       , P.viNode = fromCapnpNamedRef node
       , P.viStatus = status'
       , P.viCpuCount = fromIntegral cpuCount
-      , P.viRamMb = fromIntegral ramMb
+      , P.viRam = fromIntegral ram
       , P.viHeadless = headless
       , P.viGuestAgent = guestAgent
       , P.viTpm = tpm
@@ -238,7 +238,7 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
     , CGVm.createdAt = utcTimeToNanos vdCreatedAt
     , CGVm.status = toCapnpVmStatus vdStatus
     , CGVm.cpuCount = fromIntegral vdCpuCount
-    , CGVm.ramMb = fromIntegral vdRamMb
+    , CGVm.ram = fromIntegral vdRam
     , CGVm.description = fromMaybe mempty vdDescription
     , CGVm.drives = map toCapnpDriveInfo vdDrives
     , CGVm.netIfs = map toCapnpNetIfInfo vdNetIfs
@@ -307,7 +307,7 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdCreatedAt = nanosToUtcTime createdAt
         , P.vdStatus = status'
         , P.vdCpuCount = fromIntegral cpuCount
-        , P.vdRamMb = fromIntegral ramMb
+        , P.vdRam = fromIntegral ram
         , P.vdDescription = if description == mempty then Nothing else Just description
         , P.vdDrives = drives'
         , P.vdNetIfs = netIfs'
@@ -416,7 +416,7 @@ toCapnpVmSnapshotInfo P.VmSnapshotInfo {..} =
     , CGVm.vm = toCapnpNamedRef vsiVm
     , CGVm.carrierDisk = toCapnpNamedRef vsiCarrierDisk
     , CGVm.diskCount = fromIntegral vsiDiskCount
-    , CGVm.totalSizeMb = vsiTotalSizeMb
+    , CGVm.totalSize = vsiTotalSize
     }
 
 fromCapnpVmSnapshotInfo :: C.Parsed CGVm.VmSnapshotInfo -> P.VmSnapshotInfo
@@ -427,5 +427,5 @@ fromCapnpVmSnapshotInfo CGVm.VmSnapshotInfo {..} =
     , P.vsiVm = fromCapnpNamedRef vm
     , P.vsiCarrierDisk = fromCapnpNamedRef carrierDisk
     , P.vsiDiskCount = fromIntegral diskCount
-    , P.vsiTotalSizeMb = totalSizeMb
+    , P.vsiTotalSize = totalSize
     }

@@ -27,7 +27,7 @@ import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Schema.Build (BuildStrategy (..), BuildTarget (..), btFormat, btSizeGb)
+import Corvus.Schema.Build (BuildStrategy (..), BuildTarget (..), btFormat, btSize)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.List (find)
@@ -107,7 +107,7 @@ instantiateBakeVm state parentTaskId stack templateId bakeVmName nodeRef = do
 --   * installer — same, but the drive was freshly created so there
 --                 is no chain to flatten.
 --   * fromScratch — create a new empty target disk sized from the
---                 build's @target.sizeGb@ and attach it to the bake VM.
+--                 build's @target.size@ and attach it to the bake VM.
 setupTargetDisk
   :: ServerState
   -> TaskId
@@ -144,7 +144,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
             pure $ Right (fromSqlKey diskImageId, needFlatten)
 
     createAndAttachTarget = do
-      let sizeMb = fromIntegral (btSizeGb target) * 1024
+      let size = btSize target
       -- ephemeral=True for the bake-VM-attached disk; publish
       -- produces a CLONE (non-ephemeral) so the bake disk stays
       -- ephemeral whether the build succeeds or fails. If
@@ -155,7 +155,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
         liftIO $
           runActionAsSubtask
             (mkActionContext state parentTaskId "system")
-            (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True buildNodeRef)
+            (DiskCreate targetTmpName (btFormat target) size Nothing True buildNodeRef)
       case diskResp of
         RespDiskCreated diskIdLong -> attachTarget diskIdLong
         RespError err -> pure $ Left $ "create target disk: " <> err

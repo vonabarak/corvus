@@ -225,7 +225,7 @@ class TestBuildInstaller(SingleNodeCase):
         verify_vm = self.client.vms.create(
             f"corvus-it-installer-verify-{token}",
             cpu_count=1,
-            ram_mb=512,
+            ram=536870912,
             headless=True,
             guest_agent=True,
             cloud_init=False,

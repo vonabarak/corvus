@@ -9,6 +9,7 @@ module Corvus.Qemu.Config
   )
 where
 
+import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import System.Environment (lookupEnv)
@@ -30,8 +31,8 @@ data QemuConfig = QemuConfig
   -- ^ Path to virtiofsd binary
   , qcSwtpmBinary :: FilePath
   -- ^ Path to the swtpm binary
-  , qcSharedMemSize :: Maybe String
-  -- ^ Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
+  , qcSharedMemSize :: Maybe Int64
+  -- ^ Shared memory size in bytes for virtiofs, Nothing uses VM RAM
   , qcHealthcheckInterval :: Int
   -- ^ Healthcheck ping interval in seconds (default 10)
   , qcSpiceBindAddress :: !Text

@@ -40,8 +40,8 @@ readNodeStats cfg = do
   pure
     CGNA.NodeStats
       { CGNA.cpuCount = cpuCount
-      , CGNA.ramMbTotal = ramTotal
-      , CGNA.ramMbFree = ramFree
+      , CGNA.ramTotal = ramTotal
+      , CGNA.ramFree = ramFree
       , CGNA.storageBytesTotal = storTotal
       , CGNA.storageBytesFree = storFree
       , CGNA.loadAvg1 = l1
@@ -65,9 +65,9 @@ readCpuCount = do
     isPrefix p s = take (length p) s == p
 
 -- | Parse @MemTotal@ and @MemAvailable@ from @/proc/meminfo@,
--- converting from KiB (linux's unit) to MiB. Returns @(0, 0)@
+-- converting from KiB (linux's unit) to bytes. Returns @(0, 0)@
 -- on any failure.
-readMemInfo :: IO (Int32, Int32)
+readMemInfo :: IO (Int64, Int64)
 readMemInfo = do
   r <- try (readFile "/proc/meminfo") :: IO (Either SomeException String)
   pure $ case r of
@@ -75,10 +75,10 @@ readMemInfo = do
       let ls = lines body
           total = lookupKb "MemTotal:" ls
           avail = lookupKb "MemAvailable:" ls
-       in (kbToMb total, kbToMb avail)
+       in (kbToBytes total, kbToBytes avail)
     Left _ -> (0, 0)
   where
-    kbToMb kb = fromIntegral (kb `div` 1024) :: Int32
+    kbToBytes kb = fromIntegral (kb * 1024) :: Int64
     -- Each line is "Key:    <num> kB". 'words' is fine here —
     -- 'reads' on the numeric token tolerates an empty parse
     -- without crashing the agent.

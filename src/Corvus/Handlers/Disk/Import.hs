@@ -25,7 +25,7 @@ import Corvus.Handlers.Disk.Agent
   , deleteImageViaAgent
   , downloadImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , hashFileViaAgent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
@@ -178,7 +178,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
     registerImportedFile state' nid basePath safeName format diskPath ephem = do
-      sizeMb <- liftIO $ getImageSizeMbViaAgent state' nid diskPath
+      size <- liftIO $ getImageSizeViaAgent state' nid diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
       diskId <-
@@ -190,7 +190,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                     DiskImage
                       { diskImageName = safeName
                       , diskImageFormat = format
-                      , diskImageSizeMb = sizeMb
+                      , diskImageSize = size
                       , diskImageCreatedAt = now
                       , diskImageBackingImageId = Nothing
                       , diskImageEphemeral = ephem

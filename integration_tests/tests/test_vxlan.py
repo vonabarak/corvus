@@ -48,7 +48,7 @@ def _wait_until_node_ready(
         except ServerError:
             time.sleep(0.5)
             continue
-        if details.ram_mb_free is not None:
+        if details.ram_free is not None:
             return
         time.sleep(0.5)
     raise AssertionError(
@@ -297,7 +297,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.beta_name,
                 headless=True,
                 guest_agent=False,
@@ -363,7 +363,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
                 vm = self.client_alpha.vms.create(
                     name,
                     cpu_count=1,
-                    ram_mb=512,
+                    ram=536870912,
                     node=node_name,
                     headless=True,
                     guest_agent=True,
@@ -417,7 +417,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.beta_name,
                 headless=True,
                 guest_agent=False,
@@ -449,11 +449,11 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         try:
             nw.attach_node(self.beta_name)
             nw.start()
-            self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+            self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -486,11 +486,11 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             nw_name, subnet="10.99.9.0/24", node=self.alpha_name
         )
         try:
-            self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+            self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,

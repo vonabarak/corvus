@@ -100,8 +100,11 @@ library:
     - Corvus.Protocol.Build
     - Corvus.Protocol.Task
     - Corvus.Types
+    - Corvus.Size
+    - Corvus.Client.Human
     - Corvus.Database
     - Corvus.Database.Migration
+    - Corvus.Database.Migrations
     - Corvus.Tls
     - Corvus.Server
     - Corvus.Action

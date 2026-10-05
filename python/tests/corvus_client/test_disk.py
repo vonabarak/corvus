@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
 
 import pytest
 from corvus_client import AsyncClient, DiskNotFound
+
+import yaml
 
 from ._helpers import with_client
 from .conftest import _bin_search
@@ -17,10 +20,10 @@ def test_disk_create_show_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-disk-1", size_mb=64)
+        disk = await c.disks.create("py-disk-1", size=67108864)
         info = await disk.show()
         assert info.name == "py-disk-1"
-        assert info.size_mb == 64
+        assert info.size == 67108864
         # disks.get by name and by id both find it
         by_name = await c.disks.get("py-disk-1")
         by_id = await c.disks.get(info.id)
@@ -43,7 +46,7 @@ def test_disk_create_with_custom_directory_path(daemon_socket: Path) -> None:
     name = "py-disk-custom-path"
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create(name, size_mb=16, path="custom-create/")
+        disk = await c.disks.create(name, size=16777216, path="custom-create/")
         try:
             info = await disk.show()
             paths = [placement.file_path for placement in info.placements]
@@ -93,7 +96,7 @@ def test_disk_overlay_and_clone(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        base = await c.disks.create("py-base", size_mb=64)
+        base = await c.disks.create("py-base", size=67108864)
         base_info = await base.show()
 
         overlay = await c.disks.create_overlay(
@@ -122,7 +125,7 @@ def test_snapshot_create_and_delete(daemon_socket: Path) -> None:
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
-        disk = await c.disks.create("py-snap-base", size_mb=64)
+        disk = await c.disks.create("py-snap-base", size=67108864)
         s1 = await disk.snapshot_create("first")
         s1_info = await s1.show()
         assert s1_info.name == "first"
@@ -133,5 +136,56 @@ def test_snapshot_create_and_delete(daemon_socket: Path) -> None:
         snaps_after = await disk.snapshot_list()
         assert all(s.name != "first" for s in snaps_after)
         await disk.delete()
+
+    run(go)
+
+
+def test_sub_megabyte_size_and_cli_output(daemon_socket: Path) -> None:
+    """Real qemu-img metadata and RPC preserve a disk smaller than one MiB."""
+    run = with_client(daemon_socket)
+    name = "sub-megabyte-disk"
+
+    async def go(c: AsyncClient) -> None:
+        disk = await c.disks.create(name, size=512, format="raw")
+        try:
+            assert (await disk.show()).size == 512
+            await disk.refresh()
+            assert (await disk.show()).size == 512
+            binary = _bin_search("crv", "CORVUS_CRV")
+            env = os.environ | {"CORVUS_SOCKET": str(daemon_socket)}
+            for output in ("json", "yaml", "text"):
+                result = subprocess.run(
+                    [binary, "-o", output, "disk", "show", name],
+                    capture_output=True,
+                    check=True,
+                    env=env,
+                    text=True,
+                )
+                if output == "json":
+                    assert json.loads(result.stdout)["size"] == 512
+                elif output == "yaml":
+                    assert yaml.safe_load(result.stdout)["size"] == "512B"
+                else:
+                    assert "512B" in result.stdout
+            await disk.resize(1537)
+            # qemu-img rounds capacity to a whole 512-byte sector.
+            assert (await disk.show()).size == 2048
+        finally:
+            await disk.delete()
+
+    run(go)
+
+
+def test_created_disk_records_qemu_sector_rounding(daemon_socket: Path) -> None:
+    run = with_client(daemon_socket)
+
+    async def go(c: AsyncClient) -> None:
+        disk = await c.disks.create("sector-rounded-disk", size=1537, format="qcow2")
+        try:
+            assert (await disk.show()).size == 2048
+            await disk.refresh()
+            assert (await disk.show()).size == 2048
+        finally:
+            await disk.delete()
 
     run(go)

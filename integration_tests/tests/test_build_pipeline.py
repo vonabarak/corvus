@@ -53,14 +53,14 @@ pytestmark = pytest.mark.timeout(1800)
 _BAKE_TEMPLATE = textwrap.dedent("""
     name: {tpl_name}
     cpuCount: 2
-    ramMb: 1024
+    ram: 1024M
     headless: true
     guestAgent: true
     drives:
       - diskImageName: {base_disk}
         interface: virtio
         strategy: overlay
-        sizeMb: 2048
+        size: 2048M
 """).strip()
 
 
@@ -93,11 +93,11 @@ class TestBuildPipeline(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 2
+                    size: 2G
                     compact: true
                   vm:
                     cpuCount: 2
-                    ramMb: 1024
+                    ram: 1024M
                   provisioners:
                     - shell: |
                         set -eux
@@ -149,7 +149,7 @@ class TestBuildPipeline(SingleNodeCase):
             verify_vm = self.client.vms.create(
                 f"corvus-it-build-vm-{token}",
                 cpu_count=1,
-                ram_mb=512,
+                ram=536870912,
                 headless=True,
                 guest_agent=True,
                 cloud_init=False,
@@ -193,10 +193,10 @@ class TestBuildPipeline(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 2
+                    size: 2G
                   vm:
                     cpuCount: 2
-                    ramMb: 1024
+                    ram: 1024M
                   provisioners:
                     - shell: "exit 7"
                   cleanup: always
@@ -315,7 +315,7 @@ class TestBuildPipeline(SingleNodeCase):
               - name: debian12
                 description: "Debian 12 (bake template for corvus-test-vm)"
                 cpuCount: 2
-                ramMb: 4096
+                ram: 4096M
                 cloudInit: true
                 guestAgent: true
                 cloudInitConfig:
@@ -424,10 +424,10 @@ class TestBuildPipeline(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 1
-                    ramMb: 512
+                    ram: 512M
                   provisioners:
                     - shell: |
                         set +x
@@ -572,10 +572,10 @@ class TestBuildPipeline(SingleNodeCase):
                   strategy: overlay
                   target:
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 1
-                    ramMb: 512
+                    ram: 512M
                   shellDefaults:
                     preamble: |
                       set -eu
@@ -700,7 +700,7 @@ class TestBuildPipeline(SingleNodeCase):
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
 
-        stub = self.client.disks.create(artifact_name, size_mb=64, format="qcow2")
+        stub = self.client.disks.create(artifact_name, size=67108864, format="qcow2")
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
@@ -715,10 +715,10 @@ class TestBuildPipeline(SingleNodeCase):
                   target:
                     ifExists: skip
                     format: qcow2
-                    sizeGb: 1
+                    size: 1G
                   vm:
                     cpuCount: 1
-                    ramMb: 512
+                    ram: 512M
                   provisioners:
                     - shell: "echo SHOULD NOT RUN; exit 1"
                   cleanup: always
@@ -741,7 +741,7 @@ class TestBuildPipeline(SingleNodeCase):
 
             # Stub disk still exists with its original size.
             d = self.client.disks.get(artifact_name, by_name=True).show()
-            assert d.size_mb == 64, d
+            assert d.size == 67108864, d
         finally:
             stub.delete()
             tpl.delete()

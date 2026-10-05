@@ -63,8 +63,8 @@ data MigrationPlan = MigrationPlan
 
 -- | Safety margin on top of the bytes a migration is about to
 -- write to the target node's storage. 1 GiB.
-storageSafetyMb :: Int64
-storageSafetyMb = 1024
+storageSafety :: Int64
+storageSafety = 1073741824
 
 -- ---------------------------------------------------------------------------
 -- Top-level entry
@@ -199,7 +199,7 @@ buildPlanFromDrives
   -> IO (Either Text MigrationPlan)
 buildPlanFromDrives state vmId vm destNode destRow = do
   let pool = ssDbPool state
-      vmRamMb = M.vmRamMb vm
+      vmRam = M.vmRam vm
   drives <- runSqlPool (selectList [M.DriveVmId ==. vmId] []) pool
   let primaryOps =
         [ if M.driveReadOnly (entityVal e)
@@ -229,20 +229,20 @@ buildPlanFromDrives state vmId vm destNode destRow = do
   let missingChain = [d | (d, False) <- ancestorsOnDest]
       chainOps = map OpCopy missingChain
       allOps = primaryOps ++ chainOps
-  totalMb <- runSqlPool (sumPlanSizeMb allOps) pool
-  let needMb = totalMb + storageSafetyMb
+  totalSize <- runSqlPool (sumPlanSize allOps) pool
+  let neededSize = totalSize + storageSafety
   case M.nodeStorageBytesFree destRow of
     Just bytesFree
-      | mbOf bytesFree < needMb ->
+      | fromIntegral bytesFree < neededSize ->
           pure $
             Left $
               "destination node has insufficient free storage ("
-                <> T.pack (show (mbOf bytesFree))
-                <> " MiB available, need "
-                <> T.pack (show needMb)
-                <> " MiB with safety margin)"
+                <> T.pack (show (fromIntegral bytesFree))
+                <> " bytes available, need "
+                <> T.pack (show neededSize)
+                <> " bytes with safety margin)"
     _ -> do
-      rc <- Sched.hasCapacityFor state destNode vmRamMb
+      rc <- Sched.hasCapacityFor state destNode vmRam
       case rc of
         Left err -> pure (Left err)
         Right () ->
@@ -264,20 +264,18 @@ opDiskKey :: MigrationDriveOp -> M.DiskImageId
 opDiskKey (OpCopy d) = d
 opDiskKey (OpMove d) = d
 
--- | Convert raw byte-count from the Node row into MiB.
-mbOf :: Int -> Int64
-mbOf bytes = fromIntegral (bytes `div` (1024 * 1024))
+-- | Convert raw byte-count from the Node row into bytes.
 
--- | Sum the virtual sizes (MiB) of every disk in a plan. Disks
+-- | Sum the virtual sizes (bytes) of every disk in a plan. Disks
 -- without a recorded size contribute 0; that's safest given
 -- @qemu-img@'s post-create refresh isn't always synchronous.
-sumPlanSizeMb :: [MigrationDriveOp] -> SqlPersistT IO Int64
-sumPlanSizeMb ops = do
+sumPlanSize :: [MigrationDriveOp] -> SqlPersistT IO Int64
+sumPlanSize ops = do
   sizes <- mapM lookupOne ops
   pure $ foldl' (+) 0 sizes
   where
     lookupOne op = do
       mDisk <- get (opDiskKey op)
       pure $ case mDisk of
-        Just d -> maybe 0 fromIntegral (M.diskImageSizeMb d)
+        Just d -> maybe 0 fromIntegral (M.diskImageSize d)
         Nothing -> 0

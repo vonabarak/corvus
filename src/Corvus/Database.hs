@@ -40,6 +40,7 @@ import qualified Data.ByteString as BS
 import Data.ByteString.Char8 (pack)
 import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Either (fromRight)
+import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -65,7 +66,7 @@ currentSchemaVersion :: Int
 -- drive.disk_image_id nullable to represent a CD-ROM drive with no
 -- media (ejected tray). Version 4 adds daemon-owned VM lifecycle fence
 -- tokens for cold-start/reset races.
-currentSchemaVersion = 8
+currentSchemaVersion = 9
 
 data DatabaseConfig = DatabaseConfig
   { dcEngine :: !DatabaseEngine

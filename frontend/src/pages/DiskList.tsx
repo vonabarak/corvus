@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { formatMb } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 
 function PlacementSummary({ disk }: { disk: DiskImageInfo }) {
   if (disk.placements.length === 0) {
@@ -114,7 +114,7 @@ export default function DiskList() {
                   <div className="text-xs text-muted-foreground">#{d.id}</div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{d.format}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMb(d.size_mb)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatBytes(d.size)}</TableCell>
                 <TableCell className="text-muted-foreground">
                   <PlacementSummary disk={d} />
                 </TableCell>

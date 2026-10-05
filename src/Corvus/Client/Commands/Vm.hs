@@ -51,10 +51,12 @@ import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkW
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), GraphicsAdapter, VmStatus (..))
 import Corvus.Protocol (AudioDeviceInfo (..), DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
+import Corvus.Size (formatSize)
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
+import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -98,7 +100,7 @@ handleVmCreate
   -> Text
   -- ^ node ref (name or id)
   -> Int
-  -> Int
+  -> Int64
   -> Maybe Text
   -> Bool
   -> Bool
@@ -114,8 +116,8 @@ handleVmCreate
   -> Bool
   -> Bool
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng)
+handleVmCreate fmt conn name nodeRef cpuCount ram mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ram mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -194,7 +196,7 @@ handleVmEdit
   -> CapnpConnection
   -> Text
   -> Maybe Int
-  -> Maybe Int
+  -> Maybe Int64
   -> Maybe Text
   -> Maybe Bool
   -> Maybe Bool
@@ -476,7 +478,7 @@ vmColumns now =
   , Column "NODE" LeftAlign (T.unpack . nrName . viNode)
   , Column "STATUS" LeftAlign (T.unpack . enumToText . viStatus)
   , Column "CPUS" RightAlign (show . viCpuCount)
-  , Column "RAM_MB" RightAlign (show . viRamMb)
+  , Column "RAM" RightAlign (formatSize . viRam)
   , Column "HEALTH" LeftAlign (healthLabel now)
   , Column "TPM" LeftAlign (\vm -> if viTpm vm then "+" else "-")
   , Column "CI" LeftAlign (\vm -> if viCloudInit vm then "+" else "-")
@@ -510,7 +512,7 @@ printVmDetails vm = do
     Nothing -> pure ()
   printField "CPUs" (show (vdCpuCount vm))
   printField "CPU Model" (T.unpack (vdCpuModel vm))
-  printField "RAM (MB)" (show (vdRamMb vm))
+  printField "RAM" (formatSize (vdRam vm))
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
   printField "Headless" (show (vdHeadless vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
@@ -695,18 +697,7 @@ printResourceUsage stats = do
 -- value >= 1. Mirrors what 'numfmt --to=iec' would emit for the
 -- common cases. Used by the CLI's resource-usage panel.
 formatBytes :: (Integral a) => a -> String
-formatBytes n
-  | x >= ti = printf1 (x / ti) <> " TiB"
-  | x >= gi = printf1 (x / gi) <> " GiB"
-  | x >= mi = printf1 (x / mi) <> " MiB"
-  | x >= ki = printf1 (x / ki) <> " KiB"
-  | otherwise = show (toInteger n) <> " B"
-  where
-    x = fromIntegral n :: Double
-    ki = 1024 :: Double
-    mi = ki * 1024
-    gi = mi * 1024
-    ti = gi * 1024
+formatBytes = formatSize
 
 -- | One-decimal-place formatter without pulling in printf.
 printf1 :: Double -> String
@@ -731,7 +722,7 @@ handleVmSnapshotCreate fmt conn vmRef name = do
         printField "VM" (T.unpack (nrName (vsiVm info)))
         printField "Carrier disk" (T.unpack (nrName (vsiCarrierDisk info)))
         printField "Disks captured" (show (vsiDiskCount info))
-        printField "Total size (MB)" (show (vsiTotalSizeMb info))
+        printField "Total size" (formatSize (vsiTotalSize info))
       pure True
     Left e -> do
       emitRpcError fmt e $
@@ -789,5 +780,5 @@ vmSnapshotColumns =
   , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . vsiCreatedAt)
   , Column "CARRIER" LeftAlign (T.unpack . nrName . vsiCarrierDisk)
   , Column "DISKS" RightAlign (show . vsiDiskCount)
-  , Column "SIZE_MB" RightAlign (show . vsiTotalSizeMb)
+  , Column "SIZE" RightAlign (formatSize . vsiTotalSize)
   ]

@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from corvus_desktop.widgets.size_input import SizeInput
+
 from .form_dialog import FormDialog
 from .payload_types import VmCreatePayload
 
@@ -32,10 +34,8 @@ class VmCreateDialog(FormDialog):
         self._cpu = QSpinBox()
         self._cpu.setRange(1, 256)
         self._cpu.setValue(2)
-        self._ram = QSpinBox()
-        self._ram.setRange(64, 1024 * 1024)
-        self._ram.setSuffix(" MB")
-        self._ram.setValue(2048)
+        self._ram = SizeInput(ram=True)
+        self._ram.setValue(2 * 1024**3)
         self._cpu_model = QLineEdit("host")
         self._graphics_adapter = QComboBox()
         self._graphics_adapter.addItems(
@@ -91,7 +91,7 @@ class VmCreateDialog(FormDialog):
             "name": name,
             "node": self._node.text().strip() or None,
             "cpu_count": self._cpu.value(),
-            "ram_mb": self._ram.value(),
+            "ram": self._ram.value(),
             "description": self._description.toPlainText().strip() or None,
             "cpu_model": self._cpu_model.text().strip() or "host",
             "graphics_adapter": self._graphics_adapter.currentText(),

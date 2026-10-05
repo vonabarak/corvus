@@ -107,12 +107,12 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       ]
   )
   where
-    memSize = fromMaybe (show (VS.vsRamMb spec) ++ "M") qcSharedMemSize
+    memSize = show (fromMaybe (VS.vsRam spec) qcSharedMemSize) ++ "B"
     memoryArgs
-      | null (VS.vsSharedDirs spec) = ["-m", show (VS.vsRamMb spec)]
+      | null (VS.vsSharedDirs spec) = ["-m", show (VS.vsRam spec) ++ "B"]
       | otherwise =
           [ "-m"
-          , show (VS.vsRamMb spec)
+          , show (VS.vsRam spec) ++ "B"
           , "-object"
           , "memory-backend-memfd,id=mem,size=" ++ memSize ++ ",share=on"
           , "-numa"

@@ -115,11 +115,11 @@ class TestVmAutostart(SingleNodeCase):
         Caller cleans up in a `finally` block."""
         vm_name = _uniq("auto-vm")
         disk_name = _uniq("auto-disk")
-        self.client.disks.create(disk_name, size_mb=16, format="qcow2")
+        self.client.disks.create(disk_name, size=16777216, format="qcow2")
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=128,
+            ram=134217728,
             headless=True,
             guest_agent=False,
             cloud_init=False,

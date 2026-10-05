@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from corvus_client.sizes import format_size
 from corvus_client.types import DiskImageInfo
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -12,14 +13,6 @@ from PySide6.QtCore import (
 )
 
 _INVALID_PARENT: QModelIndex = QModelIndex()
-
-
-def _fmt_size_mb(size_mb: int | None) -> str:
-    if size_mb is None:
-        return "—"
-    if size_mb < 1024:
-        return f"{size_mb} MB"
-    return f"{size_mb / 1024:.1f} GB"
 
 
 class DiskTableModel(QAbstractTableModel):
@@ -99,7 +92,7 @@ class DiskTableModel(QAbstractTableModel):
             if col == self.COL_FORMAT:
                 return disk.format
             if col == self.COL_SIZE:
-                return _fmt_size_mb(disk.size_mb)
+                return format_size(disk.size)
             if col == self.COL_PLACEMENT:
                 return ", ".join(p.node.name for p in disk.placements)
             if col == self.COL_BACKING:

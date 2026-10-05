@@ -46,7 +46,7 @@ data VmSpec = VmSpec
   , vsRuntimeGeneration :: !Int64
   , vsName :: !T.Text
   , vsCpuCount :: !Int32
-  , vsRamMb :: !Int32
+  , vsRam :: !Int64
   , vsHeadless :: !Bool
   , vsGraphicsAdapter :: !GraphicsAdapter
   , vsGuestAgent :: !Bool

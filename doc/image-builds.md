@@ -147,7 +147,7 @@ pipeline:
 
       target:
         format: qcow2                      # default: qcow2
-        sizeGb: 10                         # only used by from-scratch strategy
+        size: 10G                          # only used by from-scratch strategy
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
         ifExists: error                    # error (default) | skip | overwrite — see below
@@ -160,7 +160,7 @@ pipeline:
 
       vm:
         cpuCount: 4                        # default: 4
-        ramMb: 4096                        # default: 4096
+        ram: 4G                            # default: 4G
 
       shellDefaults:
         preamble: "set -eux"
@@ -195,7 +195,7 @@ pipeline:
       templates:
         - name: debian-12-nginx
           cpuCount: 2
-          ramMb: 2048
+          ram: 2G
           guestAgent: true
           headless: true
           drives:

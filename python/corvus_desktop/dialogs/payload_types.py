@@ -9,7 +9,7 @@ class VmCreatePayload(TypedDict):
     name: str
     node: str | None
     cpu_count: int
-    ram_mb: int
+    ram: int
     description: str | None
     cpu_model: str
     graphics_adapter: str
@@ -27,7 +27,7 @@ class VmCreatePayload(TypedDict):
 class VmEditPayload(TypedDict, total=False):
     name: str
     cpu_count: int
-    ram_mb: int
+    ram: int
     description: str
     cpu_model: str
     graphics_adapter: str

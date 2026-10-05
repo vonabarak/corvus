@@ -7,6 +7,8 @@ from typing import cast
 
 import capnp
 
+from corvus_client.sizes import validate_size
+
 from .. import _schema, types
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -37,7 +39,7 @@ class AsyncDiskManager:
     async def create(
         self,
         name: str,
-        size_mb: int,
+        size: int,
         *,
         format: str | None = None,
         path: str | None = None,
@@ -54,7 +56,7 @@ class AsyncDiskManager:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateParams.new_message()
         params.name = name
-        params.sizeMb = size_mb
+        params.size = validate_size(size)
         if format is not None:
             params.format = format
         if path is not None:
@@ -363,8 +365,8 @@ class AsyncDisk:
         resp = await self._cap.refresh()
         return conv.disk_image_info(resp.info)
 
-    async def resize(self, new_size_mb: int) -> None:
-        await self._cap.resize(newSizeMb=new_size_mb)
+    async def resize(self, new_size: int) -> None:
+        await self._cap.resize(newSize=validate_size(new_size))
 
     async def snapshot_create(
         self,

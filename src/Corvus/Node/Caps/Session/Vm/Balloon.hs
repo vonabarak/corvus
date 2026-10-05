@@ -28,7 +28,7 @@ handleVmSetBalloon sc vmId target = do
           if not (VS.vsBalloon spec)
             then pure $ reply CGNA.BalloonStatus'deviceNotEnabled "VM has no VirtIO balloon device"
             else
-              if target == 0 || toInteger target > toInteger (VS.vsRamMb spec) * 1024 * 1024
+              if target == 0 || toInteger target > toInteger (VS.vsRam spec)
                 then pure $ reply CGNA.BalloonStatus'invalidTarget "Target must be positive and not exceed the live RAM ceiling"
                 else do
                   result <- Qmp.qmpSetBalloon agentQemuConfig vmId target

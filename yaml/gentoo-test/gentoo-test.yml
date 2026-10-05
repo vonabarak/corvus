@@ -14,7 +14,7 @@ pipeline:
         # Node.js / V8 source builds peak at ~1.5 GB per cc1plus
         # process; with MAKEOPTS=-j$(nproc) and 8 cores we saw the
         # bake VM hit OOM at 8 GB. 16 GB gives enough headroom.
-        ramMb: 16384
+        ram: 16G
 
       shellDefaults:
         preamble: "set -eux"
@@ -237,7 +237,7 @@ pipeline:
       vms:
         - name: gentoo-corvus-test
           cpuCount: 8
-          ramMb: 8192
+          ram: 8G
           cloudInit: true
           guestAgent: true
           headless: true

@@ -75,7 +75,7 @@ class TestVmAudio(SingleNodeCase):
                 vm = self.client.vms.create(
                     name,
                     cpu_count=2,
-                    ram_mb=1024,
+                    ram=1073741824,
                     headless=backend != "spice",
                     guest_agent=True,
                     audio_devices=[(backend, "", model)],

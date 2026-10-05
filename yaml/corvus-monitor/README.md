@@ -56,7 +56,7 @@ crv disk overlay corvus-monitor-vm corvus-monitor
 # 2 CPU / 2 GB RAM is plenty for Prometheus + Grafana scraping
 # a single Corvus deployment.
 crv vm create corvus-monitor-vm \
-  --cpus 2 --ram 2048 --guest-agent --cloud-init
+  --cpus 2 --ram 2G --guest-agent --cloud-init
 
 crv disk attach corvus-monitor-vm corvus-monitor-vm
 crv vm net-if add corvus-monitor-vm --type user

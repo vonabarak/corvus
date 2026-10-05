@@ -91,7 +91,7 @@ import Corvus.Handlers.Build.Template
   )
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , guestSetTimeViaAgent
   , loadSnapshotViaAgentWithVmstate
   , rebaseImageViaAgent

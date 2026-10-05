@@ -13,7 +13,7 @@ struct TemplateVmInfo {
   id          @0 :Int64;
   name        @1 :Text;
   cpuCount    @2 :Int32;
-  ramMb       @3 :Int32;
+  ram       @3 :Int64;
   description @4 :Text;   # empty == none
   headless    @5 :Bool;
   guestAgent  @6 :Bool;
@@ -37,7 +37,7 @@ struct TemplateDriveInfo {
   cacheType      @5  :Enums.CacheType;
   discard        @6  :Bool;
   cloneStrategy  @7  :Enums.TemplateCloneStrategy;
-  sizeMb         @8  :Int64;   # 0 == not specified
+  size         @8  :Int64;   # 0 == not specified
   hasFormat      @9  :Bool;
   format         @10 :Enums.DriveFormat;
   # Per-drive override for the ephemeral flag on disks created during
@@ -81,7 +81,7 @@ struct TemplateDetails {
   id              @0  :Int64;
   name            @1  :Text;
   cpuCount        @2  :Int32;
-  ramMb           @3  :Int32;
+  ram           @3  :Int64;
   description     @4  :Text;
   headless        @5  :Bool;
   cloudInit       @6  :Bool;

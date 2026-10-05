@@ -53,7 +53,7 @@ A template is defined by a single YAML document. The same schema is accepted by 
 |-------|------|----------|---------|-------------|
 | `name` | string | yes | | Unique template name. Cannot be all digits. |
 | `cpuCount` | integer | yes | | Number of virtual CPUs. |
-| `ramMb` | integer | yes | | RAM in megabytes. |
+| `ram` | size string | yes | | RAM with a B/K/M/G/T suffix (whole MiB). |
 | `description` | string | no | | Free-form description. |
 | `headless` | bool | no | `false` | `true` = serial console only; `false` = SPICE graphics. |
 | `graphicsAdapter` | enum | no | `virtio-vga` | Display device for graphical VMs: `virtio-vga`, `qxl-vga`, `vga`, `virtio-gpu-pci`, `virtio-vga-gl`, or `virtio-gpu-gl-pci`. Headless VMs retain the value without using it. GL models require host EGL support. |
@@ -80,7 +80,7 @@ Each entry in `drives` configures a disk that will be attached to VMs instantiat
 | `diskImageName` | string | depends | | Name of an existing disk image. Required for `clone`, `overlay`, and `direct` strategies. Optional for `create` (used as a naming suffix). |
 | `interface` | enum | yes | | Bus type: `virtio`, `ide`, `scsi`, `sata`, `nvme`, `pflash`, `floppy`. |
 | `strategy` | enum | yes | | How the drive is provisioned on instantiation (see below). |
-| `sizeMb` | integer | no | | For `create`: the new disk size. For `clone`/`overlay`: resize after provisioning. |
+| `size` | integer | no | | For `create`: the new disk size. For `clone`/`overlay`: resize after provisioning. |
 | `format` | enum | no | | Disk format. Required for `create`: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc`, `vhdx`. |
 | `media` | enum | no | | `disk` or `cdrom`. |
 | `readOnly` | bool | no | `false` | Attach as read-only. |
@@ -97,11 +97,11 @@ The `strategy` field controls what happens to the drive when a VM is instantiate
 | **`overlay`** | yes | Creates a qcow2 copy-on-write overlay backed by the named disk. The original is not modified. | Root disks — each VM gets a thin overlay on a shared base image. |
 | **`clone`** | yes | Full copy of the named disk (all data + snapshots). | UEFI OVMF variables — each VM needs its own writable copy. |
 | **`direct`** | yes | Attaches the named disk directly (no copy). | Shared read-only firmware images (e.g., OVMF_CODE.fd). |
-| **`create`** | no | Creates a new empty disk with the given `format` and `sizeMb`. | Data disks, scratch space. |
+| **`create`** | no | Creates a new empty disk with the given `format` and `size`. | Data disks, scratch space. |
 
 **Naming convention for new disks**: clone and overlay produce disks named `<vm-name>-<diskImageName>` (overlay adds an `-overlay` suffix). The create strategy names the disk `<vm-name>-<diskImageName>` when `diskImageName` is provided, or `<vm-name>-disk` when omitted.
 
-**Resize**: when `sizeMb` is set on a `clone` or `overlay` drive, the new disk is resized after creation. For `create`, `sizeMb` is the initial disk size.
+**Resize**: when `size` is set on a `clone` or `overlay` drive, the new disk is resized after creation. For `create`, `size` is the initial disk size.
 
 ### Network Interface Fields
 
@@ -193,7 +193,7 @@ disks:
 templates:
   - name: webserver
     cpuCount: 2
-    ramMb: 2048
+    ram: 2G
     guestAgent: true
     drives:
       - diskImageName: base-image
@@ -236,12 +236,12 @@ Before execution, the apply subsystem validates:
 ```yaml
 name: scratch-vm
 cpuCount: 1
-ramMb: 512
+ram: 512M
 drives:
   - interface: virtio
     strategy: create
     format: qcow2
-    sizeMb: 4096
+    size: 4G
 ```
 
 ### UEFI Template with Overlay
@@ -250,7 +250,7 @@ drives:
 name: uefi-linux
 description: "UEFI-booted Linux with overlay root disk"
 cpuCount: 2
-ramMb: 2048
+ram: 2G
 headless: true
 guestAgent: true
 cloudInit: true
@@ -270,7 +270,7 @@ drives:
   - diskImageName: alpine-base
     interface: virtio
     strategy: overlay
-    sizeMb: 20480
+    size: 20G
     cacheType: writeback
     discard: true
 
@@ -287,7 +287,7 @@ sshKeys:
 name: windows-server-2025
 description: "Windows Server 2025 with RDP enabled"
 cpuCount: 4
-ramMb: 4096
+ram: 4G
 headless: true
 guestAgent: true
 cloudInit: true
@@ -312,7 +312,7 @@ drives:
   - diskImageName: ws25-base
     interface: virtio
     strategy: overlay
-    sizeMb: 51200
+    size: 50G
 networkInterfaces:
   - type: user
 ```
@@ -322,20 +322,20 @@ networkInterfaces:
 ```yaml
 name: dev-workstation
 cpuCount: 4
-ramMb: 8192
+ram: 8G
 drives:
   # OS root — overlay on shared base
   - diskImageName: ubuntu-base
     interface: virtio
     strategy: overlay
-    sizeMb: 40960
+    size: 40G
 
   # Empty data disk — created fresh per VM
   - diskImageName: data
     interface: virtio
     strategy: create
     format: qcow2
-    sizeMb: 102400
+    size: 100G
 
   # Shared ISO (not copied)
   - diskImageName: tools-iso
@@ -362,14 +362,14 @@ disks:
 templates:
   - name: alpine-worker
     cpuCount: 1
-    ramMb: 1024
+    ram: 1G
     guestAgent: true
     cloudInit: true
     drives:
       - diskImageName: alpine-base
         interface: virtio
         strategy: overlay
-        sizeMb: 10240
+        size: 10G
     networkInterfaces:
       - type: user
     sshKeys:

@@ -23,7 +23,7 @@ class TestSshKeyLifecycle(SingleNodeCase):
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=64,
+            ram=67108864,
             headless=True,
             cloud_init=True,
         )

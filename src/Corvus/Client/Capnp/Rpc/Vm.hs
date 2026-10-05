@@ -180,8 +180,8 @@ rpcVmCreate
   -- ^ node reference (name or numeric id)
   -> Int
   -- ^ cpus
-  -> Int
-  -- ^ ram (MB)
+  -> Int64
+  -- ^ RAM (bytes)
   -> Maybe Text
   -- ^ description
   -> Bool
@@ -211,7 +211,7 @@ rpcVmCreate conn name nodeRef cpus ram desc headless ga tpm ci autostart rq cm g
           { CGVm.name = name
           , CGVm.node = toCapnpEntityRef (entityRefFromText nodeRef)
           , CGVm.cpuCount = fromIntegral cpus
-          , CGVm.ramMb = fromIntegral ram
+          , CGVm.ram = fromIntegral ram
           , CGVm.description = fromMaybe "" desc
           , CGVm.headless = headless
           , CGVm.guestAgent = ga
@@ -296,8 +296,8 @@ rpcVmEdit
   -> EntityRef
   -> Maybe Int
   -- ^ new cpus
-  -> Maybe Int
-  -- ^ new ram (MB)
+  -> Maybe Int64
+  -- ^ new RAM (bytes)
   -> Maybe Text
   -- ^ new description
   -> Maybe Bool
@@ -327,8 +327,8 @@ rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphics
           , CGVm.name = ""
           , CGVm.hasCpuCount = isJust mCpus
           , CGVm.cpuCount = maybe 0 fromIntegral mCpus
-          , CGVm.hasRamMb = isJust mRam
-          , CGVm.ramMb = maybe 0 fromIntegral mRam
+          , CGVm.hasRam = isJust mRam
+          , CGVm.ram = maybe 0 fromIntegral mRam
           , CGVm.hasDescription = isJust mDesc
           , CGVm.description = fromMaybe "" mDesc
           , CGVm.hasHeadless = isJust mHeadless

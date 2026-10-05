@@ -192,7 +192,7 @@ Templates support `cloudInitConfig` at the top level. When a VM is instantiated 
 ```yaml
 name: webserver
 cpuCount: 2
-ramMb: 2048
+ram: 2G
 cloudInit: true
 guestAgent: true
 cloudInitConfig:
@@ -220,7 +220,7 @@ VMs in apply configurations support the same `cloudInitConfig` section:
 vms:
   - name: web-server
     cpuCount: 2
-    ramMb: 2048
+    ram: 2G
     cloudInit: true
     cloudInitConfig:
       userData:

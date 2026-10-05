@@ -16,7 +16,7 @@ struct DiskImageInfo {
   # deployments have exactly one entry.
   placements      @2 :List(DiskImagePlacement);
   format          @3 :Enums.DriveFormat;
-  sizeMb          @4 :Int64;            # 0 == unknown
+  size          @4 :Int64;            # 0 == unknown
   createdAt       @5 :Int64;            # POSIX nanoseconds
   attachedTo      @6 :List(DiskAttachment);
   # Backing image for qcow2 overlays. `id == 0` => no backing.
@@ -41,7 +41,7 @@ struct SnapshotInfo {
   id         @0 :Int64;
   name       @1 :Text;
   createdAt  @2 :Int64;   # POSIX nanoseconds
-  sizeMb     @3 :Int64;   # 0 == unknown
+  size     @3 :Int64;   # 0 == unknown
   # Whether this snapshot was taken against a running VM via QMP
   # (`true`) versus offline via `qemu-img snapshot -c` (`false`).
   # Pure operator diagnostic; the qcow2 entry is bit-identical
@@ -67,11 +67,11 @@ struct SnapshotInfo {
 # ---------------------------------------------------------------------
 
 struct DiskCreateParams {
-  # `name` and `sizeMb` are mandatory; `format` defaults to qcow2
+  # `name` and `size` are mandatory; `format` defaults to qcow2
   # to match `crv disk create`. `node` is the target placement
   # (unset/byId 0 → defer to the scheduler).
   name      @0 :Text;
-  sizeMb    @1 :Int64;
+  size    @1 :Int64;
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
@@ -244,7 +244,7 @@ interface Disk {
   show     @0 () -> (info :DiskImageInfo);
   delete   @1 () -> ();
   refresh  @2 () -> (info :DiskImageInfo);
-  resize   @3 (newSizeMb :Int64) -> ();
+  resize   @3 (newSize :Int64) -> ();
 
   # Snapshots scoped to this disk image.
   #

@@ -11,7 +11,7 @@ exceeds the host's), three things must hold:
 * `vm.show().last_error_at` is set, so the operator can correlate
   with logs.
 
-Implementation hook for the test: we make QEMU's `-m <MiB>` request
+Implementation hook for the test: we make QEMU's `-m <bytes>B` request
 exceed the test-node's total memory. The kernel rejects the
 allocation, QEMU exits within ~1 s, and the nodeagent's
 `waitForFirstQgaPing` sees `vlsLastExitCode` populated and surfaces
@@ -41,10 +41,10 @@ class TestVmStartFailures(SingleNodeCase):
         # of how the test-node is sized today (4 GiB) vs. tomorrow
         # (16 GiB).
         r = self.node.run("awk '/MemTotal/{print int($2/1024)}' /proc/meminfo")
-        node_ram_mb = int(r.stdout.decode().strip())
+        node_ram = int(r.stdout.decode().strip())
         # 2 GiB beyond what the kernel can possibly grant. Margin
         # avoids racing against the dev VM's own working set.
-        oversized_mb = node_ram_mb + 2048
+        oversized_bytes = (node_ram + 2048) * 1048576
 
         token = secrets.token_hex(4)
         vm_name = f"corvus-it-oversize-{token}"
@@ -56,7 +56,7 @@ class TestVmStartFailures(SingleNodeCase):
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=oversized_mb,
+            ram=oversized_bytes,
             headless=True,
             guest_agent=True,
             cloud_init=False,
@@ -113,7 +113,7 @@ class TestVmStartFailures(SingleNodeCase):
 
             vm.reset()
             assert vm.show().status == "stopped"
-            vm.edit(ram_mb=256)
+            vm.edit(ram=268435456)
             vm.start(wait=True)
             assert vm.show().status == "running"
         finally:
@@ -132,7 +132,7 @@ class TestVmStartFailures(SingleNodeCase):
         vm = self.client.vms.create(
             f"corvus-it-no-qga-{secrets.token_hex(4)}",
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=False,
             guest_agent=True,
             cloud_init=False,

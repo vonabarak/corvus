@@ -42,12 +42,12 @@ class TestDisk(SingleNodeCase):
 
     def test_disk_create_and_delete(self) -> None:
         name = _uniq("crud")
-        disk = self.client.disks.create(name, size_mb=16, format="qcow2")
+        disk = self.client.disks.create(name, size=16777216, format="qcow2")
         try:
             info = disk.show()
             assert info.name == name
             assert info.format == "qcow2"
-            assert info.size_mb == 16
+            assert info.size == 16777216
             assert info.backing_image is None
             # Listed by the manager.
             assert any(d.name == name for d in self.client.disks.list())
@@ -62,7 +62,7 @@ class TestDisk(SingleNodeCase):
     def test_clone_preserves_size_and_format(self) -> None:
         src_name = _uniq("clone-src")
         clone_name = _uniq("clone-dst")
-        self.client.disks.create(src_name, size_mb=8, format="qcow2")
+        self.client.disks.create(src_name, size=8388608, format="qcow2")
         try:
             clone = self.client.disks.clone(src_name, clone_name)
             try:
@@ -71,7 +71,7 @@ class TestDisk(SingleNodeCase):
                 assert info.format == "qcow2"
                 # qcow2 is sparse, so the daemon reports the virtual
                 # size — exactly equal to the source's.
-                assert info.size_mb == 8
+                assert info.size == 8388608
                 assert info.backing_image is None
             finally:
                 clone.delete()
@@ -81,7 +81,7 @@ class TestDisk(SingleNodeCase):
     def test_clone_preserves_snapshots(self) -> None:
         src_name = _uniq("clone-snap-src")
         clone_name = _uniq("clone-snap-dst")
-        src = self.client.disks.create(src_name, size_mb=8, format="qcow2")
+        src = self.client.disks.create(src_name, size=8388608, format="qcow2")
         try:
             src.snapshot_create("snap1")
             clone = self.client.disks.clone(src_name, clone_name)
@@ -113,7 +113,7 @@ class TestDisk(SingleNodeCase):
         # keeps us in the daemon's namespace and avoids leaking
         # state into the VM's /tmp.
         custom_rel = f"{clone_name}-at-custom.qcow2"
-        self.client.disks.create(src_name, size_mb=8, format="qcow2")
+        self.client.disks.create(src_name, size=8388608, format="qcow2")
         try:
             clone = self.client.disks.clone(src_name, clone_name, path=custom_rel)
             try:
@@ -149,7 +149,7 @@ class TestDisk(SingleNodeCase):
     def test_create_overlay_has_backing(self) -> None:
         base_name = _uniq("ov-base")
         overlay_name = _uniq("ov-top")
-        base = self.client.disks.create(base_name, size_mb=8, format="qcow2")
+        base = self.client.disks.create(base_name, size=8388608, format="qcow2")
         try:
             overlay = self.client.disks.create_overlay(overlay_name, base_name)
             try:
@@ -159,7 +159,7 @@ class TestDisk(SingleNodeCase):
                 assert info.backing_image.id == base.show().id
                 assert info.backing_image.name == base_name
                 # Overlay inherits the base's virtual size.
-                assert info.size_mb == 8
+                assert info.size == 8388608
             finally:
                 overlay.delete()
         finally:
@@ -174,8 +174,8 @@ class TestDisk(SingleNodeCase):
         base_a = _uniq("rebase-a")
         base_b = _uniq("rebase-b")
         overlay = _uniq("rebase-top")
-        self.client.disks.create(base_a, size_mb=8, format="qcow2")
-        b = self.client.disks.create(base_b, size_mb=8, format="qcow2")
+        self.client.disks.create(base_a, size=8388608, format="qcow2")
+        b = self.client.disks.create(base_b, size=8388608, format="qcow2")
         try:
             ov = self.client.disks.create_overlay(overlay, base_a)
             try:
@@ -199,7 +199,7 @@ class TestDisk(SingleNodeCase):
         Afterwards `disk.show()` must report no backing image."""
         base_name = _uniq("flatten-base")
         overlay_name = _uniq("flatten-top")
-        base = self.client.disks.create(base_name, size_mb=8, format="qcow2")
+        base = self.client.disks.create(base_name, size=8388608, format="qcow2")
         try:
             overlay = self.client.disks.create_overlay(overlay_name, base_name)
             try:
@@ -231,7 +231,7 @@ class TestDisk(SingleNodeCase):
         record with a distinct file."""
         src_name = _uniq("import-src")
         copy_name = _uniq("import-copy")
-        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
         try:
             # Phase 3: file_path lives on a per-node placement now.
             # The harness's single-node topology has exactly one
@@ -260,7 +260,7 @@ class TestDisk(SingleNodeCase):
         the source file, the daemon refuses with a 'Source and
         destination paths are the same' error (Handlers/Disk/Import.hs:145)."""
         name = _uniq("import-collide")
-        disk = self.client.disks.create(name, size_mb=4, format="qcow2")
+        disk = self.client.disks.create(name, size=4194304, format="qcow2")
         try:
             src_path = disk.show().placements[0].file_path
             task_id = self.client.disks.import_(name, src_path, format="qcow2")
@@ -284,7 +284,7 @@ class TestDisk(SingleNodeCase):
         `drives` list; the guest-visible effect is asserted via SSH.
         """
         data_disk = _uniq("hotplug-data")
-        self.client.disks.create(data_disk, size_mb=32, format="qcow2")
+        self.client.disks.create(data_disk, size=33554432, format="qcow2")
         try:
             with VmSsh(self) as vm:
                 before = self._guest_vd_count(vm)
@@ -326,8 +326,8 @@ class TestDisk(SingleNodeCase):
         """
         virtio_disk = _uniq("preboot-virtio")
         scsi_disk = _uniq("preboot-scsi")
-        self.client.disks.create(virtio_disk, size_mb=16, format="qcow2")
-        self.client.disks.create(scsi_disk, size_mb=16, format="qcow2")
+        self.client.disks.create(virtio_disk, size=16777216, format="qcow2")
+        self.client.disks.create(scsi_disk, size=16777216, format="qcow2")
 
         class PrebootDataVm(Vm):
             guest_agent = False
@@ -385,7 +385,7 @@ class TestDisk(SingleNodeCase):
         a live detach is rejected without changing the database row.
         """
         installer_disk = _uniq("preboot-installer")
-        self.client.disks.create(installer_disk, size_mb=4, format="raw")
+        self.client.disks.create(installer_disk, size=4194304, format="raw")
 
         class PrebootInstallerVm(Vm):
             guest_agent = False
@@ -427,7 +427,7 @@ class TestDisk(SingleNodeCase):
         empty tray, confirm the empty state survives a reboot, and detach
         the now-medialess drive (IDE cdroms only detach while stopped)."""
         cd_disk = _uniq("eject-cd")
-        self.client.disks.create(cd_disk, size_mb=4, format="raw")
+        self.client.disks.create(cd_disk, size=4194304, format="raw")
 
         class CdromVm(Vm):
             guest_agent = False
@@ -485,8 +485,8 @@ class TestDisk(SingleNodeCase):
         reboot."""
         cd_a = _uniq("chg-cd-a")
         cd_b = _uniq("chg-cd-b")
-        self.client.disks.create(cd_a, size_mb=4, format="raw")
-        self.client.disks.create(cd_b, size_mb=4, format="raw")
+        self.client.disks.create(cd_a, size=4194304, format="raw")
+        self.client.disks.create(cd_b, size=4194304, format="raw")
 
         class CdromVm(Vm):
             guest_agent = False
@@ -550,7 +550,7 @@ class TestDisk(SingleNodeCase):
         """`attach_disk(..., read_only=True)` surfaces as `read_only=True`
         on the matching drive in `vm.show()`."""
         data_disk = _uniq("hotplug-ro")
-        self.client.disks.create(data_disk, size_mb=16, format="qcow2")
+        self.client.disks.create(data_disk, size=16777216, format="qcow2")
         try:
             with VmSsh(self) as vm:
                 drive_id = vm.cap.attach_disk(
@@ -583,9 +583,11 @@ class TestDisk(SingleNodeCase):
         """
         ephem_name = _uniq("eph-yes")
         persist_name = _uniq("eph-no")
-        self.client.disks.create(ephem_name, size_mb=8, format="qcow2", ephemeral=True)
         self.client.disks.create(
-            persist_name, size_mb=8, format="qcow2", ephemeral=False
+            ephem_name, size=8388608, format="qcow2", ephemeral=True
+        )
+        self.client.disks.create(
+            persist_name, size=8388608, format="qcow2", ephemeral=False
         )
         try:
             with Vm(self) as vm:
@@ -612,13 +614,13 @@ class TestDisk(SingleNodeCase):
 
     def test_resize_grows_disk(self) -> None:
         name = _uniq("resize")
-        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        disk = self.client.disks.create(name, size=8388608, format="qcow2")
         try:
-            assert disk.show().size_mb == 8
-            disk.resize(16)
+            assert disk.show().size == 8388608
+            disk.resize(16 * 1024 * 1024)
             # `resize` only widens; show should reflect the new virtual
             # size synchronously after the cap returns.
-            assert disk.show().size_mb == 16
+            assert disk.show().size == 16777216
         finally:
             disk.delete()
 
@@ -633,7 +635,7 @@ class TestDisk(SingleNodeCase):
         that silently drops one of the fields from the wire would
         only surface as a perf regression in production."""
         data = _uniq("attach-opts")
-        self.client.disks.create(data, size_mb=8, format="qcow2")
+        self.client.disks.create(data, size=8388608, format="qcow2")
         try:
             with VmSsh(self) as vm:
                 drive_id = vm.cap.attach_disk(
@@ -669,7 +671,7 @@ class TestDisk(SingleNodeCase):
         url_name = _uniq("url-import")
 
         # Create a source disk so we have a real qcow2 to serve.
-        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
         try:
             src_path = src.show().placements[0].file_path
 
@@ -738,7 +740,7 @@ class TestDisk(SingleNodeCase):
         src_name = _uniq("xz-src")
         xz_name = _uniq("xz-import")
 
-        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
         try:
             src_path = src.show().placements[0].file_path
             srv_dir = f"/tmp/xz-srv-{token}"
@@ -785,25 +787,25 @@ class TestDisk(SingleNodeCase):
         """``disk.refresh()`` re-probes the on-disk image and writes
         the new virtual size to the DB. We simulate an out-of-band
         change by ``qemu-img resize``-ing the file directly on the
-        node, then assert ``refresh()`` makes ``show().size_mb``
+        node, then assert ``refresh()`` makes ``show().size``
         catch up.
 
         Real-world trigger: an operator manually grew a qcow2 with
         ``qemu-img resize`` and wants the daemon to notice."""
         name = _uniq("refresh")
-        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        disk = self.client.disks.create(name, size=8388608, format="qcow2")
         try:
             path = disk.show().placements[0].file_path
-            assert disk.show().size_mb == 8
+            assert disk.show().size == 8388608
 
             # Out-of-band resize via qemu-img on the node.
             self.node.run(f"qemu-img resize {path} 32M")
 
             # Before refresh, the daemon still believes the old size.
-            assert disk.show().size_mb == 8
+            assert disk.show().size == 8388608
 
             disk.refresh()
-            assert disk.show().size_mb == 32, (
+            assert disk.show().size == 33554432, (
                 f"refresh didn't pick up the new size; show: {disk.show()!r}"
             )
         finally:

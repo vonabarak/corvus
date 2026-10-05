@@ -52,6 +52,7 @@ import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emit
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..), SnapshotInfo (..))
+import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Corvus.Wire.Enums (toCapnpDriveFormat)
 import Data.Aeson (toJSON)
@@ -82,8 +83,8 @@ parseMedia = enumFromText
 --------------------------------------------------------------------------------
 
 handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Bool
-handleDiskCreate fmt conn name format sizeMb mPath ephemeral nodeRef = do
-  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format) mPath ephemeral (entityRefFromText nodeRef))
+handleDiskCreate fmt conn name format size mPath ephemeral nodeRef = do
+  r <- try @SomeException (CR.rpcDiskCreate conn name size (toCapnpDriveFormat format) mPath ephemeral (entityRefFromText nodeRef))
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -195,11 +196,11 @@ handleDiskDelete fmt conn diskRef = do
 
 -- | Handle disk resize command
 handleDiskResize :: OutputFormat -> CapnpConnection -> Text -> Int64 -> IO Bool
-handleDiskResize fmt conn diskRef newSizeMb = do
-  r <- try (CR.rpcDiskResize conn (entityRefFromText diskRef) newSizeMb) :: IO (Either SomeException ())
+handleDiskResize fmt conn diskRef newSize = do
+  r <- try (CR.rpcDiskResize conn (entityRefFromText diskRef) newSize) :: IO (Either SomeException ())
   case r of
     Right () -> do
-      emitOk fmt $ putStrLn $ "Disk resized to " ++ show newSizeMb ++ " MB."
+      emitOk fmt $ putStrLn $ "Disk resized to " ++ formatSize newSize ++ "."
       pure True
     Left e -> do
       emitRpcError fmt e $
@@ -482,7 +483,7 @@ diskColumns =
   [ Column "ID" RightAlign (show . diiId)
   , Column "NAME" LeftAlign (T.unpack . diiName)
   , Column "FORMAT" LeftAlign (T.unpack . enumToText . diiFormat)
-  , Column "SIZE_MB" RightAlign (maybe "-" show . diiSizeMb)
+  , Column "SIZE" RightAlign (maybe "-" formatSize . diiSize)
   , Column "EPH" LeftAlign (\d -> if diiEphemeral d then "yes" else "-")
   , Column "ATTACHED_TO" LeftAlign formatAttached
   ]
@@ -511,7 +512,7 @@ printDiskDetails d = do
                 (diiPlacements d)
     )
   printField "Format" (T.unpack (enumToText $ diiFormat d))
-  printField "Size (MB)" (maybe "(unknown)" show (diiSizeMb d))
+  printField "Size" (maybe "(unknown)" formatSize (diiSize d))
   printField "Ephemeral" (if diiEphemeral d then "true" else "false")
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
   printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map nrName (diiAttachedTo d))))
@@ -540,7 +541,7 @@ snapshotColumns =
   [ Column "ID" RightAlign (show . sniId)
   , Column "NAME" LeftAlign (T.unpack . sniName)
   , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
-  , Column "SIZE_MB" RightAlign (maybe "-" show . sniSizeMb)
+  , Column "SIZE" RightAlign (maybe "-" formatSize . sniSize)
   , Column "LIVE" LeftAlign (boolBadge . sniLive)
   , Column "Q" LeftAlign (boolBadge . sniQuiesced)
   , Column "V" LeftAlign (boolBadge . sniHasVmstate)

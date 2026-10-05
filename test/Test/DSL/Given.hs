@@ -96,8 +96,8 @@ seedTestNode = do
             , nodeAdminState = NodeOnline
             , nodeCreatedAt = now
             , nodeCpuCount = Nothing
-            , nodeRamMbTotal = Nothing
-            , nodeRamMbFree = Nothing
+            , nodeRamTotal = Nothing
+            , nodeRamFree = Nothing
             , nodeStorageBytesTotal = Nothing
             , nodeStorageBytesFree = Nothing
             , nodeLoadAvg1 = Nothing
@@ -148,7 +148,7 @@ insertVm name status = do
           , vmLifecycleRevision = 0
           , vmRuntimeGeneration = Nothing
           , vmCpuCount = 2
-          , vmRamMb = 4096
+          , vmRam = 4294967296
           , vmDescription = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
@@ -187,7 +187,7 @@ insertRunningVmWithGuestAgent name = do
           , vmLifecycleRevision = 0
           , vmRuntimeGeneration = Nothing
           , vmCpuCount = 2
-          , vmRamMb = 4096
+          , vmRam = 4294967296
           , vmDescription = Nothing
           , vmHeadless = True
           , vmGuestAgent = True
@@ -225,7 +225,7 @@ insertHeadlessVm name status = do
           , vmLifecycleRevision = 0
           , vmRuntimeGeneration = Nothing
           , vmCpuCount = 2
-          , vmRamMb = 4096
+          , vmRam = 4294967296
           , vmDescription = Nothing
           , vmHeadless = True
           , vmGuestAgent = False
@@ -251,11 +251,11 @@ insertVmFull
   :: Text
   -> VmStatus
   -> Int
-  -> Int
+  -> Int64
   -> Maybe Text
-  -> Maybe Int
+  -> Maybe Int64
   -> TestM Int64
-insertVmFull name status cpus ramMb desc _pid = do
+insertVmFull name status cpus ram desc _pid = do
   nodeKey <- seedTestNode
   now <- liftIO getCurrentTime
   key <-
@@ -269,7 +269,7 @@ insertVmFull name status cpus ramMb desc _pid = do
           , vmLifecycleRevision = 0
           , vmRuntimeGeneration = Nothing
           , vmCpuCount = cpus
-          , vmRamMb = ramMb
+          , vmRam = ram
           , vmDescription = desc
           , vmHeadless = False
           , vmGuestAgent = False
@@ -306,7 +306,7 @@ defaultVm = do
       , vmLifecycleRevision = 0
       , vmRuntimeGeneration = Nothing
       , vmCpuCount = 2
-      , vmRamMb = 4096
+      , vmRam = 4294967296
       , vmDescription = Nothing
       , vmHeadless = False
       , vmGuestAgent = False
@@ -340,7 +340,7 @@ insertDiskImage name path format = do
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
-          , diskImageSizeMb = Nothing
+          , diskImageSize = Nothing
           , diskImageCreatedAt = now
           , diskImageBackingImageId = Nothing
           , diskImageEphemeral = False
@@ -352,9 +352,9 @@ insertDiskImageFull
   :: Text
   -> Text
   -> DriveFormat
-  -> Maybe Int
+  -> Maybe Int64
   -> TestM Int64
-insertDiskImageFull name path format sizeMb = do
+insertDiskImageFull name path format size = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
@@ -362,7 +362,7 @@ insertDiskImageFull name path format sizeMb = do
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
-          , diskImageSizeMb = sizeMb
+          , diskImageSize = size
           , diskImageCreatedAt = now
           , diskImageBackingImageId = Nothing
           , diskImageEphemeral = False
@@ -374,10 +374,10 @@ insertDiskImageWithBacking
   :: Text
   -> Text
   -> DriveFormat
-  -> Maybe Int
+  -> Maybe Int64
   -> Maybe Int64
   -> TestM Int64
-insertDiskImageWithBacking name path format sizeMb mBackingId = do
+insertDiskImageWithBacking name path format size mBackingId = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
@@ -385,7 +385,7 @@ insertDiskImageWithBacking name path format sizeMb mBackingId = do
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
-          , diskImageSizeMb = sizeMb
+          , diskImageSize = size
           , diskImageCreatedAt = now
           , diskImageBackingImageId = fmap toSqlKey mBackingId
           , diskImageEphemeral = False
@@ -407,7 +407,7 @@ insertDiskImageOnTestNode name path format = do
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
-          , diskImageSizeMb = Nothing
+          , diskImageSize = Nothing
           , diskImageCreatedAt = now
           , diskImageBackingImageId = Nothing
           , diskImageEphemeral = False
@@ -430,7 +430,7 @@ defaultDiskImage = do
     DiskImage
       { diskImageName = "test-disk"
       , diskImageFormat = FormatQcow2
-      , diskImageSizeMb = Just 10240
+      , diskImageSize = Just 10737418240
       , diskImageCreatedAt = now
       , diskImageBackingImageId = Nothing
       , diskImageEphemeral = False
@@ -530,7 +530,7 @@ insertSnapshot diskImageId name = do
           { snapshotDiskImageId = toSqlKey diskImageId
           , snapshotName = name
           , snapshotCreatedAt = now
-          , snapshotSizeMb = Nothing
+          , snapshotSize = Nothing
           , snapshotLive = False
           , snapshotQuiesced = False
           , snapshotHasVmstate = False
@@ -550,7 +550,7 @@ insertSnapshotWithVmstate diskImageId name hasVmstate = do
           { snapshotDiskImageId = toSqlKey diskImageId
           , snapshotName = name
           , snapshotCreatedAt = now
-          , snapshotSizeMb = Nothing
+          , snapshotSize = Nothing
           , snapshotLive = True
           , snapshotQuiesced = False
           , snapshotHasVmstate = hasVmstate
@@ -662,7 +662,7 @@ givenCloudInitVmExists name = do
           , vmLifecycleRevision = 0
           , vmRuntimeGeneration = Nothing
           , vmCpuCount = 2
-          , vmRamMb = 4096
+          , vmRam = 4294967296
           , vmDescription = Nothing
           , vmHeadless = False
           , vmGuestAgent = False

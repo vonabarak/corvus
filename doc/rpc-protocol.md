@@ -453,3 +453,24 @@ module to `package.yaml`'s exposed list before shipping.
 
 For Python bindings, `pycapnp` reads the `.capnp` files at runtime
 (`capnp.load`), so no codegen step is required.
+
+## Size quantities (protocol 3)
+
+RPC protocol 3 represents every capacity in bytes. RAM and disk capacities use
+signed 64-bit integers; existing unsigned byte counters retain their range.
+Fields are named `ram`, `size`, `ramTotal`, `ramFree`, and `totalSize` rather
+than including MiB units. JSON and Python API values are integer byte counts.
+Upgrade the daemon, node agents, CLI and Python clients together.
+
+Human size input in CLI, build YAML, apply YAML and template YAML requires a
+positive integer followed by B, K, M, G or T (case insensitive). Each unit is
+1024 times the previous one. RAM must be a whole multiple of 1M. Text and YAML
+output use the largest exact suffix: `1G`, `1536M`, or `1537B`; JSON output
+always contains numeric bytes. Zero is displayed as `0B`, and unknown values
+retain their null/absent semantics. No legacy size keys or unsuffixed input
+are accepted.
+
+Database migration 9 renames the MiB columns and converts their values to bytes.
+It preserves null and zero values and refuses conversions that overflow Int64.
+Previously truncated disk metadata is not rescanned automatically. Run
+`crv disk refresh <disk>` to inspect and restore an image's exact byte size.

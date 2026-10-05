@@ -42,7 +42,7 @@ data VmInfo = VmInfo
   -- list.
   , viStatus :: !VmStatus
   , viCpuCount :: !Int
-  , viRamMb :: !Int
+  , viRam :: !Int64
   , viHeadless :: !Bool
   , viGuestAgent :: !Bool
   , viTpm :: !Bool
@@ -111,7 +111,7 @@ data VmDetails = VmDetails
   , vdCreatedAt :: !UTCTime
   , vdStatus :: !VmStatus
   , vdCpuCount :: !Int
-  , vdRamMb :: !Int
+  , vdRam :: !Int64
   , vdDescription :: !(Maybe Text)
   , vdDrives :: ![DriveInfo]
   , vdNetIfs :: ![NetIfInfo]
@@ -223,7 +223,7 @@ data VmSnapshotInfo = VmSnapshotInfo
   , vsiVm :: !NamedRef
   , vsiCarrierDisk :: !NamedRef
   , vsiDiskCount :: !Int
-  , vsiTotalSizeMb :: !Int64
+  , vsiTotalSize :: !Int64
   }
   deriving (Eq, Show, Generic)
 

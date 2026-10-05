@@ -10,6 +10,7 @@ import Corvus.Client.Completion
 import Corvus.Client.Parser.Utility
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), GraphicsAdapter (..))
+import Corvus.Size (parseRam)
 import qualified Data.Text as T
 import Options.Applicative
 
@@ -61,13 +62,13 @@ vmCreateCommand =
           <> help "Number of CPU cores"
       )
     <*> option
-      auto
+      (eitherReader parseRam)
       ( long "ram"
           <> short 'm'
-          <> metavar "MB"
-          <> value 1024
+          <> metavar "SIZE"
+          <> value 1073741824
           <> showDefault
-          <> help "Amount of RAM in MB"
+          <> help "Amount of RAM with a B/K/M/G/T suffix (whole MiB)"
       )
     <*> optional
       ( strOption
@@ -265,11 +266,11 @@ vmEditCommand =
       )
     <*> optional
       ( option
-          auto
+          (eitherReader parseRam)
           ( long "ram"
               <> short 'm'
-              <> metavar "MB"
-              <> help "New amount of RAM in MB"
+              <> metavar "SIZE"
+              <> help "New amount of RAM with a B/K/M/G/T suffix (whole MiB)"
           )
       )
     <*> optional

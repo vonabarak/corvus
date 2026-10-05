@@ -35,7 +35,7 @@ toCapnpDiskImageInfo P.DiskImageInfo {..} =
     , CGDisk.name = diiName
     , CGDisk.placements = map mkPlacement diiPlacements
     , CGDisk.format = toCapnpDriveFormat diiFormat
-    , CGDisk.sizeMb = maybe 0 fromIntegral diiSizeMb
+    , CGDisk.size = maybe 0 fromIntegral diiSize
     , CGDisk.createdAt = utcTimeToNanos diiCreatedAt
     , CGDisk.attachedTo = map mkAttachment diiAttachedTo
     , CGDisk.backingImage = toCapnpNamedRefOpt diiBackingImage
@@ -66,7 +66,7 @@ fromCapnpDiskImageInfo CGDisk.DiskImageInfo {..} = do
               placements
           ]
       , P.diiFormat = format'
-      , P.diiSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
+      , P.diiSize = if size == 0 then Nothing else Just (fromIntegral size)
       , P.diiCreatedAt = nanosToUtcTime createdAt
       , P.diiAttachedTo = [fromCapnpNamedRef (CGDisk.vm a) | a <- attachedTo]
       , P.diiBackingImage = fromCapnpNamedRefOpt backingImage
@@ -83,7 +83,7 @@ toCapnpSnapshotInfo P.SnapshotInfo {..} =
     { CGDisk.id = sniId
     , CGDisk.name = sniName
     , CGDisk.createdAt = utcTimeToNanos sniCreatedAt
-    , CGDisk.sizeMb = maybe 0 fromIntegral sniSizeMb
+    , CGDisk.size = maybe 0 fromIntegral sniSize
     , CGDisk.live = sniLive
     , CGDisk.quiesced = sniQuiesced
     , CGDisk.hasVmstate = sniHasVmstate
@@ -95,7 +95,7 @@ fromCapnpSnapshotInfo CGDisk.SnapshotInfo {..} =
     { P.sniId = id
     , P.sniName = name
     , P.sniCreatedAt = nanosToUtcTime createdAt
-    , P.sniSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
+    , P.sniSize = if size == 0 then Nothing else Just (fromIntegral size)
     , P.sniLive = live
     , P.sniQuiesced = quiesced
     , P.sniHasVmstate = hasVmstate

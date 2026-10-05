@@ -187,7 +187,7 @@ pipeline:
       vms:
         - name: corvus-monitor
           cpuCount: 2
-          ramMb: 2048
+          ram: 2G
           description: "Prometheus + Grafana scraping corvus-web /metrics"
           headless: true
           guestAgent: true

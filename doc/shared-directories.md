@@ -89,7 +89,7 @@ Shared directories can be defined in the `sharedDirs` section of a VM in an [app
 vms:
   - name: dev-vm
     cpuCount: 2
-    ramMb: 2048
+    ram: 2G
     drives:
       - disk: root
         interface: virtio

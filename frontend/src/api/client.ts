@@ -1,3 +1,4 @@
+import { parse, stringify, isLosslessNumber } from "lossless-json";
 /**
  * Tiny fetch wrapper.
  *
@@ -51,7 +52,7 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text());
   }
-  return (await res.json()) as T;
+  return decodeJson(await res.text()) as T;
 }
 
 /** Generic mutating request. JSON body is encoded when provided; the
@@ -70,11 +71,29 @@ export async function apiSend<T>(
   };
   if (body !== undefined) {
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
-    init.body = JSON.stringify(body);
+    init.body = stringify(body);
   }
   const res = await fetch(`/api${path}`, init);
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text());
   }
-  return (await res.json()) as T;
+  return decodeJson(await res.text()) as T;
+}
+
+/** Preserve capacity integers before JavaScript can round them.
+ * DTO size fields are explicitly decoded as bigint. */
+export function decodeJson(text: string): unknown {
+  const capacityKeys = new Set([
+    "ram",
+    "size",
+    "ram_total",
+    "ram_free",
+    "storage_bytes_total",
+    "storage_bytes_free",
+    "total_size",
+  ]);
+  return parse(text, (key, value) => {
+    if (!isLosslessNumber(value)) return value;
+    return capacityKeys.has(key) ? BigInt(value.value) : value.valueOf();
+  });
 }

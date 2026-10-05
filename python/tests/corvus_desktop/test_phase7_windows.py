@@ -147,7 +147,7 @@ def test_template_list_refresh_and_populate(
                 id=i,
                 name=f"t{i}",
                 cpu_count=2,
-                ram_mb=1024,
+                ram=1073741824,
                 headless=False,
                 guest_agent=True,
                 tpm=False,

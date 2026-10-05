@@ -51,7 +51,7 @@ block for completion or `crv task show <ID>` to inspect progress and results.
   free storage to hold the bytes being copied (with a 1 GiB safety
   margin).
 - The destination has enough free RAM for the VM (with the
-  scheduler's `ramSafetyMb` margin and any in-flight reservations).
+  scheduler's `ramSafety` margin and any in-flight reservations).
 - Every overlay's backing chain is either already on the
   destination or will be transparently included in the migration's
   copy plan; you don't need to pre-stage a backing image when

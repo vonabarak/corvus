@@ -89,7 +89,7 @@ class TestVmBalloon(SingleNodeCase):
             with pytest.raises(InvalidBalloonTarget):
                 vm.cap.set_balloon(target_bytes=1025 * 1024**2)
             self._assert_cli_error(vm, "invalid_balloon_target", "1025M")
-            assert vm.cap.show().ram_mb == 1024
+            assert vm.cap.show().ram == 1073741824
 
             try:
                 result = self.node.run(
@@ -121,7 +121,7 @@ class TestVmBalloon(SingleNodeCase):
                 t.command == "balloon" and t.entity and t.entity.id == details.id
                 for t in tasks
             )
-            assert vm.cap.show().ram_mb == details.ram_mb
+            assert vm.cap.show().ram == details.ram
 
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline:

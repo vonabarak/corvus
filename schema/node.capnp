@@ -28,8 +28,8 @@ struct NodeInfo {
   createdAt            @6  :Int64;  # POSIX nanoseconds
   # Latest agent-pushed counters (0 == never pushed).
   cpuCount             @7  :Int32;
-  ramMbTotal           @8  :Int32;
-  ramMbFree            @9  :Int32;
+  ramTotal           @8  :Int64;
+  ramFree            @9  :Int64;
   storageBytesTotal    @10 :Int64;
   storageBytesFree     @11 :Int64;
   loadAvg1             @12 :Float64;
@@ -54,8 +54,8 @@ struct NodeDetails {
   adminState           @7  :Enums.NodeAdminState;
   createdAt            @8  :Int64;
   cpuCount             @9  :Int32;
-  ramMbTotal           @10 :Int32;
-  ramMbFree            @11 :Int32;
+  ramTotal           @10 :Int64;
+  ramFree            @11 :Int64;
   storageBytesTotal    @12 :Int64;
   storageBytesFree     @13 :Int64;
   loadAvg1             @14 :Float64;

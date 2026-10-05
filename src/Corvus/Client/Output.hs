@@ -42,6 +42,7 @@ import Capnp (Parsed)
 import qualified Capnp.Gen.Capnp.Rpc as CapnpRpc
 import Capnp.Rpc.Errors ()
 import Control.Exception (Exception, SomeException, fromException, toException)
+import Corvus.Client.Human (HumanJSON (..))
 import Corvus.Client.Types (BorderStyleOpt (..), Options (..), OutputFormat (..))
 import Corvus.Wire.Error (errorCodeText, parseWireError)
 import Data.Aeson (Key, ToJSON, Value, encode, object, toJSON, (.=))
@@ -70,7 +71,8 @@ outputValue JsonOutput v = BL.putStrLn (encode v)
 outputValue YamlOutput v = BS.putStr (Yaml.encode v)
 outputValue TextOutput _ = pure ()
 
-outputResult :: (ToJSON a) => OutputFormat -> a -> IO ()
+outputResult :: (HumanJSON a) => OutputFormat -> a -> IO ()
+outputResult YamlOutput a = outputValue YamlOutput (humanJSON a)
 outputResult fmt a = outputValue fmt (toJSON a)
 
 outputOk :: OutputFormat -> IO ()
@@ -156,7 +158,7 @@ emitError fmt code msg textAction
   | otherwise = textAction
 
 -- | Emit a full 'ToJSON' value for list/show commands.
-emitResult :: (ToJSON a) => OutputFormat -> a -> IO () -> IO ()
+emitResult :: (HumanJSON a) => OutputFormat -> a -> IO () -> IO ()
 emitResult fmt val textAction
   | isStructured fmt = outputResult fmt val
   | otherwise = textAction

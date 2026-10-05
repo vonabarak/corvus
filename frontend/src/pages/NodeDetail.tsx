@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NodeStateBadge } from "@/components/NodeStateBadge";
-import { formatBytes, formatMb } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 
 interface FieldProps {
   label: string;
@@ -22,9 +22,9 @@ function Field({ label, value }: FieldProps) {
   );
 }
 
-function fmtPercent(used: number, total: number): string {
-  if (total === 0) return "—";
-  return `${((used / total) * 100).toFixed(1)}%`;
+function fmtPercent(used: bigint, total: bigint): string {
+  if (total === 0n) return "—";
+  return `${(Number((used * 1000n) / total) / 10).toFixed(1)}%`;
 }
 
 export default function NodeDetail() {
@@ -64,9 +64,7 @@ export default function NodeDetail() {
   if (!node) return null;
 
   const ramUsed =
-    node.ram_mb_total !== null && node.ram_mb_free !== null
-      ? node.ram_mb_total - node.ram_mb_free
-      : null;
+    node.ram_total !== null && node.ram_free !== null ? node.ram_total - node.ram_free : null;
   const storageUsed =
     node.storage_bytes_total !== null && node.storage_bytes_free !== null
       ? node.storage_bytes_total - node.storage_bytes_free
@@ -133,12 +131,12 @@ export default function NodeDetail() {
           <Field
             label="RAM"
             value={
-              node.ram_mb_total !== null ? (
+              node.ram_total !== null ? (
                 <div>
-                  <div>{formatMb(node.ram_mb_total)}</div>
-                  {ramUsed !== null && node.ram_mb_total > 0 && (
+                  <div>{formatBytes(node.ram_total)}</div>
+                  {ramUsed !== null && node.ram_total > 0 && (
                     <div className="text-xs text-muted-foreground">
-                      {formatMb(ramUsed)} used ({fmtPercent(ramUsed, node.ram_mb_total)})
+                      {formatBytes(ramUsed)} used ({fmtPercent(ramUsed, node.ram_total)})
                     </div>
                   )}
                 </div>

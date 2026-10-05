@@ -136,7 +136,7 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
             alpha_vm = client.vms.create(
                 "mn-alpha-vm",
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self_name,
                 headless=True,
                 guest_agent=False,
@@ -171,7 +171,7 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
             beta_vm = client.vms.create(
                 "mn-beta-vm",
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=beta_name,
                 headless=True,
                 guest_agent=False,

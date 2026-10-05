@@ -20,7 +20,7 @@ import Corvus.Handlers.Disk.Agent
   , createOverlayViaAgent
   , deleteImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
@@ -50,8 +50,8 @@ import System.FilePath (takeExtension, takeFileName, (</>))
 import Corvus.Handlers.Disk.Placement (nodeBasePathFor, withSelectedDiskNode)
 
 -- | Create a qcow2 overlay backed by an existing disk image
-handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int -> Maybe T.Text -> Bool -> IO Response
-handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath ephemeral = runServerLogging state $ do
+handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int64 -> Maybe T.Text -> Bool -> IO Response
+handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral = runServerLogging state $ do
   logInfoN $ "Creating overlay '" <> name <> "' backed by disk " <> T.pack (show baseDiskId)
 
   case sanitizeDiskName name of
@@ -109,7 +109,7 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath ephemeral = r
                                     DiskImage
                                       { diskImageName = safeName
                                       , diskImageFormat = FormatQcow2
-                                      , diskImageSizeMb = diskImageSizeMb baseDisk
+                                      , diskImageSize = diskImageSize baseDisk
                                       , diskImageCreatedAt = now
                                       , diskImageBackingImageId = Just (toSqlKey baseDiskId)
                                       , diskImageEphemeral = ephemeral
@@ -119,20 +119,21 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath ephemeral = r
                             )
                             (ssDbPool state)
                       -- Resize if requested
-                      case mResizeMb of
+                      case mResize of
                         Just newSize -> do
                           res <- liftIO $ resizeImageViaAgent state nid overlayFilePath (fromIntegral newSize)
                           case res of
-                            ImageSuccess ->
-                              liftIO $ runSqlPool (update diskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
+                            ImageSuccess -> do
+                              actualSize <- liftIO $ getImageSizeViaAgent state nid overlayFilePath
+                              liftIO $ runSqlPool (update diskId [DiskImageSize =. actualSize]) (ssDbPool state)
                             _ -> logWarnN "Failed to resize overlay after creation"
                         Nothing -> pure ()
                       logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
                       pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Clone a disk image
-handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int -> Maybe Text -> Bool -> IO Response
-handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServerLogging state $ do
+handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int64 -> Maybe Text -> Bool -> IO Response
+handleDiskClone state name baseDiskId mResize optionalPath ephemeral = runServerLogging state $ do
   logInfoN $ "Cloning disk image " <> T.pack (show baseDiskId) <> " to '" <> name <> "'"
 
   case sanitizeDiskName name of
@@ -182,7 +183,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServ
                                     DiskImage
                                       { diskImageName = safeName
                                       , diskImageFormat = diskImageFormat baseDisk
-                                      , diskImageSizeMb = diskImageSizeMb baseDisk
+                                      , diskImageSize = diskImageSize baseDisk
                                       , diskImageCreatedAt = now
                                       , diskImageBackingImageId = diskImageBackingImageId baseDisk
                                       , diskImageEphemeral = ephemeral
@@ -197,12 +198,13 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServ
                             )
                             (ssDbPool state)
                       -- Resize if requested
-                      case mResizeMb of
+                      case mResize of
                         Just newSize -> do
                           res <- liftIO $ resizeImageViaAgent state nid destPath (fromIntegral newSize)
                           case res of
-                            ImageSuccess ->
-                              liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
+                            ImageSuccess -> do
+                              actualSize <- liftIO $ getImageSizeViaAgent state nid destPath
+                              liftIO $ runSqlPool (update newDiskId [DiskImageSize =. actualSize]) (ssDbPool state)
                             _ -> logWarnN "Failed to resize clone after creation"
                         Nothing -> pure ()
                       logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
@@ -211,7 +213,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServ
 data DiskCreateOverlay = DiskCreateOverlay
   { dcoName :: Text
   , dcoBaseDiskId :: Int64
-  , dcoResizeMb :: Maybe Int
+  , dcoResize :: Maybe Int64
   , dcoPath :: Maybe Text
   , dcoEphemeral :: Bool
   }
@@ -220,12 +222,12 @@ instance Action DiskCreateOverlay where
   actionSubsystem _ = SubDisk
   actionCommand _ = "overlay"
   actionEntityName = Just . dcoName
-  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResizeMb a) (dcoPath a) (dcoEphemeral a)
+  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a)
 
 data DiskClone = DiskClone
   { dclName :: Text
   , dclBaseDiskId :: Int64
-  , dclResizeMb :: Maybe Int
+  , dclResize :: Maybe Int64
   , dclPath :: Maybe Text
   , dclEphemeral :: Bool
   }
@@ -234,4 +236,4 @@ instance Action DiskClone where
   actionSubsystem _ = SubDisk
   actionCommand _ = "clone"
   actionEntityName = Just . dclName
-  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResizeMb a) (dclPath a) (dclEphemeral a)
+  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a)

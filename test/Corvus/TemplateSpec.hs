@@ -24,7 +24,7 @@ minimalYaml name =
     <> name
     <> "\n\
        \cpuCount: 2\n\
-       \ramMb: 1024\n\
+       \ram: 1024M\n\
        \drives: []\n"
 
 spec :: Spec
@@ -99,7 +99,7 @@ spec = sequential $ withTestDb $ do
       let yaml =
             "name: tpl-sd\n\
             \cpuCount: 1\n\
-            \ramMb: 512\n\
+            \ram: 512M\n\
             \drives: []\n\
             \sharedDirs:\n\
             \  - path: /srv/data\n\
@@ -129,7 +129,7 @@ spec = sequential $ withTestDb $ do
       let yaml =
             "name: tpl-dup-tag\n\
             \cpuCount: 1\n\
-            \ramMb: 512\n\
+            \ram: 512M\n\
             \drives: []\n\
             \sharedDirs:\n\
             \  - path: /a\n\

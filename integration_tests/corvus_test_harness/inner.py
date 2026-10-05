@@ -166,7 +166,7 @@ def _wait_for_self_node_ready(
     last_err: BaseException | None = None
     while time.monotonic() < deadline:
         try:
-            d = client.disks.create("__harness_probe__", size_mb=1)
+            d = client.disks.create("__harness_probe__", size=1048576)  # 1Mb
             d.delete()
             return
         except CorvusError as e:

@@ -134,7 +134,7 @@ rpcDiskCreate
   -> Text
   -- ^ name
   -> Int64
-  -- ^ size (MB)
+  -- ^ size (bytes)
   -> CGE.DriveFormat
   -- ^ format (wire-side enum)
   -> Maybe Text
@@ -144,13 +144,13 @@ rpcDiskCreate
   -> EntityRef
   -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskCreate conn name sizeMb fmt mPath ephemeral nodeRef = do
+rpcDiskCreate conn name size fmt mPath ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let inner =
         CGDisk.DiskCreateParams
           { CGDisk.name = name
-          , CGDisk.sizeMb = sizeMb
+          , CGDisk.size = size
           , CGDisk.format = fmt
           , CGDisk.ephemeral = ephemeral
           , CGDisk.node = toCapnpEntityRef nodeRef
@@ -169,9 +169,9 @@ rpcDiskDelete conn ref = do
   pure ()
 
 rpcDiskResize :: CapnpConnection -> EntityRef -> Int64 -> IO ()
-rpcDiskResize conn ref newSizeMb = do
+rpcDiskResize conn ref newSize = do
   diskClient <- getDiskClient conn ref
-  _ <- callOn #resize CGDisk.Disk'resize'params {CGDisk.newSizeMb = newSizeMb} diskClient
+  _ <- callOn #resize CGDisk.Disk'resize'params {CGDisk.newSize = newSize} diskClient
   pure ()
 
 -- ---------------------------------------------------------------------

@@ -16,6 +16,7 @@ import qualified Corvus.Protocol.Node as P
 import Corvus.Wire.Enums (fromCapnpNodeAdminState, toCapnpNodeAdminState)
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
+import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
@@ -34,8 +35,8 @@ toCapnpNodeInfo P.NodeInfo {..} =
     , CGNode.adminState = toCapnpNodeAdminState noiAdminState
     , CGNode.createdAt = utcTimeToNanos noiCreatedAt
     , CGNode.cpuCount = maybe 0 fromIntegral noiCpuCount
-    , CGNode.ramMbTotal = maybe 0 fromIntegral noiRamMbTotal
-    , CGNode.ramMbFree = maybe 0 fromIntegral noiRamMbFree
+    , CGNode.ramTotal = maybe 0 fromIntegral noiRamTotal
+    , CGNode.ramFree = maybe 0 fromIntegral noiRamFree
     , CGNode.storageBytesTotal = maybe 0 fromIntegral noiStorageBytesTotal
     , CGNode.storageBytesFree = maybe 0 fromIntegral noiStorageBytesFree
     , CGNode.loadAvg1 = fromMaybe 0 noiLoadAvg1
@@ -58,8 +59,8 @@ fromCapnpNodeInfo CGNode.NodeInfo {..} = do
       , P.noiAdminState = st
       , P.noiCreatedAt = nanosToUtcTime createdAt
       , P.noiCpuCount = nonZero cpuCount
-      , P.noiRamMbTotal = nonZero ramMbTotal
-      , P.noiRamMbFree = nonZero ramMbFree
+      , P.noiRamTotal = nonZero ramTotal
+      , P.noiRamFree = nonZero ramFree
       , P.noiStorageBytesTotal = nonZeroInt64 storageBytesTotal
       , P.noiStorageBytesFree = nonZeroInt64 storageBytesFree
       , P.noiLoadAvg1 = if loadAvg1 == 0 then Nothing else Just loadAvg1
@@ -86,8 +87,8 @@ toCapnpNodeDetails P.NodeDetails {..} =
     , CGNode.adminState = toCapnpNodeAdminState nodAdminState
     , CGNode.createdAt = utcTimeToNanos nodCreatedAt
     , CGNode.cpuCount = maybe 0 fromIntegral nodCpuCount
-    , CGNode.ramMbTotal = maybe 0 fromIntegral nodRamMbTotal
-    , CGNode.ramMbFree = maybe 0 fromIntegral nodRamMbFree
+    , CGNode.ramTotal = maybe 0 fromIntegral nodRamTotal
+    , CGNode.ramFree = maybe 0 fromIntegral nodRamFree
     , CGNode.storageBytesTotal = maybe 0 fromIntegral nodStorageBytesTotal
     , CGNode.storageBytesFree = maybe 0 fromIntegral nodStorageBytesFree
     , CGNode.loadAvg1 = fromMaybe 0 nodLoadAvg1
@@ -116,8 +117,8 @@ fromCapnpNodeDetails CGNode.NodeDetails {..} = do
       , P.nodAdminState = st
       , P.nodCreatedAt = nanosToUtcTime createdAt
       , P.nodCpuCount = nonZero cpuCount
-      , P.nodRamMbTotal = nonZero ramMbTotal
-      , P.nodRamMbFree = nonZero ramMbFree
+      , P.nodRamTotal = nonZero ramTotal
+      , P.nodRamFree = nonZero ramFree
       , P.nodStorageBytesTotal = nonZeroInt64 storageBytesTotal
       , P.nodStorageBytesFree = nonZeroInt64 storageBytesFree
       , P.nodLoadAvg1 = if loadAvg1 == 0 then Nothing else Just loadAvg1
@@ -140,11 +141,11 @@ fromCapnpNodeDetails CGNode.NodeDetails {..} = do
 -- genuine zero (e.g. a node that legitimately has 0 free RAM) — but
 -- such a node wouldn't be schedulable anyway, so the lossy mapping
 -- is acceptable in v1.
-nonZero :: (Integral a) => a -> Maybe Int
+nonZero :: (Integral a, Num b) => a -> Maybe b
 nonZero 0 = Nothing
 nonZero n = Just (fromIntegral n)
 
-nonZeroInt64 :: (Integral a) => a -> Maybe Int
+nonZeroInt64 :: (Integral a) => a -> Maybe Int64
 nonZeroInt64 = nonZero
 
 emptyToNothing :: Text -> Maybe Text

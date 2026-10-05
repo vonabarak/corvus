@@ -161,7 +161,7 @@ class TestSerialConsole(SingleNodeCase):
         vm_cap = self.client.vms.create(
             name,
             cpu_count=1,
-            ram_mb=512,
+            ram=536870912,
             headless=True,
             guest_agent=False,
             cloud_init=False,

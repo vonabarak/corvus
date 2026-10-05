@@ -34,7 +34,7 @@ pipeline:
         - name: corvus-test-installer
           description: "Synthetic installer-strategy bake (integration-test fixture)"
           cpuCount: 1
-          ramMb: 256
+          ram: 256M
           headless: true
           cloudInit: false
           # Installer strategy: no QGA inside the bake VM. The build
@@ -50,7 +50,7 @@ pipeline:
               media: disk
               strategy: create
               format: raw
-              sizeMb: 64
+              size: 64M
             # The synthetic-installer ISO. BIOS boot via seabios —
             # corvus's command builder emits `-boot order=dc` when
             # any drive has `media: cdrom`, so seabios tries this
@@ -85,7 +85,7 @@ pipeline:
 
       vm:
         cpuCount: 1
-        ramMb: 256
+        ram: 256M
 
       # No firmware prompt to dismiss — seabios boots isolinux
       # straight through. Leaving this empty is the explicit

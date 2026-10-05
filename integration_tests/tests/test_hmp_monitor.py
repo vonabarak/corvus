@@ -104,7 +104,7 @@ class TestHmpMonitor(SingleNodeCase):
         vm = self.client.vms.create(
             name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         try:

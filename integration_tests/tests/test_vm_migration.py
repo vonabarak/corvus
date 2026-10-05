@@ -120,7 +120,7 @@ def _wait_until_node_stats(
     client: Client, node_name: str, *, timeout_sec: float = 30.0
 ) -> None:
     """Stricter readiness probe — wait until the agent has pushed a
-    full stats snapshot (so `ram_mb_free` is populated). Required by
+    full stats snapshot (so `ram_free` is populated). Required by
     tests that depend on the capacity gate refusing (the gate is
     optimistic when stats are still NULL)."""
     deadline = time.monotonic() + timeout_sec
@@ -130,7 +130,7 @@ def _wait_until_node_stats(
         except ServerError:
             time.sleep(0.5)
             continue
-        if details.ram_mb_free is not None:
+        if details.ram_free is not None:
             return
         time.sleep(0.5)
     raise AssertionError(
@@ -231,7 +231,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         vm = self.client_alpha.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=512,
+            ram=536870912,
             node=self.alpha_name,
             headless=True,
             guest_agent=guest_agent,
@@ -272,7 +272,7 @@ class TestVmMigration(_MigrationCase):
         vm_name: str,
         disk_name: str,
         *,
-        size_mb: int = 16,
+        size: int = 16777216,
         cloud_init: bool = False,
         guest_agent: bool = False,
         attach_disk: bool = True,
@@ -281,11 +281,11 @@ class TestVmMigration(_MigrationCase):
         the disk, leave the VM in `stopped`. Returns the `Vm`
         client capability.
         """
-        self.client_alpha.disks.create(disk_name, size_mb=size_mb, format="qcow2")
+        self.client_alpha.disks.create(disk_name, size=size, format="qcow2")
         vm = self.client_alpha.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=128,
+            ram=134217728,
             node=self.alpha_name,
             headless=True,
             guest_agent=guest_agent,
@@ -307,7 +307,7 @@ class TestVmMigration(_MigrationCase):
         ``Vm/Migrate.hs`` used ``takeFileName srcAbs`` to derive the
         destination path, silently flattening any source-side
         subdirectory layout. The rest of the migration tests use
-        ``disks.create(name, size_mb=…)`` with no path option, which
+        ``disks.create(name, size=…)`` with no path option, which
         always yields a top-level file — so the flattening was
         invisible because basename == stored path.
         """
@@ -316,7 +316,7 @@ class TestVmMigration(_MigrationCase):
         cloned_disk = _uniq("mig-sub-disk")
         subdir = _uniq("migsub")
         try:
-            self.client_alpha.disks.create(base_disk, size_mb=8, format="qcow2")
+            self.client_alpha.disks.create(base_disk, size=8388608, format="qcow2")
             # ``path`` with a trailing slash is interpreted as "this
             # is a directory; append the auto-generated filename",
             # so the resulting ``diskImageNodeFilePath`` is
@@ -334,7 +334,7 @@ class TestVmMigration(_MigrationCase):
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -476,7 +476,7 @@ class TestVmMigration(_MigrationCase):
         ro_disk = _uniq("mig-mix-ro")
         vm = self._make_stopped_vm_with_disk(vm_name, rw_disk)
         try:
-            self.client_alpha.disks.create(ro_disk, size_mb=8, format="qcow2")
+            self.client_alpha.disks.create(ro_disk, size=8388608, format="qcow2")
             try:
                 vm.attach_disk(ro_disk, interface="virtio", read_only=True)
                 tid = vm.migrate(self.beta_name)
@@ -597,7 +597,7 @@ class TestVmMigration(_MigrationCase):
 
     def test_migrate_refuses_undersized_ram(self) -> None:
         """A VM whose RAM requirement exceeds beta's free RAM is
-        refused. We use an absurdly large ram_mb so the request
+        refused. We use an absurdly large ram so the request
         outsizes any plausible nested-VM host.
 
         The capacity check on the destination is optimistic until
@@ -608,12 +608,12 @@ class TestVmMigration(_MigrationCase):
         _wait_until_node_stats(self.client_alpha, self.beta_name)
         vm_name = _uniq("mig-ram")
         disk_name = _uniq("mig-ram-disk")
-        self.client_alpha.disks.create(disk_name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(disk_name, size=16777216, format="qcow2")
         try:
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=1024 * 1024,  # 1 TiB — guaranteed too big
+                ram=(1024 * 1024) * 1048576,  # 1 TiB — guaranteed too big
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,
@@ -726,7 +726,7 @@ class TestVmMigration(_MigrationCase):
         base = _uniq("chain-base")
         overlay = _uniq("chain-ovl")
         vm_name = _uniq("chain-vm")
-        self.client_alpha.disks.create(base, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(base, size=16777216, format="qcow2")
         try:
             self.client_alpha.disks.create_overlay(overlay, base)
             # Pre-condition: backing has a placement on alpha only.
@@ -736,7 +736,7 @@ class TestVmMigration(_MigrationCase):
             vm = self.client_alpha.vms.create(
                 vm_name,
                 cpu_count=1,
-                ram_mb=128,
+                ram=134217728,
                 node=self.alpha_name,
                 headless=True,
                 guest_agent=False,

@@ -20,7 +20,7 @@ def _disk(
     disk_id: int = 1,
     name: str = "root",
     format: str = "qcow2",
-    size_mb: int | None = 4096,
+    size: int | None = 4096,
     placements: list[DiskImagePlacement] | None = None,
     attached_to: list[DiskAttachment] | None = None,
     backing: NamedRef | None = None,
@@ -34,7 +34,7 @@ def _disk(
         placements=placements
         or [DiskImagePlacement(node=NamedRef(id=1, name="node-a"), file_path="/x")],
         attached_to=attached_to or [],
-        size_mb=size_mb,
+        size=size,
         backing_image=backing,
         ephemeral=ephemeral,
     )
@@ -56,7 +56,7 @@ def test_display_values(model: DiskTableModel) -> None:
             _disk(
                 name="root",
                 format="qcow2",
-                size_mb=2048,
+                size=2147483648,
                 backing=NamedRef(id=5, name="ubuntu24"),
                 attached_to=[DiskAttachment(vm=NamedRef(id=10, name="web-1"))],
                 ephemeral=True,
@@ -70,7 +70,7 @@ def test_display_values(model: DiskTableModel) -> None:
 
     assert cell(DiskTableModel.COL_NAME) == "root"
     assert cell(DiskTableModel.COL_FORMAT) == "qcow2"
-    assert cell(DiskTableModel.COL_SIZE) == "2.0 GB"
+    assert cell(DiskTableModel.COL_SIZE) == "2G"
     assert cell(DiskTableModel.COL_PLACEMENT) == "node-a"
     assert cell(DiskTableModel.COL_BACKING) == "ubuntu24"
     assert cell(DiskTableModel.COL_ATTACHED) == "web-1"
@@ -78,10 +78,10 @@ def test_display_values(model: DiskTableModel) -> None:
 
 
 def test_small_size_uses_mb(model: DiskTableModel) -> None:
-    model.set_disks([_disk(size_mb=512)])
+    model.set_disks([_disk(size=536870912)])
     assert (
         model.data(model.index(0, DiskTableModel.COL_SIZE), Qt.ItemDataRole.DisplayRole)
-        == "512 MB"
+        == "512M"
     )
 
 

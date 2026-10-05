@@ -78,7 +78,7 @@ pipeline:
         - name: windows-server-2025-installer
           description: "Windows Server 2025 unattended installer (bake-only)"
           cpuCount: 4
-          ramMb: 4096
+          ram: 4G
           headless: false
           cloudInit: false
           # The installer ISO drives the entire bake; QGA is installed
@@ -95,7 +95,7 @@ pipeline:
               media: disk
               strategy: create
               format: qcow2
-              sizeMb: 40960
+              size: 40G
               cacheType: writeback
             # UEFI firmware
             - *ovmf_code
@@ -149,7 +149,7 @@ pipeline:
 
       vm:
         cpuCount: 4
-        ramMb: 4096
+        ram: 4G
 
       # Dismiss UEFI's "Press any key to boot from CD or DVD..." prompt.
       # OVMF prints this once on first boot of the Windows installer
@@ -178,7 +178,7 @@ pipeline:
       templates:
         - name: windows-server-2025
           cpuCount: 8
-          ramMb: 8192
+          ram: 8G
           cloudInit: true
           guestAgent: true
           headless: false
@@ -193,6 +193,6 @@ pipeline:
               strategy: overlay
               cacheType: writeback
               discard: true
-              sizeMb: 40960
+              size: 40G
           networkInterfaces:
             - network: corvus

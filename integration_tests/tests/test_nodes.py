@@ -34,7 +34,7 @@ def _wait_for_first_push(
 ) -> NodeDetails:
     """Block until the inner daemon has received its first NodeStats push.
 
-    Capacity fields (`ram_mb_free`, `storage_bytes_free`, `load_avg1`)
+    Capacity fields (`ram_free`, `storage_bytes_free`, `load_avg1`)
     are `None` until the nodeagent's first push (~10 s post-connect).
     Returns the populated `NodeDetails`. Raises `AssertionError` on
     timeout.
@@ -42,12 +42,10 @@ def _wait_for_first_push(
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         details = client.nodes.get(node_name).show()
-        if details.ram_mb_free is not None:
+        if details.ram_free is not None:
             return details
         time.sleep(0.5)
-    raise AssertionError(
-        f"node {node_name!r} ram_mb_free still None after {timeout_sec}s"
-    )
+    raise AssertionError(f"node {node_name!r} ram_free still None after {timeout_sec}s")
 
 
 class TestNodes(SingleNodeCase):
@@ -88,8 +86,8 @@ class TestNodes(SingleNodeCase):
         # kernel + version. We don't assert exact values (host
         # kernel varies), just presence.
         assert details.cpu_count is not None and details.cpu_count > 0
-        assert details.ram_mb_total is not None and details.ram_mb_total > 0
-        assert details.ram_mb_free is not None
+        assert details.ram_total is not None and details.ram_total > 0
+        assert details.ram_free is not None
         assert details.kernel_release, details.kernel_release
         assert details.agent_version, details.agent_version
         assert details.last_node_agent_push_at is not None
@@ -159,7 +157,7 @@ class TestNodes(SingleNodeCase):
                 self.client.vms.create(
                     vm_name,
                     cpu_count=1,
-                    ram_mb=256,
+                    ram=268435456,
                     headless=True,
                 )
             msg = str(excinfo.value)
@@ -170,7 +168,7 @@ class TestNodes(SingleNodeCase):
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         try:
@@ -190,7 +188,7 @@ class TestNodes(SingleNodeCase):
         vm = self.client.vms.create(
             vm_name,
             cpu_count=1,
-            ram_mb=256,
+            ram=268435456,
             headless=True,
         )
         try:

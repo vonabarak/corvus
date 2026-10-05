@@ -73,7 +73,7 @@ class DiskListWidget(QWidget):
             if p["mode"] == "blank":
                 self._bridge.disk_create(
                     p["name"],
-                    p["size_mb"],
+                    p["size"],
                     format=p["format"],
                     ephemeral=p["ephemeral"],
                     node=p["node"],

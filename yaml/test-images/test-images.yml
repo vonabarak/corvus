@@ -29,7 +29,7 @@ disks:
 vms:
   - name: alpine-test
     cpuCount: 4
-    ramMb: 4096
+    ram: 4G
     description: "alpine-test"
     cloudInit: true
     guestAgent: true
@@ -49,7 +49,7 @@ vms:
 
   - name: windows-server-2025
     cpuCount: 4
-    ramMb: 4096
+    ram: 4G
     description: "Windows Server 2025"
     cloudInit: true
     guestAgent: true

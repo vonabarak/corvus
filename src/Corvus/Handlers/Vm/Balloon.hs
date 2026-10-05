@@ -35,7 +35,7 @@ instance Action VmSetBalloon where
       Just vm
         | vmStatus vm /= VmRunning -> pure RespVmNotRunning
         | not (vmBalloon vm) -> pure RespBalloonDeviceNotEnabled
-        | target == 0 || toInteger target > toInteger (vmRamMb vm) * 1024 * 1024 ->
+        | target == 0 || toInteger target > toInteger (vmRam vm) ->
             pure RespInvalidBalloonTarget
         | otherwise -> do
             result <- withVmNodeAgent state vmId $ \nac -> NOA.vmSetBalloon nac vmId target

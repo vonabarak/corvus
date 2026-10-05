@@ -55,7 +55,7 @@ pipeline:
       templates:
         - name: gentoo-cloud-standalone
           cpuCount: 4
-          ramMb: 2048
+          ram: 2G
           cloudInit: true
           guestAgent: true
           description: "Gentoo bake template (no host mounts; official mirrors only)"
@@ -104,7 +104,7 @@ pipeline:
 
       target:
         format: qcow2
-        sizeGb: 20
+        size: 20G
         path: BaseImages/Gentoo/
         compact: true
         ifExists: overwrite
@@ -113,7 +113,7 @@ pipeline:
 
       vm:
         cpuCount: 4
-        ramMb: 2048
+        ram: 2G
 
       shellDefaults:
         preamble: "set -eux"

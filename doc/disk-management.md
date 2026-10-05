@@ -3,14 +3,14 @@
 ## Commands
 
 ```bash
-crv disk create <name> --size <MB> [--format <fmt>] [--path <path>] [--node <node>] [--ephemeral]
+crv disk create <name> --size <SIZE> [--format <fmt>] [--path <path>] [--node <node>] [--ephemeral]
 crv disk register <name> <path> [--format <fmt>] [--backing <disk>] [--node <node>] [--ephemeral]
 crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--node <node>] [--ephemeral] [--wait]
 crv disk upload <name> <local-file> --format <fmt> [--path <dest>] [--node <node>] [--ephemeral] [--overwrite]
 crv disk overlay <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk clone <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk rebase <disk> [--backing <new_backing>] [--unsafe]
-crv disk resize <disk> --size <MB>
+crv disk resize <disk> --size <SIZE>
 crv disk refresh <disk>
 crv disk list
 crv disk show <disk>
@@ -58,10 +58,10 @@ fallback). Multi-node operators are responsible for explicit
 ## Creating Disk Images
 
 ```bash
-crv disk create boot --size 20480 --format qcow2
-crv disk create data --size 102400 -f raw
-crv disk create scratch --size 4096 --path project/
-crv disk create test-overlay --size 8192 --ephemeral
+crv disk create boot --size 2G --format qcow2
+crv disk create data --size 100G -f raw
+crv disk create scratch --size 500M --path project/
+crv disk create test-overlay --size 1T --ephemeral
 ```
 
 ## Ephemeral disks
@@ -160,7 +160,7 @@ crv disk rebase overlay --backing new-base --unsafe   # Pointer-only (no data co
 ## Resizing
 
 ```bash
-crv disk resize boot --size 40960   # Resize to 40 GB
+crv disk resize boot --size 40G   # Resize to 40 GB
 ```
 
 The VM must be stopped. Only grows — shrinking is not supported.

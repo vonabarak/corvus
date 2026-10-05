@@ -74,12 +74,12 @@ interface Session {
   # existing Haskell `ImageResult` ADT.
   # -------------------------------------------------------------------
 
-  diskCreate         @1 (path :Text, format :Text, sizeMb :Int64)
+  diskCreate         @1 (path :Text, format :Text, size :Int64)
                         -> (result :DiskOpResult);
   diskCreateOverlay  @2 (overlayPath :Text, backingPath :Text, backingFormat :Text)
                         -> (result :DiskOpResult);
   diskDelete         @3 (path :Text) -> (result :DiskOpResult);
-  diskResize         @4 (path :Text, newSizeMb :Int64)
+  diskResize         @4 (path :Text, newSize :Int64)
                         -> (result :DiskOpResult);
   # `hasNewBacking = false` flattens (removes backing); `true` rebases.
   diskRebase         @5 (overlayPath :Text,
@@ -532,8 +532,8 @@ enum DiskOpKind {
 # DiskInspectInfo mirrors Corvus.Qemu.Image.ImageInfo.
 struct DiskInspectInfo {
   format         @0 :Text;     # "qcow2" / "raw" / …; matches DriveFormat enum
-  virtualSizeMb  @1 :Int64;
-  actualSizeMb   @2 :Int64;    # 0 if unknown
+  virtualSize  @1 :Int64;
+  actualSize   @2 :Int64;    # 0 if unknown
   hasActualSize  @3 :Bool;
   snapshots      @4 :List(DiskSnapshotInfo);
 }
@@ -541,7 +541,7 @@ struct DiskInspectInfo {
 struct DiskSnapshotInfo {
   id      @0 :Text;
   name    @1 :Text;
-  sizeMb  @2 :Int64;   # 0 if unknown
+  size  @2 :Int64;   # 0 if unknown
   hasSize @3 :Bool;
 }
 
@@ -557,7 +557,7 @@ struct VmSpec {
   vmId             @0  :Int64;
   name             @1  :Text;
   cpuCount         @2  :Int32;
-  ramMb            @3  :Int32;
+  ram            @3  :Int64;
   headless         @4  :Bool;
   guestAgent       @5  :Bool;
   vsockCid         @6  :UInt32;    # 0 when no vsock
@@ -749,8 +749,8 @@ struct VmStatusSnapshot {
 # and the agent's baked-in version.
 struct NodeStats {
   cpuCount          @0 :Int32;           # 0 == unknown
-  ramMbTotal        @1 :Int32;
-  ramMbFree         @2 :Int32;
+  ramTotal        @1 :Int64;
+  ramFree         @2 :Int64;
   storageBytesTotal @3 :Int64;
   storageBytesFree  @4 :Int64;
   loadAvg1          @5 :Float64;

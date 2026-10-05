@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from corvus_client.sizes import format_size, parse_size
 from corvus_client.types import DiskImageInfo, SnapshotInfo
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QFontMetrics
@@ -35,14 +36,6 @@ if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
 
 
-def _fmt_size_mb(size_mb: int | None) -> str:
-    if size_mb is None:
-        return "—"
-    if size_mb < 1024:
-        return f"{size_mb} MB"
-    return f"{size_mb / 1024:.1f} GB"
-
-
 class DiskDetailWidget(QWidget):
     back_requested = Signal()
 
@@ -50,7 +43,7 @@ class DiskDetailWidget(QWidget):
         super().__init__(parent)
         self._bridge = bridge
         self._disk_id: int | None = None
-        self._size_mb: int | None = None
+        self._size_bytes: int | None = None
 
         # ---------------- header ----------------
         self._back_btn = QPushButton("← Back to disks")
@@ -163,7 +156,7 @@ class DiskDetailWidget(QWidget):
 
     def clear(self) -> None:
         self._disk_id = None
-        self._size_mb = None
+        self._size_bytes = None
         self._title.setText("(no disk)")
         for label in (
             self._format,
@@ -182,10 +175,10 @@ class DiskDetailWidget(QWidget):
     def _on_detail(self, info: DiskImageInfo) -> None:
         if not isinstance(info, DiskImageInfo) or info.id != self._disk_id:
             return
-        self._size_mb = info.size_mb
+        self._size_bytes = info.size
         self._title.setText(info.name)
         self._format.setText(info.format)
-        self._size.setText(_fmt_size_mb(info.size_mb))
+        self._size.setText(format_size(info.size))
         self._created.setText(info.created_at.isoformat(sep=" ", timespec="seconds"))
         self._backing.setText(info.backing_image.name if info.backing_image else "—")
         self._attached.setText(", ".join(a.vm.name for a in info.attached_to) or "—")
@@ -228,17 +221,19 @@ class DiskDetailWidget(QWidget):
     def _on_resize(self) -> None:
         if self._disk_id is None:
             return
-        current = self._size_mb or 0
-        new_size, ok = QInputDialog.getInt(
+        current = self._size_bytes or 0
+        text, ok = QInputDialog.getText(
             self,
             "Resize disk",
-            f"New size in MB (current: {current} MB; cannot shrink):",
-            value=max(current + 1024, 1),
-            minValue=1,
-            maxValue=4 * 1024 * 1024,  # 4 TB
-            step=1024,
+            f"New size with suffix (current: {format_size(current)}; cannot shrink):",
+            text=format_size(current + 1024**3),
         )
         if not ok:
+            return
+        try:
+            new_size = parse_size(text)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid size", str(error))
             return
         self._bridge.disk_resize(self._disk_id, new_size)
 
@@ -324,7 +319,7 @@ class DiskDetailWidget(QWidget):
                 1,
                 QTableWidgetItem(s.created_at.isoformat(sep=" ", timespec="seconds")),
             )
-            self._snap_table.setItem(row, 2, QTableWidgetItem(_fmt_size_mb(s.size_mb)))
+            self._snap_table.setItem(row, 2, QTableWidgetItem(format_size(s.size)))
             # Per-row action button cluster.
             cell = QWidget()
             cell_layout = QHBoxLayout(cell)

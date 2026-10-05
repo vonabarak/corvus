@@ -39,7 +39,7 @@ data DiskImageInfo = DiskImageInfo
   -- image has been replicated to; single-node deployments have
   -- exactly one entry.
   , diiFormat :: !DriveFormat
-  , diiSizeMb :: !(Maybe Int)
+  , diiSize :: !(Maybe Int64)
   , diiCreatedAt :: !UTCTime
   , diiAttachedTo :: ![NamedRef]
   -- ^ VMs this disk is attached to.
@@ -57,7 +57,7 @@ data SnapshotInfo = SnapshotInfo
   { sniId :: !Int64
   , sniName :: !Text
   , sniCreatedAt :: !UTCTime
-  , sniSizeMb :: !(Maybe Int)
+  , sniSize :: !(Maybe Int64)
   , sniLive :: !Bool
   -- ^ Whether this snapshot was taken via QMP against a running
   -- VM (@True@) vs offline via @qemu-img snapshot -c@ (@False@).

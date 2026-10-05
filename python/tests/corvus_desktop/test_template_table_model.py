@@ -13,7 +13,7 @@ def _t(
     tid: int = 1,
     name: str = "alma-10",
     cpu_count: int = 2,
-    ram_mb: int = 2048,
+    ram: int = 2147483648,
     headless: bool = False,
     guest_agent: bool = True,
     tpm: bool = False,
@@ -24,7 +24,7 @@ def _t(
         id=tid,
         name=name,
         cpu_count=cpu_count,
-        ram_mb=ram_mb,
+        ram=ram,
         headless=headless,
         guest_agent=guest_agent,
         tpm=tpm,
@@ -49,7 +49,7 @@ def test_display_values(model: TemplateTableModel) -> None:
             _t(
                 name="web",
                 cpu_count=4,
-                ram_mb=4096,
+                ram=4294967296,
                 guest_agent=True,
                 headless=True,
                 description="web stack",
@@ -63,7 +63,7 @@ def test_display_values(model: TemplateTableModel) -> None:
 
     assert cell(TemplateTableModel.COL_NAME) == "web"
     assert cell(TemplateTableModel.COL_CPU) == 4
-    assert cell(TemplateTableModel.COL_RAM) == 4096
+    assert cell(TemplateTableModel.COL_RAM) == "4G"
     flags = cell(TemplateTableModel.COL_FLAGS)
     assert isinstance(flags, str)
     assert "QGA" in flags

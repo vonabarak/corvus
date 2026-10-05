@@ -86,7 +86,7 @@ spec = describe "Schema.Build" $ do
               , "      templates:"
               , "        - name: tpl"
               , "          cpuCount: 1"
-              , "          ramMb: 512"
+              , "          ram: 512M"
               , "          drives: []"
               , "  - build:"
               , "      name: b"
@@ -142,7 +142,7 @@ spec = describe "Schema.Build" $ do
           buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
           bvmCpuCount (buildVm b) `shouldBe` 4
-          bvmRamMb (buildVm b) `shouldBe` 4096
+          bvmRam (buildVm b) `shouldBe` 4294967296
           buildBootKeys b `shouldBe` []
           buildWaitForShutdownSec b `shouldBe` 3600
           buildUseCache b `shouldBe` False

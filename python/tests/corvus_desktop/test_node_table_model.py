@@ -19,8 +19,8 @@ def _node(
     net_agent_port: int = 9877,
     admin_state: str = "online",
     cpu_count: int = 8,
-    ram_mb_total: int | None = 16384,
-    ram_mb_free: int | None = 8000,
+    ram_total: int | None = 17179869184,
+    ram_free: int | None = 8388608000,
     storage_bytes_total: int | None = 500 * 1024**3,
     storage_bytes_free: int | None = 200 * 1024**3,
     load_avg1: float | None = 0.42,
@@ -38,8 +38,8 @@ def _node(
         admin_state=admin_state,
         created_at=datetime.now(timezone.utc),
         cpu_count=cpu_count,
-        ram_mb_total=ram_mb_total,
-        ram_mb_free=ram_mb_free,
+        ram_total=ram_total,
+        ram_free=ram_free,
         storage_bytes_total=storage_bytes_total,
         storage_bytes_free=storage_bytes_free,
         load_avg1=load_avg1,
@@ -75,7 +75,7 @@ def test_display_values(model: NodeTableModel) -> None:
     assert cell(NodeTableModel.COL_CPU) == 8
     ram = cell(NodeTableModel.COL_RAM)
     assert isinstance(ram, str)
-    assert "8000" in ram and "16384" in ram
+    assert "8000M" in ram and "16G" in ram
 
 
 def test_netd_disabled_marker(model: NodeTableModel) -> None:

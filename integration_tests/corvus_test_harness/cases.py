@@ -15,7 +15,7 @@ Example:
             assert self.client.status().protocol_version > 0
 
         def test_create_vm(self):
-            vm = self.client.vms.create("nested", cpu_count=1, ram_mb=128)
+            vm = self.client.vms.create("nested", cpu_count=1, ram=134217728) # 128Mb
             assert vm.show().name == "nested"
             vm.delete()
 

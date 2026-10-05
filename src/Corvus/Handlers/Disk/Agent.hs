@@ -27,7 +27,7 @@ module Corvus.Handlers.Disk.Agent
   , rebaseImageViaAgent
   , cloneImageViaAgent
   , getImageInfoViaAgent
-  , getImageSizeMbViaAgent
+  , getImageSizeViaAgent
 
     -- * Snapshot operations
   , createSnapshotViaAgent
@@ -118,9 +118,9 @@ withEitherText state nid call = do
 
 createImageViaAgent
   :: ServerState -> M.NodeId -> FilePath -> DriveFormat -> Int64 -> IO NI.ImageResult
-createImageViaAgent state nid path format sizeMb =
+createImageViaAgent state nid path format size =
   withDiskOp state nid $ \nac ->
-    NOA.diskCreate nac (T.pack path) (enumToText format) sizeMb
+    NOA.diskCreate nac (T.pack path) (enumToText format) size
 
 createOverlayViaAgent
   :: ServerState -> M.NodeId -> FilePath -> FilePath -> DriveFormat -> IO NI.ImageResult
@@ -137,8 +137,8 @@ deleteImageViaAgent state nid path =
   withDiskOp state nid $ \nac -> NOA.diskDelete nac (T.pack path)
 
 resizeImageViaAgent :: ServerState -> M.NodeId -> FilePath -> Int64 -> IO NI.ImageResult
-resizeImageViaAgent state nid path newSizeMb =
-  withDiskOp state nid $ \nac -> NOA.diskResize nac (T.pack path) newSizeMb
+resizeImageViaAgent state nid path newSize =
+  withDiskOp state nid $ \nac -> NOA.diskResize nac (T.pack path) newSize
 
 rebaseImageViaAgent
   :: ServerState
@@ -178,8 +178,8 @@ getImageInfoViaAgent state nid path = do
         Right
           NI.ImageInfo
             { NI.iiFormat = fmt
-            , NI.iiVirtualSizeMb = NOA.diiVirtualSizeMb info
-            , NI.iiActualSizeMb = NOA.diiActualSizeMb info
+            , NI.iiVirtualSize = NOA.diiVirtualSize info
+            , NI.iiActualSize = NOA.diiActualSize info
             , NI.iiSnapshots = map toSnap (NOA.diiSnapshots info)
             }
   where
@@ -187,17 +187,17 @@ getImageInfoViaAgent state nid path = do
       NI.SnapshotData
         { NI.sdId = NOA.dsiId s
         , NI.sdName = NOA.dsiName s
-        , NI.sdSizeMb = fmap fromIntegral (NOA.dsiSizeMb s)
+        , NI.sdSize = fmap fromIntegral (NOA.dsiSize s)
         }
 
 -- | Convenience: returns 'Nothing' on any failure (no-agent
--- included). Matches the existing 'NI.getImageSizeMb' surface
+-- included). Matches the existing 'NI.getImageSize' surface
 -- the daemon already uses for disk-refresh + register flows.
-getImageSizeMbViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Maybe Int)
-getImageSizeMbViaAgent state nid path = do
+getImageSizeViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Maybe Int64)
+getImageSizeViaAgent state nid path = do
   r <- getImageInfoViaAgent state nid path
   pure $ case r of
-    Right info -> Just (fromIntegral (NI.iiVirtualSizeMb info))
+    Right info -> Just (fromIntegral (NI.iiVirtualSize info))
     Left _ -> Nothing
 
 -- ---------------------------------------------------------------------------

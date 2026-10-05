@@ -86,7 +86,7 @@ toCapnpTemplateVmInfo P.TemplateVmInfo {..} =
     { CGT.id = tviId
     , CGT.name = tviName
     , CGT.cpuCount = fromIntegral tviCpuCount
-    , CGT.ramMb = fromIntegral tviRamMb
+    , CGT.ram = fromIntegral tviRam
     , CGT.description = fromMaybe mempty tviDescription
     , CGT.headless = tviHeadless
     , CGT.guestAgent = tviGuestAgent
@@ -107,7 +107,7 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} = do
       { P.tviId = id
       , P.tviName = name
       , P.tviCpuCount = fromIntegral cpuCount
-      , P.tviRamMb = fromIntegral ramMb
+      , P.tviRam = fromIntegral ram
       , P.tviDescription = if description == mempty then Nothing else Just description
       , P.tviHeadless = headless
       , P.tviGuestAgent = guestAgent
@@ -135,7 +135,7 @@ toCapnpTemplateDriveInfo P.TemplateDriveInfo {..} =
     , CGT.cacheType = toCapnpCacheType tvdiCacheType
     , CGT.discard = tvdiDiscard
     , CGT.cloneStrategy = toCapnpTemplateCloneStrategy tvdiCloneStrategy
-    , CGT.sizeMb = maybe 0 fromIntegral tvdiSizeMb
+    , CGT.size = maybe 0 fromIntegral tvdiSize
     , CGT.hasFormat = isJust tvdiFormat
     , CGT.format = maybe (toCapnpDriveFormat minBound) toCapnpDriveFormat tvdiFormat
     , CGT.hasEphemeral = isJust tvdiEphemeral
@@ -166,7 +166,7 @@ fromCapnpTemplateDriveInfo CGT.TemplateDriveInfo {..} = do
       , P.tvdiCacheType = cache
       , P.tvdiDiscard = discard
       , P.tvdiCloneStrategy = strat
-      , P.tvdiSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
+      , P.tvdiSize = if size == 0 then Nothing else Just (fromIntegral size)
       , P.tvdiFormat = fmt
       , P.tvdiEphemeral = if hasEphemeral then Just ephemeral else Nothing
       }
@@ -248,7 +248,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     { CGT.id = tvdId
     , CGT.name = tvdName
     , CGT.cpuCount = fromIntegral tvdCpuCount
-    , CGT.ramMb = fromIntegral tvdRamMb
+    , CGT.ram = fromIntegral tvdRam
     , CGT.description = fromMaybe mempty tvdDescription
     , CGT.headless = tvdHeadless
     , CGT.cloudInit = tvdCloudInit
@@ -286,7 +286,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       { P.tvdId = id
       , P.tvdName = name
       , P.tvdCpuCount = fromIntegral cpuCount
-      , P.tvdRamMb = fromIntegral ramMb
+      , P.tvdRam = fromIntegral ram
       , P.tvdDescription = if description == mempty then Nothing else Just description
       , P.tvdHeadless = headless
       , P.tvdCloudInit = cloudInit

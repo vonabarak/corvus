@@ -112,11 +112,11 @@ picks one. Same for `node:` on apply YAML.
 Algorithm:
 
   1. Filter to nodes with `admin_state = online`.
-  2. For VMs: require `ram_mb_free >= request.ram_mb + 512`
-     (the safety margin matches `Corvus.Handlers.Scheduler.ramSafetyMb`).
+  2. For VMs: require `ram_free >= request.ram + 512`
+     (the safety margin matches `Corvus.Handlers.Scheduler.ramSafety`).
      Stats are `NULL` until the first agent push, so freshly
      added nodes always pass this filter.
-  3. Score by `(ram_mb_free - request.ram_mb) +
+  3. Score by `(ram_free - request.ram) +
      (storage_bytes_free / 1 GiB) - 100 * load_avg1`. The
      load penalty is small so equally-sized nodes break ties
      on a quiescent host.
@@ -127,7 +127,7 @@ Algorithm:
      clears when the agent's next stats push arrives. This
      stops back-to-back creates within the same daemon from
      piling onto the same node before the agent's reported
-     `ram_mb_free` reflects the new VM.
+     `ram_free` reflects the new VM.
 
 For disks and networks the algorithm is simpler: pick the
 lowest-id online node. The disk case is a Phase-3 placeholder —
