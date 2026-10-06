@@ -93,25 +93,22 @@ image bake.
 Build the required fixtures once:
 
 ```sh
-make image IMAGE=node
-make image IMAGE=vm
-make image IMAGE=windows
-make image IMAGE=installer
+make image-ensure IMAGE=node
+make image-ensure IMAGE=vm
+make image-ensure IMAGE=windows
+make image-ensure IMAGE=installer
 ```
 
-Use `make image-list` to list fixture names, then run
-`make image IMAGE=<name>`. `make image-check IMAGE=<name>`,
-`make image-clean IMAGE=<name>`, and `make image-rebuild IMAGE=<name>` check,
-remove, and recreate a fixture. The [integration-test image guide](../doc/test-images.md)
-maps every fixture to its artifact and test use.
+Use `make image-list` to list fixture names. `make image-check IMAGE=<name>`
+checks the declared outputs. `make image-rebuild IMAGE=<name>` publishes new
+versions while retaining old ones; `make image-clean IMAGE=<name>` removes only
+local intermediates. The [image guide](../doc/test-images.md) describes each recipe.
 
-Image artifacts are registered with the outer daemon and usually live under
-`~/VMs/BaseImages`. The test-node VM mounts that host directory at
-`/home/corvus/VMs/BaseImages`, so tests can register base images with the inner
-daemon without copying image bytes.
-
-Use `make image-rebuild IMAGE=<name>` or `make image-clean IMAGE=<name>` to
-recreate or remove a fixture.
+Images are registered with the outer daemon under `~/VMs/BaseImages`; generated
+filenames include the image ID. The test node mounts that directory read-only
+at `/home/corvus/VMs/BaseImages`. Each test class snapshots the outer catalogue's
+`latest` versions and stages those exact files on all its inner nodes. Publishing
+a replacement during a class does not change its selected backing files.
 
 ## Running Tests
 
@@ -359,13 +356,13 @@ integration_tests/scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImages
 
 ## Common Problems
 
-- **Missing `corvus-test-node`**: run `make image IMAGE=node`.
+- **Missing `corvus-test-node`**: run `make image-ensure IMAGE=node`.
 - **Test-node recipe changed** (for example, a new host tool): run
   `make image-rebuild IMAGE=node`.
-- **Missing Alpine/base image in a VM test**: run `make image IMAGE=vm`.
-- **Missing cloud-init distro image**: run `make image IMAGE=multi-os`.
-- **Missing Windows image**: run `make image IMAGE=windows`.
-- **Missing synthetic installer ISO**: run `make image IMAGE=installer`.
+- **Missing Alpine/base image in a VM test**: run `make image-ensure IMAGE=vm`.
+- **Missing cloud-init distro image**: run `make image-ensure IMAGE=multi-os`.
+- **Missing Windows image**: run `make image-ensure IMAGE=windows`.
+- **Missing synthetic installer ISO**: run `make image-ensure IMAGE=installer`.
 - **Stale binary warning**: run `stack build` before trusting results.
 - **No `vsock_cid` on a test node**: check the outer VM is running and the host
   supports VSOCK/KVM; inspect `crv vm show <node>`.

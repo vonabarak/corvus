@@ -28,14 +28,14 @@
 # memory pressure with --keep-going=y.
 #
 # The published artifact disk is `gentoo-base-headless-standalone`
-# (registered non-ephemeral on success). A second template,
-# `gentoo-headless-standalone`, overlays the artifact for downstream
-# VM creation.
+# (registered non-ephemeral on success). Create downstream templates
+# referencing this family to give each VM its own overlay.
 # Build-time variables are declared without defaults because the
 # upstream Gentoo autobuild filename and checksum rotate every few
-# days; pass the current values via `crv build --var ...` or use the
-# Makefile, which discovers both and threads them through for you.
+# days; resolve them with `make latest-url` and `make latest-sha256`,
+# then pass the values via `crv build --var ...`.
 vars:
+  image_if_exists: overwrite
   gentoo_base_cloud_url: ~
   gentoo_base_cloud_sha256: ~
 
@@ -52,6 +52,8 @@ pipeline:
             algorithm: sha256
             value: "{{ gentoo_base_cloud_sha256 }}"
 
+  - apply:
+      ifExists: overwrite
       templates:
         - name: gentoo-cloud-standalone
           cpuCount: 4
@@ -103,11 +105,11 @@ pipeline:
       template: gentoo-cloud-standalone
 
       target:
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         size: 20G
         path: BaseImages/Gentoo/
         compact: true
-        ifExists: overwrite
 
       strategy: from-scratch
 

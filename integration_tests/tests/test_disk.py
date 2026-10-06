@@ -12,18 +12,38 @@ from __future__ import annotations
 import secrets
 import time
 from pathlib import Path
+from typing import cast
+from unittest.mock import Mock
 
 import pytest
-from corvus_client import ServerError, VmMustBeStopped
+from corvus_client import Client, ServerError, VmMustBeStopped
 from corvus_client._entityref import disk_entity_ref
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
-from corvus_test_harness.base_images import GUEST_BASE_IMAGES_PATH, discover
+from corvus_test_harness.base_images import (
+    GUEST_BASE_IMAGES_PATH,
+    RegisteredImages,
+    discover,
+    stage_on_node,
+)
+from corvus_test_harness.outer import Crv, JsonObject
 from corvus_test_harness.vm import _DriveOptions
 
 
 def _uniq(stem: str) -> str:
     """6-hex-char suffix to keep concurrent runs / leak hunts trivial."""
     return f"{stem}-{secrets.token_hex(3)}"
+
+
+def _catalogue_image(
+    name: str, path: Path, version: int = 123, *, latest: bool = True
+) -> JsonObject:
+    return {
+        "id": version,
+        "name": name,
+        "format": "qcow2",
+        "tags": ["latest"] if latest else [],
+        "placements": [{"file_path": str(path)}],
+    }
 
 
 class TestDisk(SingleNodeCase):
@@ -55,7 +75,15 @@ class TestDisk(SingleNodeCase):
         baked = directory / filename
         baked.touch()
 
-        images = discover(tmp_path)
+        images = discover(
+            [
+                _catalogue_image(
+                    "alpine-3.21-base", directory / "1-alpine-3.21-base.qcow2", 1
+                ),
+                _catalogue_image("corvus-test-vm", baked),
+            ],
+            tmp_path,
+        )
 
         assert set(images) == {"alpine-3-21-base", "corvus-test-vm", "alpine"}
         assert images["alpine"] == images["corvus-test-vm"]
@@ -71,9 +99,71 @@ class TestDisk(SingleNodeCase):
         directory.mkdir()
         (directory / "456-almalinux-10-base.raw").touch()
 
-        images = discover(tmp_path)
+        images = discover(
+            [
+                _catalogue_image(
+                    "almalinux-10-base", directory / "456-almalinux-10-base.raw", 456
+                )
+            ],
+            tmp_path,
+        )
 
         assert images["almalinux"].name == "almalinux-10-base"
+
+    def test_discover_selects_tag_instead_of_filename_or_id(
+        self, tmp_path: Path
+    ) -> None:
+        old = tmp_path / "999-image.qcow2"
+        selected = tmp_path / "1-image.qcow2"
+        old.touch()
+        selected.touch()
+        (tmp_path / "1000-unregistered.qcow2").touch()
+        images = discover(
+            [
+                _catalogue_image("image", old, 999, latest=False),
+                _catalogue_image("image", selected, 1),
+            ],
+            tmp_path,
+        )
+        assert set(images) == {"image"}
+        assert images["image"].outer_id == 1
+        assert images["image"].host_path == selected
+
+    def test_discover_rejects_missing_latest_file(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError, match="Published image"):
+            discover([_catalogue_image("image", tmp_path / "1-image.qcow2")], tmp_path)
+
+    def test_discover_rejects_ambiguous_local_placements(self, tmp_path: Path) -> None:
+        first = tmp_path / "1-image.qcow2"
+        second = tmp_path / "other.qcow2"
+        first.touch()
+        second.touch()
+        entry = _catalogue_image("image", first)
+        entry["placements"] = [{"file_path": str(first)}, {"file_path": str(second)}]
+        with pytest.raises(ValueError, match="Ambiguous local placements"):
+            discover([entry], tmp_path)
+
+    def test_stage_uses_pinned_catalogue_and_inner_id(self, tmp_path: Path) -> None:
+        backing = tmp_path / "1-image.qcow2"
+        backing.touch()
+        images = discover([_catalogue_image("image", backing, 1)], tmp_path)
+        registered = RegisteredImages(images=images, disk_ids={"image": 77})
+        client = Mock(spec=Client)
+        client.disks = Mock()
+        crv = Mock(spec=Crv)
+        client.disks.get.return_value.show.return_value.placements = []
+        stage_on_node(
+            cast(Client, client),
+            cast(Crv, crv),
+            inner_node_name="beta",
+            outer_vm_name="outer-beta",
+            registered=registered,
+        )
+        client.disks.get.assert_called_once_with(77)
+        client.disks.get.return_value.register_placement.assert_called_once_with(
+            str(images["image"].guest_path), node="beta"
+        )
+        crv.disk_list.assert_not_called()
 
     # ---- create / show / delete --------------------------------------------
 

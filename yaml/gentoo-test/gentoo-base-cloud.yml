@@ -1,0 +1,18 @@
+# Refresh this upstream dependency explicitly with `make build-cloud`.
+vars:
+  image_if_exists: overwrite
+  gentoo_base_cloud_url: ~
+  gentoo_base_cloud_sha256: ~
+
+pipeline:
+  - apply:
+      ifExists: "{{ image_if_exists }}"
+      disks:
+        - name: gentoo-base-cloud
+          import: "{{ gentoo_base_cloud_url }}"
+          format: qcow2
+          path: BaseImages/Gentoo/
+          checksum:
+            algorithm: sha256
+            value: "{{ gentoo_base_cloud_sha256 }}"
+

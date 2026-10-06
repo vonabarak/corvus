@@ -1,3 +1,6 @@
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   - build:
       name: gentoo-corvus-test
@@ -5,6 +8,7 @@ pipeline:
       template: gentoo-headless-cloudinit
 
       target:
+        ifExists: "{{ image_if_exists }}"
         compact: true
 
       strategy: overlay
@@ -59,6 +63,7 @@ pipeline:
             inline: |
               cat > /etc/portage/package.use/corvus <<'EOF'
               app-emulation/qemu spice usb usbredir virtfs passt vde
+              net-libs/gnutls pkcs11 tools
               EOF
               
               cat > /etc/portage/package.accept_keywords/corvus <<'EOF'
@@ -248,7 +253,6 @@ pipeline:
               cacheType: writeback
               discard: true
           networkInterfaces:
-            - type: vde
-              hostDevice: /run/vde2/switch.ctl
+            - network: corvus
           sshKeys:
             - corvus

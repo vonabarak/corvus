@@ -12,7 +12,7 @@ installer.
 The ISO is produced out-of-band by
 `yaml/corvus-test-installer/build-synthetic-installer.sh` (invoked by
 `make image IMAGE=installer`) and lives under
-`~/VMs/BaseImages/SyntheticInstaller/corvus-test-installer-iso.raw`,
+`~/VMs/BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`,
 so the harness's `register_base_images()` picks it up and
 registers it with the inner daemon without any per-test
 boilerplate.
@@ -30,9 +30,13 @@ What the assertions cover:
 from __future__ import annotations
 
 import base64
+import io
+import json
+import os
 import secrets
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import uuid
 from pathlib import Path
@@ -52,6 +56,90 @@ _BUILD_YAML = REPO_ROOT / "yaml" / "corvus-test-installer" / "corvus-test-instal
 
 
 class TestBuildInstaller(SingleNodeCase):
+    def test_iso_publication_preserves_registered_files(self, tmp_path: Path) -> None:
+        directory = tmp_path / "yaml/corvus-test-installer"
+        shutil.copytree(
+            REPO_ROOT / "yaml/corvus-test-installer",
+            directory,
+            ignore=shutil.ignore_patterns("build", "cache"),
+        )
+        cache = directory / "cache"
+        cache.mkdir()
+        packages = {
+            "kernel.apk": [
+                "boot/vmlinuz-virt",
+                "lib/virtio_blk.ko",
+                "lib/cdrom.ko",
+                "lib/sr_mod.ko",
+                "lib/isofs.ko",
+            ],
+            "busybox.apk": ["bin/busybox.static"],
+            "syslinux.apk": ["isolinux.bin", "ldlinux.c32"],
+        }
+        for package, members in packages.items():
+            with tarfile.open(cache / package, "w:gz") as archive:
+                for name in members:
+                    entry = tarfile.TarInfo(name)
+                    entry.size = 2048
+                    archive.addfile(entry, io.BytesIO(b"x" * entry.size))
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        for name, script in {
+            "cpio": "#!/bin/sh\ncat >/dev/null\nprintf initrd\n",
+            "mkisofs": '#!/bin/sh\n[ "$1" = \'-o\' ] || exit 1\nprintf new-iso > "$2"\n',
+            "crv": r"""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+with Path(os.environ['CALL_LOG']).open('a') as stream:
+    stream.write(json.dumps(sys.argv[1:]) + '\n')
+""",
+        }.items():
+            tool = tools / name
+            tool.write_text(script)
+            tool.chmod(0o755)
+        published = tmp_path / "BaseImages/SyntheticInstaller"
+        published.mkdir(parents=True)
+        old = published / "123-corvus-test-installer-iso.raw"
+        old.write_bytes(b"old-iso")
+        log = tmp_path / "uploads.jsonl"
+        environment = {
+            **os.environ,
+            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+            "CRV": str(tools / "crv"),
+            "CORVUS_BASE_IMAGES_DIR": str(published.parent),
+            "CALL_LOG": str(log),
+            "ALPINE_KERNEL_PKG": "kernel.apk",
+            "ALPINE_BUSYBOX_PKG": "busybox.apk",
+            "ALPINE_SYSLINUX_PKG": "syslinux.apk",
+        }
+        for _ in range(2):
+            result = subprocess.run(
+                [str(directory / "build-synthetic-installer.sh")],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert old.read_bytes() == b"old-iso"
+        uploads = [json.loads(line) for line in log.read_text().splitlines()]
+        assert (
+            uploads
+            == [
+                [
+                    "disk",
+                    "upload",
+                    "corvus-test-installer-iso",
+                    str(directory / "build/corvus-test-installer-iso.raw"),
+                    "--format",
+                    "raw",
+                    "--path",
+                    str(published) + "/",
+                ]
+            ]
+            * 2
+        )
+
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
     def _installer_image_present(cls, crv: Crv) -> None:

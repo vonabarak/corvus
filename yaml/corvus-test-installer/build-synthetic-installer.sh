@@ -17,13 +17,9 @@
 # in a VM would emerge several packages and run for minutes;
 # this finishes in ~30 s on a cold cache.
 #
-# Output: `~/VMs/BaseImages/SyntheticInstaller/corvus-test-installer-iso.raw`
-# (~13 MB), registered with the outer daemon as
-# `corvus-test-installer-iso`. The path is chosen so the
-# integration harness's `register_base_images()` (which walks
-# `~/VMs/BaseImages/<dir>/*.raw|.qcow2|.img`) picks it up
-# automatically for the inner daemon inside the test-node VM —
-# no second registration step in the test.
+# Output: a new ID-prefixed raw image under BaseImages/SyntheticInstaller/,
+# published as corvus-test-installer-iso:latest. Older files remain immutable.
+# The ISO is assembled locally before upload; registered files are never rewritten.
 #
 # Tools required on host: curl, tar, gzip, cpio, mkisofs (or
 # genisoimage), and the `crv` CLI on PATH.
@@ -37,15 +33,11 @@ YAML_DIR="$REPO_ROOT/yaml/corvus-test-installer"
 BUILD_DIR="$YAML_DIR/build"
 CACHE_DIR="$YAML_DIR/cache"
 
-# The host-resident path of the assembled ISO. Lives under
-# ~/VMs/BaseImages/ so the integration harness's
-# `register_base_images()` (which walks that tree) registers it
-# with the inner daemon automatically — the test then references
-# it by name in the build YAML without any explicit `disk
-# register` step.
+# The destination is on the node; the source remains a local build artifact.
 BASE_IMAGES_DIR=${CORVUS_BASE_IMAGES_DIR:-$HOME/VMs/BaseImages}
 ISO_DIR="$BASE_IMAGES_DIR/SyntheticInstaller"
-ISO_PATH="$ISO_DIR/$DISK_NAME.raw"
+ISO_PATH="$BUILD_DIR/$DISK_NAME.raw"
+CRV=${CRV:-crv}
 
 # Alpine v3.21 packages. The kernel is `linux-virt` (KVM-optimised,
 # ~10 MB); busybox-static gives us /bin/busybox; syslinux gives
@@ -79,7 +71,7 @@ need curl
 need tar
 need gzip
 need cpio
-need crv
+need "$CRV"
 
 # ── 1. Fetch apks into cache (idempotent) ─────────────────────────────────
 mkdir -p "$CACHE_DIR"
@@ -192,7 +184,6 @@ cp "$YAML_DIR/isolinux.cfg" "$ISO_TREE/isolinux/isolinux.cfg"
 # preserve the lowercase /vmlinuz, /initrd.img, /isolinux/...
 # paths the isolinux config references; without them the files get
 # mangled to 8.3 uppercase and isolinux can't find the kernel.
-mkdir -p "$ISO_DIR"
 $MKISOFS \
   -o "$ISO_PATH" \
   -V CORVUS-INSTALLER \
@@ -207,15 +198,6 @@ $MKISOFS \
 
 log "built $ISO_PATH ($(du -h "$ISO_PATH" | cut -f1))"
 
-# ── 5. Register with the outer daemon (idempotent) ───────────────────────
-# mkisofs overwrote $ISO_PATH in place, so an existing
-# registration (which is just a DB row pointing at this file)
-# still resolves to the fresh content — no need to delete +
-# re-register, which would also delete the file we just built
-# (`crv disk delete` calls the agent's image-delete RPC).
-if crv -o json disk show "$DISK_NAME" >/dev/null 2>&1; then
-  log "disk $DISK_NAME already registered; skipping register"
-else
-  crv disk register "$DISK_NAME" "$ISO_PATH" --format raw
-  log "registered $DISK_NAME"
-fi
+# ── 5. Publish a new immutable version through the daemon ────────────────
+"$CRV" disk upload "$DISK_NAME" "$ISO_PATH" --format raw --path "$ISO_DIR/"
+log "published $DISK_NAME:latest"

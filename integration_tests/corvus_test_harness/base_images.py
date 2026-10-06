@@ -6,15 +6,14 @@ the host's `~/VMs/BaseImages` at `/home/corvus/VMs/BaseImages` inside the test
 VM (the daemon runs as the `corvus` user, so this matches its
 default $HOME/VMs basePath). This module:
 
-  1. Discovers what image files live under the host directory (one
-     directory per OS, e.g. `Alpine/corvus-test.qcow2`,
-     `WindowsServer2025/…`, `Debian/…`).
-  2. Ensures the virtiofs share is actually mounted inside the guest
-     (a fallback `mount -t virtiofs …` covers older test images that
-     don't have the systemd unit baked in yet).
-  3. Registers each image with the inner daemon under a stable name
-     derived from its parent directory (e.g. `alpine`, `debian`,
-     `windowsserver2025`).
+  1. Selects registered versions carrying `latest` in the outer catalogue,
+     with a local placement under the host's BaseImages directory.
+  2. Ensures the virtiofs share is mounted inside the guest.
+  3. Registers those immutable files under stable names and directory aliases.
+
+The selected catalogue is retained for the lifetime of a test class, including
+when placements are added on a second node. Publishing new versions during
+that class cannot change its backing files.
 
 Tests then refer to the images by short name:
 
@@ -29,13 +28,13 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from corvus_client import Client, DiskNotFound
 
-from .outer import Crv
+from .outer import Crv, JsonObject
 
 # Host-side root for all pre-baked images. Mirrors `path: BaseImages/…/`
 # in yaml/{alpine-test,multi-os,windows-server-2025}/*.yml.
@@ -57,85 +56,92 @@ _IMAGE_SUFFIXES = (".qcow2", ".img", ".raw")
 class BaseImage:
     """One pre-baked image, ready to register with the inner daemon."""
 
-    # Short key under which the image gets registered with the inner
-    # daemon. Derived from the parent directory's name, lowercased.
     name: str
-    # Path inside the test VM (after virtiofs mount).
     guest_path: Path
-    # Path on the host (under HOST_BASE_IMAGES_DIR).
     host_path: Path
+    format: str
+    outer_id: int
 
 
-def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
-    """Walk the host's BaseImages tree and return every image found.
+@dataclass(frozen=True)
+class RegisteredImages:
+    """A fixed catalogue and the inner version IDs registered from it."""
 
-    Each image is exposed under its sanitised filename stem (e.g.
-    `gentoo-base-headless`, `almalinux-10-base`), with Corvus's generated
-    numeric image ID and dash prefix removed. When a directory
-    contains multiple images, ONE also gets the sanitised dir-name
-    as an alias (e.g. `gentoo`, `almalinux`) — picked so that
-    `Vm(self)`'s default `base_image_key = "alpine"` keeps resolving
-    to the bake-time `corvus-test-vm.qcow2` even when an unrelated
-    `alpine-*-base.qcow2` upstream cloud image is dropped into the
-    same directory.
+    images: dict[str, BaseImage]
+    disk_ids: dict[str, int]
 
-    Selection rule for the dir alias, in priority order:
+    @property
+    def names(self) -> dict[str, str]:
+        return {key: image.name for key, image in self.images.items()}
 
-      1. A file whose stem starts with ``corvus-test-`` — these are
-         the harness's bespoke bake-time images that ship qemu-ga,
-         the baked SSH key, and the VSOCK sshd relay. Tests that
-         resolve the dir alias (`Vm`, `VmSsh`, …) rely on those
-         additions.
-      2. Otherwise, the alphabetically-first image in the directory.
 
-    Files ending in `.bak.qcow2` are skipped (backup snapshots).
-    Subdirectories with no recognisable image file are skipped
-    silently. Returns an empty dict if `host_dir` itself doesn't
-    exist (developer hasn't built the required images yet).
+def discover(
+    catalogue: Sequence[JsonObject], host_dir: Path = HOST_BASE_IMAGES_DIR
+) -> dict[str, BaseImage]:
+    """Select latest outer versions with a local file under the shared root.
+
+    Directory aliases prefer a corvus-test-* family; otherwise they use the
+    alphabetically first family. Retained versions and unregistered files are
+    ignored. File names and numeric IDs never determine which version wins.
     """
-    if not host_dir.is_dir():
-        return {}
-    images: dict[str, BaseImage] = {}
-    for subdir in sorted(host_dir.iterdir()):
-        if not subdir.is_dir():
+    host_dir = host_dir.resolve()
+    families: dict[str, BaseImage] = {}
+    for disk in catalogue:
+        tags = disk.get("tags")
+        if not isinstance(tags, list) or "latest" not in tags:
             continue
-        files = list(_image_files(subdir))
-        if not files:
+        name, version, fmt = disk.get("name"), disk.get("id"), disk.get("format")
+        placements = disk.get("placements")
+        if (
+            not isinstance(name, str)
+            or not isinstance(version, int)
+            or not isinstance(fmt, str)
+            or not isinstance(placements, list)
+        ):
+            raise ValueError(f"Invalid outer image catalogue entry: {disk}")
+        paths: set[Path] = set()
+        for placement in placements:
+            if not isinstance(placement, dict):
+                raise ValueError(f"Invalid placement for image {name}:{version}")
+            raw_path = placement.get("file_path")
+            if not isinstance(raw_path, str):
+                raise ValueError(f"Missing placement path for image {name}:{version}")
+            path = Path(raw_path).resolve()
+            if path.is_relative_to(host_dir) and path.suffix.lower() in _IMAGE_SUFFIXES:
+                if not path.is_file():
+                    raise FileNotFoundError(
+                        f"Published image {name}:{version} is missing: {path}"
+                    )
+                paths.add(path)
+        if not paths:
             continue
-        dir_key = _sanitize_name(subdir.name)
-        alias_file = _pick_alias_target(files)
-        for image_file in files:
-            stem_key = _sanitize_name(_image_stem(image_file))
-            # The disk-name registered with the inner daemon is the
-            # filename stem without the outer daemon's image ID prefix.
-            guest_path = GUEST_BASE_IMAGES_PATH / subdir.name / image_file.name
-            base = BaseImage(name=stem_key, guest_path=guest_path, host_path=image_file)
-            images[stem_key] = base
-            if image_file == alias_file and dir_key not in images:
-                images[dir_key] = base
+        if len(paths) != 1:
+            raise ValueError(
+                f"Ambiguous local placements for image {name}:{version}: {paths}"
+            )
+        path = next(iter(paths))
+        key = _sanitize_name(name)
+        if key in families:
+            raise ValueError(f"Ambiguous latest image family or harness name: {name}")
+        families[key] = BaseImage(
+            name=key,
+            host_path=path,
+            guest_path=GUEST_BASE_IMAGES_PATH / path.relative_to(host_dir),
+            format=fmt,
+            outer_id=version,
+        )
+    images = dict(families)
+    for image in sorted(
+        families.values(),
+        key=lambda image: (not image.name.startswith("corvus-test-"), image.name),
+    ):
+        relative = image.host_path.relative_to(host_dir)
+        if len(relative.parts) < 2:
+            continue
+        alias = _sanitize_name(relative.parts[0])
+        if alias not in images:
+            images[alias] = image
     return images
-
-
-def _pick_alias_target(files: list[Path]) -> Path:
-    """Pick which file the dir-name alias should resolve to."""
-    bake = next((f for f in files if _image_stem(f).startswith("corvus-test-")), None)
-    return bake if bake is not None else files[0]
-
-
-def _image_stem(image_file: Path) -> str:
-    """Remove the generated image ID prefix when deriving a logical name."""
-    return re.sub(r"^[0-9]+-", "", image_file.stem)
-
-
-def _image_files(d: Path) -> Iterator[Path]:
-    for f in sorted(d.iterdir()):
-        if not f.is_file():
-            continue
-        if f.suffix.lower() not in _IMAGE_SUFFIXES:
-            continue
-        if f.name.lower().endswith(".bak.qcow2"):
-            continue
-        yield f
 
 
 def _sanitize_name(raw: str) -> str:
@@ -169,34 +175,29 @@ def register_all(
     node_name: str,
     *,
     host_dir: Path = HOST_BASE_IMAGES_DIR,
-) -> dict[str, str]:
-    """Mount the share + register every discovered image with `client`.
-
-    Returns a dict mapping short OS key → registered disk name. The
-    inner daemon (running on the node) keeps the registration for the
-    lifetime of the node, so subsequent calls in the same test are
-    cheap no-ops (we treat an existing same-named disk as already
-    registered).
-    """
-    images = discover(host_dir)
+) -> RegisteredImages:
+    """Mount and register a fixed snapshot of the outer latest catalogue."""
+    images = discover(crv.disk_list(), host_dir)
     if not images:
-        return {}
+        return RegisteredImages(images={}, disk_ids={})
     ensure_mounted(crv, node_name)
-    registered: dict[str, str] = {}
-    for key, image in images.items():
+    disk_ids: dict[str, int] = {}
+    for image in images.values():
+        if image.name in disk_ids:
+            continue
         try:
-            client.disks.get(image.name)
+            disk = client.disks.get(image.name)
         except DiskNotFound:
-            # Pass a format hint derived from the extension. The
-            # daemon's agent-side `qemu-img info` auto-detection
-            # currently mis-classifies some raw images (notably
-            # ISO9660 disks like the synthetic installer) as
-            # qcow2, which then breaks `qemu -drive
-            # format=qcow2,...`. The hint sidesteps that path.
-            fmt = _format_from_suffix(image.host_path.suffix.lower())
-            client.disks.register(image.name, str(image.guest_path), format=fmt)
-        registered[key] = image.name
-    return registered
+            disk = client.disks.register(
+                image.name, str(image.guest_path), format=image.format
+            )
+        info = disk.show()
+        if not any(p.file_path == str(image.guest_path) for p in info.placements):
+            raise ValueError(
+                f"Inner image {image.name} was registered from another file"
+            )
+        disk_ids[image.name] = info.id
+    return RegisteredImages(images=images, disk_ids=disk_ids)
 
 
 def stage_on_node(
@@ -205,50 +206,18 @@ def stage_on_node(
     *,
     inner_node_name: str,
     outer_vm_name: str,
-    host_dir: Path = HOST_BASE_IMAGES_DIR,
+    registered: RegisteredImages,
 ) -> None:
-    """Ensure every discovered base image has a `DiskImageNode` placement
-    on `inner_node_name`. Idempotent. No bytes move — both nodes mount
-    the same BaseImages virtiofs share at the same path, so the explicit version-scoped `register_placement` operation adds the
-    replica without publishing a new version or moving tags.
-
-    Two names are needed because the host-side ``crv`` (used to mount
-    virtiofs into the guest) addresses VMs by their full prefixed
-    ``outer_vm_name``, while the *inner* daemon talks to the
-    ``inner_node_name`` it was registered under (typically the short
-    name of the test node, e.g. ``"beta"``).
-
-    Caller must have already registered the disk rows with the daemon
-    (typically via ``register_all`` against the FIRST node). This
-    function then adds a placement on `inner_node_name` for each one.
-    Disk-name collisions are silently skipped; placements that already
-    exist are silently skipped.
-    """
-    images = discover(host_dir)
-    if not images:
+    """Stage the exact files and inner IDs selected at initial registration."""
+    if not registered.images:
         return
     ensure_mounted(crv, outer_vm_name)
-    for image in images.values():
-        try:
-            info = client.disks.get(image.name).show()
-        except DiskNotFound:
-            continue
+    for name, version in registered.disk_ids.items():
+        disk = client.disks.get(version)
+        info = disk.show()
         if any(p.node.name == inner_node_name for p in info.placements):
             continue
-        client.disks.get(info.id).register_placement(
-            str(image.guest_path), node=inner_node_name
+        image = next(
+            image for image in registered.images.values() if image.name == name
         )
-
-
-def _format_from_suffix(suffix: str) -> str | None:
-    """Map a filename suffix to the matching DriveFormat string.
-
-    Returns None when we don't have a strong hint (the daemon then
-    auto-detects via qemu-img). Mirrors the daemon-side mapping in
-    `Corvus.Node.Image.detectFormatFromPath`.
-    """
-    if suffix == ".qcow2":
-        return "qcow2"
-    if suffix in (".raw", ".img", ".iso"):
-        return "raw"
-    return None
+        disk.register_placement(str(image.guest_path), node=inner_node_name)

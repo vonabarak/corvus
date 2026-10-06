@@ -61,7 +61,7 @@ class _ClassState:
     # skip messages so the developer doesn't have to dig through
     # stderr to find what actually broke.
     setup_error: str | None = None
-    base_images_cache: dict[str, str] | None = None
+    base_images_cache: _base_images.RegisteredImages | None = None
     # Scratch directory on the test node, created by the class
     # fixture.  Test classes that need a writable temp dir on the
     # node (e.g. corvus-admin deploy tests) set this; it is cleaned
@@ -306,17 +306,17 @@ class IntegrationTestCase:
         inner daemon. Cached per-class — subsequent calls return the
         same dict without re-registering.
 
-        For multi-node scenarios where every daemon needs the same
-        catalogue, call `base_images.register_all` per node directly.
+        Use :meth:`stage_base_images_on` to add another placement from
+        the same pinned catalogue.
         """
         state = state_for(type(self))
         if state.base_images_cache is not None:
-            return state.base_images_cache
+            return state.base_images_cache.names
         first = self.nodes[0]
         state.base_images_cache = _base_images.register_all(
             first.client(), self.topology.crv, first.name
         )
-        return state.base_images_cache
+        return state.base_images_cache.names
 
     def stage_base_images_on(self, node_index: int) -> None:
         """Add a `DiskImageNode` placement on `self.nodes[node_index]`
@@ -331,6 +331,9 @@ class IntegrationTestCase:
         Alpine base, ``vm.migrate``'s PreCheck appends zero chain-ops
         to the migration plan.
         """
+        self.register_base_images()
+        registered = state_for(type(self)).base_images_cache
+        assert registered is not None
         target = self.nodes[node_index]
         # Inner daemon talks to nodes by short_name (see the per-class
         # ``_register_beta`` fixture pattern that registers the second
@@ -342,6 +345,7 @@ class IntegrationTestCase:
             self.topology.crv,
             inner_node_name=target.short_name,
             outer_vm_name=target.name,
+            registered=registered,
         )
 
     def install_node_client_certs(self, *, node_index: int = 0) -> None:

@@ -1,21 +1,15 @@
 ---
 # An apply setup using images built by `make image IMAGE=vm` and
 # `make image IMAGE=windows`.
+ifExists: skip
+
 disks:
-  - name: alpine-test-base
-    register: "BaseImages/Alpine/corvus-test-vm.qcow2"
-    format: qcow2
-
-  - name: windows-server-2025-base
-    register: "BaseImages/WindowsServer2025/windows-server-2025-eval.qcow2"
-    format: qcow2
-
   - name: windows-server-2025
-    overlay: windows-server-2025-base
+    overlay: windows-server-2025-eval
     path: BaseImages/WindowsServer2025/
 
   - name: alpine-test
-    overlay: alpine-test-base
+    overlay: corvus-test-vm
     path: BaseImages/Alpine/
 
   - name: alpine-test-ovmf-vars

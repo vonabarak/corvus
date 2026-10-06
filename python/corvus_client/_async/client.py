@@ -276,11 +276,12 @@ class AsyncClient:
 
         Useful for callers that read/transform the YAML themselves.
         """
+        from .build import resolve_build_defaults
         from .streams import stream_build_events
 
         return stream_build_events(
             self.daemon,
-            yaml_text,
+            resolve_build_defaults(yaml_text),
             use_cache=use_cache,
             build_cache=build_cache,
             rebuild_from=rebuild_from,

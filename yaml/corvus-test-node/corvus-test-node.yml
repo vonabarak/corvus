@@ -1,3 +1,6 @@
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   - build:
       name: corvus-test-node
@@ -5,10 +8,10 @@ pipeline:
       template: gentoo-headless
 
       target:
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         compact: true
         path: BaseImages/Gentoo/
-        ifExists: skip
 
       strategy: overlay
 
@@ -519,7 +522,7 @@ pipeline:
   # opt-corvus-bin.mount picks up the developer's freshly built
   # binaries at /opt/corvus/bin without a rebake.
   - apply:
-      ifExists: skip
+      ifExists: overwrite
       templates:
         - name: corvus-test-node
           description: "Corvus integration-test node — instantiate via `make test-node-vm` for hands-on inspection of the daemon+netd+nodeagent stack inside the same image the test harness uses"

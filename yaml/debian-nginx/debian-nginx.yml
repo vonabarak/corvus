@@ -11,6 +11,9 @@
 #
 # On success, a Corvus disk named `debian-12-nginx` is registered.
 
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   - build:
       name: debian-12-nginx
@@ -19,6 +22,7 @@ pipeline:
       template: debian12
 
       target:
+        ifExists: "{{ image_if_exists }}"
         compact: true
 
       strategy: overlay

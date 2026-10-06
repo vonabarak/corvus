@@ -38,13 +38,16 @@ _ovmf_vars_drive: &ovmf_vars
   interface: pflash
   strategy: clone
 
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   - upload:
       name: windows-server-2025-autounattend
       from: ./build/autounattend.iso
       format: raw
       ephemeral: true
-      ifExists: overwrite
+      ifExists: "{{ image_if_exists }}"
 
   - apply:
       ifExists: skip
@@ -75,6 +78,8 @@ pipeline:
             value: "303f7ae40dad495d6ae474fdc571df58958a4dbc5c37a522d80f9a203867949d"
 
 
+  - apply:
+      ifExists: overwrite
       templates:
         - name: windows-server-2025-installer
           description: "Windows Server 2025 unattended installer (bake-only)"
@@ -131,7 +136,7 @@ pipeline:
       template: windows-server-2025-installer
 
       target:
-        ifExists: skip
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         compact: true
         # Place the artifact under `<basePath>/BaseImages/WindowsServer2025/`
@@ -175,7 +180,7 @@ pipeline:
       cleanup: onSuccess
 
   - apply:
-      ifExists: skip
+      ifExists: overwrite
       templates:
         - name: windows-server-2025
           cpuCount: 8

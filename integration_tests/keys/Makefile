@@ -1,6 +1,6 @@
 KEY := corvus-test-key
 
-.PHONY: all build check clean rebuild cache-clean
+.PHONY: all build ensure check clean rebuild cache-clean
 
 all: build
 
@@ -17,3 +17,5 @@ clean cache-clean:
 	@:
 
 rebuild: build
+
+ensure: build

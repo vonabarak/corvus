@@ -4,7 +4,7 @@
 # Prerequisite: apply yaml/multi-os/multi-os.yml so the `debian12`
 # template + its `debian-12-generic-base` disk exist.
 #
-#   crv apply yaml/multi-os/multi-os.yml
+#   make image-ensure IMAGE=multi-os
 #   crv build yaml/corvus-monitor/corvus-monitor.yml
 #
 # To bake the dashboard pointed at a specific corvus-web endpoint,
@@ -20,6 +20,7 @@
 # existing operators still get the same image without flags. Override
 # with `--var corvus_web_target=host:port` at build time.
 vars:
+  image_if_exists: overwrite
   corvus_web_target: "host.local:8080"
 
 pipeline:
@@ -30,6 +31,7 @@ pipeline:
       template: debian12
 
       target:
+        ifExists: "{{ image_if_exists }}"
         compact: true
 
       strategy: overlay
@@ -171,6 +173,7 @@ pipeline:
   # `systemctl enable` from step 7), so the operator only needs to
   # point Prometheus at their corvus-web target (see README.md).
   - apply:
+      ifExists: skip
       disks:
         # Writable overlay so each (re)instantiation gets its own
         # state without dirtying the base. Ephemeral = auto-deleted

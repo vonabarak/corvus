@@ -23,7 +23,7 @@
 #
 # Usage:
 #   make image IMAGE=key
-#   crv apply yaml/multi-os/multi-os.yml --skip-existing
+#   make image-ensure IMAGE=multi-os
 #   make -C yaml/corvus-test-vm build
 #
 # Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm`.
@@ -33,6 +33,9 @@
 # scheduler picks — fine on single-node installs; on multi-node
 # clusters add `node: <name>` under `build:` to pin the bake.
 
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   - build:
       name: corvus-test-vm
@@ -40,13 +43,14 @@ pipeline:
       template: debian12
 
       target:
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         size: 1G
         compact: true
         # Place the artifact under `<basePath>/BaseImages/Alpine/`
         # alongside the multi-os/ base images. The integration-test
         # harness virtiofs-mounts ~/VMs/BaseImages into the test VM
-        # and registers everything it finds with the inner daemon.
+        # and registers the outer catalogue's latest images with the inner daemon.
         path: BaseImages/Alpine/
 
       strategy: from-scratch

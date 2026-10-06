@@ -10,6 +10,7 @@ Mirrors `Corvus.Client.Commands.Build.preprocessRoot` in the Haskell client.
 from __future__ import annotations
 
 import base64
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -54,12 +55,61 @@ def _rewrite_file(prov: dict[str, object], base_dir: Path) -> None:
         fl["content"] = base64.b64encode(data).decode("ascii")
 
 
+def resolve_build_defaults(text: str) -> str:
+    """Expand declared variable defaults in build YAML before RPC submission.
+
+    Required variables must be supplied by the caller in the document's vars
+    mapping. Documents without vars are already preprocessed and pass through.
+    """
+    doc = yaml.safe_load(text)
+    if not isinstance(doc, dict) or "vars" not in doc:
+        return text
+    declarations = doc.pop("vars")
+    if declarations is None:
+        declarations = {}
+    if not isinstance(declarations, dict):
+        raise ValueError("build vars must be a mapping")
+    values: dict[str, str] = {}
+    for name, value in declarations.items():
+        if not isinstance(name, str):
+            raise ValueError("build variable names must be strings")
+        if value is None:
+            raise ValueError(f"build variable {name!r} is required")
+        if not isinstance(value, (str, int, float, bool)):
+            raise ValueError(f"build variable {name!r} must be a scalar")
+        values[name] = str(value).lower() if isinstance(value, bool) else str(value)
+
+    def expand(match: re.Match[str]) -> str:
+        token = match.group()
+        if token in {"{{{{", "}}}}"}:
+            return token[:2]
+        if not token.endswith("}}"):
+            raise ValueError("malformed build variable reference")
+        name = token[2:-2].strip()
+        if not name.isidentifier() or name not in values:
+            raise ValueError(f"unknown build variable {name!r}")
+        return values[name]
+
+    def walk(value: object) -> object:
+        if isinstance(value, str):
+            return re.sub(
+                r"\{\{\{\{|\}\}\}\}|\{\{.*?\}\}|\{\{", expand, value, flags=re.DOTALL
+            )
+        if isinstance(value, list):
+            return [walk(item) for item in value]
+        if isinstance(value, dict):
+            return {key: walk(item) for key, item in value.items()}
+        return value
+
+    return yaml.safe_dump(walk(doc), sort_keys=False)
+
+
 def preprocess_build_yaml(yaml_path: str) -> str:
     """Read `yaml_path`, inline references, return the rewritten YAML text."""
     path = Path(yaml_path).resolve()
     base_dir = path.parent
     with open(path, encoding="utf-8") as f:
-        doc = yaml.safe_load(f)
+        doc = yaml.safe_load(resolve_build_defaults(f.read()))
     if not isinstance(doc, dict):
         return yaml.safe_dump(doc, sort_keys=False)
     pipeline = doc.get("pipeline")

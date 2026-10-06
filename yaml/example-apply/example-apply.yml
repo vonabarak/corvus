@@ -1,3 +1,5 @@
+ifExists: skip
+
 # Example environment configuration for `crv apply`
 #
 # This file declares all resources needed for a two-VM environment with UEFI boot,

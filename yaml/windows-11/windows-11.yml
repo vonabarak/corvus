@@ -45,6 +45,9 @@ _ovmf_vars_drive: &ovmf_vars
   interface: pflash
   strategy: clone
 
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   # The Makefile creates this ISO with Autounattend.xml at its root. Upload
   # steps are client-local and must lead the pipeline; the resulting disk is
@@ -53,7 +56,7 @@ pipeline:
       name: windows-11-autounattend
       from: ./build/autounattend.iso
       format: raw
-      ifExists: overwrite
+      ifExists: "{{ image_if_exists }}"
 
   - apply:
       ifExists: skip
@@ -72,6 +75,8 @@ pipeline:
           register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.secboot.qcow2"
           format: qcow2
 
+  - apply:
+      ifExists: overwrite
       templates:
         - name: windows-11-installer
           description: "Windows 11 Pro unattended installer (bake-only)"
@@ -131,7 +136,7 @@ pipeline:
       template: windows-11-installer
 
       target:
-        ifExists: skip
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         compact: true
         path: BaseImages/Windows11/
@@ -159,7 +164,7 @@ pipeline:
       cleanup: onSuccess
 
   - apply:
-      ifExists: skip
+      ifExists: overwrite
       templates:
         - name: windows-11-pro
           description: "Windows 11 Pro overlay VM with an independent TPM; BitLocker opt-in"

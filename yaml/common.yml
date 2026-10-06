@@ -1,3 +1,5 @@
+ifExists: skip
+
 sshKeys:
   - name: corvus
     publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"

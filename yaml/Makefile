@@ -16,8 +16,8 @@ IMAGE_DIR_monitor := corvus-monitor
 
 IMAGES := node vm multi-os windows installer key gentoo windows-11 debian-nginx ubuntu-nginx monitor
 
-.PHONY: image image-clean image-rebuild image-check image-cache-clean image-list \
-	images images-clean images-rebuild
+.PHONY: image image-ensure image-clean image-rebuild image-check image-cache-clean image-list \
+	images images-ensure images-clean images-rebuild
 
 define require-image
 	@case "$(IMAGE)" in $(subst $(space),|,$(IMAGES))) ;; *) \
@@ -29,6 +29,10 @@ empty :=
 image:
 	$(require-image)
 	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) build
+
+image-ensure:
+	$(require-image)
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) ensure
 
 image-clean:
 	$(require-image)
@@ -57,3 +61,6 @@ images-clean:
 
 images-rebuild:
 	@for image in gentoo multi-os node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-rebuild IMAGE=$$image || exit $$?; done
+
+images-ensure:
+	@for image in key multi-os gentoo node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-ensure IMAGE=$$image || exit $$?; done

@@ -247,10 +247,10 @@ Same semantics as `path:` on `apply` YAML's `disks:` entries:
 
 | `path:` value | Resulting file location |
 |---|---|
-| omitted | `<basePath>/<name>.<ext>` |
-| `subdir/` (trailing `/`) | `<basePath>/subdir/<name>.<ext>` |
+| omitted | `<basePath>/<id>-<name>.<ext>` |
+| `subdir/` (trailing `/`) | `<basePath>/subdir/<id>-<name>.<ext>` |
 | `subdir/file.qcow2` | `<basePath>/subdir/file.qcow2` |
-| `/abs/dir/` | `/abs/dir/<name>.<ext>` (absolute) |
+| `/abs/dir/` | `/abs/dir/<id>-<name>.<ext>` (absolute) |
 | `/abs/file.qcow2` | `/abs/file.qcow2` (absolute) |
 
 Without `path:`, the artifact is moved out of the bake VM's
@@ -687,7 +687,7 @@ Installer builds:
   prepared answer-media ISO. Self-contained
   pipeline: the first `apply` step downloads the Windows Server 2025
   evaluation ISO + virtio-win drivers ISO (~9 GiB total) into
-  `~/VMs/BaseImages/WindowsServer2025/` on first run, the `build`
+  `~/VMs/ISOs/Windows/` and `~/VMs/ISOs/VirtIO/` on first run, the `build`
   step drives the install, and a final `apply` registers a
   `windows-server-2025` runtime template that overlays the baked
   image for convenient manual testing.

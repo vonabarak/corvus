@@ -17,6 +17,7 @@
 # the scheduler place it.
 
 vars:
+  image_if_exists: overwrite
   debian_url: ~
   debian_sha512: ~
   ubuntu_url: ~
@@ -53,7 +54,7 @@ _ovmf_vars_drive: &ovmf_vars
 
 pipeline:
   - apply:
-      ifExists: skip
+      ifExists: "{{ image_if_exists }}"
       disks:
         - name: debian-12-generic-base
           import: "{{ debian_url }}"
@@ -97,7 +98,7 @@ pipeline:
             value: "{{ alpine_sha512 }}"
 
   - apply:
-      ifExists: skip
+      ifExists: overwrite
       templates:
         - name: debian12
           <<: *defaults

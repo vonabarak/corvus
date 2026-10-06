@@ -1,36 +1,12 @@
-# Build-time variables are declared without defaults because the
-# upstream Gentoo autobuild filename and checksum rotate every few
-# days; pass the current values via `crv build --var ...` or use the
-# Makefile, which discovers both and threads them through for you.
+# Ensure gentoo-base-cloud first with `make ensure-cloud`.
+
 vars:
-  gentoo_base_cloud_url: ~
-  gentoo_base_cloud_sha256: ~
+  image_if_exists: overwrite
 
 pipeline:
-  # ─────────────────────────────────────────────────────────────────
-  # Stage 0: import the upstream Gentoo cloud-init image.
-  # ─────────────────────────────────────────────────────────────────
-  # Disks: skip-if-exists so re-baking doesn't re-download the
-  # ~8 GB cloud-init Gentoo image every time.
+  # Update bake templates while retaining the ensured upstream image.
   - apply:
-      ifExists: skip
-      disks:
-        - name: gentoo-base-cloud
-          import: "{{ gentoo_base_cloud_url }}"
-          format: qcow2
-          path: BaseImages/Gentoo/
-          checksum:
-            algorithm: sha256
-            value: "{{ gentoo_base_cloud_sha256 }}"
-
-  # Templates: overwrite-on-exists so edits to the bake-VM
-  # template's cloud-init userData (or any other template field)
-  # actually propagate on the NEXT bake. Without this, the
-  # template's DB row stays at whatever the first apply wrote
-  # and `crv build` just re-instantiates the stale userData into
-  # every fresh bake VM, regardless of YAML edits.
-  - apply:
-      ifExists: skip   # outer daemon predates ifExists: overwrite; manually `crv template delete <name>` to re-apply edits
+      ifExists: overwrite
       templates:
         - name: gentoo-cloud
           cpuCount: 8
@@ -123,6 +99,7 @@ pipeline:
       template: gentoo-cloud
 
       target:
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         # gentoo-base-cloud is ~3 GB virtual; +gentoo-sources +grub
         # +utils pushes the overlay well past that, so size up to
@@ -130,7 +107,6 @@ pipeline:
         size: 12G
         path: BaseImages/Gentoo/
         compact: true
-        ifExists: skip
 
       strategy: overlay
 
@@ -265,7 +241,7 @@ pipeline:
   # override. No package emerges in the runcmd.
   # ─────────────────────────────────────────────────────────────────
   - apply:
-      ifExists: skip   # outer daemon predates ifExists: overwrite; manually `crv template delete <name>` to re-apply edits
+      ifExists: overwrite
       templates:
         - name: gentoo-builder-bake
           cpuCount: 8
@@ -333,11 +309,11 @@ pipeline:
       template: gentoo-builder-bake
 
       target:
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         size: 20G
         path: BaseImages/Gentoo/
         compact: true
-        ifExists: skip
 
       strategy: from-scratch
 
@@ -731,7 +707,7 @@ pipeline:
   # by stage 3's first shell provisioner instead (see below).
   # ─────────────────────────────────────────────────────────────────
   - apply:
-      ifExists: skip   # outer daemon predates ifExists: overwrite; manually `crv template delete <name>` to re-apply edits
+      ifExists: overwrite
       templates:
         - name: gentoo-headless-bake
           cpuCount: 8
@@ -780,10 +756,10 @@ pipeline:
       template: gentoo-headless-bake
 
       target:
+        ifExists: "{{ image_if_exists }}"
         format: qcow2
         path: BaseImages/Gentoo/
         compact: true
-        ifExists: skip
 
       strategy: overlay
 
@@ -923,7 +899,7 @@ pipeline:
   #                               first-boot ergonomics (SSH key
   #                               injection, runcmd, etc.).
   - apply:
-      ifExists: skip
+      ifExists: overwrite
       templates:
         - name: gentoo-headless
           cpuCount: 8

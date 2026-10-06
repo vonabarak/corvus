@@ -1,4 +1,7 @@
-.PHONY: all build build-force check clean rebuild cache-clean
+DISKS := debian-12-generic-base ubuntu-26.04-server-base almalinux-10-base freebsd-14-base alpine-3.21-base
+TEMPLATES := debian12 ubuntu26 almalinux10 freebsd14
+
+include ../image.mk
 
 DEBIAN_BASE := https://cloud.debian.org/images/cloud/bookworm/latest
 DEBIAN_FILE := debian-12-generic-amd64.qcow2
@@ -18,12 +21,7 @@ ALPINE_FILE_SH = curl -fsS $(ALPINE_BASE)/ \
 	| sort -V \
 	| tail -n 1
 
-all: build
-
-build:
-	@$(MAKE) --no-print-directory check >/dev/null 2>&1 || $(MAKE) --no-print-directory build-force
-
-build-force:
+publish:
 	@debian_url="$(DEBIAN_BASE)/$(DEBIAN_FILE)"; \
 	debian_sha512=$$(curl -fsS "$(DEBIAN_BASE)/SHA512SUMS" | awk -v f="$(DEBIAN_FILE)" '$$2 == f {print $$1; exit}'); \
 	ubuntu_url="$(UBUNTU_BASE)/$(UBUNTU_FILE)"; \
@@ -49,7 +47,7 @@ build-force:
 	echo "AlmaLinux: $$almalinux_url"; \
 	echo "FreeBSD:   $$freebsd_url"; \
 	echo "Alpine:    $$alpine_url"; \
-	crv build multi-os.yml \
+	"$(CRV)" build multi-os.yml --var image_if_exists=$(IMAGE_POLICY) \
 	  --var debian_url="$$debian_url" \
 	  --var debian_sha512="$$debian_sha512" \
 	  --var ubuntu_url="$$ubuntu_url" \
@@ -61,17 +59,3 @@ build-force:
 	  --var alpine_url="$$alpine_url" \
 	  --var alpine_sha512="$$alpine_sha512" \
 	  --wait
-
-check:
-	@for disk in debian-12-generic-base ubuntu-26.04-server-base almalinux-10-base freebsd-14-base alpine-3-21-base; do \
-	  crv -o json disk show $$disk >/dev/null || exit $$?; \
-	done
-
-clean:
-	@for disk in alpine-3-21-base freebsd-14-base almalinux-10-base ubuntu-26.04-server-base debian-12-generic-base; do \
-	  crv -o json disk show $$disk >/dev/null 2>&1 && crv disk delete $$disk || true; \
-	done
-
-rebuild: clean build
-cache-clean:
-	@:

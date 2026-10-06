@@ -99,20 +99,19 @@ and preserve that VM's TPM state. Keep the shared base immutable and decrypted.
 
 ## Rebuilds and failures
 
-An existing artifact or template is skipped, so rerunning the build does not
-upgrade it. The pipeline still registers a missing runtime template when the
-base already exists. An older image built with TPM or without Sysprep must be
-rebuilt from installation media before use as this overlay base:
+An explicit build publishes a new `windows-11-pro-base:latest` and updates the
+runtime template. Existing VMs and overlays retain their original version.
+Use `make image-ensure IMAGE=windows-11` to create missing outputs without
+replacing existing versions. To publish an updated base from installation media:
 
 ```sh
 make image-rebuild IMAGE=windows-11
 ```
 
-Rebuild cleanup cannot remove a base referenced by existing VMs. Preserve
-those VMs and their disks; retire their dependencies deliberately or build
-under separate artifact/template names. Do not repurpose a retained installation
-VM containing user data as a generalized base. After investigating a failed
-bake, remove that failed VM before retrying if it still uses the answer ISO.
+Old images and their backing files remain registered. Do not repurpose a retained
+installation VM containing user data as a generalized base. Answer media is
+uploaded as a new version when building, so a retained failed bake can keep its
+original answer ISO while a retry uses the new one.
 
 ## Runtime verification
 

@@ -189,16 +189,11 @@ this host.
 * **Run an apt-cacher** (`apt-cacher-ng`) on the host so the bake
   VM's apt-get update + install reads from local cache. Cheapest
   if you have multiple Debian-family builds.
-* **Pre-install QGA into a derivative base disk** with
-  `virt-customize`:
-  ```bash
-  virt-customize -a ~/VMs/BaseImages/Debian/debian-12-generic-base.qcow2 \
-    --install qemu-guest-agent \
-    --run-command 'systemctl enable qemu-guest-agent'
-  ```
-  After this, drop the `packages:` line from the template's
-  userData (keep only the `runcmd:` to enable). The bake VM's
-  first boot then needs only ~13 s + 1 s for the systemctl enable.
+* **Bake a derivative base disk with QGA installed** using a `crv build`
+  overlay pipeline. Publish it under a separate image family and point the
+  bake template at that family. Keep registered backing files immutable.
+  Drop `packages:` from the template's userData and retain the `runcmd:`
+  that enables the agent; first boot can then avoid downloading packages.
 * **Switch the build to a template that ships QGA pre-installed**
   (e.g. `gentoo-cloud` on this host boots cleanly in ~75 s). This
   requires rewriting the build's `apt` / `systemctl` provisioners

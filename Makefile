@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-ensure image-clean image-rebuild image-check image-cache-clean image-list images images-ensure images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -69,11 +69,9 @@ python-test: build venv
 # Corvus; multi-node). The orchestrator VMs mount the host's
 # `stack path --local-install-root`/bin/ over virtiofs at
 # /opt/corvus/bin, so `make build` refreshes those binaries before the suite
-# needs — the user-driven `make install` step (which copies to
-# $HOME/.local/bin) is *not* a dependency here, and the harness
-# resolves `crv` from the same stack-install path. The first
-# session run will `crv build` the integration-test image YAML
-# (~30-60 min cold). Requires nested-KVM on the host.
+# starts. Install and run the outer daemon separately. Prepare missing
+# fixtures with `make image-ensure IMAGE=<name>` before running tests;
+# the harness never starts image bakes. Requires nested-KVM on the host.
 #
 # No arguments: runs the whole suite in parallel, with the worker count
 # chosen by integration_tests/scripts/detect_workers.py — the smaller of
@@ -163,7 +161,7 @@ unit-tests:
 # Image build commands are dispatched to yaml/Makefile. Each image recipe
 # owns its build logic alongside its YAML and supporting files; see
 # doc/test-images.md for the inventory and command reference.
-image image-clean image-rebuild image-check image-cache-clean image-list images images-clean images-rebuild:
+image image-ensure image-clean image-rebuild image-check image-cache-clean image-list images images-ensure images-clean images-rebuild:
 	+$(MAKE) -C yaml $@
 # Instantiate a one-off VM from the `corvus-test-node` template
 # (built by `make image IMAGE=node`), attach the developer's

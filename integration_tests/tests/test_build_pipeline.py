@@ -29,12 +29,17 @@ matches `corvus-it-*`). If a test dies mid-bake, clean by hand:
 
 from __future__ import annotations
 
+import json
+import os
 import secrets
+import shutil
+import subprocess
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
-from corvus_client._async.build import preprocess_build_yaml
+from corvus_client._async.build import preprocess_build_yaml, resolve_build_defaults
 from corvus_client.types import (
     BuildPipelineEnd,
     BuildStepEnd,
@@ -65,6 +70,165 @@ _BAKE_TEMPLATE = textwrap.dedent("""
 
 
 class TestBuildPipeline(SingleNodeCase):
+    def test_build_variable_defaults(self, tmp_path: Path) -> None:
+        source = tmp_path / "build.yml"
+        source.write_text(
+            "vars:\n  image_if_exists: overwrite\npipeline:\n  - build:\n      target:\n        ifExists: '{{ image_if_exists }}'\n"
+        )
+        doc = yamlmod.safe_load(preprocess_build_yaml(str(source)))
+        assert "vars" not in doc
+        assert doc["pipeline"][0]["build"]["target"]["ifExists"] == "overwrite"
+        assert (
+            yamlmod.safe_load(
+                resolve_build_defaults(
+                    "vars: {}\nscript: '{{{{ literal }}}} ${HOME}'\n"
+                )
+            )["script"]
+            == "{{ literal }} ${HOME}"
+        )
+
+    @pytest.mark.parametrize(
+        "text, error",
+        [
+            ("vars: {required: null}", "required"),
+            ("vars: {}\nvalue: '{{ missing }}'", "unknown"),
+            ("vars: {}\nvalue: '{{ broken'", "malformed"),
+        ],
+    )
+    def test_build_variable_errors(self, text: str, error: str) -> None:
+        with pytest.raises(ValueError, match=error):
+            resolve_build_defaults(text)
+
+    @pytest.mark.parametrize(
+        "target,missing,expected",
+        [
+            ("build", False, "overwrite"),
+            ("rebuild", False, "overwrite"),
+            ("ensure", False, None),
+            ("ensure", True, "skip"),
+            ("check", False, None),
+            ("clean", False, None),
+        ],
+    )
+    def test_recipe_lifecycle(
+        self, tmp_path: Path, target: str, missing: bool, expected: str | None
+    ) -> None:
+        """Exercise shared Make targets with a catalogue stub, without rebaking fixtures."""
+        log = tmp_path / "calls.jsonl"
+        fake = tmp_path / "crv"
+        fake.write_text(r"""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[0] == 'build':
+    with Path(os.environ['CALL_LOG']).open('a') as stream:
+        stream.write(json.dumps(args) + '\n')
+elif os.environ.get('MISSING') == '1':
+    print(json.dumps({'code': args[2] + '_not_found'}))
+    sys.exit(1)
+else:
+    print(json.dumps({'id': 42}))
+""")
+        fake.chmod(0o755)
+        (tmp_path / "Makefile").write_text(
+            f"DISKS := example\nTEMPLATES := example-template\nPIPELINE := example.yml\ninclude {REPO_ROOT / 'yaml/image.mk'}\n"
+        )
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "intermediate").touch()
+        retained = tmp_path / "42-example.qcow2"
+        retained.write_bytes(b"published image")
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        result = subprocess.run(
+            ["make", "--no-print-directory", target, f"CRV={fake}"],
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "CALL_LOG": str(log),
+                "MISSING": "1" if missing else "0",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        calls = (
+            [json.loads(line) for line in log.read_text().splitlines()]
+            if log.exists()
+            else []
+        )
+        if expected is None:
+            assert calls == []
+        else:
+            assert len(calls) == 1
+            assert f"image_if_exists={expected}" in calls[0]
+        assert retained.read_bytes() == b"published image"
+        assert cache.is_dir()
+        assert build.exists() == (target != "clean")
+
+    @pytest.mark.parametrize(
+        "recipe",
+        [
+            "corvus-test-node",
+            "corvus-test-vm",
+            "multi-os",
+            "windows-server-2025",
+            "corvus-test-installer",
+            "gentoo-test",
+            "windows-11",
+            "debian-nginx",
+            "ubuntu-nginx",
+            "corvus-monitor",
+        ],
+    )
+    def test_existing_recipe_outputs_are_reused(
+        self, tmp_path: Path, recipe: str
+    ) -> None:
+        shutil.copytree(
+            REPO_ROOT / "yaml",
+            tmp_path / "yaml",
+            ignore=shutil.ignore_patterns("build", "cache"),
+        )
+        shutil.copytree(
+            REPO_ROOT / "integration_tests/keys", tmp_path / "integration_tests/keys"
+        )
+        fake = tmp_path / "crv"
+        fake.write_text(
+            "#!/bin/sh\nif [ \"$1\" != '-o' ]; then exit 99; fi\nprintf '%s\\n' '{\"id\":42}'\n"
+        )
+        fake.chmod(0o755)
+        directory = tmp_path / "yaml" / recipe
+        for target in ("check", "ensure"):
+            result = subprocess.run(
+                ["make", "--no-print-directory", target, f"CRV={fake}"],
+                cwd=directory,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+
+    def test_recipe_ensure_stops_on_lookup_error(self, tmp_path: Path) -> None:
+        fake = tmp_path / "crv"
+        fake.write_text(
+            "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"permission_denied\"}'\nexit 1\n"
+        )
+        fake.chmod(0o755)
+        marker = tmp_path / "published"
+        (tmp_path / "Makefile").write_text(
+            f"DISKS := example\ninclude {REPO_ROOT / 'yaml/image.mk'}\npublish:\n\ttouch {marker}\n"
+        )
+        result = subprocess.run(
+            ["make", "ensure", f"CRV={fake}"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert not marker.exists()
+
     def test_bake_overlay_marker_roundtrip(self) -> None:
         """Happy-path bake produces an artifact whose marker survives.
 
@@ -246,14 +410,9 @@ class TestBuildPipeline(SingleNodeCase):
         hyphens). Staging only what this build needs sidesteps the
         name/path mismatch and keeps the test self-contained.
 
-        We also rewrite the build YAML on the fly to use a unique
-        per-test artifact name. The project's hardcoded
-        `corvus-test-vm` collides with the harness's `images
-        ["alpine"]` alias when the developer's host has a single
-        cached `corvus-test-vm.qcow2` under `BaseImages/Alpine/`
-        (no `alpine-3.21-base.qcow2`). Deleting that disk in
-        finally would break sibling tests that consume the same
-        cached `register_base_images()` dict.
+        We rewrite the build YAML to use a unique per-test artifact name.
+        The harness pins the published `corvus-test-vm` version for sibling
+        tests, so cleanup must only delete this test's new artifact.
 
         Slow: nested bake runs ~5-10 min under doubly-nested KVM.
         """

@@ -22,6 +22,9 @@
 # /var/lib/dpkg/lock-frontend before running apt-get. Without that wait
 # the bake races cloud-init's own apt run and gets E: Could not get lock.
 
+vars:
+  image_if_exists: overwrite
+
 pipeline:
   - build:
       name: ubuntu26-nginx
@@ -30,6 +33,7 @@ pipeline:
       template: ubuntu26
 
       target:
+        ifExists: "{{ image_if_exists }}"
         compact: true
 
       strategy: overlay
