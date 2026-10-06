@@ -31,7 +31,7 @@
     </component>
 
     <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <!-- This legacy build intentionally leaves its Corvus vTPM flag off.
+      <!-- The reusable image is installed without TPM to avoid baking TPM keys.
            Keep the normal UEFI, RAM, storage, and CPU configuration, but
            retain the TPM and Secure Boot installer bypasses. -->
       <RunSynchronous>
@@ -118,58 +118,40 @@
   </settings>
 
   <settings pass="specialize">
-    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <ComputerName>corvus-win11</ComputerName>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <ComputerName>*</ComputerName>
       <TimeZone>UTC</TimeZone>
+    </component>
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>en-GB</InputLocale>
+      <SystemLocale>en-GB</SystemLocale>
+      <UILanguage>en-GB</UILanguage>
+      <UserLocale>en-GB</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-SecureStartup-FilterDriver" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <PreventDeviceEncryption>true</PreventDeviceEncryption>
     </component>
   </settings>
 
   <settings pass="oobeSystem">
-    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-      <AutoLogon>
-        <Password>
-          <Value>corvus</Value>
-          <PlainText>true</PlainText>
-        </Password>
-        <Enabled>true</Enabled>
-        <LogonCount>1</LogonCount>
-        <Username>corvus</Username>
-      </AutoLogon>
+    <!-- Audit mode logs in the built-in Administrator for provisioning.
+         The corvus account is created only when a clone completes OOBE. -->
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <Reseal>
+        <Mode>Audit</Mode>
+      </Reseal>
+    </component>
+  </settings>
 
-      <FirstLogonCommands>
-        <!-- The answer CD is F: in this fixed three-CD installer layout.
-             Keep the provisioning program as a file: Windows rejects the
-             16 KB encoded command previously stored in this field. -->
-        <SynchronousCommand wcm:action="add">
+  <settings pass="auditUser">
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <RunSynchronous>
+        <!-- The answer CD is F: in this fixed three-CD installer layout. -->
+        <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File F:\provision.ps1</CommandLine>
-        </SynchronousCommand>
-      </FirstLogonCommands>
-
-      <OOBE>
-        <HideEULAPage>true</HideEULAPage>
-        <HideLocalAccountScreen>true</HideLocalAccountScreen>
-        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
-        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
-        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
-        <ProtectYourPC>3</ProtectYourPC>
-        <SkipMachineOOBE>true</SkipMachineOOBE>
-        <SkipUserOOBE>true</SkipUserOOBE>
-      </OOBE>
-
-      <UserAccounts>
-        <LocalAccounts>
-          <LocalAccount wcm:action="add">
-            <Password>
-              <Value>corvus</Value>
-              <PlainText>true</PlainText>
-            </Password>
-            <DisplayName>corvus</DisplayName>
-            <Group>Administrators</Group>
-            <Name>corvus</Name>
-          </LocalAccount>
-        </LocalAccounts>
-      </UserAccounts>
+          <Path>powershell.exe -NoProfile -ExecutionPolicy Bypass -File F:\provision.ps1</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
     </component>
   </settings>
 </unattend>

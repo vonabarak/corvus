@@ -1,30 +1,33 @@
 ---
 # Windows 11 Pro image — unattended, VirtIO-enabled build pipeline.
 #
-# Before running this pipeline, register the Windows 11 x64 multi-edition ISO
-# and the VirtIO-Win driver ISO with Corvus using the exact disk names
-# `windows-11-iso` and `virtio-win-iso`. Then run:
+# Before running this pipeline, manually download the Windows 11 x64
+# multi-edition ISO and register it with Corvus as `windows-11-iso`. The
+# pipeline downloads VirtIO-Win 0.1.302 with SHA-256 verification if `virtio-win-iso` is absent.
+# Then run:
 #
-#   crv build yaml/windows-11/windows-11.yml --wait
+#   make image IMAGE=windows-11
 #
-# The pipeline uploads a locally prepared answer ISO, registers OVMF firmware,
-# and creates a temporary installer template with the three ISO disks. It then
-# retains the completed bake VM as the ready-to-use Windows 11 instance.
+# The pipeline uploads a locally prepared answer ISO, downloads missing VirtIO
+# media, registers OVMF firmware, and creates a temporary installer template
+# with the three ISO disks. It then publishes a generalized, decrypted base
+# image, deletes the successful bake
+# VM, and registers the `windows-11-pro` overlay template.
 #
 # The image contains the VirtIO drivers, QEMU Guest Agent, SPICE guest tools,
 # WinFSP, and the VirtIO-FS guest service. Cloudbase-Init/cloud-init is not
 # installed or enabled.
 #
-# The installer and retained VM use the same vTPM. This lets Windows seal its
-# BitLocker protector to that VM's TPM state; the resulting disk must not be
-# cloned into another VM.
+# Installation runs without TPM. Every runtime VM gets its own TPM state on
+# first start. Automatic device encryption is disabled; BitLocker is opt-in
+# after instantiation. See README.md for first boot and rebuilding old images.
 #
 # Requirements:
 #   * The `windows-11-iso` disk must be a registered Windows 11 x64
 #     multi-edition installation ISO.
-#   * The `virtio-win-iso` disk must be a registered VirtIO-Win driver ISO.
+#   * The node must have internet access to download missing VirtIO-Win media.
 #   * The `corvus` managed network must exist and provide outbound internet;
-#     first-logon provisioning downloads a pinned, checksummed WinFSP MSI.
+#     audit-mode provisioning downloads a pinned, checksummed WinFSP MSI.
 #   * The host must provide the OVMF files registered below.
 #
 # Expect roughly 45-70 minutes on KVM. The bake is graphical so failures can be
@@ -50,12 +53,18 @@ pipeline:
       name: windows-11-autounattend
       from: ./build/autounattend.iso
       format: raw
-      ephemeral: true
       ifExists: overwrite
 
   - apply:
       ifExists: skip
       disks:
+        - name: virtio-win-iso
+          import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
+          checksum:
+            algorithm: sha256
+            value: "303f7ae40dad495d6ae474fdc571df58958a4dbc5c37a522d80f9a203867949d"
+          format: raw
+          path: ISOs/VirtIO/
         - name: ovmf-code-secboot
           register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.secboot.qcow2"
           format: qcow2
@@ -70,11 +79,15 @@ pipeline:
           ram: 8G
           headless: false
           cloudInit: false
-          # The retained bake VM keeps this TPM state after installation, so
-          # Windows can use TPM-backed BitLocker/device encryption normally.
-          tpm: true
+          graphicsAdapter: qxl-vga
+          balloon: true
+          audioDevices:
+            - model: intel-hda
+              backend: spice
+          # Never seal the reusable image to the installer's TPM keys.
+          tpm: false
           # The installer strategy waits for guest-initiated shutdown and does
-          # not wait for QGA, which is installed during first logon.
+          # not wait for QGA, which is installed in audit mode.
           guestAgent: false
           drives:
             # The installer strategy captures the first drive as the artifact.
@@ -88,9 +101,9 @@ pipeline:
               cacheType: writeback
             - *ovmf_code
             - *ovmf_vars
-            # These ISO disks must already be registered with Corvus. Drive
-            # ordering is significant: autounattend.xml expects the Windows
-            # installer at D: and the VirtIO-Win media at E:.
+            # Windows media is registered manually; VirtIO media is imported
+            # above when absent. Drive ordering is significant: autounattend.xml
+            # expects the Windows installer at D: and VirtIO-Win media at E:.
             - diskImageName: windows-11-iso
               interface: ide
               media: cdrom
@@ -114,7 +127,7 @@ pipeline:
 
   - build:
       name: windows-11-pro-base
-      description: "Windows 11 Pro with TPM-backed BitLocker and VirtIO guest integration"
+      description: "Generalized, decrypted Windows 11 Pro with VirtIO guest integration"
       template: windows-11-installer
 
       target:
@@ -137,12 +150,39 @@ pipeline:
           intervalSec: 1
 
       # Allow 90 minutes for Windows installation and guest setup. Successful
-      # provisioning ends with a guest-initiated shutdown.
+      # provisioning ends with Sysprep's guest-initiated shutdown.
       waitForShutdownSec: 5400
 
       provisioners: []
 
-      # Preserve the actual bake VM rather than deleting it after the artifact
-      # is captured. Its generated name starts with `__build_` and it retains
-      # the vTPM state that unlocks its BitLocker-protected system disk.
-      cleanup: never
+      # Retain failed bake VMs for inspection; remove successful bake VMs.
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      templates:
+        - name: windows-11-pro
+          description: "Windows 11 Pro overlay VM with an independent TPM; BitLocker opt-in"
+          cpuCount: 4
+          ram: 8G
+          headless: false
+          cloudInit: false
+          guestAgent: true
+          vsock: false
+          graphicsAdapter: qxl-vga
+          tpm: true
+          balloon: true
+          audioDevices:
+            - model: intel-hda
+              backend: spice
+          drives:
+            - diskImageName: windows-11-pro-base
+              interface: virtio
+              media: disk
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus

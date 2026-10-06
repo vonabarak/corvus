@@ -694,15 +694,22 @@ Installer builds:
 - [yaml/windows-11/windows-11.yml](../yaml/windows-11/windows-11.yml) —
   Windows 11 Pro with VirtIO drivers, qemu-guest-agent, SPICE guest
   integration, WinFSP, and VirtIO-FS, but no Cloudbase-Init/cloud-init.
-  It consumes pre-registered `windows-11-iso` and `virtio-win-iso` disks;
-  no ISO download variables are required. The bundled `autounattend.xml`
-  selects Pro by image name and intentionally retains its TPM/Secure Boot
-  bypass while leaving the template's `tpm` flag disabled. The resulting
-  `windows-11-pro-base` artifact is wrapped by the final `windows-11-pro`
-  runtime template.
+  It consumes a manually downloaded, pre-registered `windows-11-iso` disk and
+  downloads the pinned VirtIO-Win 0.1.302 ISO with SHA-256 verification as
+  `virtio-win-iso` if it is not already
+  registered. No ISO download variables are required. The bundled
+  `autounattend.xml`
+  selects Pro by image name and retains its TPM/Secure Boot bypass. The
+  installer runs without TPM, provisions in audit mode, and uses Sysprep to
+  generalize and shut down a fully decrypted `windows-11-pro-base`. Successful
+  bake VMs are removed. The final `windows-11-pro` runtime template overlays
+  the base with QXL video, HDA/SPICE audio, a VirtIO balloon, and per-VM TPM.
+  Automatic device encryption is disabled; BitLocker is opt-in per VM.
+  See the [Windows 11 recipe guide](../yaml/windows-11/README.md) for first boot,
+  rebuilding old images, and runtime verification.
 
 The Windows installer examples attach their bake VMs to the managed
-`corvus` network and need outbound internet during first-logon setup.
+`corvus` network and need outbound internet during guest provisioning.
 Ensure that network exists and that its subnet is NAT/MASQUERADE-enabled
 before starting a bake.
 

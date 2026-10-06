@@ -34,7 +34,7 @@ artifacts above.
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
 | `key` | `integration_tests/keys/` | The SSH keypair embedded in the node and inner-VM images, used by the harness tunnel. |
 | `gentoo` | `yaml/gentoo-test/` | `gentoo-base-cloud`, `gentoo-builder`, `gentoo-base-headless`, `gentoo-base-headless-cloudinit`, and `gentoo-corvus-test`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. |
-| `windows-11` | `yaml/windows-11/` | `BaseImages/Windows11/windows-11-pro-base.qcow2`, a TPM-backed Windows 11 Pro image for manual and compatibility testing. It requires registered `windows-11-iso` and `virtio-win-iso` media. |
+| `windows-11` | [yaml/windows-11/](../yaml/windows-11/README.md) | `BaseImages/Windows11/windows-11-pro-base.qcow2`, a generalized, decrypted Windows 11 Pro overlay base. The runtime template gives each VM its own TPM. Requires registered `windows-11-iso` media; missing VirtIO-Win media is downloaded automatically. |
 | `debian-nginx` | `yaml/debian-nginx/` | `debian-12-nginx`, an example Debian 12 nginx derivative built from the multi-OS Debian base. |
 | `ubuntu-nginx` | `yaml/ubuntu-nginx/` | `ubuntu26-nginx`, an example Ubuntu 26.04 nginx derivative built from the multi-OS Ubuntu base. |
 | `monitor` | `yaml/corvus-monitor/` | `corvus-monitor`, a Debian 12 Prometheus and Grafana image. Set `CORVUS_WEB_TARGET=host:port` when building to bake a Corvus metrics endpoint into its dashboard configuration. |
