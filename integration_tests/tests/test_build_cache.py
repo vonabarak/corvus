@@ -63,7 +63,7 @@ _BAKE_TEMPLATE = textwrap.dedent("""
     headless: true
     guestAgent: true
     drives:
-      - diskImageName: {base_disk}
+      - diskImage: {base_disk}
         interface: virtio
         strategy: overlay
         size: 2048M

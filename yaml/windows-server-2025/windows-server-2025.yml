@@ -28,13 +28,13 @@
 # `headless: true` on the installer template to suppress the window.
 
 _ovmf_code_drive: &ovmf_code
-  diskImageName: ovmf-code
+  diskImage: ovmf-code
   interface: pflash
   readOnly: true
   strategy: direct
 
 _ovmf_vars_drive: &ovmf_vars
-  diskImageName: ovmf-vars
+  diskImage: ovmf-vars
   interface: pflash
   strategy: clone
 
@@ -102,7 +102,7 @@ pipeline:
             - *ovmf_code
             - *ovmf_vars
             # Windows install ISO — Windows mounts as D:
-            - diskImageName: windows-server-2025-iso
+            - diskImage: windows-server-2025-iso
               interface: ide
               media: cdrom
               readOnly: true
@@ -111,12 +111,12 @@ pipeline:
             # The autounattend.xml's DriverPaths and qemu-ga MSI install
             # paths reference E:\ explicitly, so the order must be
             # Windows ISO before VirtIO ISO.
-            - diskImageName: virtio-win-iso
+            - diskImage: virtio-win-iso
               interface: ide
               media: cdrom
               readOnly: true
               strategy: direct
-            - diskImageName: windows-server-2025-autounattend
+            - diskImage: windows-server-2025-autounattend
               interface: ide
               media: cdrom
               readOnly: true
@@ -191,7 +191,7 @@ pipeline:
             - *ovmf_code
             - *ovmf_vars
             # System disk
-            - diskImageName: windows-server-2025-eval
+            - diskImage: windows-server-2025-eval
               interface: virtio
               strategy: overlay
               cacheType: writeback

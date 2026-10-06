@@ -18,6 +18,7 @@ module Corvus.Handlers.CloudInit
 where
 
 import Corvus.Action
+import Corvus.Images
 
 import Control.Applicative ((<|>))
 import Control.Monad (forM)
@@ -42,7 +43,7 @@ import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Types
 import qualified Corvus.Utils.Network as Net
 import Data.Int (Int64)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -299,7 +300,7 @@ resolveNic pool (Entity _ nic) =
 ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text -> Text -> LogLevel -> IO ()
 ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
   let vmKey = toSqlKey vmId :: VmId
-  let diskName = vmName <> "-cloud-init"
+  let diskName = "vm-" <> T.pack (show vmId) <> "-" <> vmName <> "-cloud-init"
   basePath <- liftIO $ getEffectiveBasePath qemuConfig
   let storedPath = makeRelativeToBase basePath (T.unpack isoPath)
   -- Pull the VM's node id so the placement row points at the
@@ -309,7 +310,15 @@ ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = run
   mVm <- liftIO $ runSqlPool (get vmKey) pool
   let mNodeKey = vmNodeId <$> mVm
 
-  mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName diskName)) pool
+  mExisting <-
+    liftIO $
+      runSqlPool
+        ( do
+            drives <- selectList [DriveVmId ==. vmKey, DriveMedia ==. Just MediaCdrom] []
+            images <- mapM (maybe (pure Nothing) (\key -> fmap (Entity key) <$> get key) . driveDiskImageId . entityVal) drives
+            pure $ listToMaybe [image | Just image <- images, diskImageName (entityVal image) == diskName]
+        )
+        pool
   case mExisting of
     Just (Entity diskId _) -> do
       logDebugN $ "Cloud-init disk already registered: " <> T.pack (show $ fromSqlKey diskId)
@@ -320,24 +329,27 @@ ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = run
       diskId <-
         liftIO $
           runSqlPool
-            ( insert
-                DiskImage
-                  { diskImageName = diskName
-                  , diskImageFormat = FormatRaw
-                  , diskImageSize = Nothing
-                  , diskImageCreatedAt = now
-                  , diskImageBackingImageId = Nothing
-                  , -- Cloud-init ISOs are scoped to the lifetime of
-                    -- their VM: the ISO encodes per-VM hostname, SSH
-                    -- keys and any custom user-data, and is never
-                    -- reused by another VM. Reaped automatically when
-                    -- the VM is deleted (unless --keep-disks).
-                    diskImageEphemeral = True
-                  }
+            ( do
+                key <-
+                  publishImage
+                    DiskImage
+                      { diskImageName = diskName
+                      , diskImageFormat = FormatRaw
+                      , diskImageSize = Nothing
+                      , diskImageCreatedAt = now
+                      , diskImageBackingImageId = Nothing
+                      , -- Cloud-init ISOs are scoped to the lifetime of
+                        -- their VM: the ISO encodes per-VM hostname, SSH
+                        -- keys and any custom user-data, and is never
+                        -- reused by another VM. Reaped automatically when
+                        -- the VM is deleted (unless --keep-disks).
+                        diskImageEphemeral = True
+                      }
+                mapM_ (\nodeKey -> recordDiskImageNode key nodeKey storedPath) mNodeKey
+                pure key
             )
             pool
       logInfoN $ "Registered cloud-init disk with ID: " <> T.pack (show $ fromSqlKey diskId)
-      mapM_ (recordPlacement diskId storedPath) mNodeKey
       ensureDiskAttached pool vmKey diskId
   where
     recordPlacement diskId path nodeKey =

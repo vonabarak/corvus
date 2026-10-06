@@ -265,6 +265,7 @@ def disk_image_info(r: capnp.lib.capnp._DynamicStructReader) -> t.DiskImageInfo:
         format=str(r.format),
         size=_nz_int(r.size),
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
+        tags=list(r.tags),
         placements=[disk_image_placement(p) for p in r.placements],
         attached_to=[disk_attachment(a) for a in r.attachedTo],
         backing_image=named_ref_or_none(r.backingImage),
@@ -419,6 +420,11 @@ def template_vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateVmInf
 def template_drive_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDriveInfo:
     return t.TemplateDriveInfo(
         disk_image=named_ref_or_none(r.diskImage),
+        disk_selector=(
+            int(r.diskSelector) if r.diskSelector.isdecimal() else r.diskSelector
+        )
+        or None,
+        disk_name=_nz_text(r.diskName),
         interface=str(r.interface),
         media=str(r.media) if r.hasMedia else None,
         read_only=r.readOnly,

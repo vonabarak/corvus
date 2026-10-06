@@ -179,7 +179,7 @@ The ISO is stored alongside the VM's disk images:
 $HOME/VMs/<vm-name>/cloud-init.iso
 ```
 
-It is registered as a disk image in the database (name: `<vm-name>-cloud-init`, format: `raw`) and attached as a read-only IDE CD-ROM drive with no caching.
+It is registered as a disk image in the database (name: `vm-<vm-id>-<vm-name>-cloud-init`, format: `raw`) and attached as a read-only IDE CD-ROM drive with no caching.
 
 ---
 
@@ -203,7 +203,7 @@ cloudInitConfig:
       - systemctl enable nginx
   injectSshKeys: true
 drives:
-  - diskImageName: ubuntu-base
+  - diskImage: ubuntu-base
     interface: virtio
     strategy: overlay
 sshKeys:

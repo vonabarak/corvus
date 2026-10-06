@@ -77,7 +77,8 @@ Each entry in `drives` configures a disk that will be attached to VMs instantiat
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `diskImageName` | string | depends | | Name of an existing disk image. Required for `clone`, `overlay`, and `direct` strategies. Optional for `create` (used as a naming suffix). |
+| `diskImage` | string or integer | depends | | Image selector: `ubuntu`, `ubuntu:24.04`, or image ID `123`. Bare names use `latest`. Required for `clone`, `overlay`, and `direct`; omitted for `create`. |
+| `diskName` | string | no | `disk` | Naming suffix for the `create` strategy. |
 | `interface` | enum | yes | | Bus type: `virtio`, `ide`, `scsi`, `sata`, `nvme`, `pflash`, `floppy`. |
 | `strategy` | enum | yes | | How the drive is provisioned on instantiation (see below). |
 | `size` | integer | no | | For `create`: the new disk size. For `clone`/`overlay`: resize after provisioning. |
@@ -92,14 +93,14 @@ Each entry in `drives` configures a disk that will be attached to VMs instantiat
 
 The `strategy` field controls what happens to the drive when a VM is instantiated from the template.
 
-| Strategy | Requires `diskImageName` | Disk operation | Typical use case |
+| Strategy | Requires `diskImage` | Disk operation | Typical use case |
 |----------|--------------------------|----------------|------------------|
 | **`overlay`** | yes | Creates a qcow2 copy-on-write overlay backed by the named disk. The original is not modified. | Root disks — each VM gets a thin overlay on a shared base image. |
 | **`clone`** | yes | Full copy of the named disk (all data + snapshots). | UEFI OVMF variables — each VM needs its own writable copy. |
 | **`direct`** | yes | Attaches the named disk directly (no copy). | Shared read-only firmware images (e.g., OVMF_CODE.fd). |
 | **`create`** | no | Creates a new empty disk with the given `format` and `size`. | Data disks, scratch space. |
 
-**Naming convention for new disks**: clone and overlay produce disks named `<vm-name>-<diskImageName>` (overlay adds an `-overlay` suffix). The create strategy names the disk `<vm-name>-<diskImageName>` when `diskImageName` is provided, or `<vm-name>-disk` when omitted.
+**Naming convention for new disks**: clone and overlay produce disks named `<vm-name>-<diskImage>` (overlay adds an `-overlay` suffix). The create strategy names the disk `<vm-name>-<diskName>` when `diskName` is provided, or `<vm-name>-disk` when omitted.
 
 **Resize**: when `size` is set on a `clone` or `overlay` drive, the new disk is resized after creation. For `create`, `size` is the initial disk size.
 
@@ -196,7 +197,7 @@ templates:
     ram: 2G
     guestAgent: true
     drives:
-      - diskImageName: base-image
+      - diskImage: base-image
         interface: virtio
         strategy: overlay
 ```
@@ -223,7 +224,7 @@ Before execution, the apply subsystem validates:
 
 - No duplicate template names within the file.
 - Template names are non-empty and not all-digit (to avoid ambiguity with numeric IDs).
-- Drive references (`diskImageName`) for non-create strategies point to disks that exist in the database or are defined earlier in the same file.
+- Drive references (`diskImage`) for non-create strategies point to disks that exist in the database or are defined earlier in the same file.
 - SSH keys referenced by templates exist.
 - Templates with `sshKeys` have `cloudInit: true`.
 
@@ -256,18 +257,18 @@ guestAgent: true
 cloudInit: true
 drives:
   # Shared OVMF firmware code (read-only, never copied)
-  - diskImageName: ovmf-code
+  - diskImage: ovmf-code
     interface: pflash
     readOnly: true
     strategy: direct
 
   # Per-VM OVMF variables (each VM gets its own copy)
-  - diskImageName: ovmf-vars-template
+  - diskImage: ovmf-vars-template
     interface: pflash
     strategy: clone
 
   # Root disk overlay on a shared base image
-  - diskImageName: alpine-base
+  - diskImage: alpine-base
     interface: virtio
     strategy: overlay
     size: 20G
@@ -302,14 +303,14 @@ cloudInitConfig:
     Start-Service TermService
   injectSshKeys: false
 drives:
-  - diskImageName: ovmf-code
+  - diskImage: ovmf-code
     interface: pflash
     readOnly: true
     strategy: direct
-  - diskImageName: ovmf-vars-template
+  - diskImage: ovmf-vars-template
     interface: pflash
     strategy: clone
-  - diskImageName: ws25-base
+  - diskImage: ws25-base
     interface: virtio
     strategy: overlay
     size: 50G
@@ -325,20 +326,20 @@ cpuCount: 4
 ram: 8G
 drives:
   # OS root — overlay on shared base
-  - diskImageName: ubuntu-base
+  - diskImage: ubuntu-base
     interface: virtio
     strategy: overlay
     size: 40G
 
   # Empty data disk — created fresh per VM
-  - diskImageName: data
+  - diskName: data
     interface: virtio
     strategy: create
     format: qcow2
     size: 100G
 
   # Shared ISO (not copied)
-  - diskImageName: tools-iso
+  - diskImage: tools-iso
     interface: ide
     media: cdrom
     readOnly: true
@@ -366,7 +367,7 @@ templates:
     guestAgent: true
     cloudInit: true
     drives:
-      - diskImageName: alpine-base
+      - diskImage: alpine-base
         interface: virtio
         strategy: overlay
         size: 10G
@@ -383,4 +384,18 @@ crv template instantiate alpine-worker worker-01
 crv template instantiate alpine-worker worker-02
 crv vm start worker-01
 crv vm start worker-02
+```
+
+Image selectors by name/tag float: each instantiation resolves them to the current
+version. An integer `diskImage: 123` pins a version. Export and edit preserve this
+choice. Quoted decimal IDs work too; any digit-leading selector must be a valid
+positive decimal ID. Image names cannot contain a colon or start with a digit.
+
+```yaml
+drives:
+  - diskImage: "ubuntu:24.04"
+    strategy: overlay
+  - diskImage: 123
+    strategy: direct
+    readOnly: true
 ```

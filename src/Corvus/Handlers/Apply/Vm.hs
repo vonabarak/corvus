@@ -4,7 +4,7 @@ module Corvus.Handlers.Apply.Vm (ApplyVmCreate (..)) where
 
 import Control.Monad (forM_, when)
 import Corvus.Action
-import Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter)
+import Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter, resolveDiskName)
 import Corvus.Handlers.Apply.Validation (effectiveCloudInit)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import qualified Corvus.Handlers.NetIf as NetIfH
@@ -62,7 +62,7 @@ attachDrives state diskMap vmId drives vmName = go drives
   where
     go [] = pure $ Right ()
     go (d : ds) = do
-      mDiskId <- resolveByName state UniqueDiskImageName diskMap (adrDisk d)
+      mDiskId <- resolveDiskName state diskMap (adrDisk d)
       case mDiskId of
         Nothing -> pure $ Left $ "VM '" <> vmName <> "': disk '" <> adrDisk d <> "' not found"
         Just diskId -> runSqlPool (insert_ Drive {driveVmId = vmId, driveDiskImageId = Just $ toSqlKey diskId, driveInterface = adrInterface d, driveMedia = adrMedia d, driveReadOnly = adrReadOnly d, driveCacheType = adrCacheType d, driveDiscard = adrDiscard d}) (ssDbPool state) >> go ds

@@ -33,6 +33,7 @@ toCapnpDiskImageInfo P.DiskImageInfo {..} =
   CGDisk.DiskImageInfo
     { CGDisk.id = diiId
     , CGDisk.name = diiName
+    , CGDisk.tags = diiTags
     , CGDisk.placements = map mkPlacement diiPlacements
     , CGDisk.format = toCapnpDriveFormat diiFormat
     , CGDisk.size = maybe 0 fromIntegral diiSize
@@ -57,6 +58,7 @@ fromCapnpDiskImageInfo CGDisk.DiskImageInfo {..} = do
     P.DiskImageInfo
       { P.diiId = id
       , P.diiName = name
+      , P.diiTags = tags
       , P.diiPlacements =
           [ P.DiskImagePlacement
             { P.dipNode = fromCapnpNamedRef nodeRef

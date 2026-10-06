@@ -91,7 +91,11 @@ class EntityCombo(QComboBox):
         if self._placeholder is not None:
             self.addItem(self._placeholder, userData=None)
         for item in items:
-            self.addItem(item.name or str(item.id), userData=item.id)
+            tags = getattr(item, "tags", None)
+            label = item.name or str(item.id)
+            if tags is not None:
+                label = f"{label} (ID {item.id}; {', '.join(tags) or 'untagged'})"
+            self.addItem(label, userData=item.id)
         if isinstance(previous, int):
             self.select_id(previous)
         self.blockSignals(False)

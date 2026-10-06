@@ -40,3 +40,34 @@ def entity_ref(
     else:
         ref.name = value
     return ref
+
+
+def disk_entity_ref(
+    value: int | str, *, by_name: bool = False
+) -> capnp.lib.capnp._DynamicStructBuilder:
+    """Resolve an image ID or name[:tag]; bare names select latest."""
+    if isinstance(value, bool):
+        raise TypeError("disk selector does not accept bool")
+    if isinstance(value, int):
+        if not 0 < value <= (1 << 63) - 1:
+            raise ValueError("image ID must be a positive Int64")
+        return entity_ref(value)
+    if not isinstance(value, str) or not value:
+        raise ValueError("disk selector must be a nonempty name or ID")
+    if "0" <= value[0] <= "9":
+        if not value.isascii() or not value.isdecimal():
+            raise ValueError("digit-leading disk selectors must be decimal image IDs")
+        return disk_entity_ref(int(value))
+    parts = value.split(":")
+    if (
+        len(parts) > 2
+        or not parts[0]
+        or any(x in parts[0] for x in ("/", "\\", "..", "\0"))
+    ):
+        raise ValueError("invalid image name")
+    if len(parts) == 2:
+        import re
+
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", parts[1]):
+            raise ValueError("invalid image tag")
+    return entity_ref(value, by_name=True)

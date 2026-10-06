@@ -1,9 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter) where
+module Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter, resolveDiskName) where
 
 import Corvus.Handlers.Resolve (resolveNode)
+import Corvus.Images (imageByName)
 import Corvus.Model (NodeId)
 import Corvus.Protocol (Ref (..))
 import Corvus.Types (ServerState (..))
@@ -31,3 +32,6 @@ resolveByNameFilter state mkFilter mkNodeFilter localMap name nodeRef = case Map
           pure $ either (const []) (mkNodeFilter . toSqlKey) mNid
     entities <- runSqlPool (selectList (mkFilter name ++ nodeFilter) []) (ssDbPool state)
     pure $ case entities of [e] -> Just (fromSqlKey $ entityKey e); _ -> Nothing
+
+resolveDiskName :: ServerState -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
+resolveDiskName state _ name = fmap (fromSqlKey . entityKey) <$> runSqlPool (imageByName name) (ssDbPool state)

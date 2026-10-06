@@ -11,7 +11,7 @@ Two strategies in play, picked per sub-test:
     only strategy that exercises ``cleanup`` modes because that's
     the only one with provisioners.  ~2-3 min per bake under
     doubly-nested KVM.
-  * **No bake** (``ifExists: error``, ``overwrite``-refused,
+  * **No bake** (``ifExists: error``,
     ``apply-in-pipeline`` with ``ifExists: skip``): pre-existing
     disks short-circuit the bake; each test finishes in ~10 s.
 
@@ -43,7 +43,7 @@ _BAKE_TEMPLATE = textwrap.dedent("""
     headless: true
     guestAgent: true
     drives:
-      - diskImageName: {base_disk}
+      - diskImage: {base_disk}
         interface: virtio
         strategy: overlay
         size: 2048M
@@ -113,7 +113,7 @@ class TestBuildModes(SingleNodeCase):
                     cpuCount: 1
                     ram: 512M
                   provisioners:
-                    - shell: "echo SHOULD NOT RUN"
+                    - shell: "true"
                   cleanup: always
         """).strip()
         try:
@@ -139,10 +139,8 @@ class TestBuildModes(SingleNodeCase):
 
     # ---- ifExists: overwrite, attach-blocked path ------------------------
 
-    def test_target_ifexists_overwrite_refused_when_attached(self) -> None:
-        """``ifExists: overwrite`` refuses to delete a disk that's
-        still attached to a VM — the daemon names the offending VM
-        and tells the user to detach or delete it first."""
+    def test_target_ifexists_overwrite_preserves_attached_version(self) -> None:
+        """Publishing an artifact retains the old version attached to a VM."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
         base_disk = images["alpine"]
@@ -181,20 +179,24 @@ class TestBuildModes(SingleNodeCase):
                         cpuCount: 1
                         ram: 512M
                       provisioners:
-                        - shell: "echo SHOULD NOT RUN"
+                        - shell: "true"
                       cleanup: always
             """).strip()
             try:
                 end = _run_pipeline(self.client, pipeline_yaml)
                 bo = end.builds[0]
-                assert bo.error_message, end
-                assert "overwrite" in bo.error_message, bo.error_message
-                assert vm_name in bo.error_message, bo.error_message
-                assert not bo.artifact_disk_id, bo
-
-                # No bake VM came alive.
-                vm_names = [v.name for v in self.client.vms.list()]
-                assert not any(n.startswith("__build_") for n in vm_names), vm_names
+                assert not bo.error_message, end
+                assert bo.artifact_disk_id, bo
+                new = self.client.disks.get(artifact_name).show()
+                old = existing.show()
+                assert new.id != old.id
+                assert "latest" in new.tags
+                assert "latest" not in old.tags
+                assert any(
+                    d.disk_image and d.disk_image.id == old.id for d in vm.show().drives
+                )
+                self.client.disks.get(new.id).delete()
+                assert self.client.disks.get(artifact_name).show().id == old.id
             finally:
                 tpl.delete()
         finally:
@@ -214,14 +216,7 @@ class TestBuildModes(SingleNodeCase):
     # ---- ifExists: overwrite, success path -------------------------------
 
     def test_target_ifexists_overwrite_replaces_disk(self) -> None:
-        """``ifExists: overwrite`` against an unattached disk
-        replaces it with a freshly-baked artifact.  The new disk's
-        id may differ — overwrite deletes the old row and the
-        daemon mints a new one.
-
-        The bake itself is a minimal Alpine overlay with a no-op
-        provisioner; the cost is dominated by Alpine first-boot
-        + cloud-init, ~5-10 min under doubly-nested KVM."""
+        """Overwrite publishes a fresh artifact while retaining the old version."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
         base_disk = images["alpine"]
@@ -257,9 +252,10 @@ class TestBuildModes(SingleNodeCase):
             assert not bo.error_message, bo
             assert bo.artifact_disk_id, bo
 
-            # Old stub disk is gone; the new disk owns the name.
+            # The new version owns latest; the old version remains addressable.
             replaced = self.client.disks.get(artifact_name, by_name=True).show()
             assert replaced.id != stub_id, (stub_id, replaced.id)
+            assert self.client.disks.get(stub_id).show().id == stub_id
             assert replaced.size is not None and replaced.size > 67108864, replaced
 
             # Bake VM reaped (cleanup: always).
@@ -270,6 +266,7 @@ class TestBuildModes(SingleNodeCase):
             self.client.disks.get(artifact_name, by_name=True).delete()
         finally:
             tpl.delete()
+            stub.delete()
 
     # ---- cleanup: onSuccess (failure → keep) -----------------------------
 

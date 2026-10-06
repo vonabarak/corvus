@@ -10,7 +10,7 @@ import capnp
 from corvus_client.sizes import validate_size
 
 from .. import _schema, types
-from .._entityref import entity_ref
+from .._entityref import disk_entity_ref, entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
 
@@ -33,7 +33,7 @@ class AsyncDiskManager:
 
     async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncDisk:
         mgr = await self._ensure()
-        resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
+        resp = await mgr.get(ref=disk_entity_ref(ref, by_name=by_name))
         return AsyncDisk(resp.disk)
 
     async def create(
@@ -91,7 +91,7 @@ class AsyncDiskManager:
             params.format = format
             params.formatProvided = True
         if backing_disk_ref is not None:
-            params.backingDiskRef = entity_ref(backing_disk_ref)
+            params.backingDiskRef = disk_entity_ref(backing_disk_ref)
             params.backingProvided = True
         params.ephemeral = ephemeral
         if node is not None:
@@ -110,7 +110,7 @@ class AsyncDiskManager:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateOverlayParams.new_message()
         params.name = name
-        params.backingDiskRef = entity_ref(backing_disk_ref)
+        params.backingDiskRef = disk_entity_ref(backing_disk_ref)
         if path is not None:
             params.path = path
         params.ephemeral = ephemeral
@@ -138,7 +138,7 @@ class AsyncDiskManager:
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskCloneParams.new_message()
-        params.sourceRef = entity_ref(source_ref)
+        params.sourceRef = disk_entity_ref(source_ref)
         params.newName = new_name
         if path is not None:
             params.path = path
@@ -155,8 +155,8 @@ class AsyncDiskManager:
     ) -> None:
         mgr = await self._ensure()
         params = _schema.disk.DiskRebaseParams.new_message()
-        params.diskRef = entity_ref(disk_ref)
-        params.newBackingDiskRef = entity_ref(new_backing_disk_ref)
+        params.diskRef = disk_entity_ref(disk_ref)
+        params.newBackingDiskRef = disk_entity_ref(new_backing_disk_ref)
         params.newBackingProvided = True
         params.unsafe = unsafe
         await mgr.rebase(params=params)
@@ -168,7 +168,7 @@ class AsyncDiskManager:
         None. VM must be stopped.
         """
         mgr = await self._ensure()
-        await mgr.flatten(diskRef=entity_ref(disk_ref))
+        await mgr.flatten(diskRef=disk_entity_ref(disk_ref))
 
     async def eject_media(self, drive_id: int) -> None:
         """Eject the media of a CD-ROM drive.
@@ -193,7 +193,7 @@ class AsyncDiskManager:
         ``media=cdrom`` support this.
         """
         mgr = await self._ensure()
-        await mgr.mediaChange(driveId=drive_id, newDiskRef=entity_ref(new_disk))
+        await mgr.mediaChange(driveId=drive_id, newDiskRef=disk_entity_ref(new_disk))
 
     async def import_url(
         self,
@@ -256,7 +256,6 @@ class AsyncDiskManager:
         path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
-        overwrite: bool = False,
     ) -> AsyncDisk:
         """Stream a file on this API client's machine to a Corvus node."""
         mgr = await self._ensure()
@@ -268,7 +267,6 @@ class AsyncDiskManager:
         params.ephemeral = ephemeral
         if node is not None:
             params.node = entity_ref(node)
-        params.overwrite = overwrite
         session = await mgr.beginUpload(params=params)
         try:
             with Path(source).open("rb") as fh:
@@ -311,7 +309,7 @@ class AsyncDiskManager:
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskCopyParams.new_message()
-        params.diskRef = entity_ref(disk_ref)
+        params.diskRef = disk_entity_ref(disk_ref)
         params.toNodeRef = entity_ref(to_node_ref)
         if to_path is not None:
             params.toPath = to_path
@@ -340,7 +338,7 @@ class AsyncDiskManager:
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskMoveParams.new_message()
-        params.diskRef = entity_ref(disk_ref)
+        params.diskRef = disk_entity_ref(disk_ref)
         params.toNodeRef = entity_ref(to_node_ref)
         if to_path is not None:
             params.toPath = to_path
@@ -353,6 +351,18 @@ class AsyncDiskManager:
 class AsyncDisk:
     def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
+
+    async def register_placement(self, file_path: str, *, node: int | str) -> None:
+        """Register an existing replica of this version without changing tags."""
+        await self._cap.registerPlacement(node=entity_ref(node), path=file_path)
+
+    async def tag(self, tag: str) -> None:
+        """Assign a tag, moving it from any other version of this image name."""
+        await self._cap.tag(tag=tag)
+
+    async def untag(self, tag: str) -> None:
+        """Remove a tag. The reserved latest tag cannot be removed."""
+        await self._cap.untag(tag=tag)
 
     async def show(self) -> types.DiskImageInfo:
         resp = await self._cap.show()

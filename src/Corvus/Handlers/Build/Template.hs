@@ -23,7 +23,7 @@ import Corvus.Handlers.Disk.Create (DiskCreate (..))
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import Corvus.Handlers.Disk.Path (resolveDiskFilePathPure)
-import Corvus.Handlers.Template (TemplateInstantiate (..))
+import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..))
 import Corvus.Handlers.Vm (VmDelete (..))
 import Corvus.Model
 import Corvus.Protocol
@@ -71,6 +71,7 @@ instantiateBakeVm
   :: ServerState
   -> TaskId
   -> CleanupStack
+  -> Maybe TemplateDetails
   -> Int64
   -- ^ template id
   -> Text
@@ -78,17 +79,11 @@ instantiateBakeVm
   -> Text
   -- ^ node reference
   -> LoggingT IO (Either Text Int64)
-instantiateBakeVm state parentTaskId stack templateId bakeVmName nodeRef = do
-  resp <-
-    liftIO $
-      runActionAsSubtask
-        (mkActionContext state parentTaskId "system")
-        ( TemplateInstantiate
-            { tiTemplateId = templateId
-            , tiName = bakeVmName
-            , tiNodeRef = nodeRef
-            }
-        )
+instantiateBakeVm state parentTaskId stack snapshot templateId bakeVmName nodeRef = do
+  let context = mkActionContext state parentTaskId "system"
+  resp <- liftIO $ case snapshot of
+    Just details -> runActionAsSubtask context (TemplateInstantiateResolved details bakeVmName nodeRef)
+    Nothing -> runActionAsSubtask context (TemplateInstantiate templateId bakeVmName nodeRef)
   case resp of
     RespTemplateInstantiated vmIdLong -> do
       liftIO $

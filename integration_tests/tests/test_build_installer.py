@@ -108,7 +108,7 @@ class TestBuildInstaller(SingleNodeCase):
                 if isinstance(apply, dict):
                     for template in apply.get("templates", []):
                         if template.get("name") == "corvus-test-installer":
-                            template["drives"][-1]["diskImageName"] = marker_disk_name
+                            template["drives"][-1]["diskImage"] = marker_disk_name
                 build = step.get("build")
                 if isinstance(build, dict):
                     build["name"] = artifact_name

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from corvus_client import AsyncClient, DiskNotFound
+from corvus_client.exceptions import CorvusError
 
 import yaml
 
@@ -22,6 +23,7 @@ def test_disk_create_show_delete(daemon_socket: Path) -> None:
     async def go(c: AsyncClient) -> None:
         disk = await c.disks.create("py-disk-1", size=67108864)
         info = await disk.show()
+        assert Path(info.placements[0].file_path).name == f"{info.id}-py-disk-1.qcow2"
         assert info.name == "py-disk-1"
         assert info.size == 67108864
         # disks.get by name and by id both find it
@@ -50,7 +52,11 @@ def test_disk_create_with_custom_directory_path(daemon_socket: Path) -> None:
         try:
             info = await disk.show()
             paths = [placement.file_path for placement in info.placements]
-            assert any(path.endswith(f"custom-create/{name}.qcow2") for path in paths)
+            assert any(
+                "custom-create/" in path
+                and Path(path).name == f"{info.id}-{name}.qcow2"
+                for path in paths
+            )
         finally:
             await disk.delete()
 
@@ -85,7 +91,10 @@ def test_cli_disk_create_with_custom_directory_path(daemon_socket: Path) -> None
         try:
             info = await disk.show()
             paths = [placement.file_path for placement in info.placements]
-            assert any(path.endswith(f"cli-create/{name}.qcow2") for path in paths)
+            assert any(
+                "cli-create/" in path and Path(path).name == f"{info.id}-{name}.qcow2"
+                for path in paths
+            )
         finally:
             await disk.delete()
 
@@ -106,7 +115,7 @@ def test_disk_overlay_and_clone(daemon_socket: Path) -> None:
         assert ovl_info.backing_image is not None
         assert ovl_info.backing_image.id == base_info.id
         assert any(
-            path.endswith("custom-overlay/py-ovl.qcow2")
+            "custom-overlay/" in path and path.endswith("-py-ovl.qcow2")
             for path in (placement.file_path for placement in ovl_info.placements)
         )
 
@@ -187,5 +196,51 @@ def test_created_disk_records_qemu_sector_rounding(daemon_socket: Path) -> None:
             assert (await disk.show()).size == 2048
         finally:
             await disk.delete()
+
+    run(go)
+
+
+def test_upload_collision_preserves_bytes_and_latest(
+    daemon_socket: Path, tmp_path: Path
+) -> None:
+    run = with_client(daemon_socket)
+    source = tmp_path / "upload.raw"
+    source.write_bytes(b"first version" * 1024)
+
+    async def go(c: AsyncClient) -> None:
+        old = await c.disks.upload_from_file(
+            "py-upload-atomic:v1", source, format="raw"
+        )
+        try:
+            info = await old.show()
+            destination = Path(info.placements[0].file_path)
+            original = destination.read_bytes()
+            source.write_bytes(b"replacement" * 1024)
+            with pytest.raises(CorvusError):
+                await c.disks.upload_from_file(
+                    "py-upload-atomic:v2", source, format="raw", path=str(destination)
+                )
+            assert destination.read_bytes() == original
+            assert (await (await c.disks.get("py-upload-atomic")).show()).id == info.id
+            with pytest.raises(DiskNotFound):
+                await c.disks.get("py-upload-atomic:v2")
+        finally:
+            await old.delete()
+
+    run(go)
+
+
+def test_upload_rejects_format_mismatch_without_publishing(
+    daemon_socket: Path, tmp_path: Path
+) -> None:
+    run = with_client(daemon_socket)
+    source = tmp_path / "raw-payload"
+    source.write_bytes(b"this is raw data" * 1024)
+
+    async def go(c: AsyncClient) -> None:
+        with pytest.raises(CorvusError):
+            await c.disks.upload_from_file("py-upload-invalid", source, format="qcow2")
+        with pytest.raises(DiskNotFound):
+            await c.disks.get("py-upload-invalid")
 
     run(go)

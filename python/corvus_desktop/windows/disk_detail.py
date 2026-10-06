@@ -55,6 +55,10 @@ class DiskDetailWidget(QWidget):
         self._title.setFont(f)
 
         # ---------------- action buttons ----------------
+        self._btn_tag = QPushButton("Assign tag…")
+        self._btn_untag = QPushButton("Remove tag…")
+        self._btn_tag.clicked.connect(lambda: self._on_tag(False))
+        self._btn_untag.clicked.connect(lambda: self._on_tag(True))
         self._btn_resize = QPushButton("Resize…")
         self._btn_rebase = QPushButton("Rebase…")
         self._btn_copy = QPushButton("Copy…")
@@ -67,6 +71,8 @@ class DiskDetailWidget(QWidget):
         self._btn_delete.clicked.connect(self._on_delete)
         action_row = QHBoxLayout()
         for b in (
+            self._btn_tag,
+            self._btn_untag,
             self._btn_resize,
             self._btn_rebase,
             self._btn_copy,
@@ -77,6 +83,7 @@ class DiskDetailWidget(QWidget):
         action_row.addStretch(1)
 
         # ---------------- summary fields ----------------
+        self._tags = QLabel("—")
         self._format = QLabel("—")
         self._size = QLabel("—")
         self._created = QLabel("—")
@@ -101,6 +108,7 @@ class DiskDetailWidget(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         form = QFormLayout()
+        form.addRow("Tags:", self._tags)
         form.addRow("Format:", self._format)
         form.addRow("Size:", self._size)
         form.addRow("Created:", self._created)
@@ -177,6 +185,7 @@ class DiskDetailWidget(QWidget):
             return
         self._size_bytes = info.size
         self._title.setText(info.name)
+        self._tags.setText(", ".join(info.tags) or "—")
         self._format.setText(info.format)
         self._size.setText(format_size(info.size))
         self._created.setText(info.created_at.isoformat(sep=" ", timespec="seconds"))
@@ -217,6 +226,13 @@ class DiskDetailWidget(QWidget):
         self._bridge.request_disk_detail(disk_id)
 
     # ---------------------------------------------------- ui actions
+
+    def _on_tag(self, remove: bool) -> None:
+        if self._disk_id is None:
+            return
+        tag, accepted = QInputDialog.getText(self, "Image tag", "Tag:")
+        if accepted and tag:
+            self._bridge.disk_tag(self._disk_id, tag, remove=remove)
 
     def _on_resize(self) -> None:
         if self._disk_id is None:

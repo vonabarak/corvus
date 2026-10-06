@@ -16,6 +16,7 @@ module Corvus.Protocol.Template
   )
 where
 
+import Corvus.DiskSelector (DiskSelector)
 import Corvus.Model (AudioBackend, AudioDeviceModel, CacheType, DriveFormat, DriveInterface, DriveMedia, GraphicsAdapter, NetInterfaceType, NetworkDeviceModel, SharedDirCache, TemplateCloneStrategy)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
@@ -50,6 +51,8 @@ data TemplateDriveInfo = TemplateDriveInfo
   { tvdiDiskImage :: !(Maybe NamedRef)
   -- ^ Source disk image. 'Nothing' for clone/overlay/create
   -- strategies that materialise a new disk at instantiation time.
+  , tvdiDiskSelector :: !(Maybe DiskSelector)
+  , tvdiDiskName :: !(Maybe Text)
   , tvdiInterface :: !DriveInterface
   , tvdiMedia :: !(Maybe DriveMedia)
   , tvdiReadOnly :: !Bool

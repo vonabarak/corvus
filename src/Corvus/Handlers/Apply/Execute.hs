@@ -47,7 +47,7 @@ executeApply ctx config ifExists = do
   case keyResult of
     Left e -> pure $ Left e
     Right (keyMap, keys) -> do
-      diskResult <- phase "disks" (acDisks config) Map.empty $ \d m -> entity "disks" (diskKind d) (adName d) (resolveByName state UniqueDiskImageName m $ adName d) (runActionAsSubtask ctx $ ApplyDiskCreate d m) $ \eid -> Overwrite (preflightDiskOverwrite state (adName d) eid) (runActionAsSubtask ctx $ DiskDelete eid)
+      diskResult <- phase "disks" (acDisks config) Map.empty $ \d m -> diskEntity (diskKind d) (adName d) (resolveDiskName state m $ adName d) (runActionAsSubtask ctx $ ApplyDiskCreate d m) $ \eid -> Overwrite (pure $ Right ()) (pure RespDiskOk)
       case diskResult of
         Left e -> pure $ Left e
         Right (diskMap, disks) -> do
@@ -90,6 +90,11 @@ executeApply ctx config ifExists = do
       case result of
         TaskSuccess -> maybe (pure $ Left $ name <> ": succeeded but no entity ID") (\entityId -> pure $ Right (name, fromIntegral entityId)) mId
         _ -> pure $ Left $ name <> ": " <> fromMaybe "unknown error" message
+    diskEntity kind name find create overwrite = do
+      found <- find
+      case (ifExists, found) of
+        (IfExistsError, Just _) -> pure $ Left $ "Disk target already exists: " <> name
+        _ -> entity "disks" kind name (pure found) create overwrite
     phase
       :: Text
       -> [a]

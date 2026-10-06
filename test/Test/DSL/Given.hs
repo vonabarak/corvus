@@ -58,6 +58,7 @@ module Test.DSL.Given
 where
 
 import Control.Monad.IO.Class (liftIO)
+import Corvus.Images
 import Corvus.Model
 import qualified Corvus.Model as M
 import Data.Int (Int64)
@@ -336,7 +337,7 @@ insertDiskImage name path format = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
-      insert
+      publishImage
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
@@ -358,7 +359,7 @@ insertDiskImageFull name path format size = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
-      insert
+      publishImage
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
@@ -381,7 +382,7 @@ insertDiskImageWithBacking name path format size mBackingId = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
-      insert
+      publishImage
         DiskImage
           { diskImageName = name
           , diskImageFormat = format
@@ -403,7 +404,7 @@ insertDiskImageOnTestNode name path format = do
   now <- liftIO getCurrentTime
   diskKey <-
     runDb $
-      insert
+      publishImage
         DiskImage
           { diskImageName = name
           , diskImageFormat = format

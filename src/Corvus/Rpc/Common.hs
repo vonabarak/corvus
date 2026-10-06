@@ -7,6 +7,7 @@
 module Corvus.Rpc.Common
   ( -- * EntityRef → Ref bridge
     capnpRefToRef
+  , capnpDiskRefToRef
 
     -- * Failures
   , resolveOrThrow
@@ -45,6 +46,12 @@ capnpRefToRef raw = case fromCapnpEntityRef raw of
   Right (RefById n) -> pure $ P.Ref (T.pack (show n))
   Right (RefByName t) -> pure $ P.Ref t
   Left e -> throwFailed (showWireError e)
+
+-- | Preserve the ID branch for disk selectors, rejecting nonpositive IDs.
+capnpDiskRefToRef :: C.Parsed CGCommon.EntityRef -> IO P.Ref
+capnpDiskRefToRef raw = case fromCapnpEntityRef raw of
+  Right (RefById n) | n <= 0 -> throwFailed (T.pack "Image ID must be positive")
+  _ -> capnpRefToRef raw
 
 -- | Render a failed 'P.Response' in the structured wire format
 -- (@<code> :: <message>@) and throw it as a Cap'n Proto exception.

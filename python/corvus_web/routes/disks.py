@@ -299,3 +299,34 @@ async def delete_snapshot(
     snap = await _get_snapshot(client, disk_id, snap_id)
     await snap.delete()
     return {"status": "deleted"}
+
+
+@router.post("/{disk_id}/tags/{tag}")
+async def tag_disk(disk_id: int, tag: str, client: ClientDep) -> JsonObject:
+    """Move a name/tag to this version, preserving other versions."""
+    disk = await client.disks.get(disk_id)
+    await disk.tag(tag)
+    return to_dict(await disk.show())
+
+
+@router.delete("/{disk_id}/tags/{tag}")
+async def untag_disk(disk_id: int, tag: str, client: ClientDep) -> JsonObject:
+    """Remove an ordinary tag. latest is mandatory for nonempty names."""
+    disk = await client.disks.get(disk_id)
+    await disk.untag(tag)
+    return to_dict(await disk.show())
+
+
+class RegisterPlacementBody(BaseModel):  # type: ignore[explicit-any]
+    file_path: str = Field(..., min_length=1)
+    node: str = Field(..., min_length=1)
+
+
+@router.post("/{disk_id}/placements")
+async def register_placement(
+    disk_id: int, body: RegisterPlacementBody, client: ClientDep
+) -> JsonObject:
+    """Register an existing replica of this version on another node."""
+    disk = await client.disks.get(disk_id)
+    await disk.register_placement(body.file_path, node=body.node)
+    return to_dict(await disk.show())

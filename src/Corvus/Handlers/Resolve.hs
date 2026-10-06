@@ -21,6 +21,8 @@ module Corvus.Handlers.Resolve
   )
 where
 
+import Corvus.DiskSelector
+import Corvus.Images
 import Corvus.Model
   ( DiskImage
   , DiskImageId
@@ -159,7 +161,11 @@ resolveVm = resolveByName @Vm "VM" (\n -> [M.VmName ==. n])
 
 -- | Resolve a disk image reference.
 resolveDisk :: Ref -> Pool SqlBackend -> IO (Either ResolveError Int64)
-resolveDisk = resolveRef @DiskImage UniqueDiskImageName "Disk image"
+resolveDisk (Ref value) pool = case parseDiskSelector value of
+  Left err -> pure $ Left $ RefNotFound err value
+  Right selector -> do
+    key <- runSqlPool (resolveImage selector) pool
+    pure $ maybe (Left $ RefNotFound "Disk image" value) (Right . fromSqlKey) key
 
 -- | Resolve a network reference. Same per-node-uniqueness pattern
 -- as 'resolveVm'.

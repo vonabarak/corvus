@@ -17,14 +17,16 @@ where
 
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Corvus.Client.BuildVars (applyBuildVars, renderVarError)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (emitError, emitOkWith, emitRpcError)
 import Corvus.Client.Types (BuildClientOptions (..), OutputFormat, WaitOptions (..))
+import Corvus.DiskSelector (publicationSelector)
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
+import Corvus.Protocol.Disk (DiskImageInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.Aeson.Key as AK
@@ -266,12 +268,12 @@ preprocessUploads conn baseDir (Object root) = case KM.lookup "pipeline" root of
             mPath = optionalText "path" o
             node = fromMaybe "" (optionalText "node" o)
             ephemeral = fromMaybe True (optionalBool "ephemeral" o)
-        overwrite <- case optionalText "ifExists" o of
-          Nothing -> pure False
-          Just "error" -> pure False
-          Just "overwrite" -> pure True
-          Just other -> fail ("upload.ifExists must be 'error' or 'overwrite', got '" <> T.unpack other <> "'")
-        CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText node) overwrite
+        let policy = fromMaybe "error" (optionalText "ifExists" o)
+        unless (policy `elem` ["error", "overwrite"]) (fail "upload.ifExists must be error or overwrite")
+        target <- either (fail . T.unpack) pure (publicationSelector name)
+        existing <- CR.rpcDiskList conn
+        when (policy == "error" && any (\disk -> diiName disk == fst target && snd target `elem` diiTags disk) existing) (fail "upload target already exists")
+        CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText node)
         pure ()
       _ -> fail "pipeline upload step must be an object"
     runUpload _ = fail "pipeline upload step must be an object"

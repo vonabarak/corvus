@@ -27,8 +27,8 @@ struct TemplateVmInfo {
 }
 
 struct TemplateDriveInfo {
-  # Source disk image. `id == 0` => not bound to a specific image
-  # (e.g. clone/overlay strategies that create a new disk).
+  # Resolved source disk image. `id == 0` for the create strategy.
+  # diskSelector preserves the floating selector or pinned ID.
   diskImage      @0  :Common.NamedRef;
   interface      @1  :Enums.DriveInterface;
   hasMedia       @2  :Bool;
@@ -45,6 +45,8 @@ struct TemplateDriveInfo {
   # (use strategy-driven default) from "user explicitly set to false".
   hasEphemeral   @11 :Bool;
   ephemeral      @12 :Bool;
+  diskSelector   @13 :Text; # name:tag or numeric ID; empty for create
+  diskName       @14 :Text; # optional name suffix for create
 }
 
 struct TemplateNetIfInfo {

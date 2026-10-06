@@ -9,6 +9,7 @@ module Corvus.Handlers.Disk.Derive
 where
 
 import Corvus.Action
+import Corvus.Images
 
 import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_)
@@ -86,9 +87,10 @@ handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral = run
                   logWarnN $ "Base image is attached read-write to VMs: " <> T.pack (show vmIds)
                   pure $ RespError "Cannot use as base: image is attached read-write to VM(s)"
                 else do
+                  reservedId <- liftIO $ runSqlPool reserveImageId (ssDbPool state)
                   basePath <- liftIO $ nodeBasePathFor state nid
                   let overlayFileName = T.unpack safeName <> ".qcow2"
-                  overlayFilePath <- liftIO $ resolveDiskFilePath basePath optDirPath overlayFileName
+                  overlayFilePath <- liftIO $ resolveDiskFilePath reservedId basePath optDirPath overlayFileName
                   let pool = ssDbPool state
                       baseKey = toSqlKey baseDiskId :: DiskImageId
                   baseFilePath <- liftIO $ resolveDiskPath pool (ssQemuConfig state) baseKey nid
@@ -97,39 +99,41 @@ handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral = run
                     ImageError err -> do
                       logWarnN $ "Failed to create overlay: " <> err
                       pure $ RespError err
-                    _ -> do
-                      now <- liftIO getCurrentTime
-                      let storedOverlay = makeRelativeToBase basePath overlayFilePath
-                      diskId <-
-                        liftIO $
-                          runSqlPool
-                            ( do
-                                dkey <-
-                                  insert
-                                    DiskImage
-                                      { diskImageName = safeName
-                                      , diskImageFormat = FormatQcow2
-                                      , diskImageSize = diskImageSize baseDisk
-                                      , diskImageCreatedAt = now
-                                      , diskImageBackingImageId = Just (toSqlKey baseDiskId)
-                                      , diskImageEphemeral = ephemeral
-                                      }
-                                recordDiskImageNode dkey nid storedOverlay
-                                pure dkey
-                            )
-                            (ssDbPool state)
-                      -- Resize if requested
-                      case mResize of
-                        Just newSize -> do
-                          res <- liftIO $ resizeImageViaAgent state nid overlayFilePath (fromIntegral newSize)
-                          case res of
-                            ImageSuccess -> do
-                              actualSize <- liftIO $ getImageSizeViaAgent state nid overlayFilePath
-                              liftIO $ runSqlPool (update diskId [DiskImageSize =. actualSize]) (ssDbPool state)
-                            _ -> logWarnN "Failed to resize overlay after creation"
-                        Nothing -> pure ()
-                      logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
-                      pure $ RespDiskCreated $ fromSqlKey diskId
+                    ImageSuccess -> do
+                      resized <- case mResize of
+                        Nothing -> pure ImageSuccess
+                        Just size -> liftIO $ resizeImageViaAgent state nid overlayFilePath (fromIntegral size)
+                      case resized of
+                        ImageSuccess -> do
+                          actualSize <- liftIO $ getImageSizeViaAgent state nid overlayFilePath
+                          now <- liftIO getCurrentTime
+                          let storedOverlay = makeRelativeToBase basePath overlayFilePath
+                          diskId <-
+                            liftIO $
+                              runSqlPool
+                                ( do
+                                    dkey <-
+                                      publishImageWithId
+                                        reservedId
+                                        DiskImage
+                                          { diskImageName = safeName
+                                          , diskImageFormat = FormatQcow2
+                                          , diskImageSize = actualSize
+                                          , diskImageCreatedAt = now
+                                          , diskImageBackingImageId = Just (toSqlKey baseDiskId)
+                                          , diskImageEphemeral = ephemeral
+                                          }
+                                    recordDiskImageNode dkey nid storedOverlay
+                                    pure dkey
+                                )
+                                (ssDbPool state)
+                          logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
+                          pure $ RespDiskCreated $ fromSqlKey diskId
+                        ImageError err -> pure $ RespError err
+                        ImageFormatNotSupported err -> pure $ RespFormatNotSupported err
+                        ImageNotFound -> pure $ RespError "Derived image vanished before publication"
+                    ImageFormatNotSupported err -> pure $ RespFormatNotSupported err
+                    ImageNotFound -> pure $ RespError "Base image file not found"
 
 -- | Clone a disk image
 handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int64 -> Maybe Text -> Bool -> IO Response
@@ -157,6 +161,7 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral = runServer
               if not (null runningVms)
                 then pure RespVmMustBeStopped
                 else do
+                  reservedId <- liftIO $ runSqlPool reserveImageId (ssDbPool state)
                   basePath <- liftIO $ nodeBasePathFor state nid
                   let pool = ssDbPool state
                       baseKey = toSqlKey baseDiskId :: DiskImageId
@@ -164,51 +169,52 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral = runServer
                   let srcFileName = takeFileName srcPath
                       ext = takeExtension srcFileName
                       cloneFileName = T.unpack safeName <> ext
-                  destPath <- liftIO $ resolveDiskFilePath basePath optionalPath cloneFileName
+                  destPath <- liftIO $ resolveDiskFilePath reservedId basePath optionalPath cloneFileName
                   result <- liftIO $ cloneImageViaAgent state nid srcPath destPath (diskImageFormat baseDisk)
                   case result of
                     ImageError err -> do
                       logWarnN $ "Failed to clone image: " <> err
                       pure $ RespError err
                     ImageNotFound -> pure $ RespError "Source image file not found"
-                    _ -> do
-                      now <- liftIO getCurrentTime
-                      let storedDest = makeRelativeToBase basePath destPath
-                      newDiskId <-
-                        liftIO $
-                          runSqlPool
-                            ( do
-                                dId <-
-                                  insert
-                                    DiskImage
-                                      { diskImageName = safeName
-                                      , diskImageFormat = diskImageFormat baseDisk
-                                      , diskImageSize = diskImageSize baseDisk
-                                      , diskImageCreatedAt = now
-                                      , diskImageBackingImageId = diskImageBackingImageId baseDisk
-                                      , diskImageEphemeral = ephemeral
-                                      }
-                                recordDiskImageNode dId nid storedDest
-                                -- Clone snapshots as well
-                                baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
-                                forM_ baseSnapshots $ \snapEntity -> do
-                                  let snap = entityVal snapEntity
-                                  insert snap {snapshotDiskImageId = dId}
-                                pure dId
-                            )
-                            (ssDbPool state)
-                      -- Resize if requested
-                      case mResize of
-                        Just newSize -> do
-                          res <- liftIO $ resizeImageViaAgent state nid destPath (fromIntegral newSize)
-                          case res of
-                            ImageSuccess -> do
-                              actualSize <- liftIO $ getImageSizeViaAgent state nid destPath
-                              liftIO $ runSqlPool (update newDiskId [DiskImageSize =. actualSize]) (ssDbPool state)
-                            _ -> logWarnN "Failed to resize clone after creation"
-                        Nothing -> pure ()
-                      logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
-                      pure $ RespDiskCreated $ fromSqlKey newDiskId
+                    ImageSuccess -> do
+                      resized <- case mResize of
+                        Nothing -> pure ImageSuccess
+                        Just size -> liftIO $ resizeImageViaAgent state nid destPath (fromIntegral size)
+                      case resized of
+                        ImageSuccess -> do
+                          actualSize <- liftIO $ getImageSizeViaAgent state nid destPath
+                          now <- liftIO getCurrentTime
+                          let storedDest = makeRelativeToBase basePath destPath
+                          newDiskId <-
+                            liftIO $
+                              runSqlPool
+                                ( do
+                                    dId <-
+                                      publishImageWithId
+                                        reservedId
+                                        DiskImage
+                                          { diskImageName = safeName
+                                          , diskImageFormat = diskImageFormat baseDisk
+                                          , diskImageSize = actualSize
+                                          , diskImageCreatedAt = now
+                                          , diskImageBackingImageId = diskImageBackingImageId baseDisk
+                                          , diskImageEphemeral = ephemeral
+                                          }
+                                    recordDiskImageNode dId nid storedDest
+                                    -- Clone snapshots as well
+                                    baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
+                                    forM_ baseSnapshots $ \snapEntity -> do
+                                      let snap = entityVal snapEntity
+                                      insert snap {snapshotDiskImageId = dId}
+                                    pure dId
+                                )
+                                (ssDbPool state)
+                          logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
+                          pure $ RespDiskCreated $ fromSqlKey newDiskId
+                        ImageError err -> pure $ RespError err
+                        ImageFormatNotSupported err -> pure $ RespFormatNotSupported err
+                        ImageNotFound -> pure $ RespError "Derived image vanished before publication"
+                    ImageFormatNotSupported err -> pure $ RespFormatNotSupported err
 
 data DiskCreateOverlay = DiskCreateOverlay
   { dcoName :: Text

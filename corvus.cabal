@@ -27,6 +27,8 @@ flag with-sqlite
 
 library
   exposed-modules:
+      Corvus.DiskSelector
+      Corvus.Images
       Corvus.Protocol
       Corvus.Protocol.JsonOptions
       Corvus.Protocol.Vm
@@ -275,7 +277,10 @@ library
       Corvus.Database.Migrations.V007
       Corvus.Database.Migrations.V008
       Corvus.Database.Migrations.V009
+      Corvus.Database.Migrations.V010
       Corvus.Handlers.AudioDevice
+      Corvus.Handlers.Disk.RegisterPlacement
+      Corvus.Handlers.Disk.Tags
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck
@@ -770,6 +775,7 @@ test-suite corvus-test
       Corvus.GuestExecSpec
       Corvus.HostDnsSpec
       Corvus.ImageSpec
+      Corvus.ImageTagsSpec
       Corvus.IpamSpec
       Corvus.NetdLedgerSpec
       Corvus.NetIfSpec

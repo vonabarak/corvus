@@ -42,6 +42,7 @@ import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -87,42 +88,38 @@ handleDiskDelete state diskId = runServerLogging state $ do
   case mDisk of
     Nothing -> pure RespDiskNotFound
     Just _disk -> do
+      pinnedTemplates <- liftIO $ runSqlPool (selectList [TemplateDriveDiskImageId ==. Just key] []) pool
       attachedVms <- liftIO $ runSqlPool (getAttachedVms diskId) pool
-      if not (null attachedVms)
-        then pure $ RespDiskInUse attachedVms
-        else do
-          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) pool
-          if not (null overlayIds)
-            then pure $ RespDiskHasOverlays overlayIds
+      if not (null pinnedTemplates)
+        then pure $ RespError "Disk is pinned by a template; update or delete the template first"
+        else
+          if not (null attachedVms)
+            then pure $ RespDiskInUse attachedVms
             else do
-              placements <- liftIO $ runSqlPool (listDiskImageNodes key) pool
-              -- Delete the on-disk file on every node we've ever
-              -- recorded for this image. Per-node failures are
-              -- logged but don't abort the rest of the cleanup —
-              -- the operator can re-run @crv disk delete@ after
-              -- the failing node comes back, and the DB drop at
-              -- the end is idempotent.
-              forM_ placements $ \(Entity _ row) -> do
-                let nid = diskImageNodeNodeId row
-                resolved <- liftIO $ resolveDiskPath pool (ssQemuConfig state) key nid
-                result <- liftIO $ deleteImageViaAgent state nid resolved
-                case result of
-                  ImageError err ->
-                    logWarnN $
-                      "Failed to delete file on node "
-                        <> T.pack (show (fromSqlKey nid))
-                        <> ": "
-                        <> err
-                  ImageNotFound ->
-                    logWarnN $
-                      "Image file already gone on node "
-                        <> T.pack (show (fromSqlKey nid))
-                  _ -> pure ()
-                liftIO $
-                  runSqlPool (deleteDiskImageNodeRow key nid) pool
-              liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) pool
-              logInfoN $ "Deleted disk image: " <> T.pack (show diskId)
-              pure RespDiskOk
+              overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) pool
+              if not (null overlayIds)
+                then pure $ RespDiskHasOverlays overlayIds
+                else do
+                  placements <- liftIO $ runSqlPool (listDiskImageNodes key) pool
+                  -- Keep failed placements and tags for a retry; latest moves
+                  -- only after every placement has been removed.
+                  errors <- forM placements $ \(Entity _ row) -> do
+                    let nid = diskImageNodeNodeId row
+                    resolved <- liftIO $ resolveDiskPath pool (ssQemuConfig state) key nid
+                    result <- liftIO $ deleteImageViaAgent state nid resolved
+                    case result of
+                      ImageError err -> do
+                        logWarnN $ "Failed to delete file on node " <> T.pack (show (fromSqlKey nid)) <> ": " <> err
+                        pure (Just err)
+                      _ -> do
+                        liftIO $ runSqlPool (deleteDiskImageNodeRow key nid) pool
+                        pure Nothing
+                  case catMaybes errors of
+                    err : _ -> pure (RespError err)
+                    [] -> do
+                      liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) pool
+                      logInfoN $ "Deleted disk image: " <> T.pack (show diskId)
+                      pure RespDiskOk
 
 -- | Resize a disk image (VM must be stopped). Resizes on every
 -- node that hosts a placement, then updates the logical size.

@@ -34,6 +34,7 @@ module Corvus.Handlers.Disk.Db
 where
 
 import Control.Monad (forM, forM_)
+import Corvus.Images
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -119,6 +120,7 @@ deleteDiskAndSnapshots diskId = do
   forM_ snaps $ \(Entity sk _) ->
     deleteWhere [M.BuildCacheEntrySnapshotId ==. sk]
   deleteWhere [M.SnapshotDiskImageId ==. toSqlKey diskId]
+  deleteImageTags (toSqlKey diskId)
   delete (toSqlKey diskId :: DiskImageId)
 
 -- | Walk a disk image's backing chain and return every ancestor's
@@ -168,9 +170,11 @@ listDiskImages = do
     attachedVms <- getAttachedVms (fromSqlKey key)
     backing <- backingImageRef (diskImageBackingImageId disk)
     placements <- placementsFor key
+    tags <- imageTags key
     pure $
       DiskImageInfo
         { diiId = fromSqlKey key
+        , diiTags = tags
         , diiName = diskImageName disk
         , diiPlacements = placements
         , diiFormat = diskImageFormat disk
@@ -192,10 +196,12 @@ getDiskImageInfo diskId = do
       attachedVms <- getAttachedVms diskId
       backing <- backingImageRef (diskImageBackingImageId disk)
       placements <- placementsFor key
+      tags <- imageTags key
       pure $
         Just
           DiskImageInfo
             { diiId = diskId
+            , diiTags = tags
             , diiName = diskImageName disk
             , diiPlacements = placements
             , diiFormat = diskImageFormat disk
@@ -215,8 +221,9 @@ recordDiskImageNode :: DiskImageId -> NodeId -> Text -> SqlPersistT IO ()
 recordDiskImageNode diskId nodeId path = do
   existing <- getBy (M.UniqueDiskImageOnNode diskId nodeId)
   case existing of
-    Just (Entity key _) ->
-      update key [M.DiskImageNodeFilePath =. path]
+    Just (Entity _ row)
+      | diskImageNodeFilePath row == path -> pure ()
+      | otherwise -> fail "The image already has a different placement on this node"
     Nothing ->
       insert_
         M.DiskImageNode

@@ -14,6 +14,9 @@ module Corvus.Client.Capnp.Rpc.Disk
     -- * Disk lifecycle
   , rpcDiskCreate
   , rpcDiskDelete
+  , rpcDiskRegisterPlacement
+  , rpcDiskTag
+  , rpcDiskUntag
   , rpcDiskResize
 
     -- * Disk additional wrappers
@@ -265,9 +268,8 @@ rpcDiskUpload
   -> Maybe Text
   -> Bool
   -> EntityRef
-  -> Bool
   -> IO Int64
-rpcDiskUpload conn name source fmt mPath ephemeral nodeRef overwrite = do
+rpcDiskUpload conn name source fmt mPath ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let params =
@@ -277,7 +279,6 @@ rpcDiskUpload conn name source fmt mPath ephemeral nodeRef overwrite = do
           , CGDisk.path = Data.Maybe.fromMaybe "" mPath
           , CGDisk.ephemeral = ephemeral
           , CGDisk.node = toCapnpEntityRef nodeRef
-          , CGDisk.overwrite = overwrite
           }
   CGDisk.DiskManager'beginUpload'results {CGDisk.upload = upload} <-
     callOn #beginUpload CGDisk.DiskManager'beginUpload'params {CGDisk.params = params} mgr
@@ -528,3 +529,21 @@ capnpDriveFormat = toCapnpDriveFormat
 emptyCapnpEntityRef :: C.Parsed CGCommon.EntityRef
 emptyCapnpEntityRef =
   CGCommon.EntityRef {CGCommon.union' = CGCommon.EntityRef'id 0}
+
+rpcDiskTag :: CapnpConnection -> EntityRef -> Text -> IO ()
+rpcDiskTag conn ref tagName = do
+  disk <- getDiskClient conn ref
+  _ <- callOn #tag CGDisk.Disk'tag'params {CGDisk.tag = tagName} disk
+  pure ()
+
+rpcDiskUntag :: CapnpConnection -> EntityRef -> Text -> IO ()
+rpcDiskUntag conn ref tagName = do
+  disk <- getDiskClient conn ref
+  _ <- callOn #untag CGDisk.Disk'untag'params {CGDisk.tag = tagName} disk
+  pure ()
+
+rpcDiskRegisterPlacement :: CapnpConnection -> EntityRef -> EntityRef -> Text -> IO ()
+rpcDiskRegisterPlacement conn ref nodeRef path = do
+  disk <- getDiskClient conn ref
+  _ <- callOn #registerPlacement CGDisk.Disk'registerPlacement'params {CGDisk.node = toCapnpEntityRef nodeRef, CGDisk.path = path} disk
+  pure ()

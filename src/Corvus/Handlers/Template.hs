@@ -7,6 +7,8 @@ module Corvus.Handlers.Template
   , TemplateUpdate (..)
   , TemplateDelete (..)
   , TemplateInstantiate (..)
+  , TemplateInstantiateResolved (..)
+  , getTemplateDetails
 
     -- * Handlers
   , handleTemplateCreate
@@ -22,7 +24,9 @@ module Corvus.Handlers.Template
 where
 
 import Corvus.Action
+import Corvus.DiskSelector
 import Corvus.Handlers.Vm (VmCreate (..))
+import Corvus.Images
 
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
@@ -46,9 +50,10 @@ import Corvus.Schema.Template
   )
 import Corvus.Types
 import Corvus.Utils.Network (generateMacAddress)
+import Data.Char (isDigit)
 import Data.Int (Int64)
 import qualified Data.List as L
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -165,15 +170,21 @@ handleTemplateDelete state tidLong = runServerLogging state $ do
   pure RespTemplateDeleted
 
 handleTemplateInstantiate :: ActionContext -> Int64 -> Text -> Text -> IO Response
-handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acState ctx) $ do
+handleTemplateInstantiate ctx tidLong newVmName nodeRef = handleTemplateInstantiateWith ctx tidLong newVmName nodeRef Nothing
+
+handleTemplateInstantiateWith :: ActionContext -> Int64 -> Text -> Text -> Maybe TemplateDetails -> IO Response
+handleTemplateInstantiateWith ctx tidLong newVmName nodeRef snapshot = runServerLogging (acState ctx) $ do
   let state = acState ctx
   logInfoN $ "Instantiating template " <> T.pack (show tidLong) <> " as '" <> newVmName <> "'"
   let pool = ssDbPool state
 
   -- 1. Get template details
-  mDetails <- liftIO $ runSqlPool (getTemplateDetails (toSqlKey tidLong)) pool
+  mDetails <- case snapshot of
+    Just details -> pure (Just details)
+    Nothing -> liftIO $ runSqlPool (getTemplateDetails (toSqlKey tidLong)) pool
   case mDetails of
     Nothing -> pure RespTemplateNotFound
+    Just details | any (\d -> tvdiCloneStrategy d /= StrategyCreate && isNothing (tvdiDiskImage d)) (tvdDrives details) -> pure RespDiskNotFound
     Just details -> do
       -- Cooperative cancellation checkpoint before any work starts.
       liftIO $ throwIfCancelled ctx
@@ -253,13 +264,15 @@ insertTemplateYaml ty now = do
       mDiskIds <- forM (tyDrives ty) $ \tdy ->
         case tdyStrategy tdy of
           StrategyCreate -> pure $ Right Nothing
-          _ -> case tdyDiskImageName tdy of
-            Nothing -> pure $ Left "diskImageName is required for clone/overlay/direct strategies"
-            Just diskName -> do
-              mDisk <- getBy (UniqueDiskImageName diskName)
+          _ -> case tdyDiskImage tdy of
+            Nothing -> pure $ Left "diskImage is required for clone/overlay/direct strategies"
+            Just selector -> do
+              mDisk <- resolveImage selector
               case mDisk of
-                Nothing -> pure $ Left $ "Disk image not found: " <> diskName
-                Just (Entity did _) -> pure $ Right (Just did)
+                Nothing -> pure $ Left $ "Disk image not found: " <> renderDiskSelector selector
+                Just did -> pure $ Right $ case selector of
+                  ImageId _ -> Just did
+                  ImageTag _ _ -> Nothing
 
       -- Resolve SSH keys
       mKeyIds <- forM (tySshKeys ty) $ \tky -> do
@@ -283,7 +296,14 @@ insertTemplateYaml ty now = do
                     TemplateDrive
                       tid
                       mDiskId
-                      (tdyDiskImageName tdy)
+                      ( case tdyDiskImage tdy of
+                          Just (ImageTag n _) -> Just n
+                          _ -> tdyDiskName tdy
+                      )
+                      ( case tdyDiskImage tdy of
+                          Just (ImageTag _ tag) -> Just tag
+                          _ -> Nothing
+                      )
                       (tdyInterface tdy)
                       (tdyMedia tdy)
                       (fromMaybe False (tdyReadOnly tdy))
@@ -345,9 +365,10 @@ insertTemplateYaml ty now = do
       StrategyCreate ->
         let errs1 = ["format is required for 'create' strategy" | isNothing (tdyFormat tdy)]
             errs2 = ["size is required for 'create' strategy" | isNothing (tdySize tdy)]
-         in errs1 ++ errs2
+         in errs1 ++ errs2 ++ ["diskImage must be omitted for create strategy" | isJust (tdyDiskImage tdy)]
       _ ->
-        ["diskImageName is required for '" <> enumToText (tdyStrategy tdy) <> "' strategy" | isNothing (tdyDiskImageName tdy)]
+        ["diskImage is required for '" <> enumToText (tdyStrategy tdy) <> "' strategy" | isNothing (tdyDiskImage tdy)]
+          ++ ["diskName is only supported for create strategy" | isJust (tdyDiskName tdy)]
 
     validateNetIf tny =
       let typeIsManaged = tnyType tny == NetManaged
@@ -377,20 +398,20 @@ getTemplateDetails tid = do
     Just t -> do
       drives <- selectList [TemplateDriveTemplateId ==. tid] []
       driveInfos <- forM drives $ \(Entity _ td) -> do
-        diskImageRef <- case templateDriveDiskImageId td of
-          Nothing -> case templateDriveDiskName td of
-            -- Strategy-driven disks (clone/overlay/create) may
-            -- record only a target name with no resolved id yet.
-            Just n -> pure $ Just NamedRef {nrId = 0, nrName = n}
-            Nothing -> pure Nothing
+        let selector = case templateDriveDiskImageId td of
+              Just key -> Just (ImageId (fromSqlKey key))
+              Nothing -> ImageTag <$> templateDriveDiskName td <*> templateDriveDiskTag td
+        key <- maybe (pure Nothing) resolveImage selector
+        diskImageRef <- case key of
+          Nothing -> pure Nothing
           Just diskId -> do
-            mDisk <- get diskId
-            let resolvedName = maybe "unknown" diskImageName mDisk
-            pure $
-              Just NamedRef {nrId = fromSqlKey diskId, nrName = resolvedName}
+            disk <- getJust diskId
+            pure $ Just NamedRef {nrId = fromSqlKey diskId, nrName = diskImageName disk}
         pure $
           TemplateDriveInfo
             { tvdiDiskImage = diskImageRef
+            , tvdiDiskSelector = selector
+            , tvdiDiskName = if templateDriveCloneStrategy td == StrategyCreate then templateDriveDiskName td else Nothing
             , tvdiInterface = templateDriveInterface td
             , tvdiMedia = templateDriveMedia td
             , tvdiReadOnly = templateDriveReadOnly td
@@ -579,7 +600,8 @@ instantiateDriveIO ctx vmId vmName td = do
   let state = acState ctx
       parentTaskId = acTaskId ctx
       vmIdLong = fromSqlKey vmId
-      nameSuffix = maybe "disk" nrName (tvdiDiskImage td)
+      nameSuffix = fromMaybe (maybe "disk" nrName (tvdiDiskImage td)) (tvdiDiskName td)
+      imagePrefix = if T.null vmName || not (isDigit (T.head vmName)) then vmName else "vm-" <> vmName
       vmDir = Just (vmName <> "/")
       attachDisk newDiskId = runActionAsSubtask ctx (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td))
       -- Disks materialised during template instantiation are scoped to
@@ -618,7 +640,7 @@ instantiateDriveIO ctx vmId vmName td = do
     StrategyClone -> case resolvedDiskId of
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
-        let newName = vmName <> "-" <> nameSuffix
+        let newName = imagePrefix <> "-" <> nameSuffix
         resp <- runActionAsSubtask ctx (DiskClone newName diskIdLong (tvdiSize td) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
@@ -631,7 +653,7 @@ instantiateDriveIO ctx vmId vmName td = do
     StrategyOverlay -> case resolvedDiskId of
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
-        let newName = vmName <> "-" <> nameSuffix <> "-overlay"
+        let newName = imagePrefix <> "-" <> nameSuffix <> "-overlay"
         resp <- runActionAsSubtask ctx (DiskCreateOverlay newName diskIdLong (tvdiSize td) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
@@ -643,7 +665,7 @@ instantiateDriveIO ctx vmId vmName td = do
           _ -> pure $ Left "Unexpected response from disk overlay"
     StrategyCreate -> case (tvdiFormat td, tvdiSize td) of
       (Just fmt, Just size) -> do
-        let newName = vmName <> "-" <> nameSuffix
+        let newName = imagePrefix <> "-" <> nameSuffix
         resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral size) vmDir ephem vmNodeRef)
         case resp of
           RespDiskCreated newDiskId -> do
@@ -716,3 +738,13 @@ instance Action InstantiateDrive where
     case result of
       Left err -> pure $ RespError err
       Right () -> pure RespOk
+
+-- A build resolves its template once before hashing or creating a VM.
+data TemplateInstantiateResolved = TemplateInstantiateResolved TemplateDetails Text Text
+
+instance Action TemplateInstantiateResolved where
+  actionSubsystem _ = SubTemplate
+  actionCommand _ = "instantiate"
+  actionEntityId (TemplateInstantiateResolved details _ _) = Just (fromIntegral (tvdId details))
+  actionExecute ctx (TemplateInstantiateResolved details name node) =
+    handleTemplateInstantiateWith ctx (tvdId details) name node (Just details)

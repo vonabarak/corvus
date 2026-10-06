@@ -18,6 +18,7 @@ import capnp
 import yaml
 
 from .. import types
+from ..exceptions import DiskNotFound
 from .disk import AsyncDiskManager
 from .streams import stream_build_events
 
@@ -134,6 +135,13 @@ async def stream_build_from_file(
                         raise ValueError(
                             "upload.ifExists must be 'error' or 'overwrite'"
                         )
+                    if upload.get("ifExists", "error") == "error":
+                        try:
+                            await disks.get(name)
+                        except DiskNotFound:
+                            pass
+                        else:
+                            raise ValueError(f"upload target {name!r} already exists")
                     upload_path = upload.get("path")
                     if upload_path is not None and not isinstance(upload_path, str):
                         raise ValueError("upload.path must be a string")
@@ -152,7 +160,6 @@ async def stream_build_from_file(
                         path=upload_path,
                         ephemeral=ephemeral,
                         node=node,
-                        overwrite=upload.get("ifExists") == "overwrite",
                     )
                 doc["pipeline"] = rest
                 text = yaml.safe_dump(doc, sort_keys=False)

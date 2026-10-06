@@ -183,7 +183,6 @@ class TestApply(SingleNodeCase):
             disks:
               - name: {root_name}
                 overlay: {base_disk}
-                size: 2048M
                 ephemeral: true
             vms:
               - name: {vm_name}
@@ -256,7 +255,6 @@ class TestApply(SingleNodeCase):
             disks:
               - name: {root_name}
                 overlay: {base_disk}
-                size: 2048M
                 ephemeral: true
             vms:
               - name: {vm_name}
@@ -560,16 +558,7 @@ class TestApply(SingleNodeCase):
                 pass
 
     def test_if_exists_overwrite_replaces_disk(self) -> None:
-        """``ifExists: overwrite`` in apply YAML deletes the matching
-        existing entity before re-creating it. (The Schema/Apply.hs:70
-        comment claims this is rejected at parse time, but the
-        dispatcher at Handlers/Apply.hs:494-496 actually implements
-        the delete + recreate path — comment is outdated.)
-
-        We exercise the disk overwrite path: create a disk, then
-        re-apply YAML carrying the same name but a different size
-        and ``ifExists: overwrite``. The disk's id changes (new
-        row) and the size reflects the new YAML."""
+        """Apply overwrite publishes a version and preserves the previous one."""
         token = secrets.token_hex(4)
         disk_name = f"corvus-it-overwrite-{token}"
 
@@ -593,14 +582,11 @@ class TestApply(SingleNodeCase):
             """).strip()
             self.client.apply(yaml_second, wait=True)
             second = self.client.disks.get(disk_name, by_name=True).show()
-            # Overwrite = delete + recreate, so id changes and the
-            # new size from the second YAML is in effect.
-            assert second.id != first.id, (
-                f"overwrite did not delete + recreate the disk row "
-                f"(id stayed at {first.id}); the dispatcher's "
-                f"IfExistsOverwrite branch must call delete first"
-            )
+            assert second.id != first.id
+            assert self.client.disks.get(first.id).show().size == first.size
             assert second.size == 33554432, second
+            self.client.disks.get(second.id).delete()
+            assert self.client.disks.get(disk_name).show().id == first.id
         finally:
             try:
                 self.client.disks.get(disk_name, by_name=True).delete()

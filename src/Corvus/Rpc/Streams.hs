@@ -117,6 +117,12 @@ instance CGS.ByteSink'server_ QemuByteSink where
       for_ mRelay cancel
       pure CGS.ByteSink'end'results
 
+  byteSink'abort (QemuByteSink _ relayVar) =
+    handleParsed $ \_ -> do
+      mRelay <- readTVarIO relayVar
+      for_ mRelay cancel
+      pure CGS.ByteSink'abort'results
+
 -- ---------------------------------------------------------------------
 -- Line-split ByteSink
 -- ---------------------------------------------------------------------
@@ -150,6 +156,11 @@ instance CGS.ByteSink'server_ LineBufferSink where
     handleParsed $ \_ -> do
       flushLineBuffer lbs
       pure CGS.ByteSink'end'results
+
+  byteSink'abort lbs =
+    handleParsed $ \_ -> do
+      modifyMVar_ (lbsState lbs) (const (pure BS.empty))
+      pure CGS.ByteSink'abort'results
 
 -- | Allocate a fresh 'LineBufferSink' whose complete lines are
 -- delivered to the supplied callback. Decoding is UTF-8 with the

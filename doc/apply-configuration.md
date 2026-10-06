@@ -35,14 +35,14 @@ Controls what apply does when a resource it would create already exists in the d
 |---|---|
 | `error` (default) | Duplicate name is a hard error — apply aborts. |
 | `skip` | Existing resources are silently treated as success and their IDs are reused for dependent references. Same as `--skip-existing`. |
-| `overwrite` | Existing resources are deleted and re-created from the new YAML. Use this when you've edited an entry (template's cloud-init userData, disk's import URL, network's subnet, etc.) and want the next apply to replace the old DB row outright. Refuses with an actionable error — naming the attaching VM(s) / template(s) — when the existing resource is in use; the operator must detach (or `crv vm delete`) first. Built on the same per-entity `*Delete` actions as `crv <thing> delete`, so each delete is recorded as a subtask. Stream events for the overwrite arm are tagged `kind: "overwrite"` (sibling of `skip` and the regular create kinds). |
+| `overwrite` | Disks publish a new version; other existing resources are deleted and re-created from the new YAML. Use this when you've edited an entry (template's cloud-init userData, disk's import URL, network's subnet, etc.) and want the next apply to replace the old DB row outright. Refuses with an actionable error — naming the attaching VM(s) / template(s) — when the existing resource is in use; the operator must detach (or `crv vm delete`) first. Built on the same per-entity `*Delete` actions as `crv <thing> delete`, so each delete is recorded as a subtask. Stream events for the overwrite arm are tagged `kind: "overwrite"` (sibling of `skip` and the regular create kinds). |
 
 Per-entity refusal rules under `overwrite`:
 
 | Entity | Refused when | Recovery |
 |---|---|---|
 | `sshKeys` | The key is attached to any VM (`vm_ssh_key`) or template (`template_ssh_key`). | Detach via `crv ssh-key detach <VM> <KEY>` / edit the template. |
-| `disks` | A VM has it as a drive (`drive.disk_image_id`). | Stop and `crv vm delete` the attachers, or `crv disk detach`. |
+| `disks` | Never: a new version is published and tags move on success. | Existing versions and their users are preserved. |
 | `networks` | A VM has a NIC on it (`network_interface.network_id`). | Remove the NICs (or delete the attaching VMs). |
 | `vms` | The VM is in any state other than `stopped` or `error`. | `crv vm stop` first. The VM's ephemeral disks (cloud-init ISO, template-instantiated clones) are deleted along with it; non-ephemeral disks are detached and kept. |
 | `templates` | Never — templates own their `template_drive` / `template_ssh_key` rows and cascade on delete. | n/a |
@@ -571,7 +571,7 @@ templates:
       networkConfig: ...
       injectSshKeys: <bool>
     drives:                     # Required (may be empty).
-      - diskImageName: <name>   # Must match a disk defined earlier or registered in the DB.
+      - diskImage: <name>   # Must match a disk defined earlier or registered in the DB.
         interface: <virtio|ide|scsi|sata|nvme|pflash|floppy>
         strategy: <clone|overlay|direct|create>
         media: <disk|cdrom>     # Optional.

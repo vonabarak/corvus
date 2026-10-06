@@ -44,8 +44,8 @@ spec = do
         case dcEngine cfg of
           DatabaseSqlite -> runSqlPool (rawExecute "UPDATE sqlite_sequence SET seq = 100 WHERE name = 'drive'" []) pool
           DatabasePostgresql -> pure ()
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 9)
-        runSqlPool readSchemaVersion pool `shouldReturn` Just 9
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 10)
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 10
         adapters <- runSqlPool (rawSql "SELECT graphics_adapter FROM vm" []) pool
         adapters `shouldBe` [Single ("virtio-vga" :: T.Text)]
         templateAdapters <- runSqlPool (rawSql "SELECT graphics_adapter FROM template_vm" []) pool
@@ -69,20 +69,43 @@ spec = do
             ids <- runSqlPool (rawSql "SELECT id FROM drive WHERE disk_image_id IS NULL ORDER BY id" []) pool
             ids `shouldBe` [Single (101 :: Int), Single 102]
           DatabasePostgresql -> pure ()
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaAlreadyCurrent 9)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaAlreadyCurrent 10)
 
     it "converts version-8 capacities exactly and preserves NULL and zero" $
       withDatabase $ \cfg pool -> do
         runSqlPool (clearSchema (dcEngine cfg) >> loadVersion2 (dcEngine cfg)) pool
         runDatabaseMigrationsWith 8 (filter ((<= 8) . migrationVersion) migrations) cfg pool `shouldReturn` Right (SchemaMigrated 2 8)
         runSqlPool (rawExecute "UPDATE node SET ram_mb_total = 8192, ram_mb_free = NULL" [] >> rawExecute "UPDATE disk_image SET size_mb = 0" []) pool
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 8 9)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 8 10)
         ram <- runSqlPool (rawSql "SELECT ram FROM vm" [] :: SqlPersistT IO [Single Int64]) pool
         ram `shouldBe` [Single 134217728]
         node <- runSqlPool (rawSql "SELECT ram_total, ram_free FROM node" [] :: SqlPersistT IO [(Single Int64, Single (Maybe Int64))]) pool
         node `shouldBe` [(Single 8589934592, Single Nothing)]
         disk <- runSqlPool (rawSql "SELECT size FROM disk_image" [] :: SqlPersistT IO [Single Int64]) pool
         disk `shouldBe` [Single 0]
+
+    it "upgrades version-9 images and floating selectors without losing dependencies" $
+      withDatabase $ \cfg pool -> do
+        runSqlPool (clearSchema (dcEngine cfg) >> loadVersion2 (dcEngine cfg)) pool
+        runDatabaseMigrationsWith 9 (filter ((<= 9) . migrationVersion) migrations) cfg pool `shouldReturn` Right (SchemaMigrated 2 9)
+        runSqlPool (rawExecute "INSERT INTO template_drive (template_id, disk_image_id, disk_name, interface, cache_type, clone_strategy) VALUES (1, 1, 'migration-disk', 'virtio', 'none', 'overlay')" []) pool
+        case dcEngine cfg of
+          DatabaseSqlite -> runSqlPool (rawExecute "UPDATE sqlite_sequence SET seq = 100 WHERE name = 'disk_image'" []) pool
+          DatabasePostgresql -> pure ()
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 9 10)
+        tags <- runSqlPool (rawSql "SELECT name, tag, disk_image_id FROM disk_image_tag" [] :: SqlPersistT IO [(Single T.Text, Single T.Text, Single Int)]) pool
+        tags `shouldBe` [(Single "migration-disk", Single "latest", Single 1)]
+        selectors <- runSqlPool (rawSql "SELECT disk_image_id, disk_name, disk_tag FROM template_drive" [] :: SqlPersistT IO [(Single (Maybe Int), Single T.Text, Single T.Text)]) pool
+        selectors `shouldBe` [(Single Nothing, Single "migration-disk", Single "latest")]
+        placements <- runSqlPool (rawSql "SELECT disk_image_id, node_id, file_path FROM disk_image_node" [] :: SqlPersistT IO [(Single Int, Single Int, Single T.Text)]) pool
+        placements `shouldBe` [(Single 1, Single 1, Single "/tmp/migration-disk.raw")]
+        runSqlPool (rawExecute "INSERT INTO disk_image (name, format, size, created_at, backing_image_id, ephemeral) VALUES ('migration-disk', 'raw', 1048576, '2026-09-02 00:00:00', 1, false)" []) pool
+        case dcEngine cfg of
+          DatabaseSqlite -> do
+            ids <- runSqlPool (rawSql "SELECT id FROM disk_image WHERE backing_image_id = 1" [] :: SqlPersistT IO [Single Int]) pool
+            ids `shouldBe` [Single 101]
+          DatabasePostgresql -> pure ()
+        runSqlPool (rawExecute "INSERT INTO disk_image_tag (name, tag, disk_image_id) VALUES ('migration-disk', 'latest', 1)" []) pool `shouldThrow` anyException
 
     it "rolls back every converted column when a capacity overflows" $
       withDatabase $ \cfg pool -> do
@@ -99,35 +122,35 @@ spec = do
     it "upgrades an empty historical drive table without reusing deleted IDs" $
       withDatabase $ \cfg pool -> do
         runSqlPool (clearSchema (dcEngine cfg) >> loadVersion2 (dcEngine cfg) >> rawExecute "DELETE FROM drive" []) pool
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 9)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 2 10)
         runSqlPool (rawExecute "INSERT INTO drive (vm_id, disk_image_id, interface, cache_type) VALUES (1, NULL, 'ide', 'none')" []) pool
         ids <- runSqlPool (rawSql "SELECT id FROM drive" []) pool
         ids `shouldBe` [Single (2 :: Int)]
 
     it "rolls back schema, data and version updates when a later step fails" $
       withDatabase $ \cfg pool -> do
-        let first = Migration 10 "create marker" $ const $ do
+        let first = Migration 11 "create marker" $ const $ do
               rawExecute "CREATE TABLE migration_marker (value INTEGER NOT NULL)" []
               rawExecute "INSERT INTO migration_marker VALUES (42)" []
               rawExecute "UPDATE node SET description = 'changed'" []
-            second = Migration 11 "deliberate failure" $ const $ do
+            second = Migration 12 "deliberate failure" $ const $ do
               version <- readSchemaVersion
-              liftIO $ version `shouldBe` Just 10
+              liftIO $ version `shouldBe` Just 11
               liftIO $ ioError $ userError "injected failure"
-        result <- runDatabaseMigrationsWith 11 [second, first] cfg pool
+        result <- runDatabaseMigrationsWith 12 [second, first] cfg pool
         case result of
-          Left (SchemaMigrationFailed 11 "deliberate failure" reason) -> reason `shouldSatisfy` T.isInfixOf "injected failure"
+          Left (SchemaMigrationFailed 12 "deliberate failure" reason) -> reason `shouldSatisfy` T.isInfixOf "injected failure"
           _ -> expectationFailure $ show result
-        runSqlPool readSchemaVersion pool `shouldReturn` Just 9
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 10
         runSqlPool (rawSql "SELECT value FROM migration_marker" [] :: SqlPersistT IO [Single Int]) pool `shouldThrow` anyException
         descriptions <- runSqlPool (rawSql "SELECT description FROM node" []) pool
         descriptions `shouldBe` [Single (Nothing :: Maybe T.Text)]
 
     it "checks the whole path before executing any step" $
       withDatabase $ \cfg pool -> do
-        let first = Migration 10 "must not run" $ const $ liftIO $ expectationFailure "ran before validating path"
-        runDatabaseMigrationsWith 11 [first] cfg pool `shouldReturn` Left (SchemaMigrationMissing 9 11 11)
-        runSqlPool readSchemaVersion pool `shouldReturn` Just 9
+        let first = Migration 11 "must not run" $ const $ liftIO $ expectationFailure "ran before validating path"
+        runDatabaseMigrationsWith 12 [first] cfg pool `shouldReturn` Left (SchemaMigrationMissing 10 12 12)
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 10
 
     it "creates fresh schemas even when no historical migrations remain" $
       withDatabase $ \cfg pool -> do
@@ -146,7 +169,7 @@ spec = do
         runSqlPool
           (clearSchema (dcEngine cfg) >> rawExecute "CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)" [])
           pool
-        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaCreated 9)
+        runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaCreated 10)
 
     it "refuses existing tables with absent metadata without creating metadata" $
       withDatabase $ \cfg pool -> do

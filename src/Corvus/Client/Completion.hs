@@ -42,7 +42,10 @@ getCompletionAddress = do
 
 -- | Query daemon for entity names, returning [] on any failure.
 fetchNames :: forall a. (CC.CapnpConnection -> IO [a]) -> (a -> String) -> IO [String]
-fetchNames query extract = do
+fetchNames query extract = fetchLabels query ((: []) . extract)
+
+fetchLabels :: forall a. (CC.CapnpConnection -> IO [a]) -> (a -> [String]) -> IO [String]
+fetchLabels query extract = do
   addr <- getCompletionAddress
   -- Completion never uses TLS — the shell calls @crv … --bash-completion-…@
   -- before users ever pass connection flags, and TLS over Unix is a no-op
@@ -50,7 +53,7 @@ fetchNames query extract = do
   result <- try $ CC.withCapnpConnection addr Nothing $ \conn -> do
     r <- try (query conn) :: IO (Either SomeException [a])
     pure $ case r of
-      Right xs -> map extract xs
+      Right xs -> concatMap extract xs
       Left _ -> []
   case result of
     Right (Right names) -> pure names
@@ -65,7 +68,9 @@ vmCompleter =
 diskCompleter :: Completer
 diskCompleter =
   listIOCompleter $
-    fetchNames CR.rpcDiskList (T.unpack . diiName)
+    fetchLabels CR.rpcDiskList selectors
+  where
+    selectors disk = show (diiId disk) : [T.unpack (diiName disk <> ":" <> tag) | tag <- diiTags disk]
 
 networkCompleter :: Completer
 networkCompleter =

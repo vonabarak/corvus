@@ -473,7 +473,7 @@ runFreshBakeFallback state parentTaskId sink stack startTime opts b = do
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do
-      vmR <- instantiateBakeVm state parentTaskId stack templateId bakeVmName (buildNode b)
+      vmR <- instantiateBakeVm state parentTaskId stack (buildResolvedTemplate b) templateId bakeVmName (buildNode b)
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do

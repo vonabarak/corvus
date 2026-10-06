@@ -44,17 +44,22 @@ instance (C.Parse ByteSink (GH.Client ByteSink)) where
 instance (GH.Export ByteSink) where
     type Server ByteSink = ByteSink'server_
     methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(ByteSink)) [(GH.toUntypedMethodHandler ((byteSink'write) s_))
-                                                                          ,(GH.toUntypedMethodHandler ((byteSink'end) s_))] [])
+                                                                          ,(GH.toUntypedMethodHandler ((byteSink'end) s_))
+                                                                          ,(GH.toUntypedMethodHandler ((byteSink'abort) s_))] [])
 class (ByteSink'server_ s_) where
-    {-# MINIMAL byteSink'write,byteSink'end #-}
+    {-# MINIMAL byteSink'write,byteSink'end,byteSink'abort #-}
     byteSink'write :: s_ -> (GH.MethodHandler ByteSink'write'params ByteSink'write'results)
     byteSink'write _ = GH.methodUnimplemented
     byteSink'end :: s_ -> (GH.MethodHandler ByteSink'end'params ByteSink'end'results)
     byteSink'end _ = GH.methodUnimplemented
+    byteSink'abort :: s_ -> (GH.MethodHandler ByteSink'abort'params ByteSink'abort'results)
+    byteSink'abort _ = GH.methodUnimplemented
 instance (GH.HasMethod "write" ByteSink ByteSink'write'params ByteSink'write'results) where
     methodByLabel  = (GH.Method 16961475304222214800 0)
 instance (GH.HasMethod "end" ByteSink ByteSink'end'params ByteSink'end'results) where
     methodByLabel  = (GH.Method 16961475304222214800 1)
+instance (GH.HasMethod "abort" ByteSink ByteSink'abort'params ByteSink'abort'results) where
+    methodByLabel  = (GH.Method 16961475304222214800 2)
 data ByteSink'write'params 
 type instance (R.ReprFor ByteSink'write'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId ByteSink'write'params) where
@@ -160,6 +165,56 @@ instance (C.Parse ByteSink'end'results (C.Parsed ByteSink'end'results)) where
     parse raw_ = (Std_.pure ByteSink'end'results)
 instance (C.Marshal ByteSink'end'results (C.Parsed ByteSink'end'results)) where
     marshalInto _raw (ByteSink'end'results) = (Std_.pure ())
+data ByteSink'abort'params 
+type instance (R.ReprFor ByteSink'abort'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ByteSink'abort'params) where
+    typeId  = 13852186642128841232
+instance (C.TypedStruct ByteSink'abort'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate ByteSink'abort'params) where
+    type AllocHint ByteSink'abort'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ByteSink'abort'params (C.Parsed ByteSink'abort'params))
+instance (C.AllocateList ByteSink'abort'params) where
+    type ListAllocHint ByteSink'abort'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ByteSink'abort'params (C.Parsed ByteSink'abort'params))
+data instance C.Parsed ByteSink'abort'params
+    = ByteSink'abort'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ByteSink'abort'params))
+deriving instance (Std_.Eq (C.Parsed ByteSink'abort'params))
+instance (C.Parse ByteSink'abort'params (C.Parsed ByteSink'abort'params)) where
+    parse raw_ = (Std_.pure ByteSink'abort'params)
+instance (C.Marshal ByteSink'abort'params (C.Parsed ByteSink'abort'params)) where
+    marshalInto _raw (ByteSink'abort'params) = (Std_.pure ())
+data ByteSink'abort'results 
+type instance (R.ReprFor ByteSink'abort'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ByteSink'abort'results) where
+    typeId  = 13633119981784413810
+instance (C.TypedStruct ByteSink'abort'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate ByteSink'abort'results) where
+    type AllocHint ByteSink'abort'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ByteSink'abort'results (C.Parsed ByteSink'abort'results))
+instance (C.AllocateList ByteSink'abort'results) where
+    type ListAllocHint ByteSink'abort'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ByteSink'abort'results (C.Parsed ByteSink'abort'results))
+data instance C.Parsed ByteSink'abort'results
+    = ByteSink'abort'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ByteSink'abort'results))
+deriving instance (Std_.Eq (C.Parsed ByteSink'abort'results))
+instance (C.Parse ByteSink'abort'results (C.Parsed ByteSink'abort'results)) where
+    parse raw_ = (Std_.pure ByteSink'abort'results)
+instance (C.Marshal ByteSink'abort'results (C.Parsed ByteSink'abort'results)) where
+    marshalInto _raw (ByteSink'abort'results) = (Std_.pure ())
 data BuildEvent 
 type instance (R.ReprFor BuildEvent) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId BuildEvent) where

@@ -72,7 +72,7 @@ spec = sequential $ withTestDb $ do
   -- disks (register path — no qemu-img needed)
 
   describe "whenApply: register-only disk" $ do
-    testCase "creates a disk_image row" $ do
+    testCase "rejects an unverifiable registration without publishing" $ do
       let yaml =
             "disks:\n\
             \  - name: imported\n\
@@ -81,10 +81,9 @@ spec = sequential $ withTestDb $ do
       when_ $ whenApply yaml
       then_ $ do
         responseIs $ \case
-          RespApplyResult r -> length (arDisks r) == 1
+          RespError _ -> True
           _ -> False
-        diskImageCount 1
-        diskImageExists 1
+        diskImageCount 0
 
   ------------------------------------------------------------------
   -- malformed YAML
@@ -268,8 +267,8 @@ spec = sequential $ withTestDb $ do
           `shouldBe` [ ("sshKeys", "alice")
                      , ("disks", "imported")
                      ]
-        all (\(_, _, r) -> T.pack (show r) == "TaskSuccess") ends
-          `shouldBe` True
+        map (\(_, _, r) -> T.pack (show r)) ends
+          `shouldBe` ["TaskSuccess", "TaskError"]
 
 -- | Assert that an SSH key with the given name exists and that
 -- its public-key payload matches. Used to verify that

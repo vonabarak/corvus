@@ -18,7 +18,7 @@ from corvus_client.sizes import validate_size
 from .. import _schema
 from .. import types as t
 from .._device_models import audio_to_wire, network_to_wire
-from .._entityref import entity_ref
+from .._entityref import disk_entity_ref, entity_ref
 from .._graphics import to_wire
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -345,7 +345,7 @@ class AsyncVm:
         discard: bool = False,
     ) -> int:
         params = _schema.vm.DriveAttachParams.new_message()
-        params.diskRef = entity_ref(disk_ref)
+        params.diskRef = disk_entity_ref(disk_ref)
         if interface is not None:
             params.interface = interface
         if media is not None:

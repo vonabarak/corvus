@@ -67,8 +67,10 @@ def _drive_to_dict(d: TemplateDriveInfo) -> JsonObject:
         "discard": d.discard,
         "strategy": d.clone_strategy,
     }
-    if d.disk_image is not None:
-        out["diskImageName"] = d.disk_image.name
+    if d.disk_selector is not None:
+        out["diskImage"] = d.disk_selector
+    if d.disk_name is not None:
+        out["diskName"] = d.disk_name
     if d.media is not None:
         out["media"] = d.media
     if d.size is not None:

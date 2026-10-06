@@ -35,13 +35,13 @@
 # deliberately leave the VM running until the installer build times out.
 
 _ovmf_code_drive: &ovmf_code
-  diskImageName: ovmf-code-secboot
+  diskImage: ovmf-code-secboot
   interface: pflash
   readOnly: true
   strategy: direct
 
 _ovmf_vars_drive: &ovmf_vars
-  diskImageName: ovmf-vars-secboot
+  diskImage: ovmf-vars-secboot
   interface: pflash
   strategy: clone
 
@@ -104,12 +104,12 @@ pipeline:
             # Windows media is registered manually; VirtIO media is imported
             # above when absent. Drive ordering is significant: autounattend.xml
             # expects the Windows installer at D: and VirtIO-Win media at E:.
-            - diskImageName: windows-11-iso
+            - diskImage: windows-11-iso
               interface: ide
               media: cdrom
               readOnly: true
               strategy: direct
-            - diskImageName: virtio-win-iso
+            - diskImage: virtio-win-iso
               interface: ide
               media: cdrom
               readOnly: true
@@ -117,7 +117,7 @@ pipeline:
             # Windows Setup searches removable media for a root-level
             # Autounattend.xml. Keep this after the Windows and VirtIO ISOs so
             # their expected D: and E: drive letters stay stable.
-            - diskImageName: windows-11-autounattend
+            - diskImage: windows-11-autounattend
               interface: ide
               media: cdrom
               readOnly: true
@@ -176,7 +176,7 @@ pipeline:
             - model: intel-hda
               backend: spice
           drives:
-            - diskImageName: windows-11-pro-base
+            - diskImage: windows-11-pro-base
               interface: virtio
               media: disk
               strategy: overlay

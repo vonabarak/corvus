@@ -11,6 +11,8 @@ module Corvus.Client.Commands.Disk
   , handleDiskImport
   , handleDiskUpload
   , handleDiskDelete
+  , handleDiskRegisterPlacement
+  , handleDiskTag
   , handleDiskResize
   , handleDiskList
   , handleDiskShow
@@ -159,8 +161,8 @@ handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpt
             putStrLn ("Error importing disk: " ++ show e)
           pure False
 
-handleDiskUpload :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Text -> Maybe Text -> Bool -> Text -> Bool -> IO Bool
-handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef overwrite = do
+handleDiskUpload :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Text -> Maybe Text -> Bool -> Text -> IO Bool
+handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef = do
   exists <- doesFileExist source
   if not exists
     then do
@@ -172,7 +174,7 @@ handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef overw
         emitError outFmt "invalid_format" err (putStrLn $ "Error: " <> T.unpack err)
         pure False
       Right format -> do
-        r <- try @SomeException (CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText nodeRef) overwrite)
+        r <- try @SomeException (CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText nodeRef))
         case r of
           Right diskId -> do
             emitOkWith outFmt [("id", toJSON diskId)] $ putStrLn ("Disk image uploaded with ID: " <> show diskId)
@@ -482,6 +484,7 @@ diskColumns :: [Column DiskImageInfo]
 diskColumns =
   [ Column "ID" RightAlign (show . diiId)
   , Column "NAME" LeftAlign (T.unpack . diiName)
+  , Column "TAGS" LeftAlign (T.unpack . T.intercalate "," . diiTags)
   , Column "FORMAT" LeftAlign (T.unpack . enumToText . diiFormat)
   , Column "SIZE" RightAlign (maybe "-" formatSize . diiSize)
   , Column "EPH" LeftAlign (\d -> if diiEphemeral d then "yes" else "-")
@@ -497,6 +500,7 @@ printDiskDetails :: DiskImageInfo -> IO ()
 printDiskDetails d = do
   printField "Disk ID" (show (diiId d))
   printField "Name" (T.unpack (diiName d))
+  printField "Tags" (T.unpack (T.intercalate ", " (diiTags d)))
   -- Per-node placements: render one "<node>: <path>" line per
   -- placement, or @(none)@ when an image has been registered
   -- without an on-disk file yet.
@@ -613,3 +617,18 @@ handleDiskMove fmt conn diskRef toNodeRef mToPath withBackingChain = do
       emitRpcError fmt e $
         putStrLn ("Error moving disk: " ++ show e)
       pure False
+
+handleDiskTag :: OutputFormat -> CapnpConnection -> Bool -> Text -> Text -> IO Bool
+handleDiskTag fmt conn remove diskRef tagName = do
+  let operation = if remove then CR.rpcDiskUntag else CR.rpcDiskTag
+  result <- try (operation conn (entityRefFromText diskRef) tagName) :: IO (Either SomeException ())
+  case result of
+    Left err -> emitRpcError fmt err (putStrLn ("Error: " <> show err)) >> pure False
+    Right () -> emitOk fmt (putStrLn "Image tags updated.") >> pure True
+
+handleDiskRegisterPlacement :: OutputFormat -> CapnpConnection -> Text -> Text -> Text -> IO Bool
+handleDiskRegisterPlacement fmt conn diskRef nodeRef path = do
+  result <- try @SomeException (CR.rpcDiskRegisterPlacement conn (entityRefFromText diskRef) (entityRefFromText nodeRef) path)
+  case result of
+    Left err -> emitRpcError fmt err (putStrLn ("Error: " <> show err)) >> pure False
+    Right () -> emitOk fmt (putStrLn "Image placement registered.") >> pure True

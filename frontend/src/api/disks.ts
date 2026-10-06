@@ -16,6 +16,7 @@ export interface DiskAttachment {
 export interface DiskImageInfo {
   id: number;
   name: string;
+  tags: string[];
   format: string;
   created_at: string;
   placements: DiskImagePlacement[];
@@ -116,4 +117,12 @@ export function mergeSnapshot(diskId: number, snapId: number): Promise<{ status:
 
 export function deleteSnapshot(diskId: number, snapId: number): Promise<{ status: string }> {
   return apiSend<{ status: string }>("DELETE", `/disks/${diskId}/snapshots/${snapId}`);
+}
+
+export function tagDisk(id: number, tag: string): Promise<DiskImageInfo> {
+  return apiSend<DiskImageInfo>("POST", `/disks/${id}/tags/${encodeURIComponent(tag)}`);
+}
+
+export function untagDisk(id: number, tag: string): Promise<DiskImageInfo> {
+  return apiSend<DiskImageInfo>("DELETE", `/disks/${id}/tags/${encodeURIComponent(tag)}`);
 }

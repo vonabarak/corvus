@@ -97,8 +97,8 @@ class _BlankTab(QWidget):
     def __init__(self, bridge: CorvusBridge) -> None:
         super().__init__()
         self.name = QLineEdit()
-        self.size = SizeInput()
-        self.size.setValue(10 * 1024**3)
+        self.size_input = SizeInput()
+        self.size_input.setValue(10 * 1024**3)
         self.format = _format_combo()
         self.node = EntityCombo(
             bridge.request_node_list,
@@ -108,7 +108,7 @@ class _BlankTab(QWidget):
         self.ephemeral = QCheckBox()
         form = QFormLayout(self)
         form.addRow("Name:", self.name)
-        form.addRow("Size:", self.size)
+        form.addRow("Size:", self.size_input)
         form.addRow("Format:", self.format)
         form.addRow("Node:", self.node)
         form.addRow("Ephemeral:", self.ephemeral)
@@ -119,7 +119,7 @@ class _BlankTab(QWidget):
         return {
             "mode": "blank",
             "name": self.name.text().strip(),
-            "size": self.size.value(),
+            "size": self.size_input.value(),
             "format": self.format.currentText(),
             "node": self.node.selected_id(),
             "ephemeral": self.ephemeral.isChecked(),

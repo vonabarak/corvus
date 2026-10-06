@@ -70,7 +70,8 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
     """Walk the host's BaseImages tree and return every image found.
 
     Each image is exposed under its sanitised filename stem (e.g.
-    `gentoo-base-headless`, `almalinux-10-base`). When a directory
+    `gentoo-base-headless`, `almalinux-10-base`), with Corvus's generated
+    numeric image ID and dash prefix removed. When a directory
     contains multiple images, ONE also gets the sanitised dir-name
     as an alias (e.g. `gentoo`, `almalinux`) — picked so that
     `Vm(self)`'s default `base_image_key = "alpine"` keeps resolving
@@ -104,9 +105,9 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
         dir_key = _sanitize_name(subdir.name)
         alias_file = _pick_alias_target(files)
         for image_file in files:
-            stem_key = _sanitize_name(image_file.stem)
+            stem_key = _sanitize_name(_image_stem(image_file))
             # The disk-name registered with the inner daemon is the
-            # filename stem — unique per file.
+            # filename stem without the outer daemon's image ID prefix.
             guest_path = GUEST_BASE_IMAGES_PATH / subdir.name / image_file.name
             base = BaseImage(name=stem_key, guest_path=guest_path, host_path=image_file)
             images[stem_key] = base
@@ -117,8 +118,13 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
 
 def _pick_alias_target(files: list[Path]) -> Path:
     """Pick which file the dir-name alias should resolve to."""
-    bake = next((f for f in files if f.stem.startswith("corvus-test-")), None)
+    bake = next((f for f in files if _image_stem(f).startswith("corvus-test-")), None)
     return bake if bake is not None else files[0]
+
+
+def _image_stem(image_file: Path) -> str:
+    """Remove the generated image ID prefix when deriving a logical name."""
+    return re.sub(r"^[0-9]+-", "", image_file.stem)
 
 
 def _image_files(d: Path) -> Iterator[Path]:
@@ -203,10 +209,8 @@ def stage_on_node(
 ) -> None:
     """Ensure every discovered base image has a `DiskImageNode` placement
     on `inner_node_name`. Idempotent. No bytes move — both nodes mount
-    the same BaseImages virtiofs share at the same path, so the
-    daemon's `mExisting` branch in `handleDiskRegister`
-    (``src/Corvus/Handlers/Disk.hs:226``) records the placement and
-    we're done.
+    the same BaseImages virtiofs share at the same path, so the explicit version-scoped `register_placement` operation adds the
+    replica without publishing a new version or moving tags.
 
     Two names are needed because the host-side ``crv`` (used to mount
     virtiofs into the guest) addresses VMs by their full prefixed
@@ -231,9 +235,8 @@ def stage_on_node(
             continue
         if any(p.node.name == inner_node_name for p in info.placements):
             continue
-        fmt = _format_from_suffix(image.host_path.suffix.lower())
-        client.disks.register(
-            image.name, str(image.guest_path), format=fmt, node=inner_node_name
+        client.disks.get(info.id).register_placement(
+            str(image.guest_path), node=inner_node_name
         )
 
 

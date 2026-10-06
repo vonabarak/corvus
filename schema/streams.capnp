@@ -22,6 +22,8 @@ using Enums = import "enums.capnp";
 interface ByteSink {
   write @0 (chunk :Data) -> ();
   end   @1 () -> ();
+  # Cancel a file upload without publishing its bytes.
+  abort @2 () -> ();
 }
 
 # ---------------------------------------------------------------------

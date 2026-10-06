@@ -21,6 +21,7 @@ where
 
 import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Template as CGT
+import Corvus.DiskSelector
 import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.Template as P
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
@@ -49,7 +50,7 @@ import Corvus.Wire.Enums
   , toCapnpSharedDirCache
   , toCapnpTemplateCloneStrategy
   )
-import Corvus.Wire.Errors (WireError)
+import Corvus.Wire.Errors (WireError (..))
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
 import Data.Maybe (fromMaybe, isJust)
 
@@ -127,7 +128,9 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} = do
 toCapnpTemplateDriveInfo :: P.TemplateDriveInfo -> C.Parsed CGT.TemplateDriveInfo
 toCapnpTemplateDriveInfo P.TemplateDriveInfo {..} =
   CGT.TemplateDriveInfo
-    { CGT.diskImage = toCapnpNamedRefOpt tvdiDiskImage
+    { CGT.diskSelector = maybe mempty renderDiskSelector tvdiDiskSelector
+    , CGT.diskName = fromMaybe mempty tvdiDiskName
+    , CGT.diskImage = toCapnpNamedRefOpt tvdiDiskImage
     , CGT.interface = toCapnpDriveInterface tvdiInterface
     , CGT.hasMedia = isJust tvdiMedia
     , CGT.media = maybe (toCapnpDriveMedia minBound) toCapnpDriveMedia tvdiMedia
@@ -146,6 +149,7 @@ fromCapnpTemplateDriveInfo
   :: C.Parsed CGT.TemplateDriveInfo
   -> Either WireError P.TemplateDriveInfo
 fromCapnpTemplateDriveInfo CGT.TemplateDriveInfo {..} = do
+  selector <- if diskSelector == mempty then pure Nothing else Just <$> either (Left . WireMalformed) Right (parseDiskSelector diskSelector)
   iface <- fromCapnpDriveInterface interface
   cache <- fromCapnpCacheType cacheType
   strat <- fromCapnpTemplateCloneStrategy cloneStrategy
@@ -159,7 +163,9 @@ fromCapnpTemplateDriveInfo CGT.TemplateDriveInfo {..} = do
       else pure Nothing
   pure
     P.TemplateDriveInfo
-      { P.tvdiDiskImage = fromCapnpNamedRefOpt diskImage
+      { P.tvdiDiskSelector = selector
+      , P.tvdiDiskName = if diskName == mempty then Nothing else Just diskName
+      , P.tvdiDiskImage = fromCapnpNamedRefOpt diskImage
       , P.tvdiInterface = iface
       , P.tvdiMedia = med
       , P.tvdiReadOnly = readOnly

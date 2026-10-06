@@ -32,6 +32,7 @@ data DiskImagePlacement = DiskImagePlacement
 -- | Disk image info for list/show view
 data DiskImageInfo = DiskImageInfo
   { diiId :: !Int64
+  , diiTags :: ![Text]
   , diiName :: !Text
   , diiPlacements :: ![DiskImagePlacement]
   -- ^ Per-node placements: where the on-disk file actually

@@ -57,7 +57,7 @@ _BAKE_TEMPLATE = textwrap.dedent("""
     headless: true
     guestAgent: true
     drives:
-      - diskImageName: {base_disk}
+      - diskImage: {base_disk}
         interface: virtio
         strategy: overlay
         size: 2048M
@@ -325,16 +325,16 @@ class TestBuildPipeline(SingleNodeCase):
                     runcmd:
                       - systemctl enable --now qemu-guest-agent
                 drives:
-                  - diskImageName: debian-12-generic-base
+                  - diskImage: debian-12-generic-base
                     interface: virtio
                     strategy: overlay
                     cacheType: writeback
                     discard: true
-                  - diskImageName: ovmf-code
+                  - diskImage: ovmf-code
                     interface: pflash
                     readOnly: true
                     strategy: direct
-                  - diskImageName: ovmf-vars
+                  - diskImage: ovmf-vars
                     interface: pflash
                     strategy: clone
                 networkInterfaces:

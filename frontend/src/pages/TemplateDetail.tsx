@@ -277,7 +277,7 @@ export default function TemplateDetail() {
                     <TableCell>
                       {d.disk_image !== null ? (
                         <Link to={`/disks/${d.disk_image.id}`} className="hover:underline">
-                          {d.disk_image.name}
+                          {d.disk_selector ?? d.disk_image.name}
                         </Link>
                       ) : (
                         <span className="text-muted-foreground">create new</span>

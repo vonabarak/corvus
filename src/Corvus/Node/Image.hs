@@ -59,7 +59,7 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, try)
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
 import qualified Crypto.Hash as Hash
@@ -76,6 +76,8 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, remo
 import qualified System.Directory as D
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension)
+import System.IO (hClose, openBinaryTempFile)
+import System.Posix.Files (createLink)
 import qualified System.Posix.Files as Posix
 import System.Process
   ( ProcessHandle
@@ -139,7 +141,9 @@ createImage
   -> Int64
   -- ^ Size in bytes
   -> IO ImageResult
-createImage path format size = do
+createImage path format size = withNewImagePath path $ \temporary -> createImageRaw temporary format size
+
+createImageRaw path format size = do
   createDirectoryIfMissing True (takeDirectory path)
   exists <- doesFileExist path
   if exists
@@ -162,7 +166,9 @@ createOverlay
   -> DriveFormat
   -- ^ Backing file format
   -> IO ImageResult
-createOverlay overlayPath backingPath backingFormat = do
+createOverlay overlayPath backingPath backingFormat = withNewImagePath overlayPath $ \temporary -> createOverlayRaw temporary backingPath backingFormat
+
+createOverlayRaw overlayPath backingPath backingFormat = do
   createDirectoryIfMissing True (takeDirectory overlayPath)
   exists <- doesFileExist overlayPath
   if exists
@@ -454,7 +460,9 @@ listSnapshots path = do
 -- @ENOSPC@ on the publish step even when the active state was
 -- only a few GB.
 cloneImage :: FilePath -> FilePath -> Text -> IO ImageResult
-cloneImage src dest destFormat = do
+cloneImage src dest destFormat = withNewImagePath dest $ \temporary -> cloneImageRaw src temporary destFormat
+
+cloneImageRaw src dest destFormat = do
   createDirectoryIfMissing True (takeDirectory dest)
   exists <- doesFileExist src
   if not exists
@@ -497,7 +505,9 @@ downloadImage
   -- ^ Progress callback: @(downloaded, total)@. Pass
   -- @\_ _ -> pure ()@ when no progress reporting is wanted.
   -> IO ImageResult
-downloadImage destPath url onProgress = do
+downloadImage destPath url onProgress = withNewImagePath destPath $ \temporary -> downloadImageRaw temporary url onProgress
+
+downloadImageRaw destPath url onProgress = do
   createDirectoryIfMissing True (takeDirectory destPath)
   exists <- doesFileExist destPath
   if exists
@@ -507,7 +517,7 @@ downloadImage destPath url onProgress = do
       safeProgress 0 total
       let urlStr = T.unpack url
           curlProc =
-            (proc "curl" ["-L", "-o", destPath, "-s", "-S", urlStr])
+            (proc "curl" ["-f", "-L", "-o", destPath, "-s", "-S", urlStr])
               { std_out = CreatePipe
               , std_err = CreatePipe
               }
@@ -732,3 +742,23 @@ detectFormatFromPath path =
     ".vhd" -> Just FormatVpc
     ".vhdx" -> Just FormatVhdx
     _ -> Nothing
+
+-- Build privately, then link into place without replacing an existing image.
+withNewImagePath :: FilePath -> (FilePath -> IO ImageResult) -> IO ImageResult
+withNewImagePath destination operation = do
+  createDirectoryIfMissing True (takeDirectory destination)
+  outcome <- try $ bracket allocate cleanup $ \temporary -> do
+    result <- operation temporary
+    case result of
+      ImageSuccess -> createLink temporary destination >> pure ImageSuccess
+      other -> pure other
+  pure $ either (ImageError . T.pack . show) id (outcome :: Either SomeException ImageResult)
+  where
+    allocate = do
+      (temporary, handle) <- openBinaryTempFile (takeDirectory destination) ".corvus-image.part"
+      hClose handle
+      removeFile temporary
+      pure temporary
+    cleanup temporary = do
+      _ <- try (removeFile temporary) :: IO (Either SomeException ())
+      pure ()

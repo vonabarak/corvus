@@ -11,7 +11,6 @@ module Corvus.Handlers.Build.Artifact
   ( publishArtifact
   , publishArtifactByClone
   , checkIfExistsPreBake
-  , deleteOverwriteTargetIfNeeded
   , compactDisk
   )
 where
@@ -27,8 +26,9 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
-import Corvus.Handlers.Disk.Path (resolveDiskFilePathPure, resolveDiskPath)
+import Corvus.Handlers.Disk.Path (resolveDiskFilePath, resolveDiskPath)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
+import Corvus.Images
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol (Response (RespDiskOk, RespError))
@@ -76,10 +76,7 @@ publishArtifact
   -- ^ (legacy) flatten flag — ignored; clone is always flat
   -> LoggingT IO (Either Text Int64)
 publishArtifact state parentTaskId _bakeVmId artifactDiskId name target _needFlatten = do
-  overwriteResult <- deleteOverwriteTargetIfNeeded state parentTaskId name target
-  case overwriteResult of
-    Left err -> pure $ Left err
-    Right () -> publishArtifactByClone state artifactDiskId name target
+  publishArtifactByClone state artifactDiskId name target
 
 -- | Clone the bake VM's artifact disk into a fresh 'DiskImage' row,
 -- compacting if asked. Returns the new disk's id.
@@ -103,7 +100,8 @@ publishArtifactByClone state srcDiskId name target = do
       basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
       let ext = T.unpack (enumToText (btFormat target))
           fileName = T.unpack name <> "." <> ext
-          destPath = resolveDiskFilePathPure basePath (btPath target) fileName
+      reservedId <- liftIO $ runSqlPool reserveImageId pool
+      destPath <- liftIO $ resolveDiskFilePath reservedId basePath (btPath target) fileName
       liftIO $ createDirectoryIfMissing True (takeDirectory destPath)
       logInfoN $
         "publish: cloning "
@@ -125,21 +123,22 @@ publishArtifactByClone state srcDiskId name target = do
           newKey <-
             liftIO $
               runSqlPool
-                ( insert
-                    DiskImage
-                      { diskImageName = name
-                      , diskImageFormat = btFormat target
-                      , diskImageSize = mSize
-                      , diskImageCreatedAt = now
-                      , diskImageBackingImageId = Nothing
-                      , diskImageEphemeral = False
-                      }
+                ( do
+                    key <-
+                      publishImageWithId
+                        reservedId
+                        DiskImage
+                          { diskImageName = name
+                          , diskImageFormat = btFormat target
+                          , diskImageSize = mSize
+                          , diskImageCreatedAt = now
+                          , diskImageBackingImageId = Nothing
+                          , diskImageEphemeral = False
+                          }
+                    recordDiskImageNode key nid storedPath
+                    pure key
                 )
                 pool
-          liftIO $
-            runSqlPool
-              (recordDiskImageNode newKey nid storedPath)
-              pool
           let newId = fromSqlKey newKey
           when (btCompact target) $ compactDisk state newId
           pure $ Right newId
@@ -168,7 +167,7 @@ checkIfExistsPreBake
   -> LoggingT IO (Either Text (Maybe Int64))
 checkIfExistsPreBake state name target = do
   let pool = ssDbPool state
-  mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName name)) pool
+  mExisting <- liftIO $ runSqlPool (imageByName name) pool
   case (btIfExists target, mExisting) of
     (_, Nothing) -> pure $ Right Nothing
     (IfExistsError, Just _) ->
@@ -180,70 +179,7 @@ checkIfExistsPreBake state name target = do
     (IfExistsSkip, Just (Entity existingId _)) -> do
       logInfoN $ "target '" <> name <> "' exists; skipping bake (ifExists: skip)"
       pure $ Right (Just (fromSqlKey existingId))
-    (IfExistsOverwrite, Just (Entity existingId _)) -> do
-      attachedVms <- liftIO $ runSqlPool (vmsAttachedToDisk existingId) pool
-      if null attachedVms
-        then pure $ Right Nothing
-        else
-          pure $
-            Left $
-              "target.ifExists: overwrite refused — disk '"
-                <> name
-                <> "' is attached to VM(s): "
-                <> T.intercalate ", " attachedVms
-                <> "; detach or delete those VMs first."
-
--- | At publish time, if the target's policy is 'IfExistsOverwrite'
--- and the existing disk is still there, delete it so the freshly
--- baked artifact can take the name. The pre-bake check has already
--- verified the disk is not attached; if a new VM has attached
--- during the bake, this still fails loudly.
---
--- For 'IfExistsError' and 'IfExistsSkip' this is a no-op — those
--- cases are decided pre-bake and never reach publish.
-deleteOverwriteTargetIfNeeded
-  :: ServerState
-  -> TaskId
-  -> Text
-  -> BuildTarget
-  -> LoggingT IO (Either Text ())
-deleteOverwriteTargetIfNeeded state parentTaskId name target
-  | btIfExists target /= IfExistsOverwrite = pure $ Right ()
-  | otherwise = do
-      let pool = ssDbPool state
-      mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName name)) pool
-      case mExisting of
-        Nothing -> pure $ Right ()
-        Just (Entity existingId _) -> do
-          attachedVms <- liftIO $ runSqlPool (vmsAttachedToDisk existingId) pool
-          if null attachedVms
-            then do
-              logInfoN $ "target.ifExists: deleting existing disk '" <> name <> "' (overwrite)"
-              resp <-
-                liftIO $
-                  runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete (fromSqlKey existingId))
-              case resp of
-                RespDiskOk -> pure $ Right ()
-                RespError err ->
-                  pure $ Left $ "target.ifExists: delete existing disk: " <> err
-                _ -> pure $ Left "target.ifExists: delete existing disk: unexpected response"
-            else
-              pure $
-                Left $
-                  "target.ifExists: disk '"
-                    <> name
-                    <> "' is attached to VM(s): "
-                    <> T.intercalate ", " attachedVms
-                    <> "; detach or delete those VMs first."
-
--- | Names of every VM that has the given disk attached. Used by the
--- overwrite check to refuse silently yanking a disk out of a VM.
-vmsAttachedToDisk :: DiskImageId -> SqlPersistT IO [Text]
-vmsAttachedToDisk diskId = do
-  drives <- selectList [DriveDiskImageId ==. Just diskId] []
-  let vmIds = map (driveVmId . entityVal) drives
-  vms <- mapM get vmIds
-  pure [vmName v | Just v <- vms]
+    (IfExistsOverwrite, Just _) -> pure $ Right Nothing
 
 -- | Compact a qcow2 by running @qemu-img convert -O qcow2@ in place (atomic
 -- via temp file + rename). On any failure this logs at @warn@ and returns

@@ -20,7 +20,7 @@ diskCreateCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "NAME"
-          <> help "Name for the disk image"
+          <> help "Name[:tag] for the disk image"
       )
     <*> strOption
       ( long "format"
@@ -55,7 +55,7 @@ diskDeleteCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to delete"
+          <> help "Name[:tag] or ID of the disk image to delete"
           <> completer diskCompleter
       )
 
@@ -66,7 +66,7 @@ diskResizeCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to resize"
+          <> help "Name[:tag] or ID of the disk image to resize"
           <> completer diskCompleter
       )
     <*> option
@@ -88,7 +88,7 @@ diskShowCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to show"
+          <> help "Name[:tag] or ID of the disk image to show"
           <> completer diskCompleter
       )
 
@@ -105,7 +105,7 @@ diskAttachCommand =
     <*> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to attach"
+          <> help "Name[:tag] or ID of the disk image to attach"
           <> completer diskCompleter
       )
     <*> strOption
@@ -154,7 +154,7 @@ diskDetachCommand =
     <*> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to detach"
+          <> help "Name[:tag] or ID of the disk image to detach"
           <> completer diskCompleter
       )
 
@@ -203,7 +203,7 @@ diskRegisterCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "NAME"
-          <> help "Name for the disk image"
+          <> help "Name[:tag] for the disk image"
       )
     <*> argument
       str
@@ -296,7 +296,6 @@ diskUploadCommand =
       )
     <*> ephemeralSwitch
     <*> nodeOption
-    <*> switch (long "overwrite" <> help "Replace an unattached single-placement disk with the same name")
 
 -- | Parser for disk overlay
 diskOverlayCommand :: Parser Command
@@ -390,7 +389,7 @@ diskCopyCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to copy"
+          <> help "Name[:tag] or ID of the disk image to copy"
           <> completer diskCompleter
       )
     <*> strOption
@@ -409,7 +408,7 @@ diskMoveCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "DISK"
-          <> help "Name or ID of the disk image to move"
+          <> help "Name[:tag] or ID of the disk image to move"
           <> completer diskCompleter
       )
     <*> strOption
@@ -482,15 +481,20 @@ nodeOption =
 diskCommandParser :: Parser Command
 diskCommandParser =
   subparser
-    ( command
-        "create"
-        (info diskCreateCommand (progDesc "Create a new disk image"))
+    ( command "tag" (info (DiskTag <$> selector <*> tagArg) (progDesc "Assign or move an image tag"))
+        <> command "untag" (info (DiskUntag <$> selector <*> tagArg) (progDesc "Remove an image tag"))
+        <> command
+          "create"
+          (info diskCreateCommand (progDesc "Create a new disk image"))
         <> command
           "overlay"
           (info diskOverlayCommand (progDesc "Create a qcow2 overlay backed by an existing disk"))
         <> command
           "register"
           (info diskRegisterCommand (progDesc "Register an existing local disk image file (no copy)"))
+        <> command
+          "register-placement"
+          (info (DiskRegisterPlacement <$> selector <*> strOption (long "node" <> metavar "NODE") <*> argument (T.pack <$> str) (metavar "PATH")) (progDesc "Register an existing replica of a version on a node"))
         <> command
           "import"
           (info diskImportCommand (progDesc "Import a disk image from a local file or URL (copies to destination)"))
@@ -540,3 +544,9 @@ diskCommandParser =
               (progDesc "Disk snapshot management (create/list/rollback/merge/delete)")
           )
     )
+
+selector :: Parser T.Text
+selector = argument (T.pack <$> str) (metavar "DISK" <> completer diskCompleter)
+
+tagArg :: Parser T.Text
+tagArg = argument (T.pack <$> str) (metavar "TAG")

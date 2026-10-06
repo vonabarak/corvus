@@ -10,6 +10,7 @@ module Corvus.Handlers.Disk.Upload
 where
 
 import Corvus.Action
+import Corvus.Images
 
 import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_)
@@ -50,48 +51,33 @@ import System.FilePath (takeExtension, takeFileName, (</>))
 
 import Corvus.Handlers.Disk.Placement (nodeBasePathFor, withSelectedDiskNode)
 
--- | Resolved destination for a client-upload stream. Planning only reads
--- state; the Action below publishes the completed node-side file.
+-- | Resolved destination and reserved ID for a client-upload stream.
+-- The completed image and its tags are published only by finalization.
 data DiskUploadPlan = DiskUploadPlan
-  { dupName :: !Text
+  { dupImageId :: !M.DiskImageId
+  , dupName :: !Text
   , dupFormat :: !DriveFormat
   , dupEphemeral :: !Bool
   , dupNodeId :: !M.NodeId
   , dupFilePath :: !FilePath
   , dupStoredPath :: !Text
-  , dupOverwrite :: !Bool
   }
 
 prepareDiskUpload
-  :: ServerState -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> Bool -> IO (Either Text DiskUploadPlan)
-prepareDiskUpload state name format mPath ephemeral nodeRefText overwrite =
+  :: ServerState -> Text -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> IO (Either Text DiskUploadPlan)
+prepareDiskUpload state clientName name format mPath ephemeral nodeRefText =
   case sanitizeDiskName name of
     Left err -> pure (Left err)
     Right safeName -> do
       let placeOn nid = do
             basePath <- nodeBasePathFor state nid
-            let defaultPath = resolveDiskFilePathPure basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
-                mkPlan = DiskUploadPlan safeName format ephemeral nid
-            existing <- runSqlPool (getBy (UniqueDiskImageName safeName)) (ssDbPool state)
-            case existing of
-              Nothing -> pure (Right (mkPlan defaultPath (makeRelativeToBase basePath defaultPath) False))
-              Just (Entity diskKey _)
-                | not overwrite -> pure (Left $ "disk image '" <> safeName <> "' already exists (set ifExists: overwrite to replace it)")
-                | otherwise -> do
-                    attached <- runSqlPool (getAttachedVms (fromSqlKey diskKey)) (ssDbPool state)
-                    placements <- runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
-                    case placements of
-                      [Entity _ placement]
-                        | null attached && diskImageNodeNodeId placement == nid -> do
-                            let stored = diskImageNodeFilePath placement
-                                raw = T.unpack stored
-                                path = if "/" `isPrefixOf` raw then raw else basePath </> raw
-                            case mPath of
-                              Just p
-                                | resolveDiskFilePathPure basePath (Just p) (takeFileName path) /= path ->
-                                    pure (Left "overwrite uses the existing disk path; omit path or supply the same path")
-                              _ -> pure (Right (mkPlan path stored True))
-                      _ -> pure (Left "overwrite requires an unattached disk with exactly one placement on the target node")
+            reserved <- runAction state clientName (DiskUploadReserveId safeName)
+            case reserved of
+              RespDiskCreated rawId -> do
+                let imageId = M.toSqlKey rawId
+                defaultPath <- resolveDiskFilePath imageId basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
+                pure (Right (DiskUploadPlan imageId safeName format ephemeral nid defaultPath (makeRelativeToBase basePath defaultPath)))
+              _ -> pure (Left "Failed to reserve an image ID for upload")
       -- Empty text or capnp's unset-EntityRef default ('byId 0')
       -- both mean "no explicit placement" — defer to the scheduler.
       if T.null nodeRefText || nodeRefText == "0"
@@ -106,6 +92,17 @@ prepareDiskUpload state name format mPath ephemeral nodeRefText overwrite =
             Left re -> pure (Left (resolveErrorMessage re))
             Right nidRaw -> placeOn (M.toSqlKey nidRaw)
 
+-- Reserving an upload ID is a mutation even though no image is exposed yet.
+newtype DiskUploadReserveId = DiskUploadReserveId Text
+
+instance Action DiskUploadReserveId where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "upload-reserve"
+  actionEntityName (DiskUploadReserveId name) = Just name
+  actionExecute ctx _ = do
+    key <- runSqlPool reserveImageId (ssDbPool (acState ctx))
+    pure (RespDiskCreated (fromSqlKey key))
+
 newtype DiskUploadFinalize = DiskUploadFinalize {dufPlan :: DiskUploadPlan}
 
 instance Action DiskUploadFinalize where
@@ -116,34 +113,32 @@ instance Action DiskUploadFinalize where
 
 handleDiskUploadFinalize :: ServerState -> DiskUploadPlan -> IO Response
 handleDiskUploadFinalize state plan = runServerLogging state $ do
-  size <- liftIO $ getImageSizeViaAgent state (dupNodeId plan) (dupFilePath plan)
-  now <- liftIO getCurrentTime
-  liftIO $
-    runSqlPool
-      ( do
-          existing <- getBy (UniqueDiskImageName (dupName plan))
-          key <- case existing of
-            Nothing ->
-              insert
-                DiskImage
-                  { diskImageName = dupName plan
-                  , diskImageFormat = dupFormat plan
-                  , diskImageSize = size
-                  , diskImageCreatedAt = now
-                  , diskImageBackingImageId = Nothing
-                  , diskImageEphemeral = dupEphemeral plan
-                  }
-            Just (Entity key _)
-              | dupOverwrite plan -> do
-                  update
-                    key
-                    [ DiskImageFormat =. dupFormat plan
-                    , DiskImageSize =. size
-                    , DiskImageEphemeral =. dupEphemeral plan
-                    ]
-                  pure key
-              | otherwise -> fail "disk image appeared while upload was in progress"
-          recordDiskImageNode key (dupNodeId plan) (dupStoredPath plan)
-          pure (RespDiskCreated (fromSqlKey key))
-      )
-      (ssDbPool state)
+  inspected <- liftIO $ getImageInfoViaAgent state (dupNodeId plan) (dupFilePath plan)
+  case inspected of
+    Left err -> discard err
+    Right info
+      | iiFormat info /= dupFormat plan -> discard "Uploaded image format differs from requested format"
+      | otherwise -> do
+          now <- liftIO getCurrentTime
+          liftIO $
+            runSqlPool
+              ( do
+                  key <-
+                    publishImageWithId
+                      (dupImageId plan)
+                      DiskImage
+                        { diskImageName = dupName plan
+                        , diskImageFormat = dupFormat plan
+                        , diskImageSize = Just (iiVirtualSize info)
+                        , diskImageCreatedAt = now
+                        , diskImageBackingImageId = Nothing
+                        , diskImageEphemeral = dupEphemeral plan
+                        }
+                  recordDiskImageNode key (dupNodeId plan) (dupStoredPath plan)
+                  pure (RespDiskCreated (fromSqlKey key))
+              )
+              (ssDbPool state)
+  where
+    discard err = do
+      _ <- liftIO $ deleteImageViaAgent state (dupNodeId plan) (dupFilePath plan)
+      pure (RespError err)

@@ -6,7 +6,7 @@
 crv disk create <name> --size <SIZE> [--format <fmt>] [--path <path>] [--node <node>] [--ephemeral]
 crv disk register <name> <path> [--format <fmt>] [--backing <disk>] [--node <node>] [--ephemeral]
 crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--node <node>] [--ephemeral] [--wait]
-crv disk upload <name> <local-file> --format <fmt> [--path <dest>] [--node <node>] [--ephemeral] [--overwrite]
+crv disk upload <name> <local-file> --format <fmt> [--path <dest>] [--node <node>] [--ephemeral]
 crv disk overlay <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk clone <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk rebase <disk> [--backing <new_backing>] [--unsafe]
@@ -15,6 +15,9 @@ crv disk refresh <disk>
 crv disk list
 crv disk show <disk>
 crv disk delete <disk>
+crv disk tag <disk> <tag>
+crv disk untag <disk> <tag>
+crv disk register-placement <disk> <path> --node <node>
 crv disk attach <vm> <disk> [--interface <iface>] [--media <media>] [--read-only] [--discard] [--cache <cache>]
 crv disk detach <vm> <disk>
 crv disk media eject <drive>
@@ -23,19 +26,47 @@ crv disk copy <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
 crv disk move <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
 ```
 
-`<disk>`, `<vm>`, and `<node>` accept names or numeric IDs.
+`<vm>` and `<node>` accept names or numeric IDs. `<disk>` accepts an image ID,
+`name:tag`, or a bare name (which means `name:latest`). An image name must be
+nonempty, contain no colon, and must not start with a number. Digit-leading
+selectors must be complete positive decimal Int64 IDs; `123abc` is an error.
+Tags contain 1–128 ASCII letters, digits, underscores, periods or hyphens;
+the first character must be a letter, digit or underscore. Tags are case sensitive.
+
+## Versions and tags
+
+Every create, register, import, upload, clone and overlay publishes a new image
+ID. Publication accepts `name` or `name:tag`, assigns that tag, and moves
+`latest` to the new version. Other versions, their files, placements, overlays,
+and VM attachments are preserved. An image can have several tags; each
+`name:tag` selects exactly one version. Untagged versions remain accessible by ID.
+
+`crv disk tag 123 stable` moves `stable` to version 123 within its image name.
+`crv disk untag 123 stable` removes it. `latest` may be moved but cannot be
+removed. Deleting its image promotes the remaining version with the newest
+creation date (highest ID breaks date ties). A nonempty image name always has
+exactly one `latest`. Deletion still refuses versions used by VMs, backing
+images, or templates pinned by ID. Floating template selectors do not block
+deletion; they resolve their tag when a new VM is instantiated.
+
+Generated filenames use `<image-id>-<name[:tag]>.<format>`, for example
+`123-ubuntu:24.04.qcow2`. The prefix is the published image ID. IDs are reserved
+before file creation and may have gaps after failed or cancelled operations;
+reservations do not expose an image or change tags. Explicit destination paths
+must be unused; publishing a new tag never overwrites the old file.
 `<drive>` is the numeric drive row id of a VM's drive (see
 `crv vm show <vm>`, the `ID` column of its drive list).
 
 ## Per-node placement
 
 Disk images are per-node: each row in the `disk_image` table is a
-logical name, and each on-disk file lives in the
-`disk_image_node` join keyed by `(disk_image_id, node_id,
-file_path)`. The same logical image may have placements on
+version of a logical image name, and each on-disk file lives in the
+`disk_image_node` join, unique by `(disk_image_id, node_id)` and by
+`(node_id, file_path)`. The same logical image may have placements on
 multiple nodes; an operator replicates an image by rsync-ing
-the file and running `crv disk register --node <new-node>`
-against the resulting path.
+the file and running `crv disk register-placement <image-id> <path> --node <new-node>`.
+This adds a replica of that exact version without changing tags; the file must
+have the same format and virtual size. Operators must copy the same bytes.
 
 The daemon enforces a **same-node attach check**: `crv disk
 attach <vm> <disk>` refuses unless a `disk_image_node` row
@@ -129,8 +160,9 @@ publishes it when the stream finishes.
 
 Use it for prepared installer media such as an answer-file ISO or USB image.
 The uploaded object is an ordinary disk image and can be attached read-only as
-an IDE/SCSI CD-ROM or disk in a template. `--overwrite` only replaces an
-unattached image with exactly one placement on the chosen node.
+an IDE/SCSI CD-ROM or disk in a template. Uploading the same name publishes a
+new version and moves its tags after the complete stream succeeds. Aborting
+an upload discards its temporary file and leaves the old tags unchanged.
 
 ## Overlays and Clones
 
@@ -328,10 +360,10 @@ The optional `--path` flag (on create, import, overlay, clone) controls where th
 
 | Path | Interpretation |
 |------|---------------|
-| *(omitted)* | `$HOME/VMs/<name>.<ext>` |
-| `subdir/` | `$HOME/VMs/subdir/<name>.<ext>` (trailing `/` = directory) |
+| *(omitted)* | `$HOME/VMs/<image-id>-<name[:tag]>.<ext>` |
+| `subdir/` | `$HOME/VMs/subdir/<image-id>-<name[:tag]>.<ext>` (trailing `/` = directory) |
 | `custom.raw` | `$HOME/VMs/custom.raw` (no trailing `/` = file path) |
-| `/data/vms/` | `/data/vms/<name>.<ext>` (absolute directory) |
+| `/data/vms/` | `/data/vms/<image-id>-<name[:tag]>.<ext>` (absolute directory) |
 | `/data/disk.raw` | `/data/disk.raw` (absolute file path) |
 
 Directories are created automatically if they don't exist.

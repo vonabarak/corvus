@@ -109,7 +109,10 @@ export default function DiskList() {
                     className="inline-flex items-center gap-2 font-medium text-foreground hover:underline"
                   >
                     <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                    {d.name}
+                    {d.name}{" "}
+                    <span className="text-xs text-muted-foreground">
+                      #{d.id} {d.tags.join(", ")}
+                    </span>
                   </Link>
                   <div className="text-xs text-muted-foreground">#{d.id}</div>
                 </TableCell>

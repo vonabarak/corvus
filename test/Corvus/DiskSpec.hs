@@ -73,25 +73,24 @@ spec = sequential $ withTestDb $ do
   -- register (no agent needed when format is provided)
 
   describe "diskRegister" $ do
-    testCase "writes a row + a DiskImageNode for the test-node" $ do
+    testCase "does not publish when inspection is unavailable" $ do
       when_ $ diskRegister "imported" "/baseimages/imported.qcow2" FormatQcow2
       then_ $ do
         responseIs $ \case
-          RespDiskCreated _ -> True
+          RespError _ -> True
           _ -> False
-        diskImageCount 1
-        diskImageExists 1
+        diskImageCount 0
 
-    testCase "re-registering by the same logical name is idempotent" $ do
+    testCase "a failed new registration preserves the existing version" $ do
       given $ do
         _ <- insertDiskImage "existing" "/baseimages/existing.qcow2" FormatQcow2
         pure ()
       when_ $ diskRegister "existing" "/baseimages/existing.qcow2" FormatQcow2
       then_ $ do
         responseIs $ \case
-          RespDiskCreated _ -> True
+          RespError _ -> True
           _ -> False
-        -- Same disk_image row, no duplicate.
+        -- Failed publication retains the original version.
         diskImageCount 1
 
   ------------------------------------------------------------------

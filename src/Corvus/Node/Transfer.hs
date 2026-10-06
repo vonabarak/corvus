@@ -72,6 +72,7 @@ import Control.Concurrent.MVar
   , readMVar
   , takeMVar
   , tryPutMVar
+  , withMVar
   )
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
@@ -82,7 +83,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Numeric (showHex)
-import System.Directory (createDirectoryIfMissing, renameFile)
+import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO
   ( BufferMode (..)
@@ -93,7 +94,9 @@ import System.IO
   , hFlush
   , hSetBuffering
   , openBinaryFile
+  , openBinaryTempFile
   )
+import System.Posix.Files (createLink)
 import qualified System.Random as Random
 
 -- ---------------------------------------------------------------------------
@@ -254,6 +257,7 @@ data FileWriterSink = FileWriterSink
   , fwsBytes :: !(MVar Int)
   , fwsDone :: !FileWriterDone
   , fwsOnClose :: !(IO ())
+  , fwsOnAbort :: !(IO ())
   }
 
 instance SomeServer FileWriterSink
@@ -275,9 +279,19 @@ instance CGS.ByteSink'server_ FileWriterSink where
       r <-
         E.try @E.SomeException $ closeWriter fws
       case r of
-        Left e -> signalDone fws (Just (T.pack (show e)))
+        Left e -> do
+          signalDone fws (Just (T.pack (show e)))
+          E.throwIO e
         Right () -> signalDone fws Nothing
       pure CGS.ByteSink'end'results
+
+  byteSink'abort fws = handleParsed $ \_ -> do
+    modifyMVar_ (fwsHandle fws) $ \mh -> do
+      mapM_ hClose mh
+      fwsOnAbort fws
+      pure Nothing
+    signalDone fws (Just "Upload aborted")
+    pure CGS.ByteSink'abort'results
 
 -- | Build a 'FileWriterSink' that writes to @path@. Caller fsyncs
 -- + renames the resulting file after 'waitFileWriter' returns.
@@ -288,13 +302,17 @@ newFileWriterSink path = newFileWriterSinkWith path (pure ())
 -- are atomically promoted only after the sender closes the stream.
 newAtomicFileWriterSink :: FilePath -> IO (FileWriterSink, FileWriterDone)
 newAtomicFileWriterSink destPath = do
-  let partPath = destPath <> ".upload.part"
   createDirectoryIfMissing True (takeDirectory destPath)
-  newFileWriterSinkWith partPath (renameFile partPath destPath)
+  (partPath, handle) <- openBinaryTempFile (takeDirectory destPath) ".corvus-upload.part"
+  newFileWriterSinkWithHandle handle (createLink partPath destPath `E.finally` removeFile partPath) (removeFile partPath)
 
 newFileWriterSinkWith :: FilePath -> IO () -> IO (FileWriterSink, FileWriterDone)
 newFileWriterSinkWith path onClose = do
   h <- openBinaryFile path WriteMode
+  newFileWriterSinkWithHandle h onClose (pure ())
+
+newFileWriterSinkWithHandle :: Handle -> IO () -> IO () -> IO (FileWriterSink, FileWriterDone)
+newFileWriterSinkWithHandle h onClose onAbort = do
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   hv <- newMVar (Just h)
   bv <- newMVar 0
@@ -305,6 +323,7 @@ newFileWriterSinkWith path onClose = do
           , fwsBytes = bv
           , fwsDone = done
           , fwsOnClose = onClose
+          , fwsOnAbort = onAbort
           }
   pure (fws, done)
 
@@ -314,23 +333,27 @@ waitFileWriter :: FileWriterDone -> IO (Maybe Text)
 waitFileWriter (FileWriterDone mv) = readMVar mv
 
 writeChunk :: FileWriterSink -> BS.ByteString -> IO ()
-writeChunk fws chunk = do
-  mh <- readMVar (fwsHandle fws)
-  case mh of
-    Nothing -> pure () -- already closed; drop late writes
+writeChunk fws chunk =
+  withMVar (fwsHandle fws) $ \case
+    Nothing -> E.throwIO (userError "Upload stream is closed")
     Just h -> do
       BS.hPut h chunk
       modifyMVar_ (fwsBytes fws) (\n -> pure (n + BS.length chunk))
 
 closeWriter :: FileWriterSink -> IO ()
-closeWriter fws =
-  modifyMVar_ (fwsHandle fws) $ \case
-    Nothing -> pure Nothing
+closeWriter fws = do
+  result <- modifyMVar (fwsHandle fws) $ \case
+    Nothing -> pure (Nothing, Right ())
     Just h -> do
-      hFlush h
-      hClose h
-      fwsOnClose fws
-      pure Nothing
+      closed <- E.try @E.SomeException (hFlush h >> hClose h >> fwsOnClose fws)
+      case closed of
+        Left _ -> do
+          _ <- E.try @E.SomeException (hClose h)
+          _ <- E.try @E.SomeException (fwsOnAbort fws)
+          pure ()
+        Right () -> pure ()
+      pure (Nothing, closed)
+  either E.throwIO pure result
 
 signalDone :: FileWriterSink -> Maybe Text -> IO ()
 signalDone fws result = do

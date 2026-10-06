@@ -7,6 +7,7 @@
 module Corvus.TemplateYamlSpec (spec) where
 
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
+import Corvus.DiskSelector (DiskSelector (..))
 import Corvus.Model (AudioBackend (..), AudioDeviceModel (..), CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), GraphicsAdapter (..), NetInterfaceType (..), NetworkDeviceModel (..), SharedDirCache (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
   ( NamedRef (..)
@@ -53,6 +54,8 @@ sampleDetails =
     , tvdDrives =
         [ TemplateDriveInfo
             { tvdiDiskImage = Just NamedRef {nrId = 7, nrName = "base-disk"}
+            , tvdiDiskSelector = Just (ImageTag "base-disk" "latest")
+            , tvdiDiskName = Nothing
             , tvdiInterface = InterfaceVirtio
             , tvdiMedia = Just MediaDisk
             , tvdiReadOnly = False
@@ -120,7 +123,7 @@ spec = do
           tyAutostart ty `shouldBe` False
           length (tyDrives ty) `shouldBe` 1
           let [d] = tyDrives ty
-          tdyDiskImageName d `shouldBe` Just "base-disk"
+          tdyDiskImage d `shouldBe` Just (ImageTag "base-disk" "latest")
           tdyInterface d `shouldBe` InterfaceVirtio
           tdyMedia d `shouldBe` Just MediaDisk
           tdyReadOnly d `shouldBe` Just False
@@ -147,12 +150,14 @@ spec = do
           tadyBackend audioDevice `shouldBe` AudioPipewire
           tadyOptions audioDevice `shouldBe` "out.name=speakers,in.name=mic"
 
-    it "round-trips a create-strategy drive (no diskImageName)" $ do
+    it "round-trips a create-strategy drive (no diskImage)" $ do
       let createDetails =
             sampleDetails
               { tvdDrives =
                   [ TemplateDriveInfo
                       { tvdiDiskImage = Nothing
+                      , tvdiDiskSelector = Nothing
+                      , tvdiDiskName = Nothing
                       , tvdiInterface = InterfaceVirtio
                       , tvdiMedia = Nothing
                       , tvdiReadOnly = False
@@ -170,7 +175,7 @@ spec = do
         Left err -> expectationFailure $ "parse failed: " ++ show err
         Right (ty :: TemplateYaml) -> do
           let [d] = tyDrives ty
-          tdyDiskImageName d `shouldBe` Nothing
+          tdyDiskImage d `shouldBe` Nothing
           tdyStrategy d `shouldBe` StrategyCreate
           tdyFormat d `shouldBe` Just FormatQcow2
           tdySize d `shouldBe` Just 10737418240

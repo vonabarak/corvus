@@ -38,6 +38,7 @@ where
 
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..))
+import Corvus.Protocol.Template (TemplateDetails)
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
 import Corvus.Size (defaultSizeField)
 import qualified Data.Aeson.Key as Key
@@ -123,6 +124,7 @@ data Build = Build
   , buildWaitForShutdownSec :: Int
   , buildUseCache :: Bool
   , buildBuildCache :: Bool
+  , buildResolvedTemplate :: Maybe TemplateDetails
   , buildCacheMode :: BuildCacheMode
   -- ^ How the build-step cache stores and restores each step.
   -- Defaults to 'CacheModeMemory' (vmstate-aware, preserves the
@@ -179,6 +181,7 @@ instance FromJSON Build where
       <*> o .:? "waitForShutdownSec" .!= 3600
       <*> o .:? "useCache" .!= False
       <*> o .:? "buildCache" .!= False
+      <*> pure Nothing
       <*> o .:? "cacheMode" .!= CacheModeMemory
 
 -- | Build-level defaults applied to every 'ProvShell' step.

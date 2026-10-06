@@ -4,7 +4,7 @@ cpuCount: 2
 ram: 2G
 guestAgent: true
 drives:
-  - diskImageName: "Almalinux-10"
+  - diskImage: "Almalinux-10"
     interface: "virtio"
     strategy: "overlay"  # options: clone, overlay, direct
     size: 20G        # resize disk after instantiation

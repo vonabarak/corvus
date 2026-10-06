@@ -86,6 +86,8 @@ library:
   include-dirs:
     - cbits
   exposed-modules:
+    - Corvus.DiskSelector
+    - Corvus.Images
     - Corvus.Protocol
     - Corvus.Protocol.JsonOptions
     - Corvus.Protocol.Vm

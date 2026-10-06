@@ -12,7 +12,7 @@ and the typed RPC client for the assertions.  No VM boots — every
 test creates a stopped cloud-init VM, exercises the config
 machinery, and tears the VM down.  The only test that needs the
 on-disk ISO greps through it via ``grep -ao`` over the
-already-registered ``<vm>-cloud-init`` disk image.
+already-registered ``vm-<id>-<vm>-cloud-init`` disk image.
 """
 
 from __future__ import annotations
@@ -200,7 +200,7 @@ class TestCloudInitCli(SingleNodeCase):
 
     def test_generate_registers_iso_disk(self) -> None:
         """`crv cloud-init generate` produces the NoCloud ISO and
-        the daemon registers it as the ``<vm>-cloud-init`` disk —
+        the daemon registers it as the ``vm-<id>-<vm>-cloud-init`` disk —
         the same disk the VM start path would normally produce.
 
         Also verifies a custom networkConfig payload lands in the
@@ -231,7 +231,7 @@ class TestCloudInitCli(SingleNodeCase):
             # `vm.cloudInit`.
             _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
 
-            iso_disk_name = f"{name}-cloud-init"
+            iso_disk_name = f"vm-{vm.show().id}-{name}-cloud-init"
             iso_disk = self.client.disks.get(iso_disk_name, by_name=True).show()
             # Daemon side: ISO disk registered, format raw,
             # ephemeral, placement on the self node.
@@ -287,7 +287,9 @@ class TestCloudInitCli(SingleNodeCase):
                 inject_ssh_keys=True,
             )
             _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
-            iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+            iso = self.client.disks.get(
+                f"vm-{vm.show().id}-{name}-cloud-init", by_name=True
+            ).show()
             iso_path = iso.placements[0].file_path
             mtime_before = (
                 self.node.run(f"stat -c %Y {shlex.quote(iso_path)}")
@@ -376,7 +378,9 @@ class TestCloudInitCli(SingleNodeCase):
             try:
                 vm.attach_ssh_key(key_name)
                 _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
-                iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+                iso = self.client.disks.get(
+                    f"vm-{vm.show().id}-{name}-cloud-init", by_name=True
+                ).show()
                 iso_path = iso.placements[0].file_path
                 cp = self.node.run(
                     f"grep -ao {shlex.quote(marker)} {shlex.quote(iso_path)}",
@@ -426,7 +430,9 @@ class TestCloudInitCli(SingleNodeCase):
             try:
                 vm.attach_ssh_key(key_name)
                 _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
-                iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+                iso = self.client.disks.get(
+                    f"vm-{vm.show().id}-{name}-cloud-init", by_name=True
+                ).show()
                 iso_path = iso.placements[0].file_path
                 cp = self.node.run(
                     f"grep -ao {shlex.quote(marker)} {shlex.quote(iso_path)}",
@@ -454,7 +460,7 @@ class TestCloudInitCli(SingleNodeCase):
 
     def test_generate_is_idempotent_at_disk_record_level(self) -> None:
         """Re-running ``crv cloud-init generate`` doesn't break the
-        existing ``<vm>-cloud-init`` disk record — same id, same
+        existing ``vm-<id>-<vm>-cloud-init`` disk record — same id, same
         placement path, no second disk row spawned. The on-disk
         bytes ARE allowed to differ (genisoimage embeds a wall-
         clock creation timestamp into iso9660 volume metadata), so
@@ -474,16 +480,20 @@ class TestCloudInitCli(SingleNodeCase):
                 inject_ssh_keys=False,
             )
             _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
-            iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+            iso = self.client.disks.get(
+                f"vm-{vm.show().id}-{name}-cloud-init", by_name=True
+            ).show()
             iso_id_a = iso.id
             iso_path_a = iso.placements[0].file_path
 
             _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
-            iso2 = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+            iso2 = self.client.disks.get(
+                f"vm-{vm.show().id}-{name}-cloud-init", by_name=True
+            ).show()
             assert iso2.id == iso_id_a, (
                 f"second generate spawned a new disk row "
                 f"({iso_id_a} → {iso2.id}); the daemon should reuse "
-                f"the existing ``<vm>-cloud-init`` record"
+                f"the existing ``vm-<id>-<vm>-cloud-init`` record"
             )
             assert iso2.placements[0].file_path == iso_path_a, (
                 f"second generate moved the on-disk file "
@@ -491,7 +501,9 @@ class TestCloudInitCli(SingleNodeCase):
             )
             # Exactly one cloud-init disk per VM — no ghost rows.
             cloud_init_disks = [
-                d for d in self.client.disks.list() if d.name == f"{name}-cloud-init"
+                d
+                for d in self.client.disks.list()
+                if d.name == f"vm-{vm.show().id}-{name}-cloud-init"
             ]
             assert len(cloud_init_disks) == 1, cloud_init_disks
         finally:

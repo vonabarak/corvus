@@ -3,7 +3,7 @@
 -- | Convert a 'TemplateDetails' (as returned by @ReqTemplateShow@) into the
 -- YAML shape accepted by 'ReqTemplateCreate' / 'ReqTemplateUpdate'. The
 -- server's default @ToJSON TemplateDetails@ uses a slightly different shape
--- (it has @id@, @createdAt@, @cloneStrategy@, @diskImageId@), so we have a
+-- (it has @id@, @createdAt@, @cloneStrategy@, @diskSelector@), so we have a
 -- dedicated encoder here for the round-trip case.
 module Corvus.Client.Commands.Template.Yaml
   ( templateDetailsToYaml
@@ -71,7 +71,8 @@ driveToValue d =
     , "strategy" .= tvdiCloneStrategy d
     ]
       ++ catMaybes
-        [ optPair "diskImageName" (nrName <$> tvdiDiskImage d)
+        [ optPair "diskImage" (tvdiDiskSelector d)
+        , optPair "diskName" (tvdiDiskName d)
         , optPair "media" (tvdiMedia d)
         , optPair "size" (formatSize <$> tvdiSize d)
         , optPair "format" (tvdiFormat d)
@@ -139,7 +140,7 @@ skeletonTemplateYaml =
   \tpm: false\n\
   \autostart: false\n\
   \drives:\n\
-  \  - diskImageName: disk0\n\
+  \  - diskName: disk0\n\
   \    interface: virtio\n\
   \    strategy: create  # options are create, clone, overlay, direct\n\
   \    format: qcow2     # only for create strategy\n\

@@ -55,12 +55,12 @@ pipeline:
             # corvus's command builder emits `-boot order=dc` when
             # any drive has `media: cdrom`, so seabios tries this
             # ISO before the (blank) virtio target above.
-            - diskImageName: corvus-test-installer-iso
+            - diskImage: corvus-test-installer-iso
               interface: ide
               media: cdrom
               readOnly: true
               strategy: direct
-            - diskImageName: corvus-test-installer-marker
+            - diskImage: corvus-test-installer-marker
               interface: ide
               media: cdrom
               readOnly: true

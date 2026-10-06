@@ -25,6 +25,8 @@ export interface TemplateDriveInfo {
   discard: boolean;
   clone_strategy: string;
   disk_image: NamedRef | null;
+  disk_selector: string | number | null;
+  disk_name: string | null;
   media: string | null;
   size: bigint | null;
   format: string | null;

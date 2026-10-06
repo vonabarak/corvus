@@ -199,7 +199,7 @@ pipeline:
           guestAgent: true
           headless: true
           drives:
-            - diskImageName: debian-12-nginx
+            - diskImage: debian-12-nginx
               interface: virtio
               strategy: overlay
 ```
@@ -220,7 +220,7 @@ created, so a wrong policy never wastes a bake.
 |---|---|
 | `error` (default) | Fail immediately with `target '<name>' already exists; use ifExists: skip or overwrite to allow`. No bake VM is created. |
 | `skip` | Return success without baking. The existing disk is treated as the artifact and its id is reported in the build result. Lets a re-run of a partially-failed pipeline walk past already-completed builds. |
-| `overwrite` | Verify the existing disk is not attached to any VM (fails with the attached-VM names if it is), then proceed to bake. The actual deletion happens at publish time so a mid-bake failure preserves the existing artifact. |
+| `overwrite` | Bake and publish a new version, moving the requested tag and `latest` after success. Existing versions and users remain intact. |
 
 ```yaml
 target:
@@ -228,15 +228,15 @@ target:
   ifExists: skip
 ```
 
-`overwrite` always **refuses** to delete a disk that is currently
-attached to any VM; the operator must detach (or delete those VMs)
-explicitly. This avoids silently yanking a disk out from under a
-running or stopped VM. There is no auto-detach mode.
+Targets accept `name` or `name:tag`. Existing-target checks use that tag.
+A failed build preserves the previous tag mapping. Templates resolve floating
+tags once at build start; the resolved version IDs contribute to the build
+cache key, so moving a tag cannot reuse a cache for an older base image.
 
 The same field name `ifExists:` exists at the top level of an `apply:`
 document (see [apply-configuration](apply-configuration.md)), where it
 acts as the YAML equivalent of `crv apply --skip-existing`. Apply
-accepts `error` and `skip` only; `overwrite` is rejected. This means
+accepts `error`, `skip`, and `overwrite`. Disk overwrite publishes a new version. This means
 a pipeline `apply:` step inside `crv build` (which has no
 `--skip-existing` flag) can opt into skip-existing via the YAML.
 

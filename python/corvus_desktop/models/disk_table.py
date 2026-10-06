@@ -25,6 +25,8 @@ class DiskTableModel(QAbstractTableModel):
     COL_BACKING = 4
     COL_ATTACHED = 5
     COL_EPHEMERAL = 6
+    COL_TAGS = 7
+    COL_ID = 8
     COLS: tuple[str, ...] = (
         "Name",
         "Format",
@@ -33,6 +35,8 @@ class DiskTableModel(QAbstractTableModel):
         "Backing",
         "Attached",
         "Ephemeral",
+        "Tags",
+        "ID",
     )
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -89,6 +93,10 @@ class DiskTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             if col == self.COL_NAME:
                 return disk.name
+            if col == self.COL_TAGS:
+                return ", ".join(disk.tags)
+            if col == self.COL_ID:
+                return disk.id
             if col == self.COL_FORMAT:
                 return disk.format
             if col == self.COL_SIZE:

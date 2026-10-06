@@ -631,6 +631,10 @@ instance CGS.ByteSink'server_ ClientByteSink where
     handleParsed $ \_ -> do
       _ <- try onEnd :: IO (Either SomeException ())
       pure CGS.ByteSink'end'results
+  byteSink'abort (ClientByteSink _ onEnd) =
+    handleParsed $ \_ -> do
+      _ <- try onEnd :: IO (Either SomeException ())
+      pure CGS.ByteSink'abort'results
 
 streamByteSinkMethod
   :: ( C.IsCap iface

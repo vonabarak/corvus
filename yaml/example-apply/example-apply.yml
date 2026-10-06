@@ -163,7 +163,7 @@ templates:
     guestAgent: true
     cloudInit: true
     drives:
-      - diskImageName: alpine-base
+      - diskImage: alpine-base
         interface: virtio
         strategy: overlay
     networkInterfaces:

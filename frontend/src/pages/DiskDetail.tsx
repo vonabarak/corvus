@@ -12,6 +12,8 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  tagDisk,
+  untagDisk,
   createSnapshot,
   deleteDisk,
   deleteSnapshot,
@@ -39,6 +41,67 @@ import { formatBytes, parseSize } from "@/lib/format";
 interface FieldProps {
   label: string;
   value: React.ReactNode;
+}
+
+function ImageTags({ disk }: { disk: DiskImageInfo }) {
+  const [tag, setTag] = useState("");
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: ({ value, remove }: { value: string; remove: boolean }) =>
+      remove ? untagDisk(disk.id, value) : tagDisk(disk.id, value),
+    onSuccess: () => {
+      setTag("");
+      void qc.invalidateQueries({ queryKey: ["disk", disk.id] });
+      void qc.invalidateQueries({ queryKey: ["disks"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Tags</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {disk.tags.map((value) => (
+            <span key={value}>
+              {value}
+              {value !== "latest" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={mutation.isPending}
+                  onClick={() => mutation.mutate({ value, remove: true })}
+                >
+                  Remove
+                </Button>
+              )}
+            </span>
+          ))}
+        </div>
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (tag) mutation.mutate({ value: tag, remove: false });
+          }}
+        >
+          <input
+            aria-label="Image tag"
+            value={tag}
+            onChange={(event) => setTag(event.target.value)}
+            pattern="[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}"
+            maxLength={128}
+            required
+            className="rounded-md border px-3"
+          />
+          <Button type="submit" disabled={mutation.isPending}>
+            Assign tag
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
 }
 
 function Field({ label, value }: FieldProps) {
@@ -284,6 +347,7 @@ export default function DiskDetail() {
         </div>
       </div>
 
+      <ImageTags disk={disk} />
       <div className="flex flex-wrap gap-2">
         <ResizeButton disk={disk} />
         <DeleteDiskButton disk={disk} />

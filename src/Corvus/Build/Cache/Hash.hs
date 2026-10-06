@@ -37,7 +37,7 @@ where
 import Corvus.Model (EnumText (..))
 import Corvus.Schema.Build
 import qualified Crypto.Hash as Hash
-import Data.Aeson (Value (..))
+import Data.Aeson (Value (..), toJSON)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Bifunctor
@@ -104,6 +104,7 @@ envelopeValue :: Build -> Value
 envelopeValue b =
   obj
     [ ("template", String (buildTemplate b))
+    , ("resolvedTemplate", toJSON (buildResolvedTemplate b))
     , ("target", targetValue (buildTarget b))
     , ("strategy", String (strategyText (buildStrategy b)))
     , ("vm", buildVmValue (buildVm b))

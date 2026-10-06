@@ -26,6 +26,7 @@ struct DiskImageInfo {
   # instantiation (clone/overlay/create strategies) default to
   # ephemeral; everything else defaults to non-ephemeral.
   ephemeral       @8 :Bool;
+  tags            @9 :List(Text);
 }
 
 struct DiskImagePlacement {
@@ -76,7 +77,7 @@ struct DiskCreateParams {
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
   # Optional destination path. Empty means the default
-  # `<basePath>/<name>.<format>` location. A non-empty path follows the
+  # unique version filename under `<basePath>`. A non-empty path follows the
   # same relative/absolute and trailing-`/` rules as the CLI's `--path`.
   path      @5 :Text;
 }
@@ -140,10 +141,9 @@ struct DiskImportParams {
 struct DiskUploadParams {
   name      @0 :Text;
   format    @1 :Enums.DriveFormat;
-  path      @2 :Text; # empty -> <basePath>/<name>.<format>
+  path      @2 :Text; # empty -> unique version filename under <basePath>
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
-  overwrite @5 :Bool = false;
 }
 
 # Copy a logical disk image from its current placement on one node
@@ -271,6 +271,10 @@ interface Disk {
                        -> (snapshot :Snapshot, snapshotId :Int64);
   snapshotList      @5 () -> (snapshots :List(SnapshotInfo));
   snapshotGet       @6 (ref :Common.EntityRef) -> (snapshot :Snapshot);
+  tag               @7 (tag :Text) -> ();
+  untag             @8 (tag :Text) -> ();
+  # Add an existing replica of this version; tags are unchanged.
+  registerPlacement @9 (node :Common.EntityRef, path :Text) -> ();
 }
 
 interface Snapshot {

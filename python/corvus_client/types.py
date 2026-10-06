@@ -261,6 +261,7 @@ class DiskImageInfo:
     name: str
     format: str
     created_at: datetime
+    tags: list[str] = field(default_factory=list)
     placements: list[DiskImagePlacement] = field(default_factory=list)
     attached_to: list[DiskAttachment] = field(default_factory=list)
     size: int | None = None
@@ -476,6 +477,8 @@ class TemplateDriveInfo:
     discard: bool
     clone_strategy: str
     disk_image: NamedRef | None = None
+    disk_selector: str | int | None = None
+    disk_name: str | None = None
     media: str | None = None
     size: int | None = None
     format: str | None = None

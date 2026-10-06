@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import secrets
 import time
+from pathlib import Path
 
 import pytest
 from corvus_client import ServerError, VmMustBeStopped
+from corvus_client._entityref import disk_entity_ref
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
+from corvus_test_harness.base_images import GUEST_BASE_IMAGES_PATH, discover
 from corvus_test_harness.vm import _DriveOptions
 
 
@@ -37,6 +40,40 @@ class TestDisk(SingleNodeCase):
             self.client.disks.get(name).delete()
         except Exception:
             pass
+
+    @pytest.mark.parametrize(
+        "filename",
+        ["123-corvus-test-vm.qcow2", "corvus-test-vm.qcow2"],
+    )
+    def test_discover_keeps_logical_names_and_original_paths(
+        self, tmp_path: Path, filename: str
+    ) -> None:
+        directory = tmp_path / "Alpine"
+        directory.mkdir()
+        # Sorts before the baked image, so alias selection must recognize its name.
+        (directory / "1-alpine-3.21-base.qcow2").touch()
+        baked = directory / filename
+        baked.touch()
+
+        images = discover(tmp_path)
+
+        assert set(images) == {"alpine-3-21-base", "corvus-test-vm", "alpine"}
+        assert images["alpine"] == images["corvus-test-vm"]
+        image = images["alpine"]
+        assert disk_entity_ref(image.name).name == "corvus-test-vm"
+        assert image.host_path == baked
+        assert image.guest_path == GUEST_BASE_IMAGES_PATH / "Alpine" / filename
+
+    def test_discover_preserves_numbers_within_image_names(
+        self, tmp_path: Path
+    ) -> None:
+        directory = tmp_path / "AlmaLinux"
+        directory.mkdir()
+        (directory / "456-almalinux-10-base.raw").touch()
+
+        images = discover(tmp_path)
+
+        assert images["almalinux"].name == "almalinux-10-base"
 
     # ---- create / show / delete --------------------------------------------
 
@@ -255,22 +292,27 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(src_name)
 
-    def test_import_same_path_rejected(self) -> None:
-        """If the import name resolves to the same canonical path as
-        the source file, the daemon refuses with a 'Source and
-        destination paths are the same' error (Handlers/Disk/Import.hs:145)."""
-        name = _uniq("import-collide")
-        disk = self.client.disks.create(name, size=4194304, format="qcow2")
+    def test_import_same_name_publishes_a_separate_version(self) -> None:
+        """Importing a registered file publishes a version at a fresh path."""
+        name = _uniq("import-version")
+        old = self.client.disks.create(name, size=4194304, format="qcow2")
+        new = None
         try:
-            src_path = disk.show().placements[0].file_path
+            old_info = old.show()
+            src_path = old_info.placements[0].file_path
             task_id = self.client.disks.import_(name, src_path, format="qcow2")
-            with pytest.raises(AssertionError, match=r"(?i)same"):
-                # Re-importing under the same name targets the same
-                # `<basePath>/<name>.qcow2` destination — canonicalised
-                # source and dest collide.
-                self.wait_for_task(self.client, task_id, timeout_sec=60.0)
+            self.wait_for_task(self.client, task_id, timeout_sec=60.0)
+            new = self.client.disks.get(name)
+            new_info = new.show()
+            assert new_info.id != old_info.id
+            assert new_info.placements[0].file_path != src_path
+            assert old.show().id == old_info.id
+            assert old.show().tags == []
+            assert new_info.tags == ["latest"]
         finally:
-            disk.delete()
+            if new is not None:
+                new.delete()
+            old.delete()
 
     # ---- hot-plug attach / detach -------------------------------------------
 

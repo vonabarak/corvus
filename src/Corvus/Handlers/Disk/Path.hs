@@ -15,7 +15,7 @@ module Corvus.Handlers.Disk.Path
   )
 where
 
-import Corvus.Handlers.Resolve (validateName)
+import Corvus.DiskSelector (publicationSelector)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig)
@@ -27,22 +27,11 @@ import Database.Persist (Entity (..), get, getBy)
 import Database.Persist.Sql (SqlBackend, runSqlPool)
 import System.FilePath (isRelative, (</>))
 
--- | Sanitize a disk image name to prevent path traversal attacks.
---
--- First removes dangerous characters (path separators, null bytes), then
--- removes parent directory references to handle cases like @".\0."@ →
--- @".."@. Also rejects all-digit names to prevent ambiguity with numeric
--- IDs (that check is enforced by 'validateName').
+-- | Validate a publication selector, including safe image-name characters.
 sanitizeDiskName :: Text -> Either Text Text
-sanitizeDiskName name
-  | T.null sanitized = Left "Invalid disk name: name is empty after sanitization"
-  | otherwise = case validateName "Disk image" sanitized of
-      Left err -> Left err
-      Right () -> Right sanitized
-  where
-    sanitized =
-      T.replace ".." "" $
-        T.filter (`notElem` ['/', '\\', '\0']) name
+sanitizeDiskName name = do
+  _ <- publicationSelector name
+  pure name
 
 -- | Resolve a disk image file path for a specific node by
 -- reading the matching 'DiskImageNode' row. Relative paths
@@ -95,11 +84,11 @@ makeRelativeToBase basePath filePath
 --   * Ends with @\/@: treated as a directory — @fileName@ is appended
 --   * Does not end with @\/@: treated as the full file path
 --
--- This is deliberately pure from the daemon's perspective: the target
--- path belongs to a nodeagent and its parent must be created on that node.
-resolveDiskFilePath :: FilePath -> Maybe Text -> FilePath -> IO FilePath
-resolveDiskFilePath basePath mPath fileName =
-  pure $ resolveDiskFilePathPure basePath mPath fileName
+-- Default and directory destinations receive the reserved image ID prefix.
+-- The path belongs to a nodeagent; its parent must be created on that node.
+resolveDiskFilePath :: DiskImageId -> FilePath -> Maybe Text -> FilePath -> IO FilePath
+resolveDiskFilePath imageId basePath mPath fileName =
+  pure $ resolveDiskFilePathPure basePath mPath (show (fromSqlKey imageId) <> "-" <> fileName)
 
 -- | Pure path resolution logic (no IO). See 'resolveDiskFilePath' for rules.
 resolveDiskFilePathPure :: FilePath -> Maybe Text -> FilePath -> FilePath

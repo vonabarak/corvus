@@ -72,7 +72,7 @@ import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
-import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
+import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
 import Corvus.Rpc.Streams (EmptyHandle (..), runByteSinkRelay)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
@@ -447,7 +447,7 @@ instance CGVm.Vm'server_ VmCap where
 
   vm'attachDisk (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'attachDisk'params {params = CGVm.DriveAttachParams {..}} -> do
-      diskRef' <- capnpRefToRef diskRef
+      diskRef' <- capnpDiskRefToRef diskRef
       diskId <- resolveOrThrow =<< resolveDisk diskRef' (ssDbPool st)
       iface <- enumOrThrow (fromCapnpDriveInterface interface)
       med <- enumOrThrow (fromCapnpDriveMedia media)

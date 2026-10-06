@@ -8,6 +8,7 @@ module Corvus.Handlers.Apply.Validation
 
 import Control.Monad (forM_)
 import Control.Monad.Logger (logWarnN)
+import Corvus.DiskSelector (parseDiskSelector, publicationSelector, renderDiskSelector)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Node.Image (isHttpUrl)
 import Corvus.Protocol (Response (..))
@@ -37,12 +38,13 @@ handleApplyValidate state yamlContent = runServerLogging state $
 validateConfig :: ApplyConfig -> Either Text ()
 validateConfig config = do
   checkDuplicates "SSH key" $ map askName (acSshKeys config)
-  checkDuplicates "disk" $ map adName (acDisks config)
+  diskSelectors <- mapM (parseDiskSelector . adName) (acDisks config)
+  checkDuplicates "disk" $ map renderDiskSelector diskSelectors
   checkDuplicatesPerNode "VM" [(avName v, avNode v) | v <- acVms config]
   checkDuplicatesPerNode "network" [(anName n, anNode n) | n <- acNetworks config]
   checkDuplicates "template" $ map tyName (acTemplates config)
   forM_ (acSshKeys config) $ validateName "SSH key" . askName
-  forM_ (acDisks config) $ validateName "Disk" . adName
+  forM_ (acDisks config) $ publicationSelector . adName
   forM_ (acNetworks config) $ validateName "Network" . anName
   forM_ (acVms config) $ validateName "VM" . avName
   forM_ (acTemplates config) $ validateName "Template" . tyName

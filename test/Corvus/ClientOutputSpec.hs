@@ -35,14 +35,14 @@ spec :: Spec
 spec = sequential $ do
   describe "human and machine size output" $ do
     it "keeps numeric bytes in JSON and exact suffixes in human YAML values" $ do
-      let disk = DiskImageInfo 1 "tiny" [] FormatRaw (Just 512) testTime [] Nothing False
+      let disk = DiskImageInfo 1 [] "tiny" [] FormatRaw (Just 512) testTime [] Nothing False
       case (toJSON disk, humanJSON disk) of
         (Object machine, Object human) -> do
           KM.lookup "size" machine `shouldBe` Just (Number 512)
           KM.lookup "size" human `shouldBe` Just (String "512B")
         _ -> expectationFailure "Expected disk objects"
     it "preserves unknown sizes and integers larger than JavaScript's safe range" $ do
-      let disk = DiskImageInfo 1 "huge" [] FormatRaw (Just 9007199254740993) testTime [] Nothing False
+      let disk = DiskImageInfo 1 [] "huge" [] FormatRaw (Just 9007199254740993) testTime [] Nothing False
       BL.unpack (encode disk) `shouldSatisfy` isInfixOf "9007199254740993"
       case humanJSON disk of
         Object human -> KM.lookup "size" human `shouldBe` Just (String "9007199254740993B")
@@ -178,7 +178,7 @@ spec = sequential $ do
               [ NamedRef {nrId = 1, nrName = "vm1"}
               , NamedRef {nrId = 2, nrName = "vm2"}
               ]
-            disk = DiskImageInfo 1 "boot" [placement] FormatQcow2 (Just 10240) testTime attached Nothing False
+            disk = DiskImageInfo 1 [] "boot" [placement] FormatQcow2 (Just 10240) testTime attached Nothing False
             val = toJSON disk
         case val of
           Object obj -> do
@@ -192,7 +192,7 @@ spec = sequential $ do
         let node = NamedRef {nrId = 1, nrName = "test-node"}
             placement = DiskImagePlacement node "/path/overlay.qcow2"
             backing = Just NamedRef {nrId = 1, nrName = "base"}
-            disk = DiskImageInfo 2 "overlay" [placement] FormatQcow2 Nothing testTime [] backing False
+            disk = DiskImageInfo 2 [] "overlay" [placement] FormatQcow2 Nothing testTime [] backing False
             val = toJSON disk
         case val of
           Object obj ->

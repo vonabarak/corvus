@@ -138,7 +138,7 @@ instance (C.HasTypeId TemplateDriveInfo) where
     typeId  = 9792678170896308609
 instance (C.TypedStruct TemplateDriveInfo) where
     numStructWords  = 3
-    numStructPtrs  = 1
+    numStructPtrs  = 3
 instance (C.Allocate TemplateDriveInfo) where
     type AllocHint TemplateDriveInfo = ()
     new _ = C.newTypedStruct
@@ -161,7 +161,9 @@ data instance C.Parsed TemplateDriveInfo
         ,hasFormat :: (RP.Parsed Std_.Bool)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
         ,hasEphemeral :: (RP.Parsed Std_.Bool)
-        ,ephemeral :: (RP.Parsed Std_.Bool)}
+        ,ephemeral :: (RP.Parsed Std_.Bool)
+        ,diskSelector :: (RP.Parsed Basics.Text)
+        ,diskName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateDriveInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateDriveInfo))
@@ -178,7 +180,9 @@ instance (C.Parse TemplateDriveInfo (C.Parsed TemplateDriveInfo)) where
                                     <*> (GH.parseField #hasFormat raw_)
                                     <*> (GH.parseField #format raw_)
                                     <*> (GH.parseField #hasEphemeral raw_)
-                                    <*> (GH.parseField #ephemeral raw_))
+                                    <*> (GH.parseField #ephemeral raw_)
+                                    <*> (GH.parseField #diskSelector raw_)
+                                    <*> (GH.parseField #diskName raw_))
 instance (C.Marshal TemplateDriveInfo (C.Parsed TemplateDriveInfo)) where
     marshalInto raw_ TemplateDriveInfo{..} = (do
         (GH.encodeField #diskImage diskImage raw_)
@@ -194,6 +198,8 @@ instance (C.Marshal TemplateDriveInfo (C.Parsed TemplateDriveInfo)) where
         (GH.encodeField #format format raw_)
         (GH.encodeField #hasEphemeral hasEphemeral raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
+        (GH.encodeField #diskSelector diskSelector raw_)
+        (GH.encodeField #diskName diskName raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "diskImage" GH.Slot TemplateDriveInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
@@ -222,6 +228,10 @@ instance (GH.HasField "hasEphemeral" GH.Slot TemplateDriveInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 20 0 1 0)
 instance (GH.HasField "ephemeral" GH.Slot TemplateDriveInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 21 0 1 0)
+instance (GH.HasField "diskSelector" GH.Slot TemplateDriveInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "diskName" GH.Slot TemplateDriveInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
 data TemplateNetIfInfo 
 type instance (R.ReprFor TemplateNetIfInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateNetIfInfo) where

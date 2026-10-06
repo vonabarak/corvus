@@ -4,7 +4,7 @@ module Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..)) where
 
 import Control.Applicative ((<|>))
 import Corvus.Action
-import Corvus.Handlers.Apply.Resolve (resolveByName)
+import Corvus.Handlers.Apply.Resolve (resolveByName, resolveDiskName)
 import Corvus.Handlers.Apply.Validation (checksumSpecToImport)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
@@ -35,12 +35,12 @@ instance Action ApplyDiskCreate where
                 case adBacking d of
                   Nothing -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) Nothing ephem nodeRef)
                   Just backingName -> do
-                    mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
+                    mBackingId <- resolveDiskName state (adcDiskMap a) backingName
                     maybe (pure $ RespError $ "backing disk '" <> backingName <> "' not found") (\backingId -> actionExecute ctx $ DiskRegister (adName d) registerPath (Just format) (Just backingId) ephem nodeRef) mBackingId
           (_, Just backingName, _, _) -> do
-            mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
+            mBackingId <- resolveDiskName state (adcDiskMap a) backingName
             maybe (pure $ RespError $ "backing disk '" <> backingName <> "' not found") (\backingId -> actionExecute ctx $ DiskCreateOverlay (adName d) backingId (adSize d) (adPath d) ephem) mBackingId
           (_, _, Just cloneName, _) -> do
-            mSourceId <- resolveByName state UniqueDiskImageName (adcDiskMap a) cloneName
+            mSourceId <- resolveDiskName state (adcDiskMap a) cloneName
             maybe (pure $ RespError $ "source disk '" <> cloneName <> "' not found") (\sourceId -> actionExecute ctx $ DiskClone (adName d) sourceId Nothing (adPath d) ephem) mSourceId
           _ -> actionExecute ctx $ DiskCreate (adName d) (fromMaybe FormatQcow2 $ adFormat d) (fromIntegral $ fromMaybe 10240 $ adSize d) (adPath d) ephem nodeRef

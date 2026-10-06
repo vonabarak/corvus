@@ -533,7 +533,7 @@ pipeline:
           guestAgent: true
           headless: true
           drives:
-            - diskImageName: corvus-test-node
+            - diskImage: corvus-test-node
               interface: virtio
               strategy: overlay
               cacheType: writeback

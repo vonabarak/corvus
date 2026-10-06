@@ -39,13 +39,13 @@ _defaults: &defaults
   guestAgent: true
 
 _ovmf_code_drive: &ovmf_code
-  diskImageName: ovmf-code
+  diskImage: ovmf-code
   interface: pflash
   readOnly: true
   strategy: direct
 
 _ovmf_vars_drive: &ovmf_vars
-  diskImageName: ovmf-vars
+  diskImage: ovmf-vars
   interface: pflash
   strategy: clone
 
@@ -133,7 +133,7 @@ pipeline:
                 - systemctl enable --now qemu-guest-agent
                 - systemctl enable --now vsock-sshd
           drives:
-            - diskImageName: debian-12-generic-base
+            - diskImage: debian-12-generic-base
               interface: virtio
               strategy: overlay
               cacheType: writeback
@@ -155,7 +155,7 @@ pipeline:
               runcmd:
                 - systemctl enable --now qemu-guest-agent
           drives:
-            - diskImageName: ubuntu-26.04-server-base
+            - diskImage: ubuntu-26.04-server-base
               interface: virtio
               strategy: overlay
               cacheType: writeback
@@ -177,7 +177,7 @@ pipeline:
               runcmd:
                 - systemctl enable --now qemu-guest-agent
           drives:
-            - diskImageName: almalinux-10-base
+            - diskImage: almalinux-10-base
               interface: virtio
               strategy: overlay
               cacheType: writeback
@@ -200,7 +200,7 @@ pipeline:
                 - sysrc qemu_guest_agent_enable=YES
                 - service qemu-guest-agent start
           drives:
-            - diskImageName: freebsd-14-base
+            - diskImage: freebsd-14-base
               interface: virtio
               strategy: overlay
               cacheType: writeback

@@ -174,7 +174,6 @@ class SyncDiskManager:
         path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
-        overwrite: bool = False,
     ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
@@ -185,7 +184,6 @@ class SyncDiskManager:
                     path=path,
                     ephemeral=ephemeral,
                     node=node,
-                    overwrite=overwrite,
                 )
             ),
             self._rl,
@@ -230,6 +228,15 @@ class SyncDisk(LoopBoundResource):
     def __init__(self, async_disk: AsyncDisk, runloop: SyncRunloop) -> None:
         self._a = async_disk
         self._rl = runloop
+
+    def register_placement(self, file_path: str, *, node: int | str) -> None:
+        self._rl.run(self._a.register_placement(file_path, node=node))
+
+    def tag(self, tag: str) -> None:
+        self._rl.run(self._a.tag(tag))
+
+    def untag(self, tag: str) -> None:
+        self._rl.run(self._a.untag(tag))
 
     def show(self) -> types.DiskImageInfo:
         return self._rl.run(self._a.show())

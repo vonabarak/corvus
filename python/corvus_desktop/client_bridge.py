@@ -393,6 +393,10 @@ class CorvusBridge(QObject):
         """Grow a qcow2 disk to ``new_size``."""
         self._enqueue(self._do_disk_resize(disk_id, new_size))
 
+    def disk_tag(self, disk_id: int, tag: str, *, remove: bool = False) -> None:
+        """Assign or remove an image tag on this concrete version."""
+        self._enqueue(self._do_disk_tag(disk_id, tag, remove))
+
     def disk_delete(self, disk_id: int) -> None:
         """Delete a disk (must not be attached to any VM)."""
         self._enqueue(self._do_disk_delete(disk_id))
@@ -1093,6 +1097,22 @@ class CorvusBridge(QObject):
             self.operation_failed.emit("disk_resize", _friendly_error(e))
             return
         self.disk_action_completed.emit(disk_id, "resize")
+
+    async def _do_disk_tag(self, disk_id: int, tag: str, remove: bool) -> None:
+        client = self._client
+        if client is None:
+            self.operation_failed.emit("disk_tag", "not connected")
+            return
+        try:
+            disk = await client.disks.get(disk_id)
+            if remove:
+                await disk.untag(tag)
+            else:
+                await disk.tag(tag)
+        except CorvusError as error:
+            self.operation_failed.emit("disk_tag", _friendly_error(error))
+            return
+        self.disk_action_completed.emit(disk_id, "tag")
 
     async def _do_disk_delete(self, disk_id: int) -> None:
         client = self._client
@@ -2092,7 +2112,6 @@ class CorvusBridge(QObject):
                             path=path,
                             ephemeral=ephemeral,
                             node=node,
-                            overwrite=upload.get("ifExists") == "overwrite",
                         )
                     doc["pipeline"] = rest
                     yaml_text = yaml.safe_dump(doc, sort_keys=False)

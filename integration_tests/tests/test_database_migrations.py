@@ -123,8 +123,8 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.get("migration-vm").show().name == "migration-vm"
-        assert "migrated from version 2 to 9" in self._logs()
-        assert self._sql("SELECT version FROM schema_version") == "9"
+        assert "migrated from version 2 to 10" in self._logs()
+        assert self._sql("SELECT version FROM schema_version") == "10"
         assert self._sql("SELECT graphics_adapter FROM vm WHERE id = 1") == "virtio-vga"
         assert (
             self._sql(
@@ -133,6 +133,10 @@ class DatabaseMigrationCase(SingleNodeCase):
             == "virtio-vga"
         )
         assert self._sql("SELECT id, disk_image_id FROM drive") == "1|1"
+        assert (
+            self._sql("SELECT tag FROM disk_image_tag WHERE disk_image_id = 1")
+            == "latest"
+        )
         self._sql(
             "INSERT INTO audio_device (vm_id, backend, options) "
             "VALUES (1, 'pulse', 'server=192.0.2.10,out.name=speakers,in.name=mic')"
@@ -169,9 +173,9 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.list() == []
-        assert "Created database schema at version 9" in self._logs()
+        assert "Created database schema at version 10" in self._logs()
         assert "migrated from version" not in self._logs()
-        assert self._sql("SELECT version FROM schema_version") == "9"
+        assert self._sql("SELECT version FROM schema_version") == "10"
 
     def test_03_retired_migration_refuses_startup(self) -> None:
         self._prepare(historical=True)

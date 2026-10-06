@@ -46,7 +46,6 @@ import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Build.Artifact
   ( checkIfExistsPreBake
   , compactDisk
-  , deleteOverwriteTargetIfNeeded
   , publishArtifact
   , publishArtifactByClone
   )
@@ -104,7 +103,7 @@ import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, r
 import Corvus.Handlers.Disk.Rebase (DiskRebase (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
-import Corvus.Handlers.Template (TemplateInstantiate (..))
+import Corvus.Handlers.Template (getTemplateDetails)
 import Corvus.Handlers.Vm.Db (hasNetdMediatedNetIf, setVmError, setVmStatus)
 import Corvus.Handlers.Vm.Delete (VmDelete (..))
 import Corvus.Handlers.Vm.Lifecycle (VmStop (..))
@@ -431,7 +430,20 @@ runOneBuildBody state parentTaskId sink stack startTime opts b = do
   case preBake of
     Left err -> pure $ Left err
     Right (Just existingId) -> pure $ Right existingId
-    Right Nothing -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts b
+    Right Nothing -> do
+      snapshot <-
+        liftIO $
+          runSqlPool
+            ( do
+                template <- getBy (UniqueTemplateVmName (buildTemplate b))
+                case template of
+                  Nothing -> pure Nothing
+                  Just (Entity key _) -> getTemplateDetails key
+            )
+            (ssDbPool state)
+      case snapshot of
+        Nothing -> pure (Left "build template not found")
+        Just details -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts b {buildResolvedTemplate = Just details}
 
 -- | The original 'runOneBuildBody'. Renamed so the pre-bake
 -- ifExists check can short-circuit cleanly without nesting the
@@ -515,7 +527,7 @@ runFreshBake state parentTaskId sink stack startTime opts b = do
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do
-      vmR <- instantiateBakeVm state parentTaskId stack templateId bakeVmName (buildNode b)
+      vmR <- instantiateBakeVm state parentTaskId stack (buildResolvedTemplate b) templateId bakeVmName (buildNode b)
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do

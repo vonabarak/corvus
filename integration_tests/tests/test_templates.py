@@ -66,7 +66,7 @@ class TestTemplates(SingleNodeCase):
                   - curl
               injectSshKeys: false
             drives:
-              - diskImageName: {base_disk}
+              - diskImage: {base_disk}
                 interface: virtio
                 strategy: overlay
                 size: 1024M
@@ -275,8 +275,8 @@ class TestTemplates(SingleNodeCase):
           * ``direct`` — share the base disk directly (no copy)
           * ``create`` — empty disk, no base
 
-        ``create`` doesn't reference ``diskImageName``; the schema
-        treats ``diskImageName`` as optional for that strategy. We
+        ``create`` doesn't reference ``diskImage``; the schema
+        treats ``diskImage`` as optional for that strategy. We
         instantiate but don't boot — the materialised drive's
         ``clone_strategy`` round-trips through ``vm.show().drives``,
         which is the contract that matters; booting each variant
@@ -289,7 +289,7 @@ class TestTemplates(SingleNodeCase):
             tpl_name = f"corvus-it-strat-{strategy}-{token}"
             vm_name = f"corvus-it-strat-vm-{strategy}-{token}"
             # ``create`` requires ``format`` + ``size`` and skips
-            # ``diskImageName``; the other three require the base.
+            # ``diskImage``; the other three require the base.
             if strategy == "create":
                 body = textwrap.dedent(f"""
                     name: {tpl_name}
@@ -309,7 +309,7 @@ class TestTemplates(SingleNodeCase):
                     ram: 256M
                     headless: true
                     drives:
-                      - diskImageName: {base_disk}
+                      - diskImage: {base_disk}
                         interface: virtio
                         strategy: {strategy}
                         size: 1024M
@@ -390,7 +390,7 @@ class TestTemplates(SingleNodeCase):
                 ram: 256M
                 headless: true
                 drives:
-                  - diskImageName: {base_disk}
+                  - diskImage: {base_disk}
                     interface: virtio
                     strategy: overlay
                     size: 1024M
@@ -446,7 +446,7 @@ class TestTemplates(SingleNodeCase):
             ram: 512M
             headless: true
             drives:
-              - diskImageName: {ghost}
+              - diskImage: {ghost}
                 interface: virtio
                 strategy: overlay
                 size: 1024M

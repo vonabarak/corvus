@@ -132,8 +132,8 @@ data Command
     DiskRegisterCmd !Text !FilePath !(Maybe Text) !(Maybe Text) !Bool !Text
   | -- | Import disk image with copy/download (name, source, destPath, format, ephemeral, nodeRef, waitOptions)
     DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool !Text !WaitOptions
-  | -- | Upload a client-local disk image (name, source, format, destPath, ephemeral, nodeRef, overwrite)
-    DiskUpload !Text !FilePath !Text !(Maybe Text) !Bool !Text !Bool
+  | -- | Upload a client-local disk image (name, source, format, destPath, ephemeral, nodeRef)
+    DiskUpload !Text !FilePath !Text !(Maybe Text) !Bool !Text
   | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath, ephemeral)
     DiskCreateOverlay !Text !Text !(Maybe Text) !Bool
   | -- | Refresh disk image size from qemu-img info
@@ -142,6 +142,9 @@ data Command
     DiskDelete !Text
   | -- | Resize disk image (diskRef, newSize)
     DiskResize !Text !Int64
+  | DiskRegisterPlacement !Text !Text !Text
+  | DiskTag !Text !Text
+  | DiskUntag !Text !Text
   | -- | List all disk images
     DiskList
   | -- | Show disk image details

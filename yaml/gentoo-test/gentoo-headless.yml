@@ -92,16 +92,16 @@ pipeline:
               tag: distfiles
               readOnly: true
           drives:
-            - diskImageName: gentoo-base-cloud
+            - diskImage: gentoo-base-cloud
               interface: virtio
               strategy: overlay
               cacheType: writeback
               discard: true
-            - diskImageName: ovmf-code
+            - diskImage: ovmf-code
               interface: pflash
               readOnly: true
               strategy: direct
-            - diskImageName: ovmf-vars
+            - diskImage: ovmf-vars
               interface: pflash
               strategy: clone
           networkInterfaces:
@@ -299,16 +299,16 @@ pipeline:
               tag: distfiles
               readOnly: true
           drives:
-            - diskImageName: gentoo-builder
+            - diskImage: gentoo-builder
               interface: virtio
               strategy: overlay
               cacheType: writeback
               discard: true
-            - diskImageName: ovmf-code
+            - diskImage: ovmf-code
               interface: pflash
               readOnly: true
               strategy: direct
-            - diskImageName: ovmf-vars
+            - diskImage: ovmf-vars
               interface: pflash
               strategy: clone
           networkInterfaces:
@@ -756,7 +756,7 @@ pipeline:
             # exist on this disk, and the VM sits at the firmware
             # menu forever, QGA never starts, the build's
             # first-ping wait times out after 90s.
-            - diskImageName: gentoo-base-headless
+            - diskImage: gentoo-base-headless
               interface: virtio
               strategy: overlay
               cacheType: writeback
@@ -943,7 +943,7 @@ pipeline:
           headless: true
           description: "Gentoo headless (no cloud-init)"
           drives:
-            - diskImageName: gentoo-base-headless
+            - diskImage: gentoo-base-headless
               interface: virtio
               strategy: overlay
               cacheType: writeback
@@ -970,7 +970,7 @@ pipeline:
           headless: true
           description: "Gentoo headless (with cloud-init)"
           drives:
-            - diskImageName: gentoo-base-headless-cloudinit
+            - diskImage: gentoo-base-headless-cloudinit
               interface: virtio
               strategy: overlay
               cacheType: writeback

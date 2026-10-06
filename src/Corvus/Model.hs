@@ -14,6 +14,8 @@ module Corvus.Model
   , Vm (..)
   , Drive (..)
   , NetworkInterface (..)
+  , DiskImageTag (..)
+  , DiskImageTagId
   , DiskImage (..)
   , DiskImageNode (..)
   , Snapshot (..)
@@ -730,6 +732,13 @@ Vm
     UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 
+DiskImageTag
+    name Text
+    tag Text
+    diskImageId DiskImageId
+    UniqueDiskImageTag name tag
+    deriving Show Eq Generic
+
 DiskImage
     name Text
     format DriveFormat
@@ -737,20 +746,16 @@ DiskImage
     createdAt UTCTime
     backingImageId DiskImageId Maybe
     ephemeral Bool default=false
-    UniqueDiskImageName name
     deriving Show Eq Generic
 
--- Per-node placement of a logical 'DiskImage'. A logical image
--- may live on one or many nodes; each row carries the on-disk
--- path on that specific node (paths can differ — e.g.
--- host-installed daemon vs containerised daemon vs test-node
--- overlay). Same-node check on attach: @disk_image_node@ row
--- must exist for @(image, vm.node)@.
+-- Per-node paths for an image version. Attachment requires a placement
+-- on the VM's node; paths may differ between nodes.
 DiskImageNode
     diskImageId DiskImageId
     nodeId NodeId
     filePath Text
     UniqueDiskImageOnNode diskImageId nodeId
+    UniqueDiskImagePathOnNode nodeId filePath
     UniqueDiskImagePathPerNode nodeId filePath
     deriving Show Eq Generic
 
@@ -900,6 +905,7 @@ TemplateDrive
     templateId TemplateVmId
     diskImageId DiskImageId Maybe
     diskName Text Maybe
+    diskTag Text Maybe
     interface DriveInterface
     media DriveMedia Maybe
     readOnly Bool default=false
@@ -975,15 +981,10 @@ TemplateCloudInit
     UniqueTemplateCloudInitVm templateId
     deriving Show Eq Generic
 
--- One row per (build pipeline × step × disk role) cached successfully.
--- pipelineKey = "<envelopeHashHex>:<buildName>"; chainHash chains the
--- per-step content hashes left-to-right; diskRole is "artifact" |
--- "system" (per-disk role inside the bake VM); snapshotId points at
--- the qcow2 internal snapshot that captures this step's output;
--- vmId is the bake VM that owns the chain. Cascade-delete on the
--- snapshot or VM rows is enforced at the application layer in
--- `deleteDiskAndSnapshots` / VM delete, mirroring the codebase's
--- convention of not using `OnDelete Cascade` in the schema.
+-- Cache per pipeline, step and disk role. pipelineKey combines envelope
+-- hash and build name; chainHash chains step hashes. snapshotId captures
+-- output in the owning bake VM. Disk/snapshot and VM deletion enforce
+-- cascades in application code, consistent with other schema references.
 BuildCacheEntry
     pipelineKey Text
     stepIndex Int

@@ -31,6 +31,7 @@ import Corvus.Handlers.Disk.Agent
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
+import Corvus.Images
 
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
@@ -114,6 +115,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                 case mExplicitFmt <|> mDetectedFmt of
                   Nothing -> pure $ RespError "Cannot detect disk format. Use --format to specify."
                   Just format -> do
+                    reservedId <- liftIO $ runSqlPool reserveImageId (ssDbPool state)
                     let fmtExt = T.unpack (enumToText format)
                         destFileName = T.unpack safeName <> "." <> fmtExt
                     if isHttpUrl source
@@ -121,8 +123,8 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                         -- URL download
                         let isXz = ".xz" `isSuffixOf` T.unpack source || isXzUrl source
                             downloadFileName = destFileName <> if isXz then ".xz" else ""
-                        downloadDest <- liftIO $ resolveDiskFilePath basePath mDestPath downloadFileName
-                        let finalDest = resolveDiskFilePathPure basePath mDestPath destFileName
+                        downloadDest <- liftIO $ resolveDiskFilePath reservedId basePath mDestPath downloadFileName
+                        let finalDest = if isXz then take (length downloadDest - 3) downloadDest else downloadDest
                         fetchResult <-
                           liftIO $
                             fetchAndVerify
@@ -141,20 +143,20 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                           Left err -> do
                             logWarnN err
                             pure $ RespError err
-                          Right diskPath -> registerImportedFile state nid basePath safeName format diskPath ephemeral
+                          Right diskPath -> registerImportedFile state reservedId nid basePath safeName format diskPath ephemeral
                       else do
                         -- Node-local file copy. Source validation and directory
                         -- creation belong to the target nodeagent, never the
                         -- daemon host running this orchestration code.
                         let srcPath = T.unpack source
-                        destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
+                        destPath <- liftIO $ resolveDiskFilePath reservedId basePath mDestPath destFileName
                         if srcPath == destPath
                           then pure $ RespError "Source and destination paths are the same"
                           else do
                             logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
                             copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format
                             case copyResult of
-                              ImageSuccess -> registerImportedFile state nid basePath safeName format destPath ephemeral
+                              ImageSuccess -> registerImportedFile state reservedId nid basePath safeName format destPath ephemeral
                               ImageError err -> do
                                 logWarnN $ "Copy failed: " <> err
                                 pure $ RespError $ "Copy failed: " <> err
@@ -177,7 +179,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
   where
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
-    registerImportedFile state' nid basePath safeName format diskPath ephem = do
+    registerImportedFile state' reservedId nid basePath safeName format diskPath ephem = do
       size <- liftIO $ getImageSizeViaAgent state' nid diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
@@ -186,7 +188,8 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
           runSqlPool
             ( do
                 dkey <-
-                  insert
+                  publishImageWithId
+                    reservedId
                     DiskImage
                       { diskImageName = safeName
                       , diskImageFormat = format

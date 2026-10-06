@@ -15,6 +15,7 @@ module Corvus.Schema.Template
   )
 where
 
+import Corvus.DiskSelector (DiskSelector)
 import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
 import Corvus.Size (optionalSizeField, sizeField)
@@ -83,7 +84,8 @@ instance FromJSON TemplateAudioDeviceYaml where
     TemplateAudioDeviceYaml <$> o .: "backend" <*> o .:? "model" .!= AudioVirtioSound <*> o .:? "options" .!= ""
 
 data TemplateDriveYaml = TemplateDriveYaml
-  { tdyDiskImageName :: Maybe Text
+  { tdyDiskImage :: Maybe DiskSelector
+  , tdyDiskName :: Maybe Text
   , tdyInterface :: DriveInterface
   , tdyMedia :: Maybe DriveMedia
   , tdyReadOnly :: Maybe Bool
@@ -103,7 +105,8 @@ data TemplateDriveYaml = TemplateDriveYaml
 instance FromJSON TemplateDriveYaml where
   parseJSON = withObject "TemplateDriveYaml" $ \o ->
     TemplateDriveYaml
-      <$> o .:? "diskImageName"
+      <$> o .:? "diskImage"
+      <*> o .:? "diskName"
       <*> o .: "interface"
       <*> o .:? "media"
       <*> o .:? "readOnly"

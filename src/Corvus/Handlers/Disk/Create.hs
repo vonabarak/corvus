@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -10,9 +9,10 @@ module Corvus.Handlers.Disk.Create
 where
 
 import Corvus.Action
+import Corvus.Images
 
 import Control.Exception (SomeException, try)
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent
@@ -41,6 +41,7 @@ import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -65,8 +66,9 @@ handleDiskCreate state name format size mPath ephemeral nodeRefText = runServerL
 
 createDiskOnNode state safeName format size mPath ephemeral nid = do
   basePath <- liftIO $ nodeBasePathFor state nid
+  reservedId <- liftIO $ runSqlPool reserveImageId (ssDbPool state)
   let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
-  filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
+  filePath <- liftIO $ resolveDiskFilePath reservedId basePath mPath fileName
   result <- liftIO $ createImageViaAgent state nid filePath format size
   case result of
     ImageError err -> do
@@ -83,7 +85,8 @@ createDiskOnNode state safeName format size mPath ephemeral nid = do
           runSqlPool
             ( do
                 dkey <-
-                  insert
+                  publishImageWithId
+                    reservedId
                     DiskImage
                       { diskImageName = safeName
                       , diskImageFormat = format
@@ -113,7 +116,7 @@ handleDiskRegister
   -- ^ node ref (name or id); empty / @"0"@ defers to the scheduler
   -> IO Response
 handleDiskRegister state name filePath mFormat mBackingDiskId ephemeral nodeRefText =
-  case validateName "Disk image" name of
+  case void (sanitizeDiskName name) of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
       logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
@@ -130,75 +133,32 @@ registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
         if "/" `isPrefixOf` T.unpack storedPath
           then T.unpack storedPath
           else basePath </> T.unpack storedPath
-  format <- resolveRegisteredFormat state nid resolvedPath mFormat
-  size <- liftIO $ getImageSizeViaAgent state nid resolvedPath
-  now <- liftIO getCurrentTime
-  mExisting <-
-    liftIO $
-      runSqlPool
-        (getBy (UniqueDiskImageName name))
-        (ssDbPool state)
-  case mExisting of
-    Just (Entity diskKey _) -> do
-      -- A logical image can have placements on several nodes. Record the new
-      -- placement without attempting a duplicate image insert.
-      recordRegisteredPlacement state diskKey nid storedPath "Disk image already registered with ID: "
-    Nothing -> do
-      result <-
+  inspection <- liftIO $ getImageInfoViaAgent state nid resolvedPath
+  case inspection of
+    Left err -> pure $ RespError err
+    Right info -> do
+      let format = fromMaybe (iiFormat info) mFormat
+          size = Just (iiVirtualSize info)
+      now <- liftIO getCurrentTime
+      diskId <-
         liftIO $
-          try $
-            runSqlPool
-              ( do
-                  dkey <-
-                    insert
-                      DiskImage
-                        { diskImageName = name
-                        , diskImageFormat = format
-                        , diskImageSize = size
-                        , diskImageCreatedAt = now
-                        , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
-                        , diskImageEphemeral = ephemeral
-                        }
-                  recordDiskImageNode dkey nid storedPath
-                  pure dkey
-              )
-              (ssDbPool state)
-      case result of
-        Right diskId -> do
-          logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-          pure $ RespDiskCreated $ fromSqlKey diskId
-        Left (_err :: SomeException) -> recoverConcurrentRegistration storedPath
-  where
-    recoverConcurrentRegistration storedPath = do
-      -- Race: another thread inserted first. Re-read its key and record this
-      -- node's placement against that logical image.
-      mRetry <-
-        liftIO $
-          runSqlPool (getBy (UniqueDiskImageName name)) (ssDbPool state)
-      case mRetry of
-        Just (Entity diskKey _) ->
-          recordRegisteredPlacement state diskKey nid storedPath "Disk image registered concurrently with ID: "
-        Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
-
-resolveRegisteredFormat state nid resolvedPath = \case
-  Just format -> pure format
-  Nothing -> do
-    mInfo <- liftIO $ getImageInfoViaAgent state nid resolvedPath
-    case mInfo of
-      Right info -> pure $ iiFormat info
-      Left err -> case detectFormatFromPath (T.pack resolvedPath) of
-        Just format -> pure format
-        Nothing -> do
-          logWarnN $ "Could not detect format for " <> T.pack resolvedPath <> ": " <> err
-          pure FormatRaw
-
-recordRegisteredPlacement state diskKey nid storedPath message = do
-  liftIO $
-    runSqlPool
-      (recordDiskImageNode diskKey nid storedPath)
-      (ssDbPool state)
-  logInfoN $ message <> T.pack (show $ fromSqlKey diskKey)
-  pure $ RespDiskCreated $ fromSqlKey diskKey
+          runSqlPool
+            ( do
+                key <-
+                  publishImage
+                    DiskImage
+                      { diskImageName = name
+                      , diskImageFormat = format
+                      , diskImageSize = size
+                      , diskImageCreatedAt = now
+                      , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
+                      , diskImageEphemeral = ephemeral
+                      }
+                recordDiskImageNode key nid storedPath
+                pure key
+            )
+            (ssDbPool state)
+      pure $ RespDiskCreated $ fromSqlKey diskId
 
 data DiskCreate = DiskCreate
   { dcrName :: Text
