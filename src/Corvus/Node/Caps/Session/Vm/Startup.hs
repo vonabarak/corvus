@@ -16,7 +16,6 @@
 module Corvus.Node.Caps.Session.Vm.Startup
   ( stopVmAfterStartFailure
   , forkVmReaper
-  , waitForVsockOwnership
   ) where
 
 import qualified Capnp as C
@@ -159,25 +158,3 @@ forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar respawn =
             <> " code="
             <> tshow code
         NGA.releaseConn (scQgaConns sc) vmId
-
--- | QEMU must answer QMP and retain the VSOCK CID before another start is
--- allowed to probe the host. The probe itself cannot reserve the CID because
--- closing its vhost fd releases it.
-waitForVsockOwnership :: QemuConfig -> Int64 -> Word32 -> ProcessHandle -> IO (Either Text ())
-waitForVsockOwnership cfg vmId cid qemuPh = go (40 :: Int) Nothing
-  where
-    intervalUs = 250000
-    go 0 mQmp =
-      pure $ Left $ "timed out waiting for QMP and kernel CID ownership" <> maybe "" (": " <>) mQmp
-    go remaining mQmp = do
-      exited <- getProcessExitCode qemuPh
-      case exited of
-        Just ExitSuccess -> pure $ Left "QEMU exited before startup completed"
-        Just (ExitFailure n) -> pure $ Left ("QEMU exited with status " <> tshow n)
-        Nothing -> do
-          qmp <- NQ.qmpQueryCommands cfg vmId
-          free <- VC.isHostFree (fromIntegral cid)
-          case (qmp, free) of
-            (Right _, False) -> pure (Right ())
-            (Left err, _) -> threadDelay intervalUs >> go (remaining - 1) (Just err)
-            (_, True) -> threadDelay intervalUs >> go (remaining - 1) mQmp

@@ -135,6 +135,7 @@ library
       Corvus.Qemu.Config
       Corvus.Node.Runtime
       Corvus.Node.Qmp
+      Corvus.Node.QemuStartup
       Corvus.Node.Qmp.Types
       Corvus.Node.Qmp.Transport
       Corvus.Utils.Yaml
@@ -783,6 +784,7 @@ test-suite corvus-test
       Corvus.NodeCommandSpec
       Corvus.NodeNetdDisabledSpec
       Corvus.NodeRoutingSpec
+      Corvus.NodeStartupSpec
       Corvus.PlanTransferSpec
       Corvus.ProcessSpec
       Corvus.QmpSpec

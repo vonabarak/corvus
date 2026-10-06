@@ -64,6 +64,9 @@ data VmLiveState = VmLiveState
   -- early exit the wait-for-first-ping path quotes this back to
   -- the daemon so the error includes QEMU's own diagnostic
   -- output rather than a misleading "QGA ping timeout".
+  , vlsStderrDone :: !(TVar Bool)
+  -- ^ Set once the stderr reader finishes, so startup failures can include
+  -- diagnostics still in the pipe when the process exits.
   , vlsStartupError :: !(TVar (Maybe T.Text))
   -- ^ First guest-agent ping timed out while QEMU remained alive.
   -- Retained in every status snapshot so reconnects cannot promote

@@ -118,7 +118,8 @@ import qualified System.Timeout
 
 import Corvus.Node.Caps.Session.Vm.Lifecycle (outgoingMigrateTimeoutSec, pollOutgoingMigrate)
 import Corvus.Node.Caps.Session.Vm.Process (prepareVmRuntime, reapSpawnedHelpers, reapVmHelpers, spawnVmHelpers)
-import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper, stopVmAfterStartFailure, waitForVsockOwnership)
+import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper, stopVmAfterStartFailure)
+import Corvus.Node.QemuStartup (waitForVsockOwnership)
 
 decodeVmSpec :: CGNA.Parsed CGNA.VmSpec -> Either WireError VS.VmSpec
 decodeVmSpec
@@ -489,8 +490,9 @@ newVmLiveState
 newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntry = do
   lastExitVar <- newTVarIO Nothing
   stderrTailVar <- newTVarIO T.empty
+  stderrDoneVar <- newTVarIO False
   startupErrorVar <- newTVarIO Nothing
-  forwardQemuOutput (VS.vsVmId spec) mStdoutH mStderrH stderrTailVar
+  forwardQemuOutput (VS.vsVmId spec) mStdoutH mStderrH stderrTailVar stderrDoneVar
   stopRequestedVar <- newTVarIO False
   pure $
     L.VmLiveState
@@ -500,6 +502,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
       , L.vlsSwtpm = swtpmEntry
       , L.vlsLastExitCode = lastExitVar
       , L.vlsStderrTail = stderrTailVar
+      , L.vlsStderrDone = stderrDoneVar
       , L.vlsStartupError = startupErrorVar
       , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
       , L.vlsSpec = spec
@@ -508,15 +511,18 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
 
 -- | Drain stdout and stderr at debug level to prevent pipe back-pressure.
 -- Also retain stderr's tail so an early QEMU exit can report its cause.
-forwardQemuOutput :: Int64 -> Maybe Handle -> Maybe Handle -> TVar Text -> IO ()
-forwardQemuOutput vmId mStdoutH mStderrH stderrTailVar = do
+forwardQemuOutput :: Int64 -> Maybe Handle -> Maybe Handle -> TVar Text -> TVar Bool -> IO ()
+forwardQemuOutput vmId mStdoutH mStderrH stderrTailVar stderrDoneVar = do
   let qemuLogLabel = "vm-" <> tshow vmId <> "-qemu"
   forM_ mStdoutH $ \h ->
     void $ forkIO $ forwardPipeToLog (qemuLogLabel <> "/stdout") h
-  forM_ mStderrH $ \h ->
-    void $
-      forkIO $
-        captureStderrTail (qemuLogLabel <> "/stderr") h stderrTailVar
+  case mStderrH of
+    Nothing -> atomically $ writeTVar stderrDoneVar True
+    Just h ->
+      void $
+        forkIO $
+          captureStderrTail (qemuLogLabel <> "/stderr") h stderrTailVar
+            `E.finally` atomically (writeTVar stderrDoneVar True)
 
 -- | Publish only if the lifecycle reservation is still current. A reset that
 -- won during spawn must not leave an orphan QEMU process running.
@@ -554,7 +560,7 @@ claimVmVsock sc cfg live = do
   let spec = L.vlsSpec live
       vmId = VS.vsVmId spec
   forM_ (VS.vsVsockCid spec) $ \cid -> do
-    ready <- waitForVsockOwnership cfg vmId cid (L.vlsQemuHandle live)
+    ready <- waitForVsockOwnership cfg vmId cid (L.vlsQemuHandle live) (L.vlsStderrTail live) (L.vlsStderrDone live)
     case ready of
       Right () -> pure ()
       Left reason -> do
@@ -566,7 +572,7 @@ claimVmVsock sc cfg live = do
               vmId
               (VS.vsLifecycleRevision spec)
               (VS.vsRuntimeGeneration spec)
-        throwFailed ("vmStart failed to claim vsock CID " <> tshow cid <> ": " <> reason)
+        throwFailed ("vmStart failed: " <> reason)
 
 -- | Buffer chardev output until QEMU exits, then unregister the buffers.
 -- Threads wait about a second for sockets to appear. Serial is headless-only
