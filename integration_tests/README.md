@@ -193,6 +193,37 @@ Cap'n Proto over SSH so pytest itself stays unprivileged.
 Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` (default:
 `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
 
+`TestNode.host_ip` returns the host address reachable from that node over the
+session's managed network. It uses the preferred source address of the host's
+route to `node.outer_ip`, so tests can bind host services without hardcoding
+the session subnet or using loopback addresses.
+
+### SQLite access
+
+Use `SqliteDatabase` from `corvus_test_harness` when assertions require raw
+database access. The context manager runs a standalone Python worker on the
+node, so queries see committed WAL data without copying database files:
+
+```python
+with SqliteDatabase(self.node) as database:
+    rows = database.query(
+        "SELECT import_url FROM disk_image_import_identity WHERE disk_image_id = ?",
+        (image_id,),
+    )
+```
+
+The default path is `/var/lib/corvus/corvus.db`; pass another path for isolated
+fixtures. `query` opens a read-only connection and returns rows as lists of
+strings, integers, floats, or `None`. `execute` commits one parameterized
+statement; `execute_script` commits a script as one transaction. Both write
+operations enforce foreign keys and roll back on failure. Scripts must omit
+their own transaction-control statements. Missing databases are rejected
+unless `execute_script(..., create=True)` explicitly permits creation.
+
+Each context owns and removes its temporary worker directory, leaving the
+database itself untouched by cleanup. Remote failures raise
+`subprocess.CalledProcessError` with the worker's SQLite diagnostics in stderr.
+
 ## Failure And Cleanup Behavior
 
 Successful class teardown closes clients, stops VSOCK relays, stops and deletes

@@ -38,6 +38,7 @@ from .netd_client import NetdClient
 from .outer import Crv
 from .runner import NodeShellRunner
 from .spice import SpiceLinkInfo, probe_spice_link
+from .sqlite import SqliteDatabase
 from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, SshResult, VmShell
 from .topology import NoDaemonOnNodeError, NodeRole, TestNode, Topology
 from .transport import VsockTcpRelay
@@ -66,6 +67,7 @@ __all__ = [
     "OneDaemonTwoNodesCase",
     "SingleNodeCase",
     "SpiceLinkInfo",
+    "SqliteDatabase",
     "SshResult",
     "TestNode",
     "ThreeNodesCase",

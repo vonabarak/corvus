@@ -27,6 +27,7 @@ the inner daemon running on it.
 from __future__ import annotations
 
 import enum
+import json
 import secrets
 import shutil
 import subprocess
@@ -126,6 +127,22 @@ class TestNode:
                 "Topology.deploy_certs() hasn't run"
             )
         return self._outer_ip
+
+    @property
+    def host_ip(self) -> str:
+        """Host address reachable from this node over its managed network."""
+        result = subprocess.run(
+            ["ip", "-j", "route", "get", self.outer_ip],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        routes = json.loads(result.stdout)
+        address = routes[0].get("prefsrc") if routes else None
+        if not isinstance(address, str) or not address:
+            raise RuntimeError(f"No host source address for route to {self.outer_ip}")
+        return address
 
     def client(self) -> Client:
         """Lazily open (or return) the pycapnp client to this node's
