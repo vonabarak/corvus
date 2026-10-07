@@ -240,6 +240,11 @@ spec = describe "Schema.Build" $ do
     it "parses ifExists: overwrite" $
       parseIfExists (wrapTarget "overwrite") `shouldBe` Right IfExistsOverwrite
 
+    it "rejects update for derived build targets" $
+      decodePipeline (wrapTarget "update") `shouldSatisfy` \case
+        Left _ -> True
+        _ -> False
+
     it "rejects unknown ifExists values" $
       decodePipeline (wrapTarget "maybe") `shouldSatisfy` \case
         Left _ -> True

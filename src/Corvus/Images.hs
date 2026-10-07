@@ -11,6 +11,8 @@ module Corvus.Images
   , imageTags
   , assignImageTag
   , removeImageTag
+  , recordImportIdentity
+  , matchesImportIdentity
   , deleteImageTags
   ) where
 
@@ -119,3 +121,20 @@ lockImageName name = do
   when (backend == "postgresql") $ do
     _ <- rawSql "SELECT 1 FROM pg_advisory_xact_lock(hashtext(?))" [PersistText name] :: SqlPersistT IO [Single Int]
     pure ()
+
+-- | Called in the same transaction as publication and placement.
+recordImportIdentity :: DiskImageId -> (Text, Text, Text) -> Text -> SqlPersistT IO ()
+recordImportIdentity key (algorithm, digest, target) url =
+  insert_ $ DiskImageImportIdentity key (T.toLower algorithm) (T.toLower digest) (T.toLower target) (Just url)
+
+matchesImportIdentity :: DiskImageId -> DriveFormat -> (Text, Text, Text) -> SqlPersistT IO Bool
+matchesImportIdentity key format (algorithm, digest, target) = do
+  image <- get key
+  identity <- getBy $ UniqueDiskImageImportIdentity key
+  pure $ case (image, identity) of
+    (Just disk, Just (Entity _ stored)) ->
+      diskImageFormat disk == format
+        && diskImageImportIdentityAlgorithm stored == T.toLower algorithm
+        && diskImageImportIdentityDigest stored == T.toLower digest
+        && diskImageImportIdentityTarget stored == T.toLower target
+    _ -> False

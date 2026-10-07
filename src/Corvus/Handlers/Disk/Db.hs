@@ -120,6 +120,7 @@ deleteDiskAndSnapshots diskId = do
   forM_ snaps $ \(Entity sk _) ->
     deleteWhere [M.BuildCacheEntrySnapshotId ==. sk]
   deleteWhere [M.SnapshotDiskImageId ==. toSqlKey diskId]
+  deleteWhere [DiskImageImportIdentityDiskImageId ==. toSqlKey diskId]
   deleteImageTags (toSqlKey diskId)
   delete (toSqlKey diskId :: DiskImageId)
 

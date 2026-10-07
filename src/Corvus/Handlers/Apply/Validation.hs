@@ -2,6 +2,7 @@
 
 module Corvus.Handlers.Apply.Validation
   ( handleApplyValidate
+  , validateConfig
   , effectiveCloudInit
   , checksumSpecToImport
   ) where
@@ -16,7 +17,7 @@ import Corvus.Schema.Apply
 import Corvus.Schema.Template (TemplateYaml (..))
 import Corvus.Types (ServerState, runServerLogging)
 import Data.Char (isDigit)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -62,32 +63,34 @@ validateConfig config = do
     validateVmCloudInit v
       | not (null (avSshKeys v)) && not (effectiveCloudInit v) = Left $ "VM '" <> avName v <> "': has SSH keys but cloud-init is not enabled"
       | otherwise = Right ()
-    validateDisk d =
-      let hasImport = isJust (adImport d)
-          hasOverlay = isJust (adOverlay d)
-          hasClone = isJust (adClone d)
-          hasRegister = isJust (adRegister d)
-          hasBacking = isJust (adBacking d)
-          hasCreate = isJust (adFormat d) && isJust (adSize d) && not hasImport && not hasOverlay && not hasClone && not hasRegister
-          strategies = length $ filter id [hasImport, hasOverlay, hasClone, hasRegister]
-       in if strategies > 1
-            then Left $ "Disk '" <> adName d <> "': cannot specify more than one of 'import', 'overlay', 'clone', 'register'"
-            else
-              if not hasImport && not hasOverlay && not hasClone && not hasRegister && not hasCreate
-                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', 'register', or both 'format' and 'size'"
+    validateDisk d
+      | adIfExists d == Just DiskIfExistsUpdate && (not (maybe False isHttpUrl $ adImport d) || isNothing (adChecksum d)) = Left $ "Disk '" <> adName d <> "': ifExists update requires an HTTP/HTTPS import with checksum"
+      | otherwise =
+          let hasImport = isJust (adImport d)
+              hasOverlay = isJust (adOverlay d)
+              hasClone = isJust (adClone d)
+              hasRegister = isJust (adRegister d)
+              hasBacking = isJust (adBacking d)
+              hasCreate = isJust (adFormat d) && isJust (adSize d) && not hasImport && not hasOverlay && not hasClone && not hasRegister
+              strategies = length $ filter id [hasImport, hasOverlay, hasClone, hasRegister]
+           in if strategies > 1
+                then Left $ "Disk '" <> adName d <> "': cannot specify more than one of 'import', 'overlay', 'clone', 'register'"
                 else
-                  if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate && not hasImport
-                    then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'import', 'overlay', 'clone', or 'create'"
+                  if not hasImport && not hasOverlay && not hasClone && not hasRegister && not hasCreate
+                    then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', 'register', or both 'format' and 'size'"
                     else
-                      if hasBacking && not hasRegister
-                        then Left $ "Disk '" <> adName d <> "': 'backing' can only be used with 'register'"
-                        else case adChecksum d of
-                          Nothing -> Right ()
-                          Just cs
-                            | not hasImport -> Left $ "Disk '" <> adName d <> "': 'checksum' can only be used with 'import'"
-                            | maybe False (not . isHttpUrl) (adImport d) -> Left $ "Disk '" <> adName d <> "': 'checksum' can only be used with HTTP/HTTPS imports"
-                            | not (isValidChecksum cs) -> Left $ "Disk '" <> adName d <> "': checksum value for " <> checksumAlgorithmText (csAlgorithm cs) <> " must be " <> T.pack (show (checksumHexLength (csAlgorithm cs))) <> " hex characters"
-                            | otherwise -> Right ()
+                      if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate && not hasImport
+                        then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'import', 'overlay', 'clone', or 'create'"
+                        else
+                          if hasBacking && not hasRegister
+                            then Left $ "Disk '" <> adName d <> "': 'backing' can only be used with 'register'"
+                            else case adChecksum d of
+                              Nothing -> Right ()
+                              Just cs
+                                | not hasImport -> Left $ "Disk '" <> adName d <> "': 'checksum' can only be used with 'import'"
+                                | maybe False (not . isHttpUrl) (adImport d) -> Left $ "Disk '" <> adName d <> "': 'checksum' can only be used with HTTP/HTTPS imports"
+                                | not (isValidChecksum cs) -> Left $ "Disk '" <> adName d <> "': checksum value for " <> checksumAlgorithmText (csAlgorithm cs) <> " must be " <> T.pack (show (checksumHexLength (csAlgorithm cs))) <> " hex characters"
+                                | otherwise -> Right ()
     isValidChecksum cs = T.length (csValue cs) == checksumHexLength (csAlgorithm cs) && T.all isHexDigit (csValue cs)
     isHexDigit c = isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
@@ -106,4 +109,4 @@ checksumHexLength ChecksumSha1 = 40
 checksumHexLength ChecksumSha256 = 64
 checksumHexLength ChecksumSha512 = 128
 checksumHexLength ChecksumBlake2b = 128
-checksumSpecToImport cs = (checksumAlgorithmText (csAlgorithm cs), csValue cs, checksumTargetText (csTarget cs))
+checksumSpecToImport cs = (checksumAlgorithmText (csAlgorithm cs), T.toLower (csValue cs), checksumTargetText (csTarget cs))

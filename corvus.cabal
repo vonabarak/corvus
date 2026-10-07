@@ -13,8 +13,10 @@ maintainer:     author@example.com
 license:        BSD-3-Clause
 build-type:     Simple
 extra-source-files:
+    test/fixtures/database/postgresql-v10-import.sql
     test/fixtures/database/postgresql-v2.sql
     test/fixtures/database/seed.sql
+    test/fixtures/database/sqlite-v10-import.sql
     test/fixtures/database/sqlite-v2.sql
 
 flag with-postgresql
@@ -279,6 +281,7 @@ library
       Corvus.Database.Migrations.V008
       Corvus.Database.Migrations.V009
       Corvus.Database.Migrations.V010
+      Corvus.Database.Migrations.V011
       Corvus.Handlers.AudioDevice
       Corvus.Handlers.Disk.RegisterPlacement
       Corvus.Handlers.Disk.Tags

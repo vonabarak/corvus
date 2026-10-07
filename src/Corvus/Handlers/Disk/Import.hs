@@ -34,6 +34,7 @@ import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveN
 import Corvus.Images
 
 import Control.Applicative ((<|>))
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Scheduler (pickNodeForDisk)
@@ -199,6 +200,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                       , diskImageEphemeral = ephem
                       }
                 recordDiskImageNode dkey nid storedPath
+                forM_ mChecksum $ \cs -> recordImportIdentity dkey (icAlgorithm cs, icExpected cs, if icTarget cs == ChecksumTargetFinal then "final" else "download") source
                 pure dkey
             )
             (ssDbPool state')

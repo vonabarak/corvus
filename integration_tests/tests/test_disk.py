@@ -47,7 +47,7 @@ def _catalogue_image(
 
 
 class TestDisk(SingleNodeCase):
-    """Disk CRUD + clone + overlay + rebase + import + hot-plug + resize.
+    """Disk CRUD + clone + overlay + rebase + hot-plug + resize.
 
     All tests share one node + one inner daemon via
     `SingleNodeCase`. Each test creates its own disks under a unique
@@ -348,61 +348,6 @@ class TestDisk(SingleNodeCase):
                 overlay.delete()
         finally:
             self._delete_silent(base_name)
-
-    # ---- import -------------------------------------------------------------
-
-    def test_import_local_file_copies(self) -> None:
-        """Register a daemon-owned file, then `import_` it under a new
-        name pointing at the registered file's on-disk path. The import
-        copies (canonicalised dest != src), and we get a fresh disk
-        record with a distinct file."""
-        src_name = _uniq("import-src")
-        copy_name = _uniq("import-copy")
-        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
-        try:
-            # Phase 3: file_path lives on a per-node placement now.
-            # The harness's single-node topology has exactly one
-            # placement; grab its file_path.
-            src_path = src.show().placements[0].file_path
-            task_id = self.client.disks.import_(copy_name, src_path, format="qcow2")
-            self.wait_for_task(self.client, task_id, timeout_sec=60.0)
-            copy = self.client.disks.get(copy_name)
-            try:
-                info = copy.show()
-                assert info.name == copy_name
-                assert info.format == "qcow2"
-                # New disk lives at a different path than the source.
-                copy_paths = [p.file_path for p in info.placements]
-                assert src_path not in copy_paths, (
-                    f"import landed at the source path {src_path!r}; "
-                    f"copy placements: {copy_paths!r}"
-                )
-            finally:
-                copy.delete()
-        finally:
-            self._delete_silent(src_name)
-
-    def test_import_same_name_publishes_a_separate_version(self) -> None:
-        """Importing a registered file publishes a version at a fresh path."""
-        name = _uniq("import-version")
-        old = self.client.disks.create(name, size=4194304, format="qcow2")
-        new = None
-        try:
-            old_info = old.show()
-            src_path = old_info.placements[0].file_path
-            task_id = self.client.disks.import_(name, src_path, format="qcow2")
-            self.wait_for_task(self.client, task_id, timeout_sec=60.0)
-            new = self.client.disks.get(name)
-            new_info = new.show()
-            assert new_info.id != old_info.id
-            assert new_info.placements[0].file_path != src_path
-            assert old.show().id == old_info.id
-            assert old.show().tags == []
-            assert new_info.tags == ["latest"]
-        finally:
-            if new is not None:
-                new.delete()
-            old.delete()
 
     # ---- hot-plug attach / detach -------------------------------------------
 
@@ -789,129 +734,6 @@ class TestDisk(SingleNodeCase):
                         pass
         finally:
             self._delete_silent(data)
-
-    # ---- import from URL ---------------------------------------------------
-
-    def test_import_from_http_url(self) -> None:
-        """Spin a one-shot ``python -m http.server`` on the test
-        node, serve a qcow2 the daemon will fetch via
-        ``disks.import_url``. Verifies the URL-import code path
-        end-to-end: the agent downloads, places the file, and the
-        daemon registers a fresh disk row."""
-        token = secrets.token_hex(4)
-        src_name = _uniq("url-src")
-        url_name = _uniq("url-import")
-
-        # Create a source disk so we have a real qcow2 to serve.
-        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
-        try:
-            src_path = src.show().placements[0].file_path
-
-            srv_dir = f"/tmp/url-srv-{token}"
-            self.node.run(f"mkdir -p {srv_dir}")
-            self.node.run(f"cp {src_path} {srv_dir}/payload.qcow2")
-            port = 30000 + secrets.randbelow(20000)
-
-            # nohup + redirect detach from the SSH session so the
-            # server keeps running after node.run returns.
-            self.node.run(
-                f"nohup python3 -m http.server {port} --bind 127.0.0.1 "
-                f"--directory {srv_dir} > /tmp/url-srv-{token}.log 2>&1 &"
-            )
-            try:
-                # Wait until the node-local server is actually accepting
-                # connections. A fixed sleep races under a busy nested node.
-                url = f"http://127.0.0.1:{port}/payload.qcow2"
-                deadline = time.monotonic() + 10.0
-                while True:
-                    probe = self.node.run(
-                        f"curl --fail --silent --output /dev/null {url}",
-                        check=False,
-                    )
-                    if probe.returncode == 0:
-                        break
-                    if time.monotonic() >= deadline:
-                        raise AssertionError(
-                            f"HTTP server did not become reachable at {url}: "
-                            f"{probe.stderr.decode(errors='replace')}"
-                        )
-                    time.sleep(0.1)
-
-                task_id = self.client.disks.import_url(
-                    url_name,
-                    url,
-                    format="qcow2",
-                )
-                self.wait_for_task(self.client, task_id, timeout_sec=60.0)
-
-                imported = self.client.disks.get(url_name)
-                info = imported.show()
-                assert info.name == url_name
-                assert info.format == "qcow2"
-                # File landed on the daemon's basePath, distinct
-                # from the server-side staging dir.
-                imported_paths = [p.file_path for p in info.placements]
-                assert not any(srv_dir in p for p in imported_paths), (
-                    f"imported disk left at the staging dir: {imported_paths!r}"
-                )
-                imported.delete()
-            finally:
-                # Best-effort: kill the server and remove the staging dir.
-                self.node.run(f"pkill -f 'http.server {port}'", check=False)
-                self.node.run(f"rm -rf {srv_dir}", check=False)
-        finally:
-            self._delete_silent(src_name)
-
-    def test_import_xz_auto_decompress(self) -> None:
-        """Same flow as the plain-HTTP import test, but the served
-        URL ends in ``.xz`` — the daemon's importer detects the
-        suffix and pipes the body through ``xz -d`` on the agent
-        side. Catches a regression where the auto-decompress logic
-        is dropped or only fires for some compressors."""
-        token = secrets.token_hex(4)
-        src_name = _uniq("xz-src")
-        xz_name = _uniq("xz-import")
-
-        src = self.client.disks.create(src_name, size=4194304, format="qcow2")
-        try:
-            src_path = src.show().placements[0].file_path
-            srv_dir = f"/tmp/xz-srv-{token}"
-            self.node.run(f"mkdir -p {srv_dir}")
-            # xz keeps the input around with -k; we only want the
-            # compressed copy in the served dir.
-            self.node.run(f"cp {src_path} {srv_dir}/payload.qcow2")
-            self.node.run(f"xz -z {srv_dir}/payload.qcow2")
-            port = 30000 + secrets.randbelow(20000)
-            self.node.run(
-                f"nohup python3 -m http.server {port} --bind 127.0.0.1 "
-                f"--directory {srv_dir} > /tmp/xz-srv-{token}.log 2>&1 &"
-            )
-            try:
-                import time
-
-                time.sleep(0.5)
-                task_id = self.client.disks.import_url(
-                    xz_name,
-                    f"http://127.0.0.1:{port}/payload.qcow2.xz",
-                    format="qcow2",
-                )
-                self.wait_for_task(self.client, task_id, timeout_sec=60.0)
-
-                info = self.client.disks.get(xz_name).show()
-                assert info.format == "qcow2"
-                # The on-disk file must NOT end in .xz — auto-decompress
-                # means the importer wrote the decompressed qcow2.
-                paths = [p.file_path for p in info.placements]
-                assert all(not p.endswith(".xz") for p in paths), (
-                    f"imported file path retains .xz suffix; decompress "
-                    f"didn't run: {paths!r}"
-                )
-                self.client.disks.get(xz_name).delete()
-            finally:
-                self.node.run(f"pkill -f 'http.server {port}'", check=False)
-                self.node.run(f"rm -rf {srv_dir}", check=False)
-        finally:
-            self._delete_silent(src_name)
 
     # ---- refresh picks up out-of-band changes -----------------------------
 

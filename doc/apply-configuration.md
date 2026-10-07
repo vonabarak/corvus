@@ -12,7 +12,7 @@ crv apply <file.yml> -o json        # Output result as JSON
 
 **`--skip-existing` / `-s`**: When set, resources that already exist in the database (matched by name) are silently skipped and their IDs are reused for dependent references. Without this flag, attempting to create a resource with a duplicate name is an error. This is useful for re-applying a configuration after a partial failure or for incrementally adding resources to an existing environment.
 
-The same behaviour can be enabled from inside the YAML via the top-level `ifExists:` field — see [`ifExists`](#ifexists) below. The CLI flag is still useful as a one-off override; if either the flag is set OR the YAML says `ifExists: skip`, skip-existing is in effect. There is no way to force skip off from the CLI when the YAML enables it (edit the YAML if you need that).
+The top-level `ifExists` sets the default policy. `--skip-existing` changes a default `error` to `skip`; explicit disk policies override that default.
 
 ## File Structure
 
@@ -160,6 +160,7 @@ disks:
     size: <size>              # Size with a B/K/M/G/T suffix (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
     backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
+    ifExists: <string>        # Optional: error, skip, overwrite; update for checksummed HTTP imports.
     checksum:                 # Optional integrity check for HTTP/HTTPS imports; see below.
       algorithm: <string>     # md5, sha1, sha256, sha512, or blake2b.
       value: <string>         # Hex digest for the selected algorithm.
@@ -188,7 +189,43 @@ The `import` field copies a file to the managed images directory and registers i
 
 The `format` field is optional — it is auto-detected from the file extension or URL. Supported formats: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc` (VHD), `vhdx`.
 
-The optional `path` field controls where the imported file is placed (see [Custom Path](#custom-path)). Without it, the file is placed in the base images directory with a name derived from the disk name and format extension.
+The optional `path` field controls where the imported file is placed (see [Custom Path](#custom-path)). Without it, the file is placed in the base images directory with an ID-prefixed filename derived from the disk name and format extension.
+
+#### Conditional imports
+
+Each disk can set `ifExists: error`, `skip`, or `overwrite` to override
+both the top-level policy and `--skip-existing`. HTTP/HTTPS imports with a
+checksum also support `ifExists: update`. For example:
+
+```yaml
+disks:
+  - name: ubuntu:stable
+    import: https://example.org/releases/current.raw.xz
+    format: raw
+    ifExists: update
+    checksum:
+      algorithm: sha256
+      value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      target: download
+```
+
+Update the checksum when a new release is available. If the currently
+selected image has the same verified algorithm, digest, checksum target,
+and effective format, apply reuses its ID without downloading. Otherwise,
+it imports and verifies a new version before moving the requested tag and
+`latest`. A failed import leaves the previous version and tags intact.
+The URL and node are not part of the identity. Checksums are case insensitive.
+Existing images without a recorded identity are imported once to establish it.
+For debugging, the database identity row also records the supplied import URL,
+including its query string and any expanded `crv build` variables. It records
+the supplied URL rather than a redirect destination. This metadata does not
+affect matching; a skipped import preserves its original recorded URL.
+Only imports with verified checksums have identity rows and recorded URLs.
+This does not check release ordering: reverting the checksum imports an older
+release too. `update` is only a disk import policy, including inside build
+pipeline `apply` steps; it is not a top-level or build-target policy and does
+not skip derived image builds. Explicit destination files retain their
+existing protection against overwriting.
 
 #### Checksum verification
 

@@ -5,13 +5,14 @@ module Corvus.ImageTagsSpec (spec) where
 
 import Control.Exception (bracket)
 import Corvus.DiskSelector
+import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots)
 import Corvus.Handlers.Disk.Path (resolveDiskFilePath)
 import Corvus.Images
 import Corvus.Model
 import Data.Either (isLeft)
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Database.Persist
-import Database.Persist.Sql (SqlPersistT, runSqlPool)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
 import qualified Test.Database as Db
 import Test.Hspec
 
@@ -41,6 +42,29 @@ spec = do
         `shouldReturn` "/srv/images/123-ubuntu.qcow2"
       resolveDiskFilePath key "/images" (Just "custom.qcow2") "ubuntu.qcow2"
         `shouldReturn` "/images/custom.qcow2"
+  describe "verified import identities" $ do
+    it "matches normalized checksums and distinguishes target, format and missing identity" $
+      bracket Db.setupTestDb Db.teardownTestDb $ \env -> do
+        let run :: SqlPersistT IO a -> IO a
+            run action = runSqlPool action (Db.tePool env)
+            date = UTCTime (fromGregorian 2026 1 1) (secondsToDiffTime 0)
+        key <- run $ publishImage $ DiskImage "imported" FormatRaw Nothing date Nothing False
+        run (matchesImportIdentity key FormatRaw ("sha256", "abc", "download")) `shouldReturn` False
+        let url = "https://example.org/Image.raw.xz?release=ABC"
+        run $ recordImportIdentity key ("SHA256", "ABC", "DOWNLOAD") url
+        identity <- run $ getBy $ UniqueDiskImageImportIdentity key
+        fmap (diskImageImportIdentityImportUrl . entityVal) identity `shouldBe` Just (Just url)
+        run (matchesImportIdentity key FormatRaw ("sha256", "abc", "download")) `shouldReturn` True
+        run (matchesImportIdentity key FormatRaw ("sha256", "def", "download")) `shouldReturn` False
+        run (matchesImportIdentity key FormatRaw ("sha256", "abc", "final")) `shouldReturn` False
+        run (matchesImportIdentity key FormatQcow2 ("sha256", "abc", "download")) `shouldReturn` False
+        run (matchesImportIdentity key FormatRaw ("md5", "abc", "download")) `shouldReturn` False
+        run $ updateWhere [DiskImageImportIdentityDiskImageId ==. key] [DiskImageImportIdentityImportUrl =. Just "https://other.example/image.raw.xz"]
+        run (matchesImportIdentity key FormatRaw ("sha256", "abc", "download")) `shouldReturn` True
+        run $ updateWhere [DiskImageImportIdentityDiskImageId ==. key] [DiskImageImportIdentityImportUrl =. Nothing]
+        run (matchesImportIdentity key FormatRaw ("sha256", "abc", "download")) `shouldReturn` True
+        run $ deleteDiskAndSnapshots $ fromSqlKey key
+        run (getBy $ UniqueDiskImageImportIdentity key) `shouldReturn` Nothing
   describe "transactional image tags" $ do
     it "reserves invisible, non-reusable IDs and publishes under the reserved ID" $
       bracket Db.setupTestDb Db.teardownTestDb $ \env -> do

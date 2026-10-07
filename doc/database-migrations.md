@@ -104,6 +104,9 @@ do not regenerate them from the latest model or merely change the version
 number on a fresh database. New migrations should add fixtures for their
 starting schema, with data exercising the transformation.
 
+The version-10 import fixtures freeze the image and version tables needed by
+`V011`; the full historical upgrade tests also exercise the new table.
+
 The Haskell suite covers planning, missing transitions, fresh creation,
 metadata errors, real upgrades, and transaction rollback. The integration
 suite's `test_database_migrations.py` starts the newly built daemon against

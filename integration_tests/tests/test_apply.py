@@ -436,8 +436,8 @@ class TestApply(SingleNodeCase):
         target_name = f"corvus-it-md5-bad-{token}"
 
         # Create a source qcow2 and serve it via Python's
-        # http.server. Mirrors the helper in test_disk.py's
-        # test_import_from_http_url.
+        # http.server, using the same node-local HTTP approach as
+        # test_disk_import.py's test_import_from_http_url.
         src = self.client.disks.create(src_name, size=4194304, format="qcow2")
         try:
             src_path = src.show().placements[0].file_path

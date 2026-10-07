@@ -6,9 +6,10 @@ module Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply) where
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..))
+import Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..), matchesDiskImport)
 import Corvus.Handlers.Apply.Overwrite
 import Corvus.Handlers.Apply.Resolve
+import Corvus.Handlers.Apply.Validation (validateConfig)
 import Corvus.Handlers.Apply.Vm (ApplyVmCreate (..))
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..))
@@ -33,7 +34,9 @@ data ApplyAction = ApplyAction {aaConfig :: ApplyConfig, aaSkipExisting :: Bool}
 instance Action ApplyAction where
   actionSubsystem _ = SubApply
   actionCommand _ = "apply"
-  actionExecute ctx a = handleApplyExecute ctx (aaConfig a) (aaSkipExisting a)
+  actionExecute ctx a = case validateConfig (aaConfig a) of
+    Left err -> pure $ RespError err
+    Right () -> handleApplyExecute ctx (aaConfig a) (aaSkipExisting a)
 handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $ do
   logInfoN "Applying environment configuration..."
   let effective = if cliSkipExisting && acIfExists config == IfExistsError then IfExistsSkip else acIfExists config
@@ -47,7 +50,7 @@ executeApply ctx config ifExists = do
   case keyResult of
     Left e -> pure $ Left e
     Right (keyMap, keys) -> do
-      diskResult <- phase "disks" (acDisks config) Map.empty $ \d m -> diskEntity (diskKind d) (adName d) (resolveDiskName state m $ adName d) (runActionAsSubtask ctx $ ApplyDiskCreate d m) $ \eid -> Overwrite (pure $ Right ()) (pure RespDiskOk)
+      diskResult <- phase "disks" (acDisks config) Map.empty $ \d m -> diskEntity d m
       case diskResult of
         Left e -> pure $ Left e
         Right (diskMap, disks) -> do
@@ -90,11 +93,20 @@ executeApply ctx config ifExists = do
       case result of
         TaskSuccess -> maybe (pure $ Left $ name <> ": succeeded but no entity ID") (\entityId -> pure $ Right (name, fromIntegral entityId)) mId
         _ -> pure $ Left $ name <> ": " <> fromMaybe "unknown error" message
-    diskEntity kind name find create overwrite = do
-      found <- find
-      case (ifExists, found) of
-        (IfExistsError, Just _) -> pure $ Left $ "Disk target already exists: " <> name
-        _ -> entity "disks" kind name (pure found) create overwrite
+    diskEntity d m = do
+      found <- resolveDiskName state m $ adName d
+      let policy = fromMaybe (DiskIfExistsPolicy ifExists) (adIfExists d)
+          name = adName d
+          create = runActionAsSubtask ctx $ ApplyDiskCreate d m
+          skip eid = sink (EntityStart "disks" name "skip") >> sink (EntityEnd "disks" name TaskSuccess "" eid) >> pure (Right (name, eid))
+      case (policy, found) of
+        (DiskIfExistsPolicy IfExistsError, Just _) -> pure $ Left $ "Disk target already exists: " <> name
+        (DiskIfExistsPolicy IfExistsSkip, Just eid) -> skip eid
+        (DiskIfExistsUpdate, Just eid) -> do
+          matches <- matchesDiskImport state d eid
+          if matches then skip eid else subtask "disks" (diskKind d) name create
+        (DiskIfExistsPolicy IfExistsOverwrite, Just eid) -> overwrite "disks" name eid (Overwrite (pure $ Right ()) (pure RespDiskOk)) create
+        _ -> subtask "disks" (diskKind d) name create
     phase
       :: Text
       -> [a]

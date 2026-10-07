@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..)) where
+module Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..), matchesDiskImport) where
 
 import Control.Applicative ((<|>))
 import Corvus.Action
@@ -9,8 +9,9 @@ import Corvus.Handlers.Apply.Validation (checksumSpecToImport)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
 import Corvus.Handlers.Disk.Import (DiskImportAction (..))
+import Corvus.Images (matchesImportIdentity)
 import Corvus.Model
-import Corvus.Node.Image (detectFormatFromPath, isHttpUrl)
+import Corvus.Node.Image (detectFormatFromPath, detectFormatFromUrl, isHttpUrl)
 import Corvus.Protocol
 import Corvus.Schema.Apply (ApplyDisk (..))
 import Corvus.Types
@@ -18,6 +19,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Database.Persist.Sql (runSqlPool, toSqlKey)
 
 data ApplyDiskCreate = ApplyDiskCreate {adcConfig :: ApplyDisk, adcDiskMap :: Map.Map Text Int64}
 instance Action ApplyDiskCreate where
@@ -44,3 +46,13 @@ instance Action ApplyDiskCreate where
             mSourceId <- resolveDiskName state (adcDiskMap a) cloneName
             maybe (pure $ RespError $ "source disk '" <> cloneName <> "' not found") (\sourceId -> actionExecute ctx $ DiskClone (adName d) sourceId Nothing (adPath d) ephem) mSourceId
           _ -> actionExecute ctx $ DiskCreate (adName d) (fromMaybe FormatQcow2 $ adFormat d) (fromIntegral $ fromMaybe 10240 $ adSize d) (adPath d) ephem nodeRef
+
+-- | Compare the verified import identity of the currently selected version.
+matchesDiskImport :: ServerState -> ApplyDisk -> Int64 -> IO Bool
+matchesDiskImport state disk imageId =
+  case (adImport disk, adChecksum disk) of
+    (Just source, Just checksum) ->
+      case adFormat disk <|> detectFormatFromUrl source of
+        Just format -> runSqlPool (matchesImportIdentity (toSqlKey imageId) format $ checksumSpecToImport checksum) (ssDbPool state)
+        Nothing -> pure False
+    _ -> pure False

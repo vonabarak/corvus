@@ -97,6 +97,22 @@ spec = sequential $ withTestDb $ do
         RespError _ -> True
         _ -> False
 
+  describe "conditional import validation" $ do
+    mapM_
+      ( \strategy -> testCase ("rejects update for " <> T.unpack strategy) $ do
+          let yaml = "disks:\n  - name: base\n    ifExists: update\n    " <> strategy <> "\n"
+          result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st yaml
+          liftIO $ case result of
+            RespError msg -> msg `shouldSatisfy` T.isInfixOf "requires an HTTP/HTTPS import with checksum"
+            other -> expectationFailure $ show other
+      )
+      ["import: https://example.com/base.raw", "import: /tmp/base.raw", "clone: base", "overlay: base", "register: /tmp/base.raw", "format: raw\n    size: 1M"]
+    testCase "rejects update as a top-level policy" $ do
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st "ifExists: update"
+      liftIO $ case result of
+        RespError msg -> msg `shouldSatisfy` T.isInfixOf "unknown ifExists"
+        other -> expectationFailure $ show other
+
   describe "handleApplyValidate: disk checksums" $ do
     testCase "accepts a SHA-256 checksum object on HTTP imports" $ do
       let yaml =

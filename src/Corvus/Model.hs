@@ -15,6 +15,8 @@ module Corvus.Model
   , Drive (..)
   , NetworkInterface (..)
   , DiskImageTag (..)
+  , DiskImageImportIdentity (..)
+  , DiskImageImportIdentityId
   , DiskImageTagId
   , DiskImage (..)
   , DiskImageNode (..)
@@ -46,26 +48,18 @@ module Corvus.Model
   , NetworkDeviceModel (..)
   , GraphicsAdapter (..)
   , TemplateCloneStrategy (..)
-
-    -- * Network entity
   , Network (..)
   , NetworkId
   , NetworkPeer (..)
   , NetworkPeerId
-
-    -- * Shared directory entity
   , SharedDir (..)
   , SharedDirId
   , AudioDevice (..)
   , AudioDeviceId
-
-    -- * SSH key entities
   , SshKey (..)
   , SshKeyId
   , VmSshKey (..)
   , VmSshKeyId
-
-    -- * Template entities
   , TemplateVm (..)
   , TemplateVmId
   , TemplateDrive (..)
@@ -78,18 +72,12 @@ module Corvus.Model
   , TemplateSharedDirId
   , TemplateAudioDevice (..)
   , TemplateAudioDeviceId
-
-    -- * Task entity
   , Task (..)
   , TaskId
-
-    -- * Cloud-init config entities
   , CloudInit (..)
   , CloudInitId
   , TemplateCloudInit (..)
   , TemplateCloudInitId
-
-    -- * Build cache
   , BuildCacheEntry (..)
   , BuildCacheEntryId
 
@@ -746,6 +734,16 @@ DiskImage
     createdAt UTCTime
     backingImageId DiskImageId Maybe
     ephemeral Bool default=false
+    deriving Show Eq Generic
+
+-- Verified source identity; absent for older or non-checksummed imports.
+DiskImageImportIdentity
+    diskImageId DiskImageId
+    algorithm Text
+    digest Text
+    target Text
+    importUrl Text Maybe
+    UniqueDiskImageImportIdentity diskImageId
     deriving Show Eq Generic
 
 -- Per-node paths for an image version. Attachment requires a placement

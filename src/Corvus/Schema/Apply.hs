@@ -19,6 +19,7 @@ module Corvus.Schema.Apply
   , ApplyDrive (..)
   , ApplyNetIf (..)
   , ApplySharedDir (..)
+  , DiskIfExists (..)
   , IfExists (..)
   )
 where
@@ -41,10 +42,7 @@ import Data.Yaml (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
 --   * 'IfExistsSkip' — treat existing targets as success and move
 --     on. Lets a partially-failed pipeline be re-run without
 --     redoing already-completed work.
---   * 'IfExistsOverwrite' — delete the existing target first
---     (build-only; apply rejects this at validation time, since
---     deleting a registered template/disk/network/VM is invasive
---     and would clobber unrelated state).
+--   * 'IfExistsOverwrite' — replace the target; disks publish a new version.
 data IfExists
   = IfExistsError
   | IfExistsSkip
@@ -69,11 +67,7 @@ data ApplyConfig = ApplyConfig
   , acVms :: [ApplyVm]
   , acTemplates :: [TemplateYaml]
   , acIfExists :: IfExists
-  -- ^ YAML equivalent of the @--skip-existing@ CLI flag, plus the
-  -- 'IfExistsError' default. The CLI flag, when present, forces
-  -- 'IfExistsSkip' regardless of the YAML; absent, the YAML wins.
-  -- Apply does not accept 'IfExistsOverwrite' — rejected at
-  -- 'validateConfig' time.
+  -- ^ Default policy. CLI --skip-existing changes error to skip.
   }
   deriving (Show)
 
@@ -149,6 +143,18 @@ instance FromJSON ChecksumSpec where
       <*> o .: "value"
       <*> o .:? "target" .!= ChecksumDownload
 
+-- | Update is restricted to checksummed HTTP(S) disk imports.
+data DiskIfExists = DiskIfExistsPolicy IfExists | DiskIfExistsUpdate
+  deriving (Eq, Show)
+
+instance FromJSON DiskIfExists where
+  parseJSON = withText "disk ifExists" $ \case
+    "update" -> pure DiskIfExistsUpdate
+    "error" -> pure $ DiskIfExistsPolicy IfExistsError
+    "skip" -> pure $ DiskIfExistsPolicy IfExistsSkip
+    "overwrite" -> pure $ DiskIfExistsPolicy IfExistsOverwrite
+    _ -> fail "disk ifExists must be error, skip, overwrite, or update"
+
 -- | Disk definition in the apply YAML config.
 --
 -- The @path@ field controls where the disk image file is placed:
@@ -177,6 +183,7 @@ data ApplyDisk = ApplyDisk
   , adPath :: Maybe Text
   , adRegister :: Maybe Text
   , adBacking :: Maybe Text
+  , adIfExists :: Maybe DiskIfExists
   , adChecksum :: Maybe ChecksumSpec
   , adEphemeral :: Bool
   , adNode :: Text
@@ -195,6 +202,7 @@ instance FromJSON ApplyDisk where
       <*> o .:? "path"
       <*> o .:? "register"
       <*> o .:? "backing"
+      <*> o .:? "ifExists"
       <*> o .:? "checksum"
       <*> o .:? "ephemeral" .!= False
       <*> o .:? "node" .!= ""
