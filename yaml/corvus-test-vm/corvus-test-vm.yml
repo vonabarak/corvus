@@ -7,7 +7,7 @@
 # doas, and qemu-guest-agent.
 #
 # Prerequisites:
-#   * Apply yaml/multi-os/multi-os.yml first (provides the `debian12`
+#   * Build yaml/multi-os/multi-os.yml first for direct CLI use (provides the `debian12`
 #     bake VM template — the from-scratch build runs apk-tools-static
 #     plus chroot inside a Debian bake VM with a network connection).
 #   * Generate the SSH keypair to embed into the image. `make
@@ -22,9 +22,10 @@
 #     authorises both the outer and inner halves of the SSH tunnel.
 #
 # Usage:
-#   make image IMAGE=key
-#   make image-ensure IMAGE=multi-os
-#   make -C yaml/corvus-test-vm build
+#   make image IMAGE=vm
+#
+# Make prepares the SSH keys and refreshes multi-os automatically.
+# Unchanged declared inputs skip the bake; image-rebuild forces the chain.
 #
 # Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm`.
 #
@@ -34,7 +35,7 @@
 # clusters add `node: <name>` under `build:` to pin the bake.
 
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
   - build:

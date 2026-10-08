@@ -54,14 +54,23 @@ image-cache-clean:
 image-list:
 	@printf '%s\n' $(IMAGES)
 
+# Shared sources are prepared before consumers; avoid refreshing them again.
 images:
-	@for image in key multi-os gentoo node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image IMAGE=$$image || exit $$?; done
+	@for image in key multi-os gentoo node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do \
+	  case "$$image" in node|vm|debian-nginx|ubuntu-nginx|monitor) \
+	    $(MAKE) --no-print-directory image IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
+	  *) $(MAKE) --no-print-directory image IMAGE=$$image ;; esac || exit $$?; \
+	done
 
 images-clean:
 	@for image in monitor ubuntu-nginx debian-nginx windows-11 windows installer vm gentoo gentoo-headless multi-os node; do $(MAKE) --no-print-directory image-clean IMAGE=$$image || exit $$?; done
 
 images-rebuild:
-	@for image in gentoo multi-os node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-rebuild IMAGE=$$image || exit $$?; done
+	@for image in gentoo multi-os node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do \
+	  case "$$image" in node|vm|debian-nginx|ubuntu-nginx|monitor) \
+	    $(MAKE) --no-print-directory image-rebuild IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
+	  *) $(MAKE) --no-print-directory image-rebuild IMAGE=$$image ;; esac || exit $$?; \
+	done
 
 images-ensure:
 	@for image in key multi-os gentoo node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-ensure IMAGE=$$image || exit $$?; done

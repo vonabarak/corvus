@@ -1,12 +1,11 @@
 # Bake an Ubuntu 26.04 image with nginx preinstalled.
 #
-# Prerequisite: build yaml/multi-os/multi-os.yml so the `ubuntu26`
+# Make refreshes yaml/multi-os/multi-os.yml so the `ubuntu26`
 # template + its `ubuntu-26.04-server-base` disk + the OVMF firmware
 # disks exist. That template installs qemu-guest-agent via cloud-init,
 # which the bake pipeline needs to drive shell provisioners over QGA.
 #
-#   make image IMAGE=multi-os
-#   crv build yaml/ubuntu-nginx/ubuntu-nginx.yml
+#   make image IMAGE=ubuntu-nginx
 #
 # On success, a Corvus disk named `ubuntu26-nginx` is registered.
 #
@@ -23,7 +22,7 @@
 # the bake races cloud-init's own apt run and gets E: Could not get lock.
 
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
   - build:

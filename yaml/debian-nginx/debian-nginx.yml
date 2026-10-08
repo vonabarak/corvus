@@ -1,18 +1,15 @@
 # Bake a Debian 12 image with nginx preinstalled.
 #
-# Prerequisite: apply doc/apply-examples/multi-os.yml so the `debian12`
-# template + its `debian-12-generic-base` disk + the OVMF firmware disks
-# exist. The Debian cloud image already ships qemu-guest-agent, but the
-# template's cloud-init enables it explicitly so the bake VM is ready
-# for QGA-driven provisioning.
+# Make refreshes the multi-os import recipe and its `debian12` template
+# before evaluating this build. The template installs and enables QGA.
+# Unchanged declared inputs skip the bake; use image-rebuild to force it.
 #
-#   crv apply doc/apply-examples/multi-os.yml
-#   crv build doc/build-examples/debian-nginx.yml
+#   make image IMAGE=debian-nginx
 #
 # On success, a Corvus disk named `debian-12-nginx` is registered.
 
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
   - build:

@@ -1,7 +1,11 @@
 DISKS := debian-12-generic-base ubuntu-26.04-server-base almalinux-10-base freebsd-14-base alpine-3.21-base
 TEMPLATES := debian12 ubuntu26 almalinux10 freebsd14
 
+IMAGE_POLICY ?= update
+
 include ../image.mk
+
+CURL ?= curl
 
 DEBIAN_BASE := https://cloud.debian.org/images/cloud/bookworm/latest
 DEBIAN_FILE := debian-12-generic-amd64.qcow2
@@ -16,31 +20,36 @@ FREEBSD_BASE := https://download.freebsd.org/releases/VM-IMAGES/14.4-RELEASE/amd
 FREEBSD_FILE := FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz
 
 ALPINE_BASE := https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud
-ALPINE_FILE_SH = curl -fsS $(ALPINE_BASE)/ \
+ALPINE_FILE_SH = "$(CURL)" -fsS $(ALPINE_BASE)/ \
 	| sed -n 's/.*href="\(nocloud_alpine-3\.21\.[0-9][^"]*-x86_64-bios-cloudinit-r0\.qcow2\)".*/\1/p' \
 	| sort -V \
 	| tail -n 1
 
 publish:
 	@debian_url="$(DEBIAN_BASE)/$(DEBIAN_FILE)"; \
-	debian_sha512=$$(curl -fsS "$(DEBIAN_BASE)/SHA512SUMS" | awk -v f="$(DEBIAN_FILE)" '$$2 == f {print $$1; exit}'); \
+	debian_sha512=$$("$(CURL)" -fsS "$(DEBIAN_BASE)/SHA512SUMS" | awk -v f="$(DEBIAN_FILE)" '$$2 == f {print $$1; exit}'); \
 	ubuntu_url="$(UBUNTU_BASE)/$(UBUNTU_FILE)"; \
-	ubuntu_sha256=$$(curl -fsS "$(UBUNTU_BASE)/SHA256SUMS" | awk -v f="$(UBUNTU_FILE)" '{gsub(/^\*/, "", $$2); if ($$2 == f) {print $$1; exit}}'); \
+	ubuntu_sha256=$$("$(CURL)" -fsS "$(UBUNTU_BASE)/SHA256SUMS" | awk -v f="$(UBUNTU_FILE)" '{gsub(/^\*/, "", $$2); if ($$2 == f) {print $$1; exit}}'); \
 	almalinux_url="$(ALMALINUX_BASE)/$(ALMALINUX_FILE)"; \
-	almalinux_sha256=$$(curl -fsS "$(ALMALINUX_BASE)/CHECKSUM" | awk -v f="$(ALMALINUX_FILE)" '$$2 == f {print $$1; exit}'); \
+	almalinux_sha256=$$("$(CURL)" -fsS "$(ALMALINUX_BASE)/CHECKSUM" | awk -v f="$(ALMALINUX_FILE)" '$$2 == f {print $$1; exit}'); \
 	freebsd_url="$(FREEBSD_BASE)/$(FREEBSD_FILE)"; \
-	freebsd_sha512=$$(curl -fsS "$(FREEBSD_BASE)/CHECKSUM.SHA512" | awk -v f="$(FREEBSD_FILE)" '$$2 == "(" f ")" {print $$4; exit}'); \
+	freebsd_sha512=$$("$(CURL)" -fsS "$(FREEBSD_BASE)/CHECKSUM.SHA512" | awk -v f="$(FREEBSD_FILE)" '$$2 == "(" f ")" {print $$4; exit}'); \
 	alpine_file=$$( $(ALPINE_FILE_SH) ); \
+	if [[ ! "$$alpine_file" =~ ^nocloud_alpine-3\.21\.[0-9]+.*-x86_64-bios-cloudinit-r0\.qcow2$$ ]]; then \
+	  echo "ERROR: failed to resolve Alpine filename" >&2; exit 1; \
+	fi; \
 	alpine_url="$(ALPINE_BASE)/$$alpine_file"; \
-	alpine_sha512=$$(curl -fsS "$$alpine_url.sha512" | awk 'length($$1) == 128 {print $$1; exit}'); \
+	alpine_sha512=$$("$(CURL)" -fsS "$$alpine_url.sha512" | awk -v f="$$alpine_file" '($$2 == f || $$2 == "*" f) {print $$1; exit}'); \
 	for pair in \
-	  "debian_sha512=$$debian_sha512" \
-	  "ubuntu_sha256=$$ubuntu_sha256" \
-	  "almalinux_sha256=$$almalinux_sha256" \
-	  "freebsd_sha512=$$freebsd_sha512" \
-	  "alpine_file=$$alpine_file" \
-	  "alpine_sha512=$$alpine_sha512"; do \
-	  case "$$pair" in *=) echo "ERROR: failed to resolve $$pair"; exit 1 ;; esac; \
+	  "debian_sha512:128:$$debian_sha512" \
+	  "ubuntu_sha256:64:$$ubuntu_sha256" \
+	  "almalinux_sha256:64:$$almalinux_sha256" \
+	  "freebsd_sha512:128:$$freebsd_sha512" \
+	  "alpine_sha512:128:$$alpine_sha512"; do \
+	  name=$${pair%%:*}; rest=$${pair#*:}; length=$${rest%%:*}; digest=$${rest#*:}; \
+	  if [[ ! "$$digest" =~ ^[[:xdigit:]]+$$ ]] || [ "$${#digest}" -ne "$$length" ]; then \
+	    echo "ERROR: failed to resolve valid $$name" >&2; exit 1; \
+	  fi; \
 	done; \
 	echo "Debian:    $$debian_url"; \
 	echo "Ubuntu:    $$ubuntu_url"; \

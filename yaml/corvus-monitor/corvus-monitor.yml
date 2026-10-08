@@ -1,17 +1,15 @@
 # Bake a Debian 12 image with Prometheus + Grafana preinstalled,
 # preconfigured to scrape Corvus daemon metrics from corvus-web.
 #
-# Prerequisite: apply yaml/multi-os/multi-os.yml so the `debian12`
+# Make refreshes yaml/multi-os/multi-os.yml so the `debian12`
 # template + its `debian-12-generic-base` disk exist.
 #
-#   make image-ensure IMAGE=multi-os
-#   crv build yaml/corvus-monitor/corvus-monitor.yml
+#   make image IMAGE=monitor
 #
 # To bake the dashboard pointed at a specific corvus-web endpoint,
 # pass it on the command line — no source edits required:
 #
-#   crv build yaml/corvus-monitor/corvus-monitor.yml \
-#       --var corvus_web_target=10.0.0.5:8080
+#   make image IMAGE=monitor CORVUS_WEB_TARGET=10.0.0.5:8080
 #
 # On success, a Corvus disk named `corvus-monitor` is registered.
 # See README.md for the deploy + scrape-target-override recipe.
@@ -20,7 +18,7 @@
 # existing operators still get the same image without flags. Override
 # with `--var corvus_web_target=host:port` at build time.
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
   corvus_web_target: "host.local:8080"
 
 pipeline:

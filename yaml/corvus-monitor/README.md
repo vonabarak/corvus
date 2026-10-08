@@ -33,15 +33,11 @@ per-node load + memory + storage gauges.
 ## Build
 
 ```bash
-# 1. Ensure the debian12 template + its base disk exist.
-crv apply yaml/multi-os/multi-os.yml
+# Refresh the upstream Debian image, then evaluate the monitor build.
+make image IMAGE=monitor
 
-# 2. Bake the image. This takes a few minutes — apt pulls
-#    Prometheus + Grafana over the network.
-crv build yaml/corvus-monitor/corvus-monitor.yml
-
-# 3. Confirm the disk landed.
-crv disk list | grep corvus-monitor
+# Confirm the published disk.
+crv disk show corvus-monitor
 ```
 
 On success a non-ephemeral Corvus disk named `corvus-monitor` is
@@ -89,11 +85,16 @@ job's `State` is `UP`.
 
 ### Option B — re-bake with the right target
 
-Edit
-[`files/prometheus.yml`](files/prometheus.yml) before running
-`crv build`. The new value is baked into every VM cloned from the
-resulting image — useful when you're standing up multiple
-monitoring nodes from the same image.
+Pass the endpoint as a build variable:
+
+```bash
+make image IMAGE=monitor CORVUS_WEB_TARGET=10.0.0.5:8080
+```
+
+A changed endpoint rebuilds the image. With the same endpoint, recipe, and
+source image, the bake is skipped. Use `make image-rebuild IMAGE=monitor`
+(with the same variable override if needed) to refresh packages from mirrors
+when the declared inputs have not changed.
 
 ### Multi-node Corvus deployments
 

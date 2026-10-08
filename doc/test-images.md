@@ -15,22 +15,30 @@ make image-rebuild IMAGE=node
 make image-cache-clean IMAGE=installer
 ```
 
-An explicit `image` publishes new versions with `overwrite`, except for the
-Gentoo recipes, which use conditional updates as described below.
+Normal builds of `multi-os`, `vm`, `node`, `debian-nginx`, `ubuntu-nginx`,
+`monitor`, and the Gentoo recipes use conditional `update`. Imports reuse
+verified source identities when upstream checksums match. Derived images skip
+when the recipe and resolved source versions match their stored metadata;
+changed imports or rebuilt dependencies cause their consumers to rebuild.
 `image-rebuild` always uses `overwrite`.
 Existing versions, backing files, overlays, VMs, and templates remain usable.
 Unqualified image selectors resolve the current `latest`; templates are updated
 in place so subsequent VM creation uses it. Already-created disks keep their
 original backing version.
 
-Managed YAML recipes default `image_if_exists` to `overwrite`, or `update` for
-Gentoo; Make passes `skip` for ensure operations. The Python build API expands
-declared defaults before submission too. For recipes with required variables,
-set their values in the YAML `vars` mapping before calling the Python API.
+Converted YAML recipes default `image_if_exists` to `update`; Make passes
+`skip` for ensure operations. Windows recipes and the locally assembled
+synthetic installer retain their existing publication behavior. The Python build
+API expands declared defaults before submission too. For recipes with required
+variables, set their values in the YAML `vars` mapping before calling the Python
+API.
 
 `image-ensure` checks the declared disks and templates, creates missing outputs
-with `skip`, and reuses existing versions. Dependencies use this target; rebuild
-an upstream recipe explicitly to refresh it. `images-ensure` ensures all recipes.
+with `skip`, and reuses existing versions. Ensure operations use this target
+for dependencies too. Normal builds refresh the upstream chain with `update`;
+forced builds propagate `overwrite`. Aggregate builds prepare shared dependencies
+once before evaluating their consumers.
+`images-ensure` ensures all recipes.
 Operational errors stop the build; only a missing-resource response triggers
 publication. `image-check` checks every declared output without publishing.
 
@@ -72,8 +80,9 @@ development-image chain, which includes the regular headless images, once.
 
 `ensure-cloud` and `ensure-headless` in `yaml/gentoo-headless/`, and `ensure` in
 `yaml/gentoo-test/`, fill missing outputs with `skip`. When all outputs exist,
-they perform no upstream downloads or publication. Node-image dependencies use
-this presence-only path.
+they perform no upstream downloads or publication. Node-image ensure operations
+use this presence-only path; ordinary node builds evaluate the headless chain
+first.
 
 To force the regular chain, use `make image-rebuild IMAGE=gentoo-headless`; use
 `IMAGE=gentoo` to force the development image and its upstream chain too. For
@@ -98,6 +107,16 @@ daemon task hierarchy for the full operation, but would repeat source settings
 across consumers. With dedicated recipes, Make orders separate daemon tasks;
 successful upstream publications remain available if a downstream command fails.
 
+The multi-OS library owns all five cloud-image imports and their templates.
+VM, nginx, and monitor pipelines consume those registered images through their
+existing templates. Their Make build targets resolve current upstream checksums
+before submitting the derivative. Existing source versions are retained when
+checksums match; the import URL alone does not trigger an update.
+
+Conditional builds do not detect changes in external package repositories or
+host-mounted directories. Use `image-rebuild` when those undeclared inputs
+must be refreshed. Direct CLI invocation requires preparing dependencies first.
+
 For direct Gentoo CLI use, run `make -C yaml/gentoo-headless build-cloud` before
 invoking either headless YAML. Their Make build targets prepare the source
 automatically, including with parallel Make. "Standalone" refers to the absence
@@ -108,8 +127,10 @@ Follow-up: split the embedded imports out of
 [`windows-server-2025.yml`](../yaml/windows-server-2025/windows-server-2025.yml).
 Give their shared VirtIO-Win installation medium one dedicated import owner,
 and move the Windows Server evaluation ISO import into a dedicated recipe.
-Wire those dependencies through their Makefiles. These existing recipes have
-not yet been converted to the import ownership rule.
+Wire those dependencies through their Makefiles. These recipes remain deferred,
+along with conditional publication of the synthetic installer's locally
+generated ISO. Their uploads need separate
+conditional-publication support before adopting `update`.
 
 ## Recipe catalogue
 
@@ -120,8 +141,8 @@ artifacts above.
 
 | Image | Directory | Artifact and use |
 | --- | --- | --- |
-| `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It ensures `gentoo-headless` from `yaml/gentoo-headless/` when needed. |
-| `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It ensures `multi-os` first. |
+| `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo-headless/` when needed. |
+| `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures `multi-os` first. |
 | `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, FreeBSD 14, and Alpine 3.21 base disks used by cloud-init tests and as the VM-image build base. |
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
