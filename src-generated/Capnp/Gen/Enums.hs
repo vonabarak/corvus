@@ -1020,3 +1020,47 @@ instance (C.Parse ErrorCode ErrorCode) where
 instance (C.AllocateList ErrorCode) where
     type ListAllocHint ErrorCode = Std_.Int
 instance (C.EstimateListAlloc ErrorCode ErrorCode)
+data UploadIfExists
+    = UploadIfExists'overwrite
+    | UploadIfExists'error
+    | UploadIfExists'skip
+    | UploadIfExists'update
+    | UploadIfExists'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor UploadIfExists) = (R.Data R.Sz16)
+instance (C.HasTypeId UploadIfExists) where
+    typeId  = 11357314644214791650
+instance (Std_.Enum UploadIfExists) where
+    toEnum n_ = case n_ of
+        0 ->
+            UploadIfExists'overwrite
+        1 ->
+            UploadIfExists'error
+        2 ->
+            UploadIfExists'skip
+        3 ->
+            UploadIfExists'update
+        tag_ ->
+            (UploadIfExists'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (UploadIfExists'overwrite) ->
+            0
+        (UploadIfExists'error) ->
+            1
+        (UploadIfExists'skip) ->
+            2
+        (UploadIfExists'update) ->
+            3
+        (UploadIfExists'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord UploadIfExists) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse UploadIfExists UploadIfExists) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList UploadIfExists) where
+    type ListAllocHint UploadIfExists = Std_.Int
+instance (C.EstimateListAlloc UploadIfExists UploadIfExists)

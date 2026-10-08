@@ -71,6 +71,24 @@ def main() -> int:
             response = response.replace("a", "g")
         print(response)
         return 0
+    if command == "mkisofs":
+        output = Path(args[args.index("-o") + 1])
+        source = Path(args[-1])
+        output.write_bytes(
+            b"iso:"
+            + b"".join(
+                path.read_bytes()
+                for path in sorted(source.rglob("*"))
+                if path.is_file()
+            )
+        )
+        return 0
+    if command == "cpio":
+        sys.stdin.buffer.read()
+        sys.stdout.buffer.write(b"initrd")
+        return 0
+    if args[:2] == ["disk", "upload"]:
+        return 0
     if args[0] == "build":
         return 1 if os.environ.get("FAIL_BUILD") == args[1] else 0
     if os.environ.get("LOOKUP_ERROR") == "1":

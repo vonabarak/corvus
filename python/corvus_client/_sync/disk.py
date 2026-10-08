@@ -174,6 +174,7 @@ class SyncDiskManager:
         path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
+        if_exists: str = "overwrite",
     ) -> SyncDisk:
         return SyncDisk(
             self._rl.run(
@@ -184,6 +185,7 @@ class SyncDiskManager:
                     path=path,
                     ephemeral=ephemeral,
                     node=node,
+                    if_exists=if_exists,
                 )
             ),
             self._rl,

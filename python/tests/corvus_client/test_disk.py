@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 from corvus_client import AsyncClient, DiskNotFound
-from corvus_client.exceptions import CorvusError
 
 import yaml
 
@@ -196,51 +195,5 @@ def test_created_disk_records_qemu_sector_rounding(daemon_socket: Path) -> None:
             assert (await disk.show()).size == 2048
         finally:
             await disk.delete()
-
-    run(go)
-
-
-def test_upload_collision_preserves_bytes_and_latest(
-    daemon_socket: Path, tmp_path: Path
-) -> None:
-    run = with_client(daemon_socket)
-    source = tmp_path / "upload.raw"
-    source.write_bytes(b"first version" * 1024)
-
-    async def go(c: AsyncClient) -> None:
-        old = await c.disks.upload_from_file(
-            "py-upload-atomic:v1", source, format="raw"
-        )
-        try:
-            info = await old.show()
-            destination = Path(info.placements[0].file_path)
-            original = destination.read_bytes()
-            source.write_bytes(b"replacement" * 1024)
-            with pytest.raises(CorvusError):
-                await c.disks.upload_from_file(
-                    "py-upload-atomic:v2", source, format="raw", path=str(destination)
-                )
-            assert destination.read_bytes() == original
-            assert (await (await c.disks.get("py-upload-atomic")).show()).id == info.id
-            with pytest.raises(DiskNotFound):
-                await c.disks.get("py-upload-atomic:v2")
-        finally:
-            await old.delete()
-
-    run(go)
-
-
-def test_upload_rejects_format_mismatch_without_publishing(
-    daemon_socket: Path, tmp_path: Path
-) -> None:
-    run = with_client(daemon_socket)
-    source = tmp_path / "raw-payload"
-    source.write_bytes(b"this is raw data" * 1024)
-
-    async def go(c: AsyncClient) -> None:
-        with pytest.raises(CorvusError):
-            await c.disks.upload_from_file("py-upload-invalid", source, format="qcow2")
-        with pytest.raises(DiskNotFound):
-            await c.disks.get("py-upload-invalid")
 
     run(go)

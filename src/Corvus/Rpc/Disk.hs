@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -22,8 +24,9 @@ import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
-import Control.Concurrent.MVar (MVar, newMVar, swapMVar, withMVar)
-import Control.Monad (unless, when)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
+import Control.Exception (SomeException, onException, throwIO, try)
+import Control.Monad (when)
 import Corvus.Action (runAction, runActionAsyncWithId)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
@@ -43,20 +46,24 @@ import Corvus.Handlers.Disk.Snapshot
   )
 import Corvus.Handlers.Disk.SnapshotAutoStop (SnapshotRollbackAutoStop (..))
 import Corvus.Handlers.Disk.Tags (DiskTag (..), DiskUntag (..))
-import Corvus.Handlers.Disk.Upload (DiskUploadFinalize (..), DiskUploadPlan (..), prepareDiskUpload)
+import Corvus.Handlers.Disk.Upload (DiskUploadFinalize (..), DiskUploadPlan (..), checkDiskUpload, prepareDiskUpload)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNode, resolveSnapshot)
 import Corvus.Model (EnumText (enumToText))
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
+import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types (ServerState (..), lookupNodeAgent)
 import Corvus.Wire.Disk (toCapnpDiskImageInfo, toCapnpSnapshotInfo)
-import Corvus.Wire.Enums (fromCapnpDriveFormat)
+import Corvus.Wire.Enums (fromCapnpDriveFormat, fromCapnpUploadIfExists)
 import Corvus.Wire.Error (ErrorCode (..))
+import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
+import Data.Char (isHexDigit)
 import Data.Int (Int64)
 import qualified Data.Text as T
+import Database.Persist.Sql (fromSqlKey)
 import Supervisors (Supervisor)
 
 -- ---------------------------------------------------------------------
@@ -282,17 +289,25 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
   diskManager'beginUpload (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'beginUpload'params {params = CGDisk.DiskUploadParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
-      nodeRef' <- capnpRefToRef node
-      let mPath = emptyToNothing path
-      planResult <- prepareDiskUpload st cn name fmt mPath ephemeral (P.unRef nodeRef')
-      plan <- either throwFailed pure planResult
-      agentResult <- lookupNodeAgent st (dupNodeId plan)
-      agent <- either throwFailed pure agentResult
-      sinkResult <- NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
-      sink <- either (throwFailed . T.pack . show) pure sinkResult
-      closed <- newMVar False
-      upload <- export @CGDisk.DiskUpload sup (DiskUploadCap st sup cn plan sink closed)
-      pure CGDisk.DiskManager'beginUpload'results {CGDisk.upload = upload}
+      policy <- enumOrThrow (fromCapnpUploadIfExists ifExists)
+      let expected = T.toLower expectedSha256
+      when (policy == UploadUpdate && T.null expected) (throwFailed "update requires expectedSha256")
+      when (not (T.null expected) && (T.length expected /= 64 || not (T.all isHexDigit expected))) $
+        throwFailed "expectedSha256 must be a SHA-256 hex digest"
+      existing <- either throwFailed pure =<< checkDiskUpload st name fmt policy (emptyToNothing expected)
+      result <- case existing of
+        Just key -> do
+          disk <- export @CGDisk.Disk sup (DiskCap st sup (fromSqlKey key) cn)
+          pure (CGDisk.DiskUploadResult'existing disk)
+        Nothing -> do
+          nodeRef' <- capnpRefToRef node
+          plan <- either throwFailed pure =<< prepareDiskUpload st cn name fmt (emptyToNothing path) ephemeral (P.unRef nodeRef') (emptyToNothing sourcePath)
+          agent <- either throwFailed pure =<< lookupNodeAgent st (dupNodeId plan)
+          sink <- either (throwFailed . T.pack . show) pure =<< NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
+          context <- newMVar (Just hashInit)
+          upload <- export @CGDisk.DiskUpload sup (DiskUploadCap st sup cn plan sink context (emptyToNothing expected))
+          pure (CGDisk.DiskUploadResult'upload upload)
+      pure CGDisk.DiskManager'beginUpload'results {CGDisk.result = CGDisk.DiskUploadResult result}
 
   diskManager'mediaEject (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'mediaEject'params {..} -> do
@@ -325,7 +340,8 @@ data DiskUploadCap = DiskUploadCap
   , ducClientName :: !T.Text
   , ducPlan :: !DiskUploadPlan
   , ducSink :: !(C.Client CGS.ByteSink)
-  , ducClosed :: !(MVar Bool)
+  , ducContext :: !(MVar (Maybe (Context SHA256)))
+  , ducExpected :: !(Maybe T.Text)
   }
 
 instance SomeServer DiskUploadCap
@@ -333,17 +349,33 @@ instance SomeServer DiskUploadCap
 instance CGDisk.DiskUpload'server_ DiskUploadCap where
   diskUpload'write cap =
     handleParsed $ \CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} -> do
-      withMVar (ducClosed cap) $ \closed -> do
-        when closed (throwFailed "Upload session is closed")
-        callSink #write CGS.ByteSink'write'params {CGS.chunk = chunk} (ducSink cap)
+      outcome <- modifyMVar (ducContext cap) $ \case
+        Nothing -> throwFailed "Upload session is closed"
+        Just current -> do
+          written <- try @SomeException $ callSink #write CGS.ByteSink'write'params {CGS.chunk = chunk} (ducSink cap)
+          case written of
+            Right () -> do
+              -- Evaluate each update now so the context cannot retain all chunks.
+              let !updated = hashUpdate current chunk
+              pure (Just updated, Right ())
+            Left err -> do
+              _ <- try @SomeException $ callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+              pure (Nothing, Left err)
+      either throwIO pure outcome
       pure CGDisk.DiskUpload'write'results
 
   diskUpload'finish cap =
     handleParsed $ \_ -> do
-      closed <- swapMVar (ducClosed cap) True
-      when closed (throwFailed "Upload session is closed")
+      -- Close under the same lock as writes: no chunk can race finalization.
+      digest <- modifyMVar (ducContext cap) $ \case
+        Nothing -> throwFailed "Upload session is closed"
+        Just current -> pure (Nothing, T.pack (show (hashFinalize current :: Digest SHA256)))
+      when (maybe False (/= digest) (ducExpected cap)) $ do
+        callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+        throwFailed "Uploaded bytes do not match expectedSha256"
       callSink #end CGS.ByteSink'end'params (ducSink cap)
-      resp <- runAction (ducState cap) (ducClientName cap) (DiskUploadFinalize (ducPlan cap))
+        `onException` callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+      resp <- runAction (ducState cap) (ducClientName cap) (DiskUploadFinalize (ducPlan cap) digest)
       case resp of
         RespDiskCreated did -> do
           disk <- export @CGDisk.Disk (ducSup cap) (DiskCap (ducState cap) (ducSup cap) did (ducClientName cap))
@@ -352,8 +384,11 @@ instance CGDisk.DiskUpload'server_ DiskUploadCap where
 
   diskUpload'abort cap =
     handleParsed $ \_ -> do
-      closed <- swapMVar (ducClosed cap) True
-      unless closed $ callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+      modifyMVar_ (ducContext cap) $ \context -> do
+        case context of
+          Nothing -> pure ()
+          Just _ -> callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+        pure Nothing
       pure CGDisk.DiskUpload'abort'results
 
 -- ---------------------------------------------------------------------

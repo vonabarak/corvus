@@ -15,8 +15,7 @@ make image-rebuild IMAGE=node
 make image-cache-clean IMAGE=installer
 ```
 
-Normal builds of `multi-os`, `vm`, `node`, `debian-nginx`, `ubuntu-nginx`,
-`monitor`, and the Gentoo recipes use conditional `update`. Imports reuse
+Normal builds of managed images use conditional `update`. Imports reuse
 verified source identities when upstream checksums match. Derived images skip
 when the recipe and resolved source versions match their stored metadata;
 changed imports or rebuilt dependencies cause their consumers to rebuild.
@@ -27,8 +26,8 @@ in place so subsequent VM creation uses it. Already-created disks keep their
 original backing version.
 
 Converted YAML recipes default `image_if_exists` to `update`; Make passes
-`skip` for ensure operations. Windows recipes and the locally assembled
-synthetic installer retain their existing publication behavior. The Python build
+`skip` for ensure operations. Uploaded installation and answer media reuse
+verified SHA-256 identities when the file bytes and disk format match. The Python build
 API expands declared defaults before submission too. For recipes with required
 variables, set their values in the YAML `vars` mapping before calling the Python
 API.
@@ -122,15 +121,22 @@ invoking either headless YAML. Their Make build targets prepare the source
 automatically, including with parallel Make. "Standalone" refers to the absence
 of host-side mounts during the bake, not to importing dependencies in its YAML.
 
-Follow-up: split the embedded imports out of
-[`windows-11.yml`](../yaml/windows-11/windows-11.yml) and
-[`windows-server-2025.yml`](../yaml/windows-server-2025/windows-server-2025.yml).
-Give their shared VirtIO-Win installation medium one dedicated import owner,
-and move the Windows Server evaluation ISO import into a dedicated recipe.
-Wire those dependencies through their Makefiles. These recipes remain deferred,
-along with conditional publication of the synthetic installer's locally
-generated ISO. Their uploads need separate
-conditional-publication support before adopting `update`.
+The shared VirtIO-Win medium belongs to `yaml/virtio-win/`; the Windows Server
+installation ISO belongs to `yaml/windows-server-media/`. Both Windows recipes
+prepare those dependencies through Make. Windows 11 installation media remains
+a manual prerequisite. For direct CLI use, prepare the required import owners
+and local answer ISO first.
+
+Windows answer media and the synthetic installer ISO are persistent uploads
+with `update`. Make regenerates each local ISO only when its declared files,
+Makefile, generation script, or selected packages change. This preserves the
+exact ISO bytes across unchanged runs, including their embedded timestamps;
+it does not promise reproducible output after regeneration. The synthetic
+installer script only creates a local ISO; its Makefile owns publication.
+Unchanged uploaded media retain their image IDs, so dependent builds skip when
+all their other metadata matches. Changed media publish new IDs and rebuild
+consumers. `image-rebuild` uses `overwrite` for imports, uploads, and builds;
+`image-ensure` checks presence without regenerating media that already exists.
 
 ## Recipe catalogue
 
@@ -144,6 +150,8 @@ artifacts above.
 | `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo-headless/` when needed. |
 | `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures `multi-os` first. |
 | `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, FreeBSD 14, and Alpine 3.21 base disks used by cloud-init tests and as the VM-image build base. |
+| `virtio-win` | `yaml/virtio-win/` | Shared, pinned `virtio-win-iso` installation medium. |
+| `windows-server-media` | `yaml/windows-server-media/` | Pinned `windows-server-2025-iso` evaluation installation medium. |
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
 | `key` | `integration_tests/keys/` | The SSH keypair embedded in the node and inner-VM images, used by the harness tunnel. |

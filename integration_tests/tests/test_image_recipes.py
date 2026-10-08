@@ -6,6 +6,9 @@ than Python bindings, and do not need a daemon or a nested test-node VM.
 
 from __future__ import annotations
 
+import io
+import os
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -211,6 +214,8 @@ class TestImageRecipes:
             "multi-os.yml",
             "corvus-test-node.yml",
             "corvus-test-vm.yml",
+            "virtio-win.yml",
+            "windows-server-media.yml",
             "debian-nginx.yml",
             "ubuntu-nginx.yml",
             "corvus-monitor.yml",
@@ -219,7 +224,12 @@ class TestImageRecipes:
         assert pipelines.index("gentoo-headless.yml") < pipelines.index(
             "corvus-test-node.yml"
         )
-        for consumer in expected[5:]:
+        for consumer in (
+            "corvus-test-vm.yml",
+            "debian-nginx.yml",
+            "ubuntu-nginx.yml",
+            "corvus-monitor.yml",
+        ):
             assert pipelines.index("multi-os.yml") < pipelines.index(consumer)
         assert all(f"image_if_exists={policy}" in call.args for call in builds)
 
@@ -250,10 +260,113 @@ class TestImageRecipes:
             assert freebsd["checksum"]["target"] == "download"
 
     @pytest.mark.parametrize("recipe", ["windows-11", "windows-server-2025"])
-    def test_deferred_windows_policy_unchanged(
+    def test_windows_upload_policy_and_import_ownership(
         self, recipes: RecipeRunner, recipe: str
     ) -> None:
         doc = yaml.safe_load(
             (recipes.root / "yaml" / recipe / f"{recipe}.yml").read_text()
         )
-        assert doc["vars"]["image_if_exists"] == "overwrite"
+        assert doc["vars"]["image_if_exists"] == "update"
+        upload = doc["pipeline"][0]["upload"]
+        assert upload["ifExists"] == "{{ image_if_exists }}"
+        assert upload["ephemeral"] is False
+        assert not any(
+            "import" in disk
+            for step in doc["pipeline"]
+            for disk in step.get("apply", {}).get("disks", [])
+        )
+
+
+class TestUploadRecipes:
+    def test_synthetic_iso_incremental_generation_and_publication(
+        self, tmp_path: Path
+    ) -> None:
+        """Make preserves unchanged ISO bytes, tracks package selection and files,
+        forwards update/overwrite, and never modifies retained published files.
+        Presence-only ensure does not generate local media.
+        """
+        recipes = RecipeRunner(tmp_path)
+        directory = recipes.root / "yaml/corvus-test-installer"
+        cache = directory / "cache"
+        cache.mkdir()
+        packages = {
+            "kernel.apk": [
+                "boot/vmlinuz-virt",
+                "lib/virtio_blk.ko",
+                "lib/cdrom.ko",
+                "lib/sr_mod.ko",
+                "lib/isofs.ko",
+            ],
+            "busybox.apk": ["bin/busybox.static"],
+            "syslinux.apk": ["isolinux.bin", "ldlinux.c32"],
+        }
+        for package, members in packages.items():
+            with tarfile.open(cache / package, "w:gz") as archive:
+                for name in members:
+                    entry = tarfile.TarInfo(name)
+                    entry.size = 2048
+                    archive.addfile(entry, io.BytesIO(b"x" * entry.size))
+        variables = (
+            "ALPINE_KERNEL_PKG=kernel.apk",
+            "ALPINE_BUSYBOX_PKG=busybox.apk",
+            "ALPINE_SYSLINUX_PKG=syslinux.apk",
+            f"CORVUS_BASE_IMAGES_DIR={tmp_path / 'BaseImages'}",
+        )
+        old = (
+            tmp_path / "BaseImages/SyntheticInstaller/123-corvus-test-installer-iso.raw"
+        )
+        old.parent.mkdir(parents=True)
+        old.write_bytes(b"old-iso")
+        iso = directory / "build/corvus-test-installer-iso.raw"
+
+        def run(target: str, extra: tuple[str, ...] = ()) -> None:
+            result = recipes.run("corvus-test-installer", target, variables + extra)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert old.read_bytes() == b"old-iso"
+
+        run("ensure")
+        assert not iso.exists()
+        run("build")
+        first_mtime = iso.stat().st_mtime_ns
+        run("build")
+        assert iso.stat().st_mtime_ns == first_mtime
+        run("rebuild")
+        assert iso.stat().st_mtime_ns == first_mtime
+        # A source edit and a package configuration change each regenerate.
+        source = directory / "init.sh"
+        source.write_text(source.read_text() + "\n# changed input\n")
+        os.utime(source, ns=(first_mtime + 2_000_000_000,) * 2)
+        run("build")
+        run("build", ("ALPINE_VERSION=v3.22",))
+        generated = [call for call in recipes.calls() if call.command == "mkisofs"]
+        assert len(generated) == 3
+        uploads = [
+            call for call in recipes.calls() if call.args[:2] == ["disk", "upload"]
+        ]
+        assert [call.args[-1] for call in uploads] == [
+            "update",
+            "update",
+            "overwrite",
+            "update",
+            "update",
+        ]
+
+    @pytest.mark.parametrize(
+        "recipe,imports",
+        [
+            ("windows-11", ["virtio-win.yml"]),
+            ("windows-server-2025", ["virtio-win.yml", "windows-server-media.yml"]),
+        ],
+    )
+    def test_windows_dependency_order_and_incremental_answer_media(
+        self, tmp_path: Path, recipe: str, imports: list[str]
+    ) -> None:
+        recipes = RecipeRunner(tmp_path)
+        variables = (f"ISO_TOOL={recipes.bin / 'mkisofs'}",)
+        for target, policy in [("build", "update"), ("rebuild", "overwrite")]:
+            result = recipes.run(recipe, target, variables)
+            assert result.returncode == 0, result.stdout + result.stderr
+            calls = publications(recipes)[-len(imports) - 1 :]
+            assert [call.args[1] for call in calls] == imports + [recipe + ".yml"]
+            assert all(f"image_if_exists={policy}" in call.args for call in calls)
+        assert len([call for call in recipes.calls() if call.command == "mkisofs"]) == 1

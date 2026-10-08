@@ -144,6 +144,16 @@ struct DiskUploadParams {
   path      @2 :Text; # empty -> unique version filename under <basePath>
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
+  ifExists  @5 :Enums.UploadIfExists = overwrite;
+  expectedSha256 @6 :Text; # required for update; verified before publication
+  sourcePath @7 :Text; # diagnostic client path; empty -> absent
+}
+
+struct DiskUploadResult {
+  union {
+    upload @0 :DiskUpload;
+    existing @1 :Disk;
+  }
 }
 
 # Copy a logical disk image from its current placement on one node
@@ -217,7 +227,7 @@ interface DiskManager {
   # source placement + file. Same data path as `copy`. Returns a
   # task id for long-running progress observation.
   move          @10 (params :DiskMoveParams) -> (taskId :Int64);
-  beginUpload   @11 (params :DiskUploadParams) -> (upload :DiskUpload);
+  beginUpload   @11 (params :DiskUploadParams) -> (result :DiskUploadResult);
 
   # Eject the media of a CD-ROM drive (a drive row attached with
   # --media cdrom). For an active VM: sends QMP `eject` to the agent,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from contextlib import ExitStack, suppress
 from pathlib import Path
 from typing import cast
 
@@ -256,29 +258,52 @@ class AsyncDiskManager:
         path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
+        if_exists: str = "overwrite",
     ) -> AsyncDisk:
-        """Stream a file on this API client's machine to a Corvus node."""
+        """Publish a client-local image, or reuse the selected existing tag.
+
+        ``update`` compares SHA-256 and format. The source path is diagnostic;
+        it does not affect matching. The daemon verifies streamed bytes before
+        recording the digest and publishing the new version.
+        """
+        if if_exists not in {"error", "skip", "overwrite", "update"}:
+            raise ValueError("if_exists must be error, skip, overwrite or update")
         mgr = await self._ensure()
         params = _schema.disk.DiskUploadParams.new_message()
         params.name = name
         params.format = format
+        params.ifExists = if_exists
+        params.sourcePath = str(Path(source).resolve())
         if path is not None:
             params.path = path
         params.ephemeral = ephemeral
         if node is not None:
             params.node = entity_ref(node)
-        session = await mgr.beginUpload(params=params)
-        try:
-            with Path(source).open("rb") as fh:
+        with ExitStack() as stack:
+            fh = None
+            if if_exists == "update":
+                fh = stack.enter_context(Path(source).open("rb"))
+                digest = hashlib.sha256()
                 while chunk := fh.read(1024 * 1024):
-                    await session.upload.write(chunk=chunk)
-            result = await session.upload.finish()
-        except BaseException:
+                    digest.update(chunk)
+                params.expectedSha256 = digest.hexdigest()
+                fh.seek(0)
+            response = await mgr.beginUpload(params=params)
+            result = response.result
+            if result.which() == "existing":
+                return AsyncDisk(result.existing)
+            upload = result.upload
             try:
-                await session.upload.abort()
-            finally:
+                if fh is None:
+                    fh = stack.enter_context(Path(source).open("rb"))
+                while chunk := fh.read(1024 * 1024):
+                    await upload.write(chunk=chunk)
+                completed = await upload.finish()
+            except BaseException:
+                with suppress(BaseException):
+                    await upload.abort()
                 raise
-        return AsyncDisk(result.disk)
+        return AsyncDisk(completed.disk)
 
     async def copy(
         self,

@@ -133,7 +133,7 @@ data Command
   | -- | Import disk image with copy/download (name, source, destPath, format, ephemeral, nodeRef, waitOptions)
     DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool !Text !WaitOptions
   | -- | Upload a client-local disk image (name, source, format, destPath, ephemeral, nodeRef)
-    DiskUpload !Text !FilePath !Text !(Maybe Text) !Bool !Text
+    DiskUpload !Text !FilePath !Text !(Maybe Text) !Bool !Text !Text
   | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath, ephemeral)
     DiskCreateOverlay !Text !Text !(Maybe Text) !Bool
   | -- | Refresh disk image size from qemu-img info

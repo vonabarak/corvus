@@ -38,7 +38,7 @@ class RecipeRunner:
         self.bin = directory / "bin"
         self.bin.mkdir()
         stub = Path(__file__).with_name("image_recipe_command.py")
-        for name in ("crv", "curl"):
+        for name in ("crv", "curl", "mkisofs", "cpio"):
             command = self.bin / name
             shutil.copyfile(stub, command)
             command.chmod(0o755)
@@ -61,7 +61,12 @@ class RecipeRunner:
                 *variables,
             ],
             cwd=self.root / "yaml" / recipe,
-            env={**os.environ, "RECIPE_CALL_LOG": str(self.log), **(env or {})},
+            env={
+                **os.environ,
+                "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                "RECIPE_CALL_LOG": str(self.log),
+                **(env or {}),
+            },
             capture_output=True,
             text=True,
             check=False,

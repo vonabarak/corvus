@@ -11,6 +11,7 @@ module Corvus.BuildSchemaSpec (spec) where
 
 import Corvus.Handlers.Build (buildShellCommand)
 import Corvus.Model (DriveFormat (..))
+import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Schema.Apply (ApplyConfig (..))
 import Corvus.Schema.Build
 import qualified Data.ByteString.Char8 as BS8
@@ -406,9 +407,26 @@ spec = describe "Schema.Build" $ do
           [PipelineUpload upload] -> do
             uploadName upload `shouldBe` "answer"
             uploadEphemeral upload `shouldBe` True
-            uploadIfExists upload `shouldBe` IfExistsError
+            uploadIfExists upload `shouldBe` UploadError
           other -> expectationFailure $ "unexpected: " ++ show other
         Left e -> expectationFailure e
+
+    it "parses all upload policies and rejects unknown values" $ do
+      let parsePolicy policy =
+            decodePipeline $
+              BS8.pack $
+                "pipeline:\n  - upload:\n      name: answer\n      from: answer.iso\n      format: raw\n      ifExists: " ++ policy ++ "\n"
+      mapM_
+        ( \(text, expected) -> case parsePolicy text of
+            Right c -> case pcSteps c of
+              [PipelineUpload upload] -> uploadIfExists upload `shouldBe` expected
+              other -> expectationFailure $ show other
+            Left e -> expectationFailure e
+        )
+        [("error", UploadError), ("skip", UploadSkip), ("overwrite", UploadOverwrite), ("update", UploadUpdate)]
+      parsePolicy "unknown" `shouldSatisfy` \case
+        Left _ -> True
+        Right _ -> False
 
     it "parses target.path" $ do
       let yaml =

@@ -19,7 +19,6 @@ import capnp
 import yaml
 
 from .. import types
-from ..exceptions import DiskNotFound
 from .disk import AsyncDiskManager
 from .streams import stream_build_events
 
@@ -143,76 +142,7 @@ async def stream_build_from_file(
     `('task_id', N)` tuple once the pipeline completes.
     """
     text = preprocess_build_yaml(yaml_path)
-    path = Path(yaml_path).resolve()
-    doc = yaml.safe_load(text)
-    if isinstance(doc, dict):
-        steps = doc.get("pipeline")
-        if isinstance(steps, list):
-            uploads: list[dict[str, object]] = []
-            rest: list[object] = []
-            seen_non_upload = False
-            for step in steps:
-                if isinstance(step, dict) and isinstance(step.get("upload"), dict):
-                    if seen_non_upload:
-                        raise ValueError(
-                            "pipeline upload steps must precede apply/build steps"
-                        )
-                    uploads.append(step["upload"])
-                else:
-                    seen_non_upload = True
-                    rest.append(step)
-            if uploads:
-                disks = AsyncDiskManager(daemon)
-                for upload in uploads:
-                    try:
-                        name = upload["name"]
-                        source = upload["from"]
-                        format = upload["format"]
-                    except KeyError as exc:
-                        raise ValueError(f"upload.{exc.args[0]} is required") from exc
-                    if (
-                        not isinstance(name, str)
-                        or not isinstance(source, str)
-                        or not isinstance(format, str)
-                    ):
-                        raise ValueError(
-                            "upload name, from, and format must be strings"
-                        )
-                    source_path = Path(source)
-                    if not source_path.is_absolute():
-                        source_path = path.parent / source_path
-                    if upload.get("ifExists", "error") not in {"error", "overwrite"}:
-                        raise ValueError(
-                            "upload.ifExists must be 'error' or 'overwrite'"
-                        )
-                    if upload.get("ifExists", "error") == "error":
-                        try:
-                            await disks.get(name)
-                        except DiskNotFound:
-                            pass
-                        else:
-                            raise ValueError(f"upload target {name!r} already exists")
-                    upload_path = upload.get("path")
-                    if upload_path is not None and not isinstance(upload_path, str):
-                        raise ValueError("upload.path must be a string")
-                    ephemeral = upload.get("ephemeral", True)
-                    if not isinstance(ephemeral, bool):
-                        raise ValueError("upload.ephemeral must be a boolean")
-                    node = upload.get("node")
-                    if node is not None and (
-                        isinstance(node, bool) or not isinstance(node, (int, str))
-                    ):
-                        raise ValueError("upload.node must be an integer or string")
-                    await disks.upload_from_file(
-                        name,
-                        source_path,
-                        format=format,
-                        path=upload_path,
-                        ephemeral=ephemeral,
-                        node=node,
-                    )
-                doc["pipeline"] = rest
-                text = yaml.safe_dump(doc, sort_keys=False)
+    text = await preprocess_uploads(daemon, text, Path(yaml_path).resolve().parent)
     async for item in stream_build_events(
         daemon,
         text,
@@ -221,3 +151,75 @@ async def stream_build_from_file(
         rebuild_from=rebuild_from,
     ):
         yield item
+
+
+async def preprocess_uploads(
+    daemon: capnp.lib.capnp._DynamicCapabilityClient, text: str, base_dir: Path
+) -> str:
+    """Upload leading local media and remove those steps from daemon input."""
+    doc = yaml.safe_load(text)
+    if not isinstance(doc, dict) or not isinstance(doc.get("pipeline"), list):
+        return text
+    steps = doc["pipeline"]
+    first_non_upload = 0
+    for step in steps:
+        if not isinstance(step, dict) or "upload" not in step:
+            break
+        first_non_upload += 1
+    if any(
+        isinstance(step, dict) and "upload" in step for step in steps[first_non_upload:]
+    ):
+        raise ValueError("pipeline upload steps must precede apply/build steps")
+    if not first_non_upload:
+        return text
+    disks = AsyncDiskManager(daemon)
+    for step in steps[:first_non_upload]:
+        if len(step) != 1 or not isinstance(step["upload"], dict):
+            raise ValueError("pipeline upload step must contain only an upload object")
+        await _upload_media(disks, step["upload"], base_dir)
+    doc["pipeline"] = steps[first_non_upload:]
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+async def _upload_media(
+    disks: AsyncDiskManager, upload: dict[str, object], base_dir: Path
+) -> None:
+    def required_text(key: str) -> str:
+        value = upload.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"upload.{key} is required and must be a string")
+        return value
+
+    name = required_text("name")
+    source = Path(required_text("from"))
+    format = required_text("format")
+    if not source.is_absolute():
+        source = base_dir / source
+    policy = upload.get("ifExists", "error")
+    if not isinstance(policy, str) or policy not in {
+        "error",
+        "skip",
+        "overwrite",
+        "update",
+    }:
+        raise ValueError("upload.ifExists must be error, skip, overwrite or update")
+    path = upload.get("path")
+    if path is not None and not isinstance(path, str):
+        raise ValueError("upload.path must be a string")
+    ephemeral = upload.get("ephemeral", True)
+    if not isinstance(ephemeral, bool):
+        raise ValueError("upload.ephemeral must be a boolean")
+    node = upload.get("node")
+    if node is not None and (
+        isinstance(node, bool) or not isinstance(node, (int, str))
+    ):
+        raise ValueError("upload.node must be an integer or string")
+    await disks.upload_from_file(
+        name,
+        source,
+        format=format,
+        path=path,
+        ephemeral=ephemeral,
+        node=node,
+        if_exists=policy,
+    )

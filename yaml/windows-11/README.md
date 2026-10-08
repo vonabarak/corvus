@@ -50,11 +50,11 @@ building:
 crv disk show windows-11-iso
 ```
 
-The build automatically downloads the pinned VirtIO-Win 0.1.302 guest-tools ISO
+The Makefile prepares the shared `yaml/virtio-win/` recipe, which downloads the
+pinned VirtIO-Win 0.1.302 guest-tools ISO
 from Fedora, verifies its SHA-256 checksum, and registers it as `virtio-win-iso`
 under `ISOs/VirtIO/` if that disk
-is not already registered. An existing `virtio-win-iso` is reused without
-downloading or replacing it. The node needs internet access for this download.
+is not already registered. A matching verified `virtio-win-iso` is reused under `update`. The node needs internet access for this download.
 The managed `corvus` network must provide internet access for the pinned WinFSP
 download. The host must have the OVMF firmware paths used in
 [windows-11.yml](windows-11.yml).
@@ -99,8 +99,9 @@ and preserve that VM's TPM state. Keep the shared base immutable and decrypted.
 
 ## Rebuilds and failures
 
-An explicit build publishes a new `windows-11-pro-base:latest` and updates the
-runtime template. Existing VMs and overlays retain their original version.
+An ordinary build uses `update`: unchanged answer media retain their upload ID,
+and matching build metadata skip the bake. Changed declared inputs publish a new
+`windows-11-pro-base:latest` and update the runtime template. Existing VMs and overlays retain their original version.
 Use `make image-ensure IMAGE=windows-11` to create missing outputs without
 replacing existing versions. To publish an updated base from installation media:
 
@@ -109,8 +110,8 @@ make image-rebuild IMAGE=windows-11
 ```
 
 Old images and their backing files remain registered. Do not repurpose a retained
-installation VM containing user data as a generalized base. Answer media is
-uploaded as a new version when building, so a retained failed bake can keep its
+installation VM containing user data as a generalized base. Answer media is persistent and
+uploaded as a new version when its bytes change, so a retained failed bake can keep its
 original answer ISO while a retry uses the new one.
 
 ## Runtime verification

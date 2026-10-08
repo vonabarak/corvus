@@ -3,16 +3,15 @@
 #
 # Before running this pipeline, manually download the Windows 11 x64
 # multi-edition ISO and register it with Corvus as `windows-11-iso`. The
-# pipeline downloads VirtIO-Win 0.1.302 with SHA-256 verification if `virtio-win-iso` is absent.
+# Makefile prepares the shared, checksummed VirtIO-Win import recipe.
 # Then run:
 #
 #   make image IMAGE=windows-11
 #
-# The pipeline uploads a locally prepared answer ISO, downloads missing VirtIO
-# media, registers OVMF firmware, and creates a temporary installer template
-# with the three ISO disks. It then publishes a generalized, decrypted base
-# image, deletes the successful bake
-# VM, and registers the `windows-11-pro` overlay template.
+# The pipeline conditionally uploads a persistent answer ISO, registers OVMF
+# firmware, and creates a temporary installer template with the three ISO disks.
+# It then publishes a generalized, decrypted base image, deletes the successful
+# bake VM, and registers the `windows-11-pro` overlay template.
 #
 # The image contains the VirtIO drivers, QEMU Guest Agent, SPICE guest tools,
 # WinFSP, and the VirtIO-FS guest service. Cloudbase-Init/cloud-init is not
@@ -46,7 +45,7 @@ _ovmf_vars_drive: &ovmf_vars
   strategy: clone
 
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
   # The Makefile creates this ISO with Autounattend.xml at its root. Upload
@@ -56,18 +55,12 @@ pipeline:
       name: windows-11-autounattend
       from: ./build/autounattend.iso
       format: raw
+      ephemeral: false
       ifExists: "{{ image_if_exists }}"
 
   - apply:
       ifExists: skip
       disks:
-        - name: virtio-win-iso
-          import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
-          checksum:
-            algorithm: sha256
-            value: "303f7ae40dad495d6ae474fdc571df58958a4dbc5c37a522d80f9a203867949d"
-          format: raw
-          path: ISOs/VirtIO/
         - name: ovmf-code-secboot
           register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.secboot.qcow2"
           format: qcow2
@@ -106,8 +99,8 @@ pipeline:
               cacheType: writeback
             - *ovmf_code
             - *ovmf_vars
-            # Windows media is registered manually; VirtIO media is imported
-            # above when absent. Drive ordering is significant: autounattend.xml
+            # Windows media is registered manually; the Makefile prepares
+            # VirtIO media. Drive ordering is significant: autounattend.xml
             # expects the Windows installer at D: and VirtIO-Win media at E:.
             - diskImage: windows-11-iso
               interface: ide

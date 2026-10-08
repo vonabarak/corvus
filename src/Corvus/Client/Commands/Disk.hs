@@ -54,6 +54,7 @@ import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emit
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..), SnapshotInfo (..))
+import Corvus.Protocol.Disk (parseUploadIfExists)
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Corvus.Wire.Enums (toCapnpDriveFormat)
@@ -62,7 +63,6 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, formatTime)
-import System.Directory (doesFileExist)
 
 --------------------------------------------------------------------------------
 -- Parsers
@@ -161,27 +161,21 @@ handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpt
             putStrLn ("Error importing disk: " ++ show e)
           pure False
 
-handleDiskUpload :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Text -> Maybe Text -> Bool -> Text -> IO Bool
-handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef = do
-  exists <- doesFileExist source
-  if not exists
-    then do
-      emitError outFmt "file_not_found" (T.pack $ "File not found: " <> source) $
-        putStrLn ("Error: File not found: " <> source)
+handleDiskUpload :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Text -> Maybe Text -> Bool -> Text -> Text -> IO Bool
+handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef policyText =
+  case (,) <$> parseFormat formatStr <*> parseUploadIfExists policyText of
+    Left err -> do
+      emitError outFmt "invalid_format" err (putStrLn $ "Error: " <> T.unpack err)
       pure False
-    else case parseFormat formatStr of
-      Left err -> do
-        emitError outFmt "invalid_format" err (putStrLn $ "Error: " <> T.unpack err)
-        pure False
-      Right format -> do
-        r <- try @SomeException (CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText nodeRef))
-        case r of
-          Right diskId -> do
-            emitOkWith outFmt [("id", toJSON diskId)] $ putStrLn ("Disk image uploaded with ID: " <> show diskId)
-            pure True
-          Left e -> do
-            emitRpcError outFmt e $ putStrLn ("Error uploading disk: " <> show e)
-            pure False
+    Right (format, policy) -> do
+      r <- try @SomeException (CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText nodeRef) policy)
+      case r of
+        Right (diskId, reused) -> do
+          emitOkWith outFmt [("id", toJSON diskId)] $ putStrLn ((if reused then "Existing disk image reused with ID: " else "Disk image uploaded with ID: ") <> show diskId)
+          pure True
+        Left e -> do
+          emitRpcError outFmt e $ putStrLn ("Error uploading disk: " <> show e)
+          pure False
 
 -- | Handle disk delete command
 handleDiskDelete :: OutputFormat -> CapnpConnection -> Text -> IO Bool

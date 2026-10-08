@@ -204,9 +204,10 @@ pipeline:
               strategy: overlay
 ```
 
-A pipeline step has exactly one of `build:` or `apply:`. Steps run in
-order; if a step fails the pipeline aborts and any prior successful
-steps stay applied (no rollback).
+A pipeline step has exactly one of `upload:`, `build:`, or `apply:`.
+Uploads must precede all build and apply steps. Steps run in order; if a
+step fails the pipeline aborts and any prior successful steps stay applied
+(no rollback).
 
 ### `target.ifExists`
 
@@ -413,7 +414,8 @@ pipeline:
       name: windows-answer-media
       from: ./build/autounattend.iso
       format: raw
-      ephemeral: true
+      ephemeral: false
+      ifExists: update
   - apply: ... # template attaches windows-answer-media as read-only CD-ROM
   - build: ...
 ```
@@ -427,9 +429,60 @@ The template for an `installer` build typically has
 40 GiB blank disk via `strategy: create` as its first drive, and the
 vendor install ISO + any driver ISO as `media: cdrom` drives. See
 [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml)
-for a worked Windows Server 2025 example — a self-contained
-three-step pipeline (apply ISOs + bake-template → build → apply
-runtime-template).
+for a worked Windows Server 2025 example. Its Makefile prepares the dedicated
+installation-media import recipes and answer ISO before submitting the pipeline
+(upload answer media → apply bake template → build → apply runtime template).
+
+### Conditional uploads and build dependencies
+
+A leading `upload:` step supports `ifExists: error`, `skip`, `overwrite`, and
+`update`. YAML defaults to `error`; `crv disk upload --if-exists` and the Python
+`upload_from_file(if_exists=...)` API default to `overwrite`.
+
+| Policy | Selected image exists | Selected image missing |
+| --- | --- | --- |
+| `error` | Fail before opening a node writer. | Upload and publish. |
+| `skip` | Return the existing image without reading the local file. | Upload and publish. |
+| `overwrite` | Upload and publish a fresh version. | Upload and publish. |
+| `update` | Reuse when verified SHA-256 and format match; otherwise publish. | Upload and publish. |
+
+The publication selector matters: `answer` selects `answer:latest`, while
+`answer:stable` compares only the image selected by `stable`. Reusing a tagged
+image leaves every tag, including `latest`, unchanged. Publishing a new version
+updates the requested tag and `latest`, retaining previous versions and files.
+
+For `update`, the client opens the local file, computes SHA-256 in bounded
+chunks, and rewinds that same handle. It sends the expected digest, requested
+format, policy, and resolved client source path to the daemon. The daemon looks
+up the selected image and its `DiskImageUploadIdentity` before allocating
+storage or opening a writer. It compares only the verified digest and image
+format. Source path, file size, modification time, requested node, destination,
+and ephemeral flag do not affect matching or modify a reused image.
+
+Every successful upload, under any policy, gets upload metadata. The daemon
+computes SHA-256 over the bytes it successfully forwards to the node, then
+checks any supplied expected digest before publishing. Image registration,
+tags, placement, and upload metadata are committed together. A digest mismatch,
+failed write, or abort publishes no version and preserves the previous selected
+image. Session writes, finish, and abort are serialized; closed sessions reject
+further writes or finish. An older image without upload metadata is uploaded
+once under `update`, after which it can be reused. Deleting an image also deletes
+its metadata. SHA-256 is fixed; there is no algorithm column. The optional
+source path records where the client read the file for debugging and is never
+used for equality.
+
+Build comparison uses the resulting **disk image IDs** as it does for imports.
+For example, an unchanged answer ISO reuses its upload ID; the installer build
+then skips if its recipe and other resolved inputs still match. Changed ISO
+bytes publish a new ID, invalidate that build's metadata, and cause it to
+publish a new artifact ID. Each downstream build that consumes that artifact
+also rebuilds. Builds without matching stored metadata run normally.
+
+Keep reusable answer media persistent (`ephemeral: false`) and preserve local
+ISO files between runs. ISO generation can embed timestamps even with identical
+source files, so regenerating an ISO can legitimately change its digest. Make
+recipes should generate media from explicit prerequisites, then publish it with
+`update`. Use `overwrite` to force a new version regardless of matching bytes.
 
 ### `overlay` (default)
 
@@ -803,21 +856,18 @@ Installer builds:
 - [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,
   installed unattended via the bundled `autounattend.xml` on a
-  prepared answer-media ISO. Self-contained
-  pipeline: the first `apply` step downloads the Windows Server 2025
-  evaluation ISO + virtio-win drivers ISO (~9 GiB total) into
-  `~/VMs/ISOs/Windows/` and `~/VMs/ISOs/VirtIO/` on first run, the `build`
-  step drives the install, and a final `apply` registers a
+  prepared answer-media ISO. Its Makefile prepares the dedicated Windows Server
+  and VirtIO-Win import recipes, then the pipeline uploads answer media,
+  defines the installer template, builds, and registers a
   `windows-server-2025` runtime template that overlays the baked
   image for convenient manual testing.
 - [yaml/windows-11/windows-11.yml](../yaml/windows-11/windows-11.yml) —
   Windows 11 Pro with VirtIO drivers, qemu-guest-agent, SPICE guest
   integration, WinFSP, and VirtIO-FS, but no Cloudbase-Init/cloud-init.
   It consumes a manually downloaded, pre-registered `windows-11-iso` disk and
-  downloads the pinned VirtIO-Win 0.1.302 ISO with SHA-256 verification as
-  `virtio-win-iso` if it is not already
-  registered. No ISO download variables are required. The bundled
-  `autounattend.xml`
+  uses the shared, dedicated VirtIO-Win import recipe, prepared by its Makefile.
+  Both installation media must be registered before direct CLI invocation. No ISO
+  download variables are required. The bundled `autounattend.xml`
   selects Pro by image name and retains its TPM/Secure Boot bypass. The
   installer runs without TPM, provisions in audit mode, and uses Sysprep to
   generalize and shut down a fully decrypted `windows-11-pro-base`. Successful

@@ -13,6 +13,8 @@ module Corvus.Images
   , removeImageTag
   , recordImportIdentity
   , matchesImportIdentity
+  , recordUploadIdentity
+  , matchesUploadIdentity
   , deleteImageTags
   ) where
 
@@ -137,4 +139,19 @@ matchesImportIdentity key format (algorithm, digest, target) = do
         && diskImageImportIdentityAlgorithm stored == T.toLower algorithm
         && diskImageImportIdentityDigest stored == T.toLower digest
         && diskImageImportIdentityTarget stored == T.toLower target
+    _ -> False
+
+-- | Record the daemon's SHA-256 in the publication transaction.
+recordUploadIdentity :: DiskImageId -> Text -> Maybe Text -> SqlPersistT IO ()
+recordUploadIdentity key digest source =
+  insert_ $ DiskImageUploadIdentity key (T.toLower digest) source
+
+matchesUploadIdentity :: DiskImageId -> DriveFormat -> Text -> SqlPersistT IO Bool
+matchesUploadIdentity key format digest = do
+  image <- get key
+  identity <- getBy $ UniqueDiskImageUploadIdentity key
+  pure $ case (image, identity) of
+    (Just disk, Just (Entity _ stored)) ->
+      diskImageFormat disk == format
+        && diskImageUploadIdentityDigest stored == T.toLower digest
     _ -> False

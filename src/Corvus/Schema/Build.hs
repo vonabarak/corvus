@@ -40,6 +40,7 @@ where
 
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..))
+import Corvus.Protocol.Disk (UploadIfExists (..), parseUploadIfExists)
 import Corvus.Protocol.Template (TemplateDetails)
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
 import Corvus.Size (defaultSizeField)
@@ -94,7 +95,7 @@ data Upload = Upload
   , uploadPath :: Maybe Text
   , uploadEphemeral :: Bool
   , uploadNode :: Text
-  , uploadIfExists :: IfExists
+  , uploadIfExists :: UploadIfExists
   }
   deriving (Show)
 
@@ -107,7 +108,7 @@ instance FromJSON Upload where
       <*> o .:? "path"
       <*> o .:? "ephemeral" .!= True
       <*> o .:? "node" .!= ""
-      <*> o .:? "ifExists" .!= IfExistsError
+      <*> (o .:? "ifExists" .!= "error" >>= either (fail . T.unpack) pure . parseUploadIfExists)
 
 data Build = Build
   { buildName :: Text

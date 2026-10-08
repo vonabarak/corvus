@@ -200,6 +200,15 @@ class DatabaseMigrationCase(SingleNodeCase):
             self._execute(identity)
         with pytest.raises(subprocess.CalledProcessError):
             self._execute(identity.replace("(1,", "(999,"))
+        upload_identity = (
+            "INSERT INTO disk_image_upload_identity (disk_image_id, digest, source_path) "
+            "VALUES (1, 'sha256-digest', NULL)"
+        )
+        self._execute(upload_identity)
+        with pytest.raises(subprocess.CalledProcessError):
+            self._execute(upload_identity)
+        with pytest.raises(subprocess.CalledProcessError):
+            self._execute(upload_identity.replace("(1,", "(999,"))
         self._stop()
         self._start()
         with self._connect() as client:
@@ -207,6 +216,10 @@ class DatabaseMigrationCase(SingleNodeCase):
         assert (
             self._query("SELECT fingerprint, inputs FROM disk_image_build_identity")
             == "abc|{}"
+        )
+        assert (
+            self._query("SELECT digest FROM disk_image_upload_identity")
+            == "sha256-digest"
         )
         assert "is current; skipping migrations" in self._logs()
         assert self._query("SELECT COUNT(*) FROM drive") == "3"
@@ -218,6 +231,7 @@ class DatabaseMigrationCase(SingleNodeCase):
             assert client.status().database_backend == self.BACKEND
             assert client.vms.list() == []
         assert self._query("SELECT COUNT(*) FROM disk_image_build_identity") == "0"
+        assert self._query("SELECT COUNT(*) FROM disk_image_upload_identity") == "0"
         assert "Created database schema at version 11" in self._logs()
         assert "migrated from version" not in self._logs()
         assert self._query("SELECT version FROM schema_version") == "11"

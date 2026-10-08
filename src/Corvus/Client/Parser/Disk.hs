@@ -296,6 +296,7 @@ diskUploadCommand =
       )
     <*> ephemeralSwitch
     <*> nodeOption
+    <*> strOption (long "if-exists" <> metavar "POLICY" <> value "overwrite" <> help "Existing image: error, skip, overwrite or update" <> completeWith ["error", "skip", "overwrite", "update"])
 
 -- | Parser for disk overlay
 diskOverlayCommand :: Parser Command

@@ -121,6 +121,7 @@ deleteDiskAndSnapshots diskId = do
     deleteWhere [M.BuildCacheEntrySnapshotId ==. sk]
   deleteWhere [M.SnapshotDiskImageId ==. toSqlKey diskId]
   deleteWhere [DiskImageImportIdentityDiskImageId ==. toSqlKey diskId]
+  deleteWhere [DiskImageUploadIdentityDiskImageId ==. toSqlKey diskId]
   deleteWhere [DiskImageBuildIdentityDiskImageId ==. toSqlKey diskId]
   deleteImageTags (toSqlKey diskId)
   delete (toSqlKey diskId :: DiskImageId)

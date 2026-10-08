@@ -1,13 +1,19 @@
-"""Client-local disk uploads traverse daemon and nodeagent intact."""
+"""Client-local image uploads against the real daemon and nodeagent."""
 
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import secrets
 import shlex
 from pathlib import Path
 
-from corvus_test_harness import SingleNodeCase
+import pytest
+from corvus_client import DiskNotFound
+from corvus_client._schema import disk as schema
+from corvus_client.exceptions import CorvusError
+from corvus_test_harness import SingleNodeCase, SqliteDatabase
 
 
 def _uniq(stem: str) -> str:
@@ -15,7 +21,191 @@ def _uniq(stem: str) -> str:
 
 
 class TestDiskUpload(SingleNodeCase):
-    """Exercise the public streaming upload API, including replacement."""
+    def _bytes(self, path: str) -> bytes:
+        return self.node.run(shlex.join(["cat", "--", path])).stdout
+
+    def test_conditional_upload_policies_and_metadata(self, tmp_path: Path) -> None:
+        """Verified bytes, rather than path/size/mtime, drive conditional reuse.
+
+        Exercise the selected publication tag independently of latest, metadata
+        persistence, old uploads without metadata, and immutable older files.
+        Error and skip must decide before touching the requested destination.
+        """
+        name = f"upload-{secrets.token_hex(4)}"
+        source = tmp_path / "first.raw"
+        source.write_bytes(b"a" * 4096)
+        original_stat = source.stat()
+        first = self.client.disks.upload_from_file(
+            name + ":stable", source, format="raw"
+        )
+        info = first.show()
+        destination = info.placements[0].file_path
+        with SqliteDatabase(self.node) as database:
+            assert database.query(
+                "SELECT digest, source_path FROM disk_image_upload_identity WHERE disk_image_id = ?",
+                (info.id,),
+            ) == [
+                [hashlib.sha256(source.read_bytes()).hexdigest(), str(source.resolve())]
+            ]
+            renamed = tmp_path / "renamed.raw"
+            renamed.write_bytes(source.read_bytes())
+            reused = self.client.disks.upload_from_file(
+                name + ":stable",
+                renamed,
+                format="raw",
+                if_exists="update",
+                path="/unwritable/answer.raw",
+                node="missing-node",
+                ephemeral=True,
+            )
+            assert reused.show().id == info.id
+            assert reused.show().ephemeral is False
+            with pytest.raises(CorvusError, match="already exists"):
+                self.client.disks.upload_from_file(
+                    name + ":stable",
+                    source,
+                    format="raw",
+                    if_exists="error",
+                    path=destination,
+                )
+            skipped = self.client.disks.upload_from_file(
+                name + ":stable",
+                tmp_path / "absent",
+                format="qcow2",
+                if_exists="skip",
+                path=destination,
+            )
+            assert skipped.show().id == info.id
+            # The CLI also lets skip reuse an image with no local source file.
+            self.install_node_client_certs()
+            cli = self.node.run(
+                shlex.join(
+                    [
+                        "/opt/corvus/bin/crv",
+                        "--output",
+                        "json",
+                        "disk",
+                        "upload",
+                        name + ":stable",
+                        "/absent-upload-source.raw",
+                        "--format",
+                        "raw",
+                        "--if-exists",
+                        "skip",
+                    ]
+                ),
+                check=False,
+            )
+            assert cli.returncode == 0, (cli.stdout, cli.stderr)
+            assert json.loads(cli.stdout)["id"] == info.id
+            assert self._bytes(destination) == b"a" * 4096
+            source.write_bytes(b"b" * 4096)
+            os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+            second = self.client.disks.upload_from_file(
+                name + ":other", source, format="raw", if_exists="update"
+            )
+            assert second.show().id != info.id
+            # Same stable-tag payload still reuses stable, without moving latest.
+            stable = self.client.disks.upload_from_file(
+                name + ":stable", renamed, format="raw", if_exists="update"
+            )
+            assert stable.show().id == info.id
+            assert self.client.disks.get(name).show().id == second.show().id
+            changed = self.client.disks.upload_from_file(
+                name + ":stable", source, format="raw", if_exists="update"
+            )
+            assert changed.show().id != second.show().id
+            assert self._bytes(destination) == b"a" * 4096
+            assert (
+                self.client.disks.upload_from_file(
+                    name, source, format="raw", if_exists="update"
+                )
+                .show()
+                .id
+                == changed.show().id
+            )
+            # A pre-metadata image is republished once, then conditional reuse works.
+            database.execute(
+                "DELETE FROM disk_image_upload_identity WHERE disk_image_id = ?",
+                (changed.show().id,),
+            )
+            refreshed = self.client.disks.upload_from_file(
+                name, source, format="raw", if_exists="update"
+            )
+            assert refreshed.show().id != changed.show().id
+            assert (
+                self.client.disks.upload_from_file(
+                    name, source, format="raw", if_exists="update"
+                )
+                .show()
+                .id
+                == refreshed.show().id
+            )
+            for disk in self.client.disks.list():
+                if disk.name == name:
+                    self.client.disks.get(disk.id).delete()
+            assert database.query(
+                "SELECT COUNT(*) FROM disk_image_upload_identity WHERE disk_image_id = ?",
+                (info.id,),
+            ) == [[0]]
+
+    def test_collision_and_format_failure_preserve_publication(
+        self, tmp_path: Path
+    ) -> None:
+        name = f"upload-failure-{secrets.token_hex(4)}"
+        source = tmp_path / "source.raw"
+        source.write_bytes(b"first version" * 1024)
+        old = self.client.disks.upload_from_file(name + ":v1", source, format="raw")
+        info = old.show()
+        destination = info.placements[0].file_path
+        try:
+            source.write_bytes(b"replacement" * 1024)
+            with pytest.raises(CorvusError):
+                self.client.disks.upload_from_file(
+                    name + ":v2", source, format="raw", path=destination
+                )
+            assert self._bytes(destination) == b"first version" * 1024
+            assert self.client.disks.get(name).show().id == info.id
+            with pytest.raises(DiskNotFound):
+                self.client.disks.get(name + ":v2")
+            with pytest.raises(CorvusError, match="format differs"):
+                self.client.disks.upload_from_file(
+                    name, source, format="qcow2", if_exists="update"
+                )
+            assert self.client.disks.get(name).show().id == info.id
+        finally:
+            old.delete()
+
+    def test_digest_mismatch_and_abort_do_not_publish(self) -> None:
+        name = f"upload-digest-{secrets.token_hex(4)}"
+
+        async def exercise() -> None:
+            manager = await self.client._a.disks._ensure()
+            params = schema.DiskUploadParams.new_message()
+            params.name = name
+            params.format = "raw"
+            params.expectedSha256 = hashlib.sha256(b"expected").hexdigest()
+            response = await manager.beginUpload(params=params)
+            upload = response.result.upload
+            await upload.write(chunk=b"actual")
+            with pytest.raises(Exception, match="expectedSha256"):
+                await upload.finish()
+            with pytest.raises(Exception, match="closed"):
+                await upload.write(chunk=b"late")
+            await upload.abort()
+            response = await manager.beginUpload(params=params)
+            await response.result.upload.write(chunk=b"expected")
+            await response.result.upload.abort()
+            with pytest.raises(Exception, match="closed"):
+                await response.result.upload.finish()
+
+        self.client._rl.run(exercise())
+        with pytest.raises(DiskNotFound):
+            self.client.disks.get(name)
+        with SqliteDatabase(self.node) as database:
+            assert database.query(
+                "SELECT COUNT(*) FROM disk_image WHERE name = ?", (name,)
+            ) == [[0]]
 
     def _assert_remote_digest(self, path: str, expected: str) -> None:
         result = self.node.run(f"sha256sum {shlex.quote(path)}")

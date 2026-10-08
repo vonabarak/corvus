@@ -65,6 +65,27 @@ spec = do
         run (matchesImportIdentity key FormatRaw ("sha256", "abc", "download")) `shouldReturn` True
         run $ deleteDiskAndSnapshots $ fromSqlKey key
         run (getBy $ UniqueDiskImageImportIdentity key) `shouldReturn` Nothing
+  describe "verified upload identities" $ do
+    it "matches SHA-256 and format, ignores paths, and cleans up on deletion" $
+      bracket Db.setupTestDb Db.teardownTestDb $ \env -> do
+        let run :: SqlPersistT IO a -> IO a
+            run action = runSqlPool action (Db.tePool env)
+            date = UTCTime (fromGregorian 2026 1 1) (secondsToDiffTime 0)
+        key <- run $ publishImage $ DiskImage "uploaded:v1" FormatRaw Nothing date Nothing False
+        run (matchesUploadIdentity key FormatRaw "abc") `shouldReturn` False
+        run $ recordUploadIdentity key "ABC" (Just "/client/answer.iso")
+        run (matchesUploadIdentity key FormatRaw "abc") `shouldReturn` True
+        run (matchesUploadIdentity key FormatRaw "def") `shouldReturn` False
+        run (matchesUploadIdentity key FormatQcow2 "abc") `shouldReturn` False
+        run (recordUploadIdentity key "def" Nothing) `shouldThrow` anyException
+        run $ updateWhere [DiskImageUploadIdentityDiskImageId ==. key] [DiskImageUploadIdentitySourcePath =. Nothing]
+        run (matchesUploadIdentity key FormatRaw "abc") `shouldReturn` True
+        newer <- run $ publishImage $ DiskImage "uploaded:v2" FormatRaw Nothing date Nothing False
+        run $ recordUploadIdentity newer "def" Nothing
+        run (imageByName "uploaded:v1") `shouldReturn` Just (Entity key (DiskImage "uploaded" FormatRaw Nothing date Nothing False))
+        run (imageByName "uploaded") `shouldReturn` Just (Entity newer (DiskImage "uploaded" FormatRaw Nothing date Nothing False))
+        run $ deleteDiskAndSnapshots $ fromSqlKey key
+        run (getBy $ UniqueDiskImageUploadIdentity key) `shouldReturn` Nothing
   describe "build identities" $ do
     it "stores one identity per output and removes it on deletion" $
       bracket Db.setupTestDb Db.teardownTestDb $ \env -> do

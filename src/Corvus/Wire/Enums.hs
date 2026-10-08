@@ -59,11 +59,14 @@ module Corvus.Wire.Enums
     -- * NodeAdminState
   , toCapnpNodeAdminState
   , fromCapnpNodeAdminState
+  , toCapnpUploadIfExists
+  , fromCapnpUploadIfExists
   )
 where
 
 import qualified Capnp.Gen.Enums as CGE
 import qualified Corvus.Model as M
+import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Wire.Errors (WireError (..))
 
 toCapnpAudioDeviceModel :: M.AudioDeviceModel -> CGE.AudioDeviceModel
@@ -374,3 +377,18 @@ fromCapnpNodeAdminState = \case
   CGE.NodeAdminState'draining -> Right M.NodeDraining
   CGE.NodeAdminState'maintenance -> Right M.NodeMaintenance
   CGE.NodeAdminState'unknown' n -> Left (WireUnknownEnum "NodeAdminState" n)
+
+toCapnpUploadIfExists :: UploadIfExists -> CGE.UploadIfExists
+toCapnpUploadIfExists = \case
+  UploadError -> CGE.UploadIfExists'error
+  UploadSkip -> CGE.UploadIfExists'skip
+  UploadOverwrite -> CGE.UploadIfExists'overwrite
+  UploadUpdate -> CGE.UploadIfExists'update
+
+fromCapnpUploadIfExists :: CGE.UploadIfExists -> Either WireError UploadIfExists
+fromCapnpUploadIfExists = \case
+  CGE.UploadIfExists'error -> Right UploadError
+  CGE.UploadIfExists'skip -> Right UploadSkip
+  CGE.UploadIfExists'overwrite -> Right UploadOverwrite
+  CGE.UploadIfExists'update -> Right UploadUpdate
+  CGE.UploadIfExists'unknown' value -> Left (WireUnknownEnum "UploadIfExists" value)

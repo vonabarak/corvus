@@ -1,0 +1,16 @@
+---
+# Dedicated owner of windows-server-2025-iso; consumers prepare this recipe with Make.
+vars:
+  image_if_exists: update
+pipeline:
+  - apply:
+      ifExists: skip
+      disks:
+        - name: windows-server-2025-iso
+          ifExists: "{{ image_if_exists }}"
+          import: "https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
+          format: raw
+          path: ISOs/Windows/
+          checksum:
+            algorithm: md5
+            value: 13794bbbdb2557830a429d0a29b98e6c

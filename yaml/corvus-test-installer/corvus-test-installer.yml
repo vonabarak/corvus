@@ -11,7 +11,7 @@
 # The asset graph:
 #
 #   * `corvus-test-installer-iso` — registered out-of-band by
-#     `build-synthetic-installer.sh` (see the Makefile in this directory;
+#     the Makefile after `build-synthetic-installer.sh` creates the ISO (see the Makefile in this directory;
 #     `make image IMAGE=installer`). Not declared here so the bake
 #     can run on a host that doesn't have mkisofs / a kernel cache.
 #

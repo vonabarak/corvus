@@ -46,8 +46,7 @@ Corvus manages QEMU/KVM VMs. Haskell code lives in `src/` and `app/`;
   prepare those dependencies before building and propagate the selected image
   policy. Keep presence-only `ensure` separate from update or forced publication.
   Do not duplicate import declarations in consumer pipelines. See
-  [Image builds](doc/test-images.md#import-ownership) for workflow details and
-  outstanding conversions.
+  [Image builds](doc/test-images.md#import-ownership) for workflow details.
 
 ## Required commands
 

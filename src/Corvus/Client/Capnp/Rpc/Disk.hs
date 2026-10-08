@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
@@ -55,7 +56,7 @@ import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Vm as CGVm
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, throwIO, try)
 import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Client.Capnp.Rpc.Vm (getVmClient, rpcVmShow)
@@ -76,15 +77,18 @@ import Corvus.Wire.Enums
   , toCapnpDriveFormat
   , toCapnpDriveInterface
   , toCapnpDriveMedia
+  , toCapnpUploadIfExists
   )
 import Corvus.Wire.Errors (WireError, showWireError)
+import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
 import qualified Data.ByteString as BS
 import Data.Function ((&))
 import Data.Int (Int64)
 import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import System.IO (IOMode (ReadMode), withBinaryFile)
+import System.Directory (makeAbsolute)
+import System.IO (IOMode (ReadMode), SeekMode (AbsoluteSeek), hSeek, withBinaryFile)
 
 -- | Call a method on a cap and return its parsed results struct.
 callOn
@@ -260,46 +264,65 @@ rpcDiskImport conn name srcPath mDestPath mFormat ephemeral nodeRef = do
     callOn #import_ CGDisk.DiskManager'import'params {CGDisk.params = p} mgr
   pure tid
 
+-- | Update hashes and streams the same opened file. The daemon verifies the
+-- digest again before publishing, so changes during upload cannot be cached.
 rpcDiskUpload
-  :: CapnpConnection
-  -> Text
-  -> FilePath
-  -> DriveFormat
-  -> Maybe Text
-  -> Bool
-  -> EntityRef
-  -> IO Int64
-rpcDiskUpload conn name source fmt mPath ephemeral nodeRef = do
-  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
-    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
-  let params =
-        CGDisk.DiskUploadParams
-          { CGDisk.name = name
-          , CGDisk.format = toCapnpDriveFormat fmt
-          , CGDisk.path = Data.Maybe.fromMaybe "" mPath
-          , CGDisk.ephemeral = ephemeral
-          , CGDisk.node = toCapnpEntityRef nodeRef
-          }
-  CGDisk.DiskManager'beginUpload'results {CGDisk.upload = upload} <-
-    callOn #beginUpload CGDisk.DiskManager'beginUpload'params {CGDisk.params = params} mgr
-  let send h = do
-        chunk <- BS.hGet h (1024 * 1024)
-        if BS.null chunk
-          then pure ()
-          else do
-            _ <- callOn #write CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} upload
-            send h
-  uploadResult <- try @SomeException $ withBinaryFile source ReadMode send
-  case uploadResult of
-    Left err -> do
-      _ <- try @SomeException (callOn #abort CGDisk.DiskUpload'abort'params upload)
-      fail (show err)
-    Right () -> do
-      CGDisk.DiskUpload'finish'results {CGDisk.disk = disk} <-
-        callOn #finish CGDisk.DiskUpload'finish'params upload
-      CGDisk.Disk'show'results {CGDisk.info = info} <-
+  :: CapnpConnection -> Text -> FilePath -> DriveFormat -> Maybe Text -> Bool -> EntityRef -> PD.UploadIfExists -> IO (Int64, Bool)
+rpcDiskUpload conn name source fmt mPath ephemeral nodeRef policy =
+  if policy == PD.UploadUpdate
+    then withBinaryFile source ReadMode $ \handle -> do
+      digest <- hashFile handle hashInit
+      hSeek handle AbsoluteSeek 0
+      begin digest (send handle)
+    else begin "" (\upload -> withBinaryFile source ReadMode (`send` upload))
+  where
+    hashFile handle !context = do
+      chunk <- BS.hGet handle (1024 * 1024)
+      if BS.null chunk
+        then pure (T.pack (show (hashFinalize context :: Digest SHA256)))
+        else hashFile handle (hashUpdate (context :: Context SHA256) chunk)
+    begin digest stream = do
+      sourcePath <- makeAbsolute source
+      CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+        callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+      let params =
+            CGDisk.DiskUploadParams
+              { CGDisk.name = name
+              , CGDisk.format = toCapnpDriveFormat fmt
+              , CGDisk.path = Data.Maybe.fromMaybe "" mPath
+              , CGDisk.ephemeral = ephemeral
+              , CGDisk.node = toCapnpEntityRef nodeRef
+              , CGDisk.ifExists = toCapnpUploadIfExists policy
+              , CGDisk.expectedSha256 = digest
+              , CGDisk.sourcePath = T.pack sourcePath
+              }
+      CGDisk.DiskManager'beginUpload'results {CGDisk.result = CGDisk.DiskUploadResult disposition} <-
+        callOn #beginUpload CGDisk.DiskManager'beginUpload'params {CGDisk.params = params} mgr
+      case disposition of
+        CGDisk.DiskUploadResult'existing disk -> getId disk True
+        CGDisk.DiskUploadResult'upload upload -> do
+          completed <- try @SomeException $ do
+            stream upload
+            CGDisk.DiskUpload'finish'results {CGDisk.disk = disk} <-
+              callOn #finish CGDisk.DiskUpload'finish'params upload
+            getId disk False
+          case completed of
+            Right value -> pure value
+            Left err -> do
+              _ <- try @SomeException (callOn #abort CGDisk.DiskUpload'abort'params upload)
+              throwIO err
+        CGDisk.DiskUploadResult'unknown' _ -> fail "Unknown upload result"
+    send handle upload = do
+      chunk <- BS.hGet handle (1024 * 1024)
+      if BS.null chunk
+        then pure ()
+        else do
+          _ <- callOn #write CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} upload
+          send handle upload
+    getId disk reused = do
+      CGDisk.Disk'show'results {CGDisk.info = CGDisk.DiskImageInfo {CGDisk.id = did}} <-
         callOn #show CGDisk.Disk'show'params disk
-      case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+      pure (did, reused)
 
 rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> Maybe Text -> Bool -> IO Int64
 rpcDiskClone conn srcRef newName mPath ephemeral = do

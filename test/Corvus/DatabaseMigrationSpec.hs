@@ -107,7 +107,7 @@ spec = do
           DatabasePostgresql -> pure ()
         runSqlPool (rawExecute "INSERT INTO disk_image_tag (name, tag, disk_image_id) VALUES ('migration-disk', 'latest', 1)" []) pool `shouldThrow` anyException
 
-    it "adds import and build identities to version 10 without backfilling images" $
+    it "adds import, upload and build identities to version 10 without backfilling images" $
       withDatabase $ \cfg pool -> do
         sql <- T.readFile $ "test/fixtures/database/" <> T.unpack (databaseEngineId $ dcEngine cfg) <> "-v10-import.sql"
         runSqlPool (clearSchema (dcEngine cfg) >> forM_ (filter (not . T.null) $ map T.strip $ T.splitOn ";" sql) (`rawExecute` [])) pool
@@ -127,6 +127,15 @@ spec = do
         runSqlPool (rawExecute "UPDATE disk_image_import_identity SET import_url = ?" [PersistText "https://example.org/image.raw.xz?release=1"]) pool
         stored <- runSqlPool (rawSql "SELECT import_url FROM disk_image_import_identity" [] :: SqlPersistT IO [Single (Maybe T.Text)]) pool
         stored `shouldBe` [Single $ Just "https://example.org/image.raw.xz?release=1"]
+        uploads <- runSqlPool (rawSql "SELECT COUNT(*) FROM disk_image_upload_identity" [] :: SqlPersistT IO [Single Int]) pool
+        uploads `shouldBe` [Single 0]
+        let insertUpload :: Int64 -> SqlPersistT IO ()
+            insertUpload image = rawExecute "INSERT INTO disk_image_upload_identity (disk_image_id, digest) VALUES (?, 'abc')" [PersistInt64 image]
+        runSqlPool (insertUpload 999) pool `shouldThrow` anyException
+        runSqlPool (insertUpload 1) pool
+        runSqlPool (insertUpload 1) pool `shouldThrow` anyException
+        paths <- runSqlPool (rawSql "SELECT source_path FROM disk_image_upload_identity" [] :: SqlPersistT IO [Single (Maybe T.Text)]) pool
+        paths `shouldBe` [Single Nothing]
         runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaAlreadyCurrent 11)
         runSqlPool (rawExecute "INSERT INTO disk_image_import_identity (disk_image_id, algorithm, digest, target) VALUES (1, 'md5', 'def', 'final')" []) pool `shouldThrow` anyException
 

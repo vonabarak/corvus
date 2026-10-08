@@ -190,3 +190,11 @@ enum ErrorCode {
   invalidBalloonTarget @31;
   balloonError @32;
 }
+
+# Client-local upload policy. The raw RPC default publishes a new version.
+enum UploadIfExists {
+  overwrite @0;
+  error @1;
+  skip @2;
+  update @3;
+}

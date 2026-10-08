@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 from corvus_client.types import (
@@ -211,6 +213,100 @@ class TestBuildUpdate(SingleNodeCase):
             )
             assert unchanged == changed
             self._assert_skipped(events, 3)
+
+    def test_uploaded_input_changes_rebuild_the_entire_chain(
+        self, tmp_path: Path
+    ) -> None:
+        """A leading upload keeps stable IDs and skips both bakes after restart.
+        Changed bytes with unchanged size/mtime publish a new upload ID and
+        rebuild both consumers; overwrite forces the same propagation.
+        """
+        base = self.register_base_images()["alpine"]
+        with self._resources() as prefix, SqliteDatabase(self.node) as database:
+            media, first, second = [
+                f"{prefix}-{suffix}" for suffix in ("media", "a", "b")
+            ]
+            source = tmp_path / "answer.raw"
+            source.write_bytes(b"a" * 4096)
+            original_stat = source.stat()
+            first_template = _template(first + "-tpl", base)
+            drives = first_template["drives"]
+            assert isinstance(drives, list)
+            drives.append(
+                {
+                    "diskImage": media,
+                    "strategy": "direct",
+                    "interface": "virtio",
+                    "readOnly": True,
+                }
+            )
+            steps: list[dict[str, object]] = [
+                {
+                    "upload": {
+                        "name": media,
+                        "from": "answer.raw",
+                        "format": "raw",
+                        "ephemeral": False,
+                        "ifExists": "update",
+                    }
+                },
+                {"apply": {"ifExists": "overwrite", "templates": [first_template]}},
+                {"build": _build(first, first + "-tpl")},
+                {
+                    "apply": {
+                        "ifExists": "overwrite",
+                        "templates": [_template(second + "-tpl", first)],
+                    }
+                },
+                {"build": _build(second, second + "-tpl")},
+            ]
+            pipeline = tmp_path / "build.yml"
+
+            def run() -> tuple[dict[str, int], list[BuildStreamItem]]:
+                pipeline.write_text(yaml.safe_dump({"pipeline": steps}))
+                events = list(self.client.build_stream(str(pipeline)))
+                end = next(
+                    event for event in events if isinstance(event, BuildPipelineEnd)
+                )
+                assert not [build for build in end.builds if build.error_message], end
+                artifacts = {
+                    build.name: build.artifact_disk_id
+                    for build in end.builds
+                    if build.artifact_disk_id is not None
+                }
+                artifacts[media] = self.client.disks.get(media).show().id
+                return artifacts, events
+
+            initial, _ = run()
+            before = database.query(
+                "SELECT COUNT(*) FROM task WHERE command = 'instantiate'"
+            )
+            self.client.close()
+            self.node._client = None
+            self.node.run("sudo systemctl restart corvus.service")
+            same, events = run()
+            assert same == initial
+            self._assert_skipped(events, 2)
+            assert (
+                database.query(
+                    "SELECT COUNT(*) FROM task WHERE command = 'instantiate'"
+                )
+                == before
+            )
+            source.write_bytes(b"b" * 4096)
+            os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+            changed, _ = run()
+            assert all(
+                changed[name] != initial[name] for name in (media, first, second)
+            )
+            same, events = run()
+            assert same == changed
+            self._assert_skipped(events, 2)
+            upload = steps[0]["upload"]
+            assert isinstance(upload, dict)
+            upload["ifExists"] = "overwrite"
+            forced, _ = run()
+            assert all(forced[name] != changed[name] for name in (media, first, second))
 
     def test_missing_metadata_force_and_cache_publication(self) -> None:
         """Old outputs rebuild once. Explicit rebuild and overwrite bypass the

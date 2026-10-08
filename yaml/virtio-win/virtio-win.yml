@@ -1,0 +1,16 @@
+---
+# Dedicated owner of virtio-win-iso; consumers prepare this recipe with Make.
+vars:
+  image_if_exists: update
+pipeline:
+  - apply:
+      ifExists: skip
+      disks:
+        - name: virtio-win-iso
+          ifExists: "{{ image_if_exists }}"
+          import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
+          format: raw
+          path: ISOs/VirtIO/
+          checksum:
+            algorithm: sha256
+            value: "303f7ae40dad495d6ae474fdc571df58958a4dbc5c37a522d80f9a203867949d"

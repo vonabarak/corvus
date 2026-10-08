@@ -556,7 +556,7 @@ instance (C.HasTypeId DiskUploadParams) where
     typeId  = 15076162066251495298
 instance (C.TypedStruct DiskUploadParams) where
     numStructWords  = 1
-    numStructPtrs  = 3
+    numStructPtrs  = 5
 instance (C.Allocate DiskUploadParams) where
     type AllocHint DiskUploadParams = ()
     new _ = C.newTypedStruct
@@ -571,7 +571,10 @@ data instance C.Parsed DiskUploadParams
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
         ,path :: (RP.Parsed Basics.Text)
         ,ephemeral :: (RP.Parsed Std_.Bool)
-        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,ifExists :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.UploadIfExists)
+        ,expectedSha256 :: (RP.Parsed Basics.Text)
+        ,sourcePath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskUploadParams))
 deriving instance (Std_.Eq (C.Parsed DiskUploadParams))
@@ -580,7 +583,10 @@ instance (C.Parse DiskUploadParams (C.Parsed DiskUploadParams)) where
                                    <*> (GH.parseField #format raw_)
                                    <*> (GH.parseField #path raw_)
                                    <*> (GH.parseField #ephemeral raw_)
-                                   <*> (GH.parseField #node raw_))
+                                   <*> (GH.parseField #node raw_)
+                                   <*> (GH.parseField #ifExists raw_)
+                                   <*> (GH.parseField #expectedSha256 raw_)
+                                   <*> (GH.parseField #sourcePath raw_))
 instance (C.Marshal DiskUploadParams (C.Parsed DiskUploadParams)) where
     marshalInto raw_ DiskUploadParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -588,6 +594,9 @@ instance (C.Marshal DiskUploadParams (C.Parsed DiskUploadParams)) where
         (GH.encodeField #path path raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
         (GH.encodeField #node node raw_)
+        (GH.encodeField #ifExists ifExists raw_)
+        (GH.encodeField #expectedSha256 expectedSha256 raw_)
+        (GH.encodeField #sourcePath sourcePath raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot DiskUploadParams Basics.Text) where
@@ -600,6 +609,83 @@ instance (GH.HasField "ephemeral" GH.Slot DiskUploadParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 0 1 0)
 instance (GH.HasField "node" GH.Slot DiskUploadParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "ifExists" GH.Slot DiskUploadParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.UploadIfExists) where
+    fieldByLabel  = (GH.dataField 32 0 16 0)
+instance (GH.HasField "expectedSha256" GH.Slot DiskUploadParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "sourcePath" GH.Slot DiskUploadParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 4)
+data DiskUploadResult
+type instance (R.ReprFor DiskUploadResult) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUploadResult) where
+    typeId  = 10194143020525316912
+instance (C.TypedStruct DiskUploadResult) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate DiskUploadResult) where
+    type AllocHint DiskUploadResult = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUploadResult (C.Parsed DiskUploadResult))
+instance (C.AllocateList DiskUploadResult) where
+    type ListAllocHint DiskUploadResult = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUploadResult (C.Parsed DiskUploadResult))
+data instance C.Parsed DiskUploadResult
+    = DiskUploadResult
+        {union' :: (C.Parsed (GH.Which DiskUploadResult))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUploadResult))
+deriving instance (Std_.Eq (C.Parsed DiskUploadResult))
+instance (C.Parse DiskUploadResult (C.Parsed DiskUploadResult)) where
+    parse raw_ = (DiskUploadResult <$> (C.parse (GH.structUnion raw_)))
+instance (C.Marshal DiskUploadResult (C.Parsed DiskUploadResult)) where
+    marshalInto raw_ DiskUploadResult{..} = (do
+        (C.marshalInto (GH.structUnion raw_) union')
+        )
+instance (GH.HasUnion DiskUploadResult) where
+    unionField  = (GH.dataField 0 0 16 0)
+    data RawWhich DiskUploadResult mut_
+        = RW_DiskUploadResult'upload (R.Raw DiskUpload mut_)
+        | RW_DiskUploadResult'existing (R.Raw Disk mut_)
+        | RW_DiskUploadResult'unknown' Std_.Word16
+    internalWhich tag_ struct_ = case tag_ of
+        0 ->
+            (RW_DiskUploadResult'upload <$> (GH.readVariant #upload struct_))
+        1 ->
+            (RW_DiskUploadResult'existing <$> (GH.readVariant #existing struct_))
+        _ ->
+            (Std_.pure (RW_DiskUploadResult'unknown' tag_))
+    data Which DiskUploadResult
+instance (GH.HasVariant "upload" GH.Slot DiskUploadResult DiskUpload) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 0)
+instance (GH.HasVariant "existing" GH.Slot DiskUploadResult Disk) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 1)
+data instance C.Parsed (GH.Which DiskUploadResult)
+    = DiskUploadResult'upload (RP.Parsed DiskUpload)
+    | DiskUploadResult'existing (RP.Parsed Disk)
+    | DiskUploadResult'unknown' Std_.Word16
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed (GH.Which DiskUploadResult)))
+deriving instance (Std_.Eq (C.Parsed (GH.Which DiskUploadResult)))
+instance (C.Parse (GH.Which DiskUploadResult) (C.Parsed (GH.Which DiskUploadResult))) where
+    parse raw_ = (do
+        rawWhich_ <- (GH.unionWhich raw_)
+        case rawWhich_ of
+            (RW_DiskUploadResult'upload rawArg_) ->
+                (DiskUploadResult'upload <$> (C.parse rawArg_))
+            (RW_DiskUploadResult'existing rawArg_) ->
+                (DiskUploadResult'existing <$> (C.parse rawArg_))
+            (RW_DiskUploadResult'unknown' tag_) ->
+                (Std_.pure (DiskUploadResult'unknown' tag_))
+        )
+instance (C.Marshal (GH.Which DiskUploadResult) (C.Parsed (GH.Which DiskUploadResult))) where
+    marshalInto raw_ parsed_ = case parsed_ of
+        (DiskUploadResult'upload arg_) ->
+            (GH.encodeVariant #upload arg_ (GH.unionStruct raw_))
+        (DiskUploadResult'existing arg_) ->
+            (GH.encodeVariant #existing arg_ (GH.unionStruct raw_))
+        (DiskUploadResult'unknown' tag_) ->
+            (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
 data DiskCopyParams 
 type instance (R.ReprFor DiskCopyParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCopyParams) where
@@ -1463,18 +1549,18 @@ instance (C.AllocateList DiskManager'beginUpload'results) where
 instance (C.EstimateListAlloc DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results))
 data instance C.Parsed DiskManager'beginUpload'results
     = DiskManager'beginUpload'results 
-        {upload :: (RP.Parsed DiskUpload)}
+        {result :: (RP.Parsed DiskUploadResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskManager'beginUpload'results))
 deriving instance (Std_.Eq (C.Parsed DiskManager'beginUpload'results))
 instance (C.Parse DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results)) where
-    parse raw_ = (DiskManager'beginUpload'results <$> (GH.parseField #upload raw_))
+    parse raw_ = (DiskManager'beginUpload'results <$> (GH.parseField #result raw_))
 instance (C.Marshal DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results)) where
     marshalInto raw_ DiskManager'beginUpload'results{..} = (do
-        (GH.encodeField #upload upload raw_)
+        (GH.encodeField #result result raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "upload" GH.Slot DiskManager'beginUpload'results DiskUpload) where
+instance (GH.HasField "result" GH.Slot DiskManager'beginUpload'results DiskUploadResult) where
     fieldByLabel  = (GH.ptrField 0)
 data DiskManager'mediaEject'params 
 type instance (R.ReprFor DiskManager'mediaEject'params) = (R.Ptr (Std_.Just R.Struct))

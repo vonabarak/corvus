@@ -1,12 +1,14 @@
 ---
-# Windows Server 2025 evaluation image — self-contained build pipeline.
+# Windows Server 2025 evaluation image — unattended build pipeline.
 #
 # Bakes a Windows Server 2025 image with qemu-guest-agent, cloudbase-init,
-# WinFSP and the virtio-fs guest driver pre-installed. Three pipeline
-# steps:
+# WinFSP and the virtio-fs guest driver pre-installed. The Makefile prepares
+# installation media through dedicated import recipes and generates the local
+# answer ISO. Steps:
 #
-#   1. apply: register the Microsoft eval ISO, the virtio-win ISO, the
-#      OVMF firmware disks, and the bake-only `windows-server-2025-
+#   0. upload: conditionally publish the persistent answer ISO.
+#
+#   1. apply: register the OVMF firmware disks, and the bake-only `windows-server-2025-
 #      installer` template.
 #   2. build: drive the autounattend-based install end-to-end; produces
 #      the registered disk `windows-server-2025-eval` under
@@ -21,7 +23,7 @@
 #     FirstLogonCommands.
 #
 # Usage:
-#   crv build yaml/windows-server-2025/windows-server-2025.yml --wait
+#   make image IMAGE=windows
 #
 # Expect 45–55 minutes wall time. The bake VM is graphical by default;
 # connect via SPICE if you want to watch the install live, or flip
@@ -39,14 +41,14 @@ _ovmf_vars_drive: &ovmf_vars
   strategy: clone
 
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
   - upload:
       name: windows-server-2025-autounattend
       from: ./build/autounattend.iso
       format: raw
-      ephemeral: true
+      ephemeral: false
       ifExists: "{{ image_if_exists }}"
 
   - apply:
@@ -60,23 +62,6 @@ pipeline:
         - name: ovmf-vars
           register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
           format: qcow2
-
-        # ── Install media (downloaded on first apply) ──────────────────
-        - name: windows-server-2025-iso
-          import: "https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
-          format: raw
-          path: ISOs/Windows/
-          checksum:
-            algorithm: md5
-            value: 13794bbbdb2557830a429d0a29b98e6c
-        - name: virtio-win-iso
-          import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso"
-          format: raw
-          path: ISOs/VirtIO/
-          checksum:
-            algorithm: sha256
-            value: "303f7ae40dad495d6ae474fdc571df58958a4dbc5c37a522d80f9a203867949d"
-
 
   - apply:
       ifExists: overwrite

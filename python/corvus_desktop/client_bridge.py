@@ -47,8 +47,8 @@ from pathlib import Path
 from typing import TypedDict
 
 import capnp
+from corvus_client._async.build import preprocess_uploads
 from corvus_client._async.client import AsyncClient
-from corvus_client._async.disk import AsyncDiskManager
 from corvus_client._async.streams import (
     ByteStream,
     GuestAgentSubscription,
@@ -65,8 +65,6 @@ from corvus_client.types import (
 )
 from PySide6.QtCore import QObject, Signal
 from typing_extensions import Unpack
-
-import yaml
 
 from .cli import DesktopConfig
 
@@ -2056,65 +2054,9 @@ class CorvusBridge(QObject):
             self.build_finished.emit("not connected")
             return
         try:
-            doc = yaml.safe_load(yaml_text)
-            if isinstance(doc, dict) and isinstance(doc.get("pipeline"), list):
-                uploads: list[dict[str, object]] = []
-                rest: list[object] = []
-                seen_non_upload = False
-                for step in doc["pipeline"]:
-                    if isinstance(step, dict) and isinstance(step.get("upload"), dict):
-                        if seen_non_upload:
-                            raise ValueError(
-                                "pipeline upload steps must precede apply/build steps"
-                            )
-                        uploads.append(step["upload"])
-                    else:
-                        seen_non_upload = True
-                        rest.append(step)
-                if uploads:
-                    disks = AsyncDiskManager(client.daemon)
-                    root = Path(base_dir or ".").resolve()
-                    for upload in uploads:
-                        name = upload.get("name")
-                        source = upload.get("from")
-                        format = upload.get("format")
-                        if (
-                            not isinstance(name, str)
-                            or not isinstance(source, str)
-                            or not isinstance(format, str)
-                        ):
-                            raise ValueError(
-                                "upload name, from, and format must be strings"
-                            )
-                        if upload.get("ifExists", "error") not in {
-                            "error",
-                            "overwrite",
-                        }:
-                            raise ValueError(
-                                "upload.ifExists must be 'error' or 'overwrite'"
-                            )
-                        source_path = Path(source)
-                        if not source_path.is_absolute():
-                            source_path = root / source_path
-                        path = upload.get("path")
-                        ephemeral = upload.get("ephemeral", True)
-                        node = upload.get("node")
-                        if path is not None and not isinstance(path, str):
-                            raise ValueError("upload.path must be a string")
-                        if not isinstance(ephemeral, bool):
-                            raise ValueError("upload.ephemeral must be a boolean")
-                        if node is not None and not isinstance(node, (int, str)):
-                            raise ValueError("upload.node must be a name or id")
-                        await disks.upload_from_file(
-                            name,
-                            source_path,
-                            format=format,
-                            path=path,
-                            ephemeral=ephemeral,
-                            node=node,
-                        )
-                    doc["pipeline"] = rest
-                    yaml_text = yaml.safe_dump(doc, sort_keys=False)
+            yaml_text = await preprocess_uploads(
+                client.daemon, yaml_text, Path(base_dir) if base_dir else Path.cwd()
+            )
             async for item in client.build_stream_text(yaml_text):
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == "task_id":
                     self.build_started.emit(int(item[1]))

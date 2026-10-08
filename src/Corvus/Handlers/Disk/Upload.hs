@@ -5,51 +5,51 @@
 module Corvus.Handlers.Disk.Upload
   ( DiskUploadPlan (..)
   , DiskUploadFinalize (..)
+  , checkDiskUpload
   , prepareDiskUpload
   )
 where
 
-import Corvus.Action
-import Corvus.Images
-
-import Control.Exception (SomeException, try)
-import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
-import Corvus.Handlers.Disk.Agent
-  ( cloneImageViaAgent
-  , createImageViaAgent
-  , createOverlayViaAgent
-  , deleteImageViaAgent
-  , getImageInfoViaAgent
-  , getImageSizeViaAgent
-  , resizeImageViaAgent
-  )
-import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
-import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow, diskImageNodeFilePathFor, getAttachedVms, getBackingChainIds, getDiskImageInfo, getOverlayIds, getReadWriteAttachedVms, getRunningAttachedVms, hasPlacementOnNode, listDiskImageNodes, listDiskImages, recordDiskImageNode)
-import Corvus.Handlers.Disk.Import (DiskImportAction (..), handleDiskImportCopy)
-import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
-import Corvus.Handlers.Disk.Rebase (DiskRebase (..), handleDiskRebase)
-import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotCreate, handleSnapshotDelete, handleSnapshotList, handleSnapshotMerge, handleSnapshotRollback)
-import Corvus.Handlers.Disk.Transfer (stageBackingChain, transferImageBetweenNodes)
-import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
-import Corvus.Handlers.Scheduler (pickNodeForDisk, pickNodeForExistingDisk)
+import Corvus.Action
+import Corvus.Handlers.Disk.Agent (deleteImageViaAgent, getImageInfoViaAgent)
+import Corvus.Handlers.Disk.Db (recordDiskImageNode)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, sanitizeDiskName)
+import Corvus.Handlers.Disk.Placement (nodeBasePathFor)
+import Corvus.Handlers.Resolve (resolveErrorMessage, resolveNode)
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
+import Corvus.Images
 import Corvus.Model
 import qualified Corvus.Model as M
-import Corvus.Node.Image (ImageInfo (..), ImageResult (..), detectFormatFromPath)
+import Corvus.Node.Image (ImageInfo (..))
 import Corvus.Protocol
-import Corvus.Qemu.Config (getEffectiveBasePath)
+import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Types (ServerState (..), runServerLogging)
-import Data.Int (Int64)
-import Data.List (isPrefixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (runSqlPool)
-import System.FilePath (takeExtension, takeFileName, (</>))
 
-import Corvus.Handlers.Disk.Placement (nodeBasePathFor, withSelectedDiskNode)
+-- | Read-only policy decision, before reserving an ID or opening a writer.
+-- A tagged publication checks that tag, not the family's latest version.
+checkDiskUpload :: ServerState -> Text -> DriveFormat -> UploadIfExists -> Maybe Text -> IO (Either Text (Maybe DiskImageId))
+checkDiskUpload state name format policy digest =
+  case sanitizeDiskName name of
+    Left err -> pure (Left err)
+    Right _ -> runSqlPool decide (ssDbPool state)
+  where
+    decide = do
+      existing <- imageByName name
+      case existing of
+        Nothing -> pure (Right Nothing)
+        Just (Entity key _) -> case policy of
+          UploadError -> pure (Left "upload target already exists")
+          UploadSkip -> pure (Right (Just key))
+          UploadOverwrite -> pure (Right Nothing)
+          UploadUpdate -> do
+            matches <- maybe (pure False) (matchesUploadIdentity key format) digest
+            pure (Right (if matches then Just key else Nothing))
 
 -- | Resolved destination and reserved ID for a client-upload stream.
 -- The completed image and its tags are published only by finalization.
@@ -60,12 +60,13 @@ data DiskUploadPlan = DiskUploadPlan
   , dupEphemeral :: !Bool
   , dupNodeId :: !M.NodeId
   , dupFilePath :: !FilePath
+  , dupSourcePath :: !(Maybe Text)
   , dupStoredPath :: !Text
   }
 
 prepareDiskUpload
-  :: ServerState -> Text -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> IO (Either Text DiskUploadPlan)
-prepareDiskUpload state clientName name format mPath ephemeral nodeRefText =
+  :: ServerState -> Text -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> Maybe Text -> IO (Either Text DiskUploadPlan)
+prepareDiskUpload state clientName name format mPath ephemeral nodeRefText sourcePath =
   case sanitizeDiskName name of
     Left err -> pure (Left err)
     Right safeName -> do
@@ -76,7 +77,7 @@ prepareDiskUpload state clientName name format mPath ephemeral nodeRefText =
               RespDiskCreated rawId -> do
                 let imageId = M.toSqlKey rawId
                 defaultPath <- resolveDiskFilePath imageId basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
-                pure (Right (DiskUploadPlan imageId safeName format ephemeral nid defaultPath (makeRelativeToBase basePath defaultPath)))
+                pure (Right (DiskUploadPlan imageId safeName format ephemeral nid defaultPath sourcePath (makeRelativeToBase basePath defaultPath)))
               _ -> pure (Left "Failed to reserve an image ID for upload")
       -- Empty text or capnp's unset-EntityRef default ('byId 0')
       -- both mean "no explicit placement" — defer to the scheduler.
@@ -103,16 +104,19 @@ instance Action DiskUploadReserveId where
     key <- runSqlPool reserveImageId (ssDbPool (acState ctx))
     pure (RespDiskCreated (fromSqlKey key))
 
-newtype DiskUploadFinalize = DiskUploadFinalize {dufPlan :: DiskUploadPlan}
+data DiskUploadFinalize = DiskUploadFinalize
+  { dufPlan :: !DiskUploadPlan
+  , dufDigest :: !Text
+  }
 
 instance Action DiskUploadFinalize where
   actionSubsystem _ = SubDisk
   actionCommand _ = "upload"
   actionEntityName = Just . dupName . dufPlan
-  actionExecute ctx a = handleDiskUploadFinalize (acState ctx) (dufPlan a)
+  actionExecute ctx a = handleDiskUploadFinalize (acState ctx) (dufPlan a) (dufDigest a)
 
-handleDiskUploadFinalize :: ServerState -> DiskUploadPlan -> IO Response
-handleDiskUploadFinalize state plan = runServerLogging state $ do
+handleDiskUploadFinalize :: ServerState -> DiskUploadPlan -> Text -> IO Response
+handleDiskUploadFinalize state plan digest = runServerLogging state $ do
   inspected <- liftIO $ getImageInfoViaAgent state (dupNodeId plan) (dupFilePath plan)
   case inspected of
     Left err -> discard err
@@ -134,6 +138,7 @@ handleDiskUploadFinalize state plan = runServerLogging state $ do
                         , diskImageBackingImageId = Nothing
                         , diskImageEphemeral = dupEphemeral plan
                         }
+                  recordUploadIdentity key digest (dupSourcePath plan)
                   recordDiskImageNode key (dupNodeId plan) (dupStoredPath plan)
                   pure (RespDiskCreated (fromSqlKey key))
               )

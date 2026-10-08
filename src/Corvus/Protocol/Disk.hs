@@ -1,8 +1,11 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Disk and snapshot response data.
 module Corvus.Protocol.Disk
-  ( DiskImageInfo (..)
+  ( UploadIfExists (..)
+  , parseUploadIfExists
+  , DiskImageInfo (..)
   , DiskImagePlacement (..)
   , SnapshotInfo (..)
   )
@@ -84,3 +87,15 @@ instance ToJSON DiskImagePlacement where
 
 instance ToJSON SnapshotInfo where
   toJSON = genericToJSON innerOptions
+
+-- | Collision policy for client-local image publication.
+data UploadIfExists = UploadError | UploadSkip | UploadOverwrite | UploadUpdate
+  deriving (Eq, Show, Generic)
+
+parseUploadIfExists :: Text -> Either Text UploadIfExists
+parseUploadIfExists value = case value of
+  "error" -> Right UploadError
+  "skip" -> Right UploadSkip
+  "overwrite" -> Right UploadOverwrite
+  "update" -> Right UploadUpdate
+  _ -> Left "upload.ifExists must be error, skip, overwrite or update"

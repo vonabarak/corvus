@@ -17,12 +17,9 @@
 # in a VM would emerge several packages and run for minutes;
 # this finishes in ~30 s on a cold cache.
 #
-# Output: a new ID-prefixed raw image under BaseImages/SyntheticInstaller/,
-# published as corvus-test-installer-iso:latest. Older files remain immutable.
-# The ISO is assembled locally before upload; registered files are never rewritten.
-#
-# Tools required on host: curl, tar, gzip, cpio, mkisofs (or
-# genisoimage), and the `crv` CLI on PATH.
+# Output: local build/corvus-test-installer-iso.raw. Make owns incremental
+# generation and publication; registered image files are never rewritten.
+# Tools required: curl, tar, gzip, cpio, mkisofs (or genisoimage).
 
 set -euo pipefail
 
@@ -33,11 +30,7 @@ YAML_DIR="$REPO_ROOT/yaml/corvus-test-installer"
 BUILD_DIR="$YAML_DIR/build"
 CACHE_DIR="$YAML_DIR/cache"
 
-# The destination is on the node; the source remains a local build artifact.
-BASE_IMAGES_DIR=${CORVUS_BASE_IMAGES_DIR:-$HOME/VMs/BaseImages}
-ISO_DIR="$BASE_IMAGES_DIR/SyntheticInstaller"
 ISO_PATH="$BUILD_DIR/$DISK_NAME.raw"
-CRV=${CRV:-crv}
 
 # Alpine v3.21 packages. The kernel is `linux-virt` (KVM-optimised,
 # ~10 MB); busybox-static gives us /bin/busybox; syslinux gives
@@ -71,7 +64,6 @@ need curl
 need tar
 need gzip
 need cpio
-need "$CRV"
 
 # ── 1. Fetch apks into cache (idempotent) ─────────────────────────────────
 mkdir -p "$CACHE_DIR"
@@ -98,7 +90,7 @@ fetch "$ALPINE_SYSLINUX_PKG"
 # few control-only sub-streams concatenated in front; GNU tar reads
 # straight through and gives us the data members. ─────────────────────────
 EXTRACT_DIR=$BUILD_DIR/extracted
-rm -rf "$BUILD_DIR"
+rm -rf "$EXTRACT_DIR" "$BUILD_DIR/initramfs" "$BUILD_DIR/iso"
 mkdir -p "$EXTRACT_DIR/kernel" "$EXTRACT_DIR/busybox" "$EXTRACT_DIR/syslinux"
 tar -xzf "$CACHE_DIR/$ALPINE_KERNEL_PKG"    -C "$EXTRACT_DIR/kernel"   2>/dev/null || true
 tar -xzf "$CACHE_DIR/$ALPINE_BUSYBOX_PKG"   -C "$EXTRACT_DIR/busybox"  2>/dev/null || true
@@ -185,7 +177,7 @@ cp "$YAML_DIR/isolinux.cfg" "$ISO_TREE/isolinux/isolinux.cfg"
 # paths the isolinux config references; without them the files get
 # mangled to 8.3 uppercase and isolinux can't find the kernel.
 $MKISOFS \
-  -o "$ISO_PATH" \
+  -o "$ISO_PATH.tmp" \
   -V CORVUS-INSTALLER \
   -R -J \
   -b isolinux/isolinux.bin \
@@ -196,8 +188,5 @@ $MKISOFS \
   -quiet \
   "$ISO_TREE"
 
+mv "$ISO_PATH.tmp" "$ISO_PATH"
 log "built $ISO_PATH ($(du -h "$ISO_PATH" | cut -f1))"
-
-# ── 5. Publish a new immutable version through the daemon ────────────────
-"$CRV" disk upload "$DISK_NAME" "$ISO_PATH" --format raw --path "$ISO_DIR/"
-log "published $DISK_NAME:latest"

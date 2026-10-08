@@ -15,6 +15,8 @@ module Corvus.Model
   , Drive (..)
   , NetworkInterface (..)
   , DiskImageTag (..)
+  , DiskImageUploadIdentity (..)
+  , DiskImageUploadIdentityId
   , DiskImageImportIdentity (..)
   , DiskImageImportIdentityId
   , DiskImageBuildIdentity (..)
@@ -101,59 +103,15 @@ module Corvus.Model
   )
 where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
-import qualified Data.Aeson.Types as AT
+import Corvus.Model.EnumText
+import Data.Aeson (FromJSON (..), ToJSON (..))
 import Data.Int (Int64)
-import Data.List (find)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Time (UTCTime)
 import Database.Persist
 import Database.Persist.Sql (PersistFieldSql (..), SqlType (..), fromSqlKey, toSqlKey)
 import Database.Persist.TH
 import GHC.Generics (Generic)
-
--- | Type class for enums that serialize to/from Text
-class (Eq a) => EnumText a where
-  -- | The mapping between enum values and their text representations
-  enumMapping :: [(a, Text)]
-
-  -- | Type name for error messages
-  enumTypeName :: Text
-
-  -- | Convert enum to text (derived from mapping)
-  enumToText :: a -> Text
-  enumToText val =
-    fromMaybe ("<unknown " <> enumTypeName @a <> ">") (lookup val enumMapping)
-
-  -- | Convert text to enum (derived from mapping)
-  enumFromText :: Text -> Either Text a
-  enumFromText t =
-    case find (\(_, txt) -> T.toLower txt == T.toLower t) enumMapping of
-      Just (val, _) -> Right val
-      Nothing -> Left $ "Invalid " <> enumTypeName @a <> ": " <> t
-
--- | Standard parser for enums using EnumText
-parseEnumJSON :: (EnumText a) => Value -> AT.Parser a
-parseEnumJSON (String t) =
-  case enumFromText t of
-    Right val -> pure val
-    Left err -> fail (T.unpack err)
-parseEnumJSON _ = fail "Expected String"
-
--- | Standard serializer for enums using EnumText
-toEnumJSON :: (EnumText a) => a -> Value
-toEnumJSON = String . enumToText
-
--- | Helper to create PersistField instance
-enumToPersistValue :: (EnumText a) => a -> PersistValue
-enumToPersistValue = PersistText . enumToText
-
--- | Helper to create PersistField instance
-enumFromPersistValue :: forall a. (EnumText a) => PersistValue -> Either Text a
-enumFromPersistValue (PersistText t) = enumFromText t
-enumFromPersistValue x = Left $ "Expected Text for " <> enumTypeName @a <> ", got: " <> T.pack (show x)
 
 data VmStatus
   = VmStopped
@@ -738,6 +696,15 @@ DiskImageImportIdentity
     target Text
     importUrl Text Maybe
     UniqueDiskImageImportIdentity diskImageId
+    deriving Show Eq Generic
+
+-- Verified SHA-256 of uploaded file bytes; absent for older uploads.
+-- The source path is diagnostic and does not affect matching.
+DiskImageUploadIdentity
+    diskImageId DiskImageId
+    digest Text
+    sourcePath Text Maybe
+    UniqueDiskImageUploadIdentity diskImageId
     deriving Show Eq Generic
 
 -- Effective recipe and resolved source versions used to build this artifact.

@@ -92,3 +92,43 @@ def test_build_stream_reports_pipeline_end(daemon_socket: Path, tmp_path: Path) 
         assert isinstance(last_task_id, int) and last_task_id > 0
 
     run(go)
+
+
+def test_upload_preprocessing_forwards_policy_and_removes_only_uploads(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+    from unittest.mock import AsyncMock, Mock, patch
+
+    from corvus_client._async.build import preprocess_uploads
+
+    disks = Mock(upload_from_file=AsyncMock())
+    remaining: dict[str, object] = {"apply": {"templates": []}}
+    text = yaml.safe_dump(
+        {
+            "pipeline": [
+                {
+                    "upload": {
+                        "name": "answer",
+                        "from": "answer.iso",
+                        "format": "raw",
+                        "ifExists": "update",
+                        "ephemeral": False,
+                    }
+                },
+                remaining,
+            ]
+        }
+    )
+    with patch("corvus_client._async.build.AsyncDiskManager", return_value=disks):
+        result = asyncio.run(preprocess_uploads(Mock(), text, tmp_path))
+    assert yaml.safe_load(result)["pipeline"] == [remaining]
+    disks.upload_from_file.assert_awaited_once_with(
+        "answer",
+        tmp_path / "answer.iso",
+        format="raw",
+        path=None,
+        ephemeral=False,
+        node=None,
+        if_exists="update",
+    )
