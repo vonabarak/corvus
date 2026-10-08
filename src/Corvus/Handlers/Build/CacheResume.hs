@@ -469,7 +469,7 @@ runFreshBakeFallback state parentTaskId sink stack startTime opts b = do
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
       target = buildTarget b
       strategy = buildStrategy b
-  tplR <- resolveTemplateAndValidate state strategy (buildTemplate b)
+  tplR <- resolveTemplateAndValidate b
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do

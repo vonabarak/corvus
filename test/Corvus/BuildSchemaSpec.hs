@@ -138,7 +138,7 @@ spec = describe "Schema.Build" $ do
           buildTemplate b `shouldBe` "tpl"
           btFormat (buildTarget b) `shouldBe` FormatQcow2
           btCompact (buildTarget b) `shouldBe` True
-          btIfExists (buildTarget b) `shouldBe` IfExistsError
+          btIfExists (buildTarget b) `shouldBe` BuildIfExistsPolicy IfExistsError
           buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
           bvmCpuCount (buildVm b) `shouldBe` 4
@@ -228,22 +228,20 @@ spec = describe "Schema.Build" $ do
               , "      target: {}"
               ]
       case decodePipeline yaml of
-        Right c -> btIfExists (buildTarget (firstBuild c)) `shouldBe` IfExistsError
+        Right c -> btIfExists (buildTarget (firstBuild c)) `shouldBe` BuildIfExistsPolicy IfExistsError
         Left e -> expectationFailure e
 
     it "parses ifExists: error" $
-      parseIfExists (wrapTarget "error") `shouldBe` Right IfExistsError
+      parseIfExists (wrapTarget "error") `shouldBe` Right (BuildIfExistsPolicy IfExistsError)
 
     it "parses ifExists: skip" $
-      parseIfExists (wrapTarget "skip") `shouldBe` Right IfExistsSkip
+      parseIfExists (wrapTarget "skip") `shouldBe` Right (BuildIfExistsPolicy IfExistsSkip)
 
     it "parses ifExists: overwrite" $
-      parseIfExists (wrapTarget "overwrite") `shouldBe` Right IfExistsOverwrite
+      parseIfExists (wrapTarget "overwrite") `shouldBe` Right (BuildIfExistsPolicy IfExistsOverwrite)
 
-    it "rejects update for derived build targets" $
-      decodePipeline (wrapTarget "update") `shouldSatisfy` \case
-        Left _ -> True
-        _ -> False
+    it "parses ifExists: update for build targets" $
+      parseIfExists (wrapTarget "update") `shouldBe` Right BuildIfExistsUpdate
 
     it "rejects unknown ifExists values" $
       decodePipeline (wrapTarget "maybe") `shouldSatisfy` \case

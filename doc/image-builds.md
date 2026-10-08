@@ -150,7 +150,7 @@ pipeline:
         size: 10G                          # only used by from-scratch strategy
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
-        ifExists: error                    # error (default) | skip | overwrite — see below
+        ifExists: error                    # error (default) | skip | overwrite | update — see below
 
       useCache: false                      # default: false; equivalent to --use-cache
       buildCache: false                    # default: false; equivalent to --build-cache
@@ -218,20 +218,135 @@ created, so a wrong policy never wastes a bake.
 
 | Value | Behaviour |
 |---|---|
-| `error` (default) | Fail immediately with `target '<name>' already exists; use ifExists: skip or overwrite to allow`. No bake VM is created. |
+| `error` (default) | Fail immediately with `target '<name>' already exists; use ifExists: skip, overwrite or update to allow`. No bake VM is created. |
 | `skip` | Return success without baking. The existing disk is treated as the artifact and its id is reported in the build result. Lets a re-run of a partially-failed pipeline walk past already-completed builds. |
 | `overwrite` | Bake and publish a new version, moving the requested tag and `latest` after success. Existing versions and users remain intact. |
+| `update` | Reuse the selected artifact when its recorded inputs match. Otherwise bake and publish a new version. Artifacts without build metadata rebuild once. |
 
 ```yaml
+name: debian-12-nginx
 target:
-  name: debian-12-nginx
-  ifExists: skip
+  ifExists: update
 ```
 
 Targets accept `name` or `name:tag`. Existing-target checks use that tag.
 A failed build preserves the previous tag mapping. Templates resolve floating
 tags once at build start; the resolved version IDs contribute to the build
 cache key, so moving a tag cannot reuse a cache for an older base image.
+
+#### How build metadata is created
+
+Build metadata describes the declared inputs used to produce one published
+disk image version. Its fingerprint is a SHA-256 hash of an input manifest;
+it is not a checksum of the resulting disk contents or the checksum used to
+decide whether to import a source image.
+
+Before checking whether an `update` build can be skipped, the daemon prepares
+the current inputs:
+
+1. The client substitutes build variables and reads local input files before
+   sending the recipe. A `shell.script` becomes inline script text, and a
+   `file.from` becomes base64-encoded file contents. The manifest therefore
+   reflects the submitted contents, rather than the local filenames.
+2. The daemon reads the template, its resolved source image versions, and its
+   SSH public key material in one database transaction. Each source-backed
+   drive contributes its immutable disk image ID, including firmware and
+   installation media. A floating selector such as `gentoo-base-cloud:latest`
+   is replaced by the version it selects at that moment. The same captured
+   template and source versions are used if the build proceeds; moving a tag
+   afterwards does not change the inputs of that bake.
+3. The daemon normalizes these inputs and creates the manifest. The manifest
+   contains a format version (currently `1`), a build envelope, the target's
+   compaction setting, and the ordered provisioner list. The envelope contains
+   the normalized template, strategy, target format and size, bake VM CPU and
+   RAM settings, shell defaults, and boot keys.
+
+Normalization keeps settings that can affect the declared build while removing
+identifiers and execution policies that should not force a rebuild:
+
+| Input | Treatment in the manifest |
+|---|---|
+| Template configuration | Keep drive settings, networking, shared directories, audio devices, and other template settings. Remove the template's ID, name, description, and creation time, plus database IDs of shared directories and audio devices. |
+| Source image references | Keep each resolved image ID. Remove the image name and original drive selector, so different names or tags selecting the same version are equivalent. |
+| Template SSH keys | Use sorted public key material instead of key database IDs. |
+| Provisioners | Keep script text, file contents and destination/mode, shell environment/workdir/timeouts, wait conditions, and reboot settings. Preserve execution order. |
+| Environment variables | Sort by variable name and exclude daemon-injected bake VM and task identifiers, which change between executions. |
+| Output and execution policies | Exclude the build name/description, node selection, output path, `ifExists`, cleanup and shutdown-wait policies, and cache settings. Keep target format, size, and compaction. |
+
+The daemon encodes the manifest as canonical UTF-8 JSON, recursively sorting
+object keys while preserving array order, then computes its SHA-256 fingerprint.
+Reordering YAML mapping keys does not change the fingerprint; changing script
+text or provisioner order does. Recreating a template with equivalent retained
+settings also leaves the fingerprint unchanged. The manifest format version
+participates in the hash, so a future change to that version will invalidate
+older fingerprints.
+
+After a successful bake, publication records one `DiskImageBuildIdentity` row
+for the new output version:
+
+| Column | Stored value |
+|---|---|
+| `disk_image_id` | The published output image ID; unique per metadata row. |
+| `fingerprint` | The hexadecimal SHA-256 fingerprint of the canonical manifest. |
+| `inputs` | The complete canonical JSON manifest, retained for inspection and debugging. |
+
+The image record, tag updates, node placement, and metadata row are saved in
+the same database transaction. Metadata is recorded for every successfully
+published build, regardless of its `ifExists` policy, including builds that
+resume from cache and installer builds. A failed build leaves the previous
+artifact, tags, and metadata intact. Deleting an output image removes its
+metadata; source IDs embedded in the JSON do not prevent deleting old source
+versions.
+
+#### How `update` compares metadata
+
+For `target.ifExists: update`, the daemon first prepares the current manifest
+and fingerprint as above. Invalid template references, unresolved source
+images, or missing template SSH keys fail validation before an existing output
+can be reused. It then resolves the requested output name/tag and looks up
+metadata by that selected image version's ID:
+
+| Selected target and metadata | Decision |
+|---|---|
+| No target image exists | Build and publish the first version. |
+| The target exists but has no build metadata | Build and publish a version with metadata. This includes imported images and outputs created before metadata was recorded. |
+| The stored fingerprint differs from the current fingerprint | Build and publish a new version. |
+| The fingerprints match | Skip the build and return the existing output image ID. |
+| `--rebuild-from N` is set with `N > 0` | Bypass the matching-fingerprint skip and execute the build. |
+
+Equality is a comparison of the two fingerprints. The daemon does not compare
+the saved `inputs` JSON field by field, download source images, or ask a node
+agent to hash disk contents for this check. A match returns before build-cache
+lookup or bake VM creation and does not create a new metadata row. Otherwise,
+the normal build and cache workflow runs, and successful publication saves the
+current manifest against the new output image ID. Cache flags alone do not
+bypass a matching fingerprint. `overwrite` always executes the build and
+publishes a fresh version.
+
+Combine disk-level `ifExists: update` and a verified import checksum with build
+`target.ifExists: update`: the dedicated
+[`gentoo-base-cloud.yml`](../yaml/gentoo-headless/gentoo-base-cloud.yml) recipe
+owns the import, while
+[`gentoo-headless-standalone.yml`](../yaml/gentoo-headless/gentoo-headless-standalone.yml)
+consumes that registered image. `make -C yaml/gentoo-headless
+build-headless-standalone` runs the import recipe before the build recipe in
+separate CLI invocations, forwarding the selected policy to both.
+An unchanged checksum keeps the source version and skips matching downstream
+builds. A new import or rebuilt intermediate artifact changes its image ID, so
+each dependent build rebuilds in dependency order. Unrelated branches can still
+skip. This works across separate invocations, daemon restarts, and retries of
+partially completed pipelines; it does not rely on a per-run “changed” flag.
+
+For example, if build A uses source image ID `S1` and build B uses A's output
+ID `A1`, their saved manifests contain `S1` and `A1`, respectively. An unchanged
+import preserves `S1`, so both builds can skip. A new import produces `S2`:
+A's fingerprint changes and it publishes `A2`. When B runs next, it resolves
+`A2` instead of `A1`, so B's fingerprint changes too. The source IDs carry the
+dependency change through the chain even if the build recipes are unchanged.
+
+Changes outside declared inputs, such as package repository contents or
+files behind a shared directory, are not detected. Use `overwrite` or
+`--rebuild-from` when those inputs require a refresh.
 
 The same field name `ifExists:` exists at the top level of an `apply:`
 document (see [apply-configuration](apply-configuration.md)), where it
@@ -666,14 +781,18 @@ once before building):
   Ubuntu 26.04 LTS with nginx preinstalled (`ubuntu26` template).
 - [yaml/gentoo-test/gentoo-test.yml](../yaml/gentoo-test/gentoo-test.yml) —
   Gentoo image preloaded with the full Corvus build/test toolchain
-  (`gentoo20260412` template). The bake takes ~15 minutes.
+  (`gentoo-headless-cloudinit` template). The bake takes ~15 minutes.
 
 From-scratch builds:
 
-- [yaml/gentoo-test/gentoo-headless.yml](../yaml/gentoo-test/gentoo-headless.yml) —
+- [yaml/gentoo-headless/gentoo-headless.yml](../yaml/gentoo-headless/gentoo-headless.yml) —
   minimal headless Gentoo on an empty target disk, custom kernel
   (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
   kernel `.config` next to the YAML.
+- [yaml/gentoo-headless/gentoo-headless-standalone.yml](../yaml/gentoo-headless/gentoo-headless-standalone.yml) —
+  headless Gentoo built using official mirrors without host-side mounts.
+  Run `make -C yaml/gentoo-headless build-headless-standalone` to resolve
+  and check the current upstream image before building.
 - [yaml/corvus-test-vm/corvus-test-vm.yml](../yaml/corvus-test-vm/corvus-test-vm.yml) —
   the integration-test Alpine image (BIOS+UEFI, sshd, qemu-ga,
   vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian

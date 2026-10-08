@@ -67,8 +67,7 @@ runInstallerPhase state parentTaskId sink vmId artifactDiskId target needFlatten
           parentTaskId
           vmId
           artifactDiskId
-          (buildName b)
-          target
+          b
           needFlatten
       case publishResult of
         Left err -> pure $ Left err

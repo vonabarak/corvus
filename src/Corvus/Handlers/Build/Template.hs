@@ -27,7 +27,7 @@ import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateRe
 import Corvus.Handlers.Vm (VmDelete (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Schema.Build (BuildStrategy (..), BuildTarget (..), btFormat, btSize)
+import Corvus.Schema.Build (Build (..), BuildStrategy (..), BuildTarget (..), btFormat, btSize)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.List (find)
@@ -47,23 +47,15 @@ resolveTemplateIdOrErr state name = do
     Nothing -> Left $ "template '" <> name <> "' not found"
     Just (Entity key tpl) -> Right (fromSqlKey key, templateVmGuestAgent tpl)
 
--- | Resolve the build's template by name and enforce the
--- guest-agent precondition. The installer strategy doesn't need QGA
--- (vendor autounattend drives everything); every other strategy does.
-resolveTemplateAndValidate
-  :: ServerState
-  -> BuildStrategy
-  -> Text
-  -- ^ template name
-  -> LoggingT IO (Either Text Int64)
-resolveTemplateAndValidate state strategy tplName = do
-  r <- liftIO $ resolveTemplateIdOrErr state tplName
-  pure $ case r of
-    Left err -> Left err
-    Right (templateId, hasGuestAgent)
-      | strategy /= BuildStrategyInstaller && not hasGuestAgent ->
-          Left ("template '" <> tplName <> "' must have guestAgent: true")
-      | otherwise -> Right templateId
+-- | Validate the captured template rather than resolving floating inputs a
+-- second time. The installer strategy does not require a guest agent.
+resolveTemplateAndValidate :: Build -> LoggingT IO (Either Text Int64)
+resolveTemplateAndValidate b = pure $ case buildResolvedTemplate b of
+  Nothing -> Left "build template snapshot missing"
+  Just details
+    | buildStrategy b /= BuildStrategyInstaller && not (tvdGuestAgent details) ->
+        Left ("template '" <> buildTemplate b <> "' must have guestAgent: true")
+    | otherwise -> Right (tvdId details)
 
 -- | Instantiate the template into a bake VM and register
 -- its cleanup destructor immediately so a later failure tears it down.

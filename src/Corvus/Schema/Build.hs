@@ -20,6 +20,8 @@ module Corvus.Schema.Build
   , Build (..)
   , BuildCacheMode (..)
   , BuildTarget (..)
+  , BuildIfExists (..)
+  , BuildIdentity (..)
   , BuildStrategy (..)
   , BuildVm (..)
   , ShellDefaults (..)
@@ -125,6 +127,8 @@ data Build = Build
   , buildUseCache :: Bool
   , buildBuildCache :: Bool
   , buildResolvedTemplate :: Maybe TemplateDetails
+  , buildIdentity :: Maybe BuildIdentity
+  -- ^ Captured before baking; published atomically with the artifact.
   , buildCacheMode :: BuildCacheMode
   -- ^ How the build-step cache stores and restores each step.
   -- Defaults to 'CacheModeMemory' (vmstate-aware, preserves the
@@ -182,6 +186,7 @@ instance FromJSON Build where
       <*> o .:? "useCache" .!= False
       <*> o .:? "buildCache" .!= False
       <*> pure Nothing
+      <*> pure Nothing
       <*> o .:? "cacheMode" .!= CacheModeMemory
 
 -- | Build-level defaults applied to every 'ProvShell' step.
@@ -237,16 +242,15 @@ instance FromJSON ShellDefaults where
 --   * 'IfExistsSkip' — treat the existing disk as the artifact and
 --     return success without booting a bake VM. Lets a re-run of a
 --     partially-failed pipeline walk past already-completed builds.
---   * 'IfExistsOverwrite' — delete the existing disk before
---     publishing the new artifact, but only if the disk is not
---     currently attached to any VM. An attached target always
---     errors regardless of the policy.
+--   * 'IfExistsOverwrite' — publish a fresh version, retaining the old one.
+--   * 'BuildIfExistsUpdate' — reuse an artifact whose recorded inputs match
+--     the current recipe and resolved source image versions.
 data BuildTarget = BuildTarget
   { btFormat :: DriveFormat
   , btSize :: Int64
   , btCompact :: Bool
   , btPath :: Maybe Text
-  , btIfExists :: IfExists
+  , btIfExists :: BuildIfExists
   }
   deriving (Show)
 
@@ -257,7 +261,23 @@ instance FromJSON BuildTarget where
       <*> defaultSizeField o "size" 10737418240
       <*> o .:? "compact" .!= True
       <*> o .:? "path"
-      <*> o .:? "ifExists" .!= IfExistsError
+      <*> o .:? "ifExists" .!= BuildIfExistsPolicy IfExistsError
+
+-- | Build-only policy. Apply and upload retain their own collision rules.
+data BuildIfExists = BuildIfExistsPolicy IfExists | BuildIfExistsUpdate
+  deriving (Eq, Show)
+
+instance FromJSON BuildIfExists where
+  parseJSON (String "update") = pure BuildIfExistsUpdate
+  parseJSON value = BuildIfExistsPolicy <$> parseJSON value
+
+-- | Versioned canonical JSON inputs and their SHA-256 digest. This is
+-- internal build state, never accepted from YAML or exposed through RPC.
+data BuildIdentity = BuildIdentity
+  { biFingerprint :: Text
+  , biInputs :: Text
+  }
+  deriving (Eq, Show)
 
 data BuildStrategy
   = BuildStrategyOverlay

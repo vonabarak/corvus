@@ -190,10 +190,24 @@ class DatabaseMigrationCase(SingleNodeCase):
             else "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'drive'"
         )
         assert "migration_drive_media" in self._query(index_query)
+        assert self._query("SELECT COUNT(*) FROM disk_image_build_identity") == "0"
+        identity = (
+            "INSERT INTO disk_image_build_identity (disk_image_id, fingerprint, inputs) "
+            "VALUES (1, 'abc', '{}')"
+        )
+        self._execute(identity)
+        with pytest.raises(subprocess.CalledProcessError):
+            self._execute(identity)
+        with pytest.raises(subprocess.CalledProcessError):
+            self._execute(identity.replace("(1,", "(999,"))
         self._stop()
         self._start()
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
+        assert (
+            self._query("SELECT fingerprint, inputs FROM disk_image_build_identity")
+            == "abc|{}"
+        )
         assert "is current; skipping migrations" in self._logs()
         assert self._query("SELECT COUNT(*) FROM drive") == "3"
 
@@ -203,6 +217,7 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.list() == []
+        assert self._query("SELECT COUNT(*) FROM disk_image_build_identity") == "0"
         assert "Created database schema at version 11" in self._logs()
         assert "migrated from version" not in self._logs()
         assert self._query("SELECT version FROM schema_version") == "11"

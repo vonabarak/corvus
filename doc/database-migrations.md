@@ -105,7 +105,10 @@ number on a fresh database. New migrations should add fixtures for their
 starting schema, with data exercising the transformation.
 
 The version-10 import fixtures freeze the image and version tables needed by
-`V011`; the full historical upgrade tests also exercise the new table.
+`V011`, which adds import identities and build input identities. The full
+historical upgrade tests exercise both tables. Schema version remains 11 for
+this unreleased change; development databases created with an earlier revision
+of version 11 must be recreated.
 
 The Haskell suite covers planning, missing transitions, fresh creation,
 metadata errors, real upgrades, and transaction rollback. The integration

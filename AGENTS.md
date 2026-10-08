@@ -40,6 +40,14 @@ Corvus manages QEMU/KVM VMs. Haskell code lives in `src/` and `app/`;
   the migration guide.
 - Before adding or renaming enums, check `src/Corvus/Model.hs`,
   `Corvus.Protocol.*`, and `Corvus.Wire.Enums`.
+- In managed image builds, keep source-image and installation-media imports in
+  dedicated import recipes, with one owning declaration per imported image.
+  Derivative build pipelines consume registered dependencies; their Makefiles
+  prepare those dependencies before building and propagate the selected image
+  policy. Keep presence-only `ensure` separate from update or forced publication.
+  Do not duplicate import declarations in consumer pipelines. See
+  [Image builds](doc/test-images.md#import-ownership) for workflow details and
+  outstanding conversions.
 
 ## Required commands
 

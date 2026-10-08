@@ -44,7 +44,8 @@ import qualified Corvus.Build.Cache.Hash as H
 import qualified Corvus.Build.Cache.Store as CStore
 import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Build.Artifact
-  ( checkIfExistsPreBake
+  ( checkBuildUpdate
+  , checkIfExistsPreBake
   , compactDisk
   , publishArtifact
   , publishArtifactByClone
@@ -423,9 +424,8 @@ runOneBuildBody
 runOneBuildBody state parentTaskId sink stack startTime opts b = do
   let target = buildTarget b
 
-  -- 0. Pre-bake target.ifExists check. Decide all three policies before
-  --    spinning up the bake VM so we never bake just to discover at
-  --    publish time that the target name was a problem.
+  -- Error and skip retain their fast path. Update requires the resolved
+  -- template and its source versions before deciding whether to bake.
   preBake <- checkIfExistsPreBake state (buildName b) target
   case preBake of
     Left err -> pure $ Left err
@@ -438,12 +438,35 @@ runOneBuildBody state parentTaskId sink stack startTime opts b = do
                 template <- getBy (UniqueTemplateVmName (buildTemplate b))
                 case template of
                   Nothing -> pure Nothing
-                  Just (Entity key _) -> getTemplateDetails key
+                  Just (Entity key _) -> do
+                    details <- getTemplateDetails key
+                    case details of
+                      Nothing -> pure Nothing
+                      Just resolved -> do
+                        keys <- mapM (get . toSqlKey . tvskiId) (tvdSshKeys resolved)
+                        pure (Just (resolved, map (fmap sshKeyPublicKey) keys))
             )
             (ssDbPool state)
       case snapshot of
         Nothing -> pure (Left "build template not found")
-        Just details -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts b {buildResolvedTemplate = Just details}
+        Just (details, keys)
+          | any (\d -> tvdiCloneStrategy d /= StrategyCreate && isNothing (tvdiDiskImage d)) (tvdDrives details) -> pure (Left "build template source image not found")
+          | any isNothing keys -> pure (Left "build template SSH key not found")
+          | otherwise -> do
+              let resolved = b {buildResolvedTemplate = Just details}
+                  identity = H.buildInputIdentity resolved (map (fromMaybe "") keys)
+                  captured = resolved {buildIdentity = Just identity}
+              validation <- resolveTemplateAndValidate captured
+              case validation of
+                Left err -> pure (Left err)
+                Right _ -> do
+                  existing <-
+                    if btIfExists target == BuildIfExistsUpdate
+                      then checkBuildUpdate state sink (buildName b) identity (boRebuildFrom opts > 0)
+                      else pure Nothing
+                  case existing of
+                    Just key -> pure (Right key)
+                    Nothing -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts captured
 
 -- | The original 'runOneBuildBody'. Renamed so the pre-bake
 -- ifExists check can short-circuit cleanly without nesting the
@@ -523,7 +546,7 @@ runFreshBake state parentTaskId sink stack startTime opts b = do
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
       target = buildTarget b
       strategy = buildStrategy b
-  tplR <- resolveTemplateAndValidate state strategy (buildTemplate b)
+  tplR <- resolveTemplateAndValidate b
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do

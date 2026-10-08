@@ -176,6 +176,7 @@ else:
             "windows-server-2025",
             "corvus-test-installer",
             "gentoo-test",
+            "gentoo-headless",
             "windows-11",
             "debian-nginx",
             "ubuntu-nginx",

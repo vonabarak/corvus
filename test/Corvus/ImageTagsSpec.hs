@@ -65,6 +65,23 @@ spec = do
         run (matchesImportIdentity key FormatRaw ("sha256", "abc", "download")) `shouldReturn` True
         run $ deleteDiskAndSnapshots $ fromSqlKey key
         run (getBy $ UniqueDiskImageImportIdentity key) `shouldReturn` Nothing
+  describe "build identities" $ do
+    it "stores one identity per output and removes it on deletion" $
+      bracket Db.setupTestDb Db.teardownTestDb $ \env -> do
+        let run :: SqlPersistT IO a -> IO a
+            run action = runSqlPool action (Db.tePool env)
+            date = UTCTime (fromGregorian 2026 1 1) (secondsToDiffTime 0)
+        source <- run $ publishImage $ DiskImage "source" FormatRaw Nothing date Nothing False
+        output <- run $ publishImage $ DiskImage "built" FormatRaw Nothing date Nothing False
+        let identity = DiskImageBuildIdentity output "sha256-digest" "{\"source\":1}"
+        run $ insert_ identity
+        run (insert_ identity) `shouldThrow` anyException
+        stored <- run (getBy $ UniqueDiskImageBuildIdentity output)
+        fmap entityVal stored `shouldBe` Just identity
+        run $ deleteDiskAndSnapshots $ fromSqlKey source
+        run (count [DiskImageBuildIdentityDiskImageId ==. output]) `shouldReturn` 1
+        run $ deleteDiskAndSnapshots $ fromSqlKey output
+        run (getBy $ UniqueDiskImageBuildIdentity output) `shouldReturn` Nothing
   describe "transactional image tags" $ do
     it "reserves invisible, non-reusable IDs and publishes under the reserved ID" $
       bracket Db.setupTestDb Db.teardownTestDb $ \env -> do

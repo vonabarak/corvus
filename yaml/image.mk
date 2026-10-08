@@ -5,14 +5,16 @@ SHELL := /bin/bash
 CRV ?= crv
 export CRV
 IMAGE_POLICY ?= overwrite
+# Recipes may refresh dependencies for build while ensure only checks presence.
+BUILD_DEPENDENCIES ?= dependencies
 IMAGE_CHECK := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))check-images.sh)
 OUTPUTS = $(addprefix disk:,$(DISKS)) $(addprefix template:,$(TEMPLATES))
 
 .PHONY: all build ensure dependencies publish check clean rebuild cache-clean
 all: build
 
-build: dependencies
-	+$(MAKE) --no-print-directory publish IMAGE_POLICY=overwrite
+build: $(BUILD_DEPENDENCIES)
+	+$(MAKE) --no-print-directory publish IMAGE_POLICY=$(IMAGE_POLICY)
 
 # Only the check helper's missing-output status permits publication.
 define ensure-images
@@ -41,7 +43,8 @@ endif
 clean:
 	rm -rf build
 
-rebuild: build
+rebuild:
+	+$(MAKE) --no-print-directory build IMAGE_POLICY=overwrite
 
 cache-clean:
 	$(if $(DOWNLOAD_CACHE),rm -rf $(DOWNLOAD_CACHE),@:)

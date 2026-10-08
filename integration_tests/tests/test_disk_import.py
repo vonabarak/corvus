@@ -18,6 +18,8 @@ from corvus_client.types import (
     ApplyEntityStart,
     ApplyStreamItem,
     BuildPipelineEnd,
+    BuildStepStart,
+    BuildStreamItem,
 )
 from corvus_test_harness import SingleNodeCase, SqliteDatabase, TestNode
 from corvus_test_harness.runner import NodeShellRunner
@@ -472,3 +474,112 @@ class TestDiskImport(SingleNodeCase):
                 assert server.request_count() == before + 1
             finally:
                 self._delete_versions_silent(name, cli_name, legacy_name)
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(1800)
+    def test_unchanged_import_skips_derived_build(self) -> None:
+        """A verified release download gates the derived build. Equal checksums
+        cause neither an HTTP GET nor a provisioner run; a new verified release
+        publishes a new source version and rebuilds the artifact.
+        """
+        base = self.register_base_images()["alpine"]
+        original = _node_bytes(
+            self.node, self.client.disks.get(base).show().placements[0].file_path
+        )
+        source, artifact, template = [
+            _uniq(stem) for stem in ("release-source", "release-build", "release-tpl")
+        ]
+        with _ImportServer(self.node) as server:
+            server.set_payload(original)
+            checksum = {
+                "algorithm": "sha256",
+                "target": "download",
+                "value": hashlib.sha256(original).hexdigest(),
+            }
+            pipeline = {
+                "pipeline": [
+                    {
+                        "apply": {
+                            "ifExists": "skip",
+                            "disks": [
+                                {
+                                    "name": source,
+                                    "import": server.url + "/image.qcow2",
+                                    "ifExists": "update",
+                                    "checksum": checksum,
+                                }
+                            ],
+                            "templates": [
+                                {
+                                    "name": template,
+                                    "cpuCount": 2,
+                                    "ram": "1024M",
+                                    "headless": True,
+                                    "guestAgent": True,
+                                    "drives": [
+                                        {
+                                            "diskImage": source,
+                                            "strategy": "overlay",
+                                            "interface": "virtio",
+                                            "size": "2G",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    },
+                    {
+                        "build": {
+                            "name": artifact,
+                            "template": template,
+                            "target": {
+                                "ifExists": "update",
+                                "size": "2G",
+                                "format": "qcow2",
+                            },
+                            "vm": {"cpuCount": 2, "ram": "1024M"},
+                            "provisioners": [
+                                {"shell": "echo verified-release > /tmp/release"}
+                            ],
+                            "cleanup": "always",
+                        }
+                    },
+                ]
+            }
+
+            def run() -> tuple[int, list[BuildStreamItem]]:
+                events = list(self.client.build_stream_text(yaml.safe_dump(pipeline)))
+                end = next(
+                    event for event in events if isinstance(event, BuildPipelineEnd)
+                )
+                assert not [result for result in end.builds if result.error_message], (
+                    end
+                )
+                image_id = end.builds[-1].artifact_disk_id
+                assert image_id is not None
+                return image_id, events
+
+            try:
+                first, _ = run()
+                source_id = self.client.disks.get(source).show().id
+                assert server.request_count() == 1
+                same, events = run()
+                assert same == first
+                assert self.client.disks.get(source).show().id == source_id
+                assert server.request_count() == 1
+                assert not any(isinstance(event, BuildStepStart) for event in events)
+                # Trailing unused bytes leave qcow2 bootable while changing the
+                # downloaded release identity, just as a republished image does.
+                released = original + bytes(512)
+                server.set_payload(released)
+                checksum["value"] = hashlib.sha256(released).hexdigest()
+                updated, events = run()
+                assert updated != first
+                assert self.client.disks.get(source).show().id != source_id
+                assert server.request_count() == 2
+                assert any(isinstance(event, BuildStepStart) for event in events)
+            finally:
+                try:
+                    self.client.templates.get(template).delete()
+                finally:
+                    self._delete_versions_silent(artifact, source)

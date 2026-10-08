@@ -30,28 +30,14 @@
 # The published artifact disk is `gentoo-base-headless-standalone`
 # (registered non-ephemeral on success). Create downstream templates
 # referencing this family to give each VM its own overlay.
-# Build-time variables are declared without defaults because the
-# upstream Gentoo autobuild filename and checksum rotate every few
-# days; resolve them with `make latest-url` and `make latest-sha256`,
-# then pass the values via `crv build --var ...`.
+# `make build-headless-standalone` updates gentoo-base-cloud through
+# the dedicated gentoo-base-cloud.yml import recipe before this build.
+# For direct CLI use, run `make build-cloud` first. Standalone means
+# the bake needs no host-side mounts; its source image is registered separately.
 vars:
-  image_if_exists: overwrite
-  gentoo_base_cloud_url: ~
-  gentoo_base_cloud_sha256: ~
+  image_if_exists: update
 
 pipeline:
-  - apply:
-      ifExists: skip
-
-      disks:
-        - name: gentoo-base-cloud
-          import: "{{ gentoo_base_cloud_url }}"
-          format: qcow2
-          path: BaseImages/Gentoo/
-          checksum:
-            algorithm: sha256
-            value: "{{ gentoo_base_cloud_sha256 }}"
-
   - apply:
       ifExists: overwrite
       templates:

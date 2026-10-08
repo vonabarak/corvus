@@ -9,12 +9,13 @@ IMAGE_DIR_windows := windows-server-2025
 IMAGE_DIR_installer := corvus-test-installer
 IMAGE_DIR_key := ../integration_tests/keys
 IMAGE_DIR_gentoo := gentoo-test
+IMAGE_DIR_gentoo-headless := gentoo-headless
 IMAGE_DIR_windows-11 := windows-11
 IMAGE_DIR_debian-nginx := debian-nginx
 IMAGE_DIR_ubuntu-nginx := ubuntu-nginx
 IMAGE_DIR_monitor := corvus-monitor
 
-IMAGES := node vm multi-os windows installer key gentoo windows-11 debian-nginx ubuntu-nginx monitor
+IMAGES := node vm multi-os windows installer key gentoo gentoo-headless windows-11 debian-nginx ubuntu-nginx monitor
 
 .PHONY: image image-ensure image-clean image-rebuild image-check image-cache-clean image-list \
 	images images-ensure images-clean images-rebuild
@@ -57,7 +58,7 @@ images:
 	@for image in key multi-os gentoo node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image IMAGE=$$image || exit $$?; done
 
 images-clean:
-	@for image in monitor ubuntu-nginx debian-nginx windows-11 windows installer vm gentoo multi-os node; do $(MAKE) --no-print-directory image-clean IMAGE=$$image || exit $$?; done
+	@for image in monitor ubuntu-nginx debian-nginx windows-11 windows installer vm gentoo gentoo-headless multi-os node; do $(MAKE) --no-print-directory image-clean IMAGE=$$image || exit $$?; done
 
 images-rebuild:
 	@for image in gentoo multi-os node vm windows installer windows-11 debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-rebuild IMAGE=$$image || exit $$?; done

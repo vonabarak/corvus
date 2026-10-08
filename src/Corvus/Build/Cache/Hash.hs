@@ -31,6 +31,7 @@ module Corvus.Build.Cache.Hash
   , chainHashes
   , cacheSnapshotName
   , shortChainHash
+  , buildInputIdentity
   )
 where
 
@@ -38,12 +39,14 @@ import Corvus.Model (EnumText (..))
 import Corvus.Schema.Build
 import qualified Crypto.Hash as Hash
 import Data.Aeson (Value (..), toJSON)
+import qualified Data.Aeson.Encoding as Encoding
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Bifunctor
 import qualified Data.ByteArray.Encoding as BAEnc
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as L
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -92,6 +95,48 @@ cacheSnapshotName h = "cache-" <> T.take 16 h
 -- snapshot name.
 shortChainHash :: Text -> Text
 shortChainHash = T.take 16
+
+-- | Identity of the final artifact, independent of cache/cleanup policy and
+-- allocated template IDs. Source image IDs remain: every published version
+-- is immutable, and moving a floating tag must invalidate dependent builds.
+-- SSH key material is supplied by the same database read as the template.
+buildInputIdentity :: Build -> [Text] -> BuildIdentity
+buildInputIdentity b publicKeys =
+  let envelope = case envelopeValue b of
+        Object fields -> Object $ KM.delete "template" $ KM.delete "cacheMode" $ KM.insert "resolvedTemplate" template fields
+        value -> value
+      template = case toJSON (buildResolvedTemplate b) of
+        Object fields ->
+          Object $
+            KM.insert "ssh_keys" (toJSON (L.sort publicKeys)) $
+              KM.mapWithKey normalizeChild $
+                foldr KM.delete fields ["id", "name", "description", "created_at"]
+        value -> value
+      normalizeChild "drives" (Array drives) = Array (V.map normalizeDrive drives)
+      normalizeChild "shared_dirs" (Array dirs) = Array (V.map (without ["id"]) dirs)
+      normalizeChild "audio_devices" (Array devices) = Array (V.map (without ["id"]) devices)
+      normalizeChild _ value = value
+      normalizeDrive (Object fields) =
+        Object $ KM.mapWithKey (\key value -> if key == "disk_image" then without ["name"] value else value) $ KM.delete "disk_selector" $ KM.delete "disk_name" fields
+      normalizeDrive value = value
+      without keys (Object fields) = Object (foldr KM.delete fields keys)
+      without _ value = value
+      manifest =
+        obj
+          [ ("version", intValue (1 :: Int))
+          , ("envelope", envelope)
+          , ("compact", Bool (btCompact (buildTarget b)))
+          , ("provisioners", toJSON (map provisionerValue (buildProvisioners b)))
+          ]
+      bytes = LBS.toStrict $ Encoding.encodingToLazyByteString $ canonicalJson manifest
+   in BuildIdentity (sha256Hex bytes) (TE.decodeUtf8 bytes)
+
+-- | Sort every object's keys explicitly, rather than relying on KeyMap's
+-- implementation order. Arrays retain their semantic order.
+canonicalJson :: Value -> Encoding.Encoding
+canonicalJson (Object fields) = Encoding.pairs $ foldMap (\(key, value) -> Encoding.pair key (canonicalJson value)) (L.sortOn fst (KM.toList fields))
+canonicalJson (Array values) = Encoding.list canonicalJson (V.toList values)
+canonicalJson value = Encoding.value value
 
 --------------------------------------------------------------------------------
 -- Canonical Aeson values
@@ -156,7 +201,7 @@ shellDefaultsValue :: ShellDefaults -> Value
 shellDefaultsValue sd =
   obj
     [ ("preamble", maybe Null String (sdPreamble sd))
-    , ("env", envObject (sdEnv sd))
+    , ("env", envObject (stripInjectedEnvs (sdEnv sd)))
     ]
 
 bootKeyValue :: BootKey -> Value

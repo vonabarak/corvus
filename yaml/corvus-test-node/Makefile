@@ -6,4 +6,4 @@ include ../image.mk
 
 dependencies:
 	+$(MAKE) -C ../../integration_tests/keys build
-	+$(MAKE) -C ../gentoo-test ensure-headless
+	+$(MAKE) -C ../gentoo-headless ensure-headless

@@ -396,7 +396,7 @@ getTemplateDetails tid = do
   case mTemplate of
     Nothing -> pure Nothing
     Just t -> do
-      drives <- selectList [TemplateDriveTemplateId ==. tid] []
+      drives <- selectList [TemplateDriveTemplateId ==. tid] [Asc TemplateDriveId]
       driveInfos <- forM drives $ \(Entity _ td) -> do
         let selector = case templateDriveDiskImageId td of
               Just key -> Just (ImageId (fromSqlKey key))
@@ -423,7 +423,7 @@ getTemplateDetails tid = do
             , tvdiEphemeral = templateDriveEphemeral td
             }
 
-      netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] []
+      netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] [Asc TemplateNetworkInterfaceId]
       let netIfInfos =
             map
               ( \(Entity _ tni) ->
@@ -435,13 +435,13 @@ getTemplateDetails tid = do
               )
               netIfs
 
-      sshKeys <- selectList [TemplateSshKeyTemplateId ==. tid] []
+      sshKeys <- selectList [TemplateSshKeyTemplateId ==. tid] [Asc TemplateSshKeyId]
       sshKeyInfos <- forM sshKeys $ \(Entity _ tsk) -> do
         mKey <- get (templateSshKeySshKeyId tsk)
         let keyName = maybe "unknown" sshKeyName mKey
         pure $ TemplateSshKeyInfo (fromSqlKey $ templateSshKeySshKeyId tsk) keyName
 
-      sharedDirRows <- selectList [TemplateSharedDirTemplateId ==. tid] []
+      sharedDirRows <- selectList [TemplateSharedDirTemplateId ==. tid] [Asc TemplateSharedDirId]
       audioDeviceRows <- selectList [TemplateAudioDeviceTemplateId ==. tid] [Asc TemplateAudioDeviceId]
       let audioDeviceInfos =
             [ TemplateAudioDeviceInfo (fromSqlKey audioId) (templateAudioDeviceBackend audioDevice) (templateAudioDeviceModel audioDevice) (templateAudioDeviceOptions audioDevice)

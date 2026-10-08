@@ -134,8 +134,7 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId ta
               parentTaskId
               vmIdLong
               artifactDiskId
-              (buildName b)
-              target
+              b
               needFlatten
           case publishResult of
             Left err -> pure $ Left err

@@ -107,11 +107,18 @@ spec = do
           DatabasePostgresql -> pure ()
         runSqlPool (rawExecute "INSERT INTO disk_image_tag (name, tag, disk_image_id) VALUES ('migration-disk', 'latest', 1)" []) pool `shouldThrow` anyException
 
-    it "adds import identities to version 10 without backfilling unverified images" $
+    it "adds import and build identities to version 10 without backfilling images" $
       withDatabase $ \cfg pool -> do
         sql <- T.readFile $ "test/fixtures/database/" <> T.unpack (databaseEngineId $ dcEngine cfg) <> "-v10-import.sql"
         runSqlPool (clearSchema (dcEngine cfg) >> forM_ (filter (not . T.null) $ map T.strip $ T.splitOn ";" sql) (`rawExecute` [])) pool
         runDatabaseMigrations cfg pool `shouldReturn` Right (SchemaMigrated 10 11)
+        identities <- runSqlPool (rawSql "SELECT COUNT(*) FROM disk_image_build_identity" [] :: SqlPersistT IO [Single Int]) pool
+        identities `shouldBe` [Single 0]
+        let insertIdentity :: Int64 -> SqlPersistT IO ()
+            insertIdentity image = rawExecute "INSERT INTO disk_image_build_identity (disk_image_id, fingerprint, inputs) VALUES (?, 'abc', '{}')" [PersistInt64 image]
+        runSqlPool (insertIdentity 999) pool `shouldThrow` anyException
+        runSqlPool (insertIdentity 1) pool
+        runSqlPool (insertIdentity 1) pool `shouldThrow` anyException
         rows <- runSqlPool (rawSql "SELECT COUNT(*) FROM disk_image_import_identity" [] :: SqlPersistT IO [Single Int]) pool
         rows `shouldBe` [Single 0]
         runSqlPool (rawExecute "INSERT INTO disk_image_import_identity (disk_image_id, algorithm, digest, target) VALUES (1, 'sha256', 'abc', 'download')" []) pool

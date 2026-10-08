@@ -111,7 +111,7 @@ spec = do
     it "does NOT change when target.ifExists changes (operator policy — collision handling)" $ do
       let b1 = threeStepBuild
           t = buildTarget b1
-          b2 = b1 {buildTarget = t {btIfExists = IfExistsSkip}}
+          b2 = b1 {buildTarget = t {btIfExists = BuildIfExistsPolicy IfExistsSkip}}
       envelopeHash b1 `shouldBe` envelopeHash b2
 
     it "does NOT change when target.compact changes (operator policy — post-bake size)" $ do

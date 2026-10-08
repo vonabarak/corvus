@@ -1,10 +1,11 @@
-# Ensure gentoo-base-cloud first with `make ensure-cloud`.
+# `make build-headless` updates gentoo-base-cloud before evaluating this chain.
+# For direct CLI use, run `make build-cloud` first.
 
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
-  # Update bake templates while retaining the ensured upstream image.
+  # Refresh bake templates so builds compare their current source versions.
   - apply:
       ifExists: overwrite
       templates:

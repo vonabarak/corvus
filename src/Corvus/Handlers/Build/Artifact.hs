@@ -11,6 +11,7 @@ module Corvus.Handlers.Build.Artifact
   ( publishArtifact
   , publishArtifactByClone
   , checkIfExistsPreBake
+  , checkBuildUpdate
   , compactDisk
   )
 where
@@ -32,6 +33,7 @@ import Corvus.Images
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol (Response (RespDiskOk, RespError))
+import Corvus.Protocol.Build (BuildEvent (BuildLogLine), BuildSink)
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Schema.Build
 import Corvus.Types
@@ -41,7 +43,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (get, getBy, insert, selectList, update, (==.))
+import Database.Persist (get, getBy, insert, insert_, selectList, update, (==.))
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey, (=.))
 import System.Directory (createDirectoryIfMissing, removeDirectory, removeFile, renameFile)
 import System.FilePath (takeDirectory, (</>))
@@ -68,15 +70,15 @@ publishArtifact
   -- ^ bake VM ID (kept for diagnostics; the drive is NOT detached)
   -> Int64
   -- ^ artifact disk ID (the bake VM's ephemeral source)
-  -> Text
-  -- ^ published artifact name (= buildName)
-  -> BuildTarget
-  -- ^ target spec (format, compact, path, …)
+  -> Build
+  -- ^ Includes the identity captured before baking.
   -> Bool
   -- ^ (legacy) flatten flag — ignored; clone is always flat
   -> LoggingT IO (Either Text Int64)
-publishArtifact state parentTaskId _bakeVmId artifactDiskId name target _needFlatten = do
-  publishArtifactByClone state artifactDiskId name target
+publishArtifact state _parentTaskId _bakeVmId artifactDiskId b _needFlatten =
+  case buildIdentity b of
+    Nothing -> pure (Left "publish: build identity was not captured")
+    Just identity -> publishArtifactByClone state artifactDiskId (buildName b) (buildTarget b) identity
 
 -- | Clone the bake VM's artifact disk into a fresh 'DiskImage' row,
 -- compacting if asked. Returns the new disk's id.
@@ -87,8 +89,9 @@ publishArtifactByClone
   -> Text
   -- ^ published artifact name
   -> BuildTarget
+  -> BuildIdentity
   -> LoggingT IO (Either Text Int64)
-publishArtifactByClone state srcDiskId name target = do
+publishArtifactByClone state srcDiskId name target identity = do
   let pool = ssDbPool state
       srcKey = toSqlKey srcDiskId :: DiskImageId
   placements <- liftIO $ runSqlPool (listDiskImageNodes srcKey) pool
@@ -135,6 +138,7 @@ publishArtifactByClone state srcDiskId name target = do
                           , diskImageBackingImageId = Nothing
                           , diskImageEphemeral = False
                           }
+                    insert_ $ DiskImageBuildIdentity key (biFingerprint identity) (biInputs identity)
                     recordDiskImageNode key nid storedPath
                     pure key
                 )
@@ -143,23 +147,8 @@ publishArtifactByClone state srcDiskId name target = do
           when (btCompact target) $ compactDisk state newId
           pure $ Right newId
 
--- | Decide what to do at the very top of a build, before the bake
--- VM is created, based on the target's 'btIfExists' policy and
--- whether a disk with the target name already exists.
---
---   * @Right Nothing@ — proceed to bake.
---   * @Right (Just diskId)@ — skip the bake; this disk is the
---     existing artifact and is returned as the build's success
---     result. Only happens with @ifExists: skip@.
---   * @Left err@ — fail-fast. Either @ifExists: error@ and the name
---     is taken, or @ifExists: overwrite@ and the existing disk is
---     attached to one or more VMs (delete-then-rebake would yank
---     the disk out from under those VMs, which we refuse).
---
--- For @ifExists: overwrite@ this only validates that the deletion
--- can later proceed safely; the actual deletion is deferred to
--- 'deleteOverwriteTargetIfNeeded' at publish time, so a mid-bake
--- failure preserves the existing artifact.
+-- | Fast collision checks preserve error/skip behaviour even when the
+-- template no longer exists. Update is checked after resolving inputs.
 checkIfExistsPreBake
   :: ServerState
   -> Text
@@ -170,16 +159,47 @@ checkIfExistsPreBake state name target = do
   mExisting <- liftIO $ runSqlPool (imageByName name) pool
   case (btIfExists target, mExisting) of
     (_, Nothing) -> pure $ Right Nothing
-    (IfExistsError, Just _) ->
+    (BuildIfExistsPolicy IfExistsError, Just _) ->
       pure $
         Left $
           "target '"
             <> name
-            <> "' already exists; use ifExists: skip or overwrite to allow"
-    (IfExistsSkip, Just (Entity existingId _)) -> do
+            <> "' already exists; use ifExists: skip, overwrite or update to allow"
+    (BuildIfExistsPolicy IfExistsSkip, Just (Entity existingId _)) -> do
       logInfoN $ "target '" <> name <> "' exists; skipping bake (ifExists: skip)"
       pure $ Right (Just (fromSqlKey existingId))
-    (IfExistsOverwrite, Just _) -> pure $ Right Nothing
+    (BuildIfExistsPolicy IfExistsOverwrite, Just _) -> pure $ Right Nothing
+    (BuildIfExistsUpdate, Just _) -> pure $ Right Nothing
+
+-- | Reuse only the selected version's matching provenance. Missing metadata
+-- rebuilds once; a failed bake never alters the previous version or tags.
+checkBuildUpdate :: ServerState -> BuildSink -> Text -> BuildIdentity -> Bool -> LoggingT IO (Maybe Int64)
+checkBuildUpdate state sink name identity force = do
+  let note message = logInfoN message >> liftIO (sink (BuildLogLine message))
+  existing <-
+    liftIO $
+      runSqlPool
+        ( do
+            image <- imageByName name
+            case image of
+              Nothing -> pure Nothing
+              Just (Entity key _) -> do
+                recorded <- getBy (UniqueDiskImageBuildIdentity key)
+                pure (Just (key, fmap (diskImageBuildIdentityFingerprint . entityVal) recorded))
+        )
+        (ssDbPool state)
+  case existing of
+    Just (key, Just fingerprint) | not force && fingerprint == biFingerprint identity -> do
+      note $ "target '" <> name <> "' inputs unchanged; skipping bake (ifExists: update)"
+      pure (Just (fromSqlKey key))
+    _ -> do
+      let reason = case existing of
+            Nothing -> "target missing"
+            _ | force -> "explicit rebuild requested"
+            Just (_, Nothing) -> "build identity missing"
+            _ -> "build inputs changed"
+      note $ "target '" <> name <> "': " <> reason <> "; baking (ifExists: update)"
+      pure Nothing
 
 -- | Compact a qcow2 by running @qemu-img convert -O qcow2@ in place (atomic
 -- via temp file + rename). On any failure this logs at @warn@ and returns

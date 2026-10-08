@@ -17,6 +17,8 @@ module Corvus.Model
   , DiskImageTag (..)
   , DiskImageImportIdentity (..)
   , DiskImageImportIdentityId
+  , DiskImageBuildIdentity (..)
+  , DiskImageBuildIdentityId
   , DiskImageTagId
   , DiskImage (..)
   , DiskImageNode (..)
@@ -493,9 +495,7 @@ instance PersistField GraphicsAdapter where
 instance PersistFieldSql GraphicsAdapter where
   sqlType _ = SqlString
 
---------------------------------------------------------------------------------
 -- TemplateCloneStrategy
---------------------------------------------------------------------------------
 
 data TemplateCloneStrategy
   = StrategyClone
@@ -526,9 +526,7 @@ instance PersistField TemplateCloneStrategy where
 instance PersistFieldSql TemplateCloneStrategy where
   sqlType _ = SqlString
 
---------------------------------------------------------------------------------
 -- TaskSubsystem
---------------------------------------------------------------------------------
 
 data TaskSubsystem
   = SubVm
@@ -575,9 +573,7 @@ instance PersistField TaskSubsystem where
 instance PersistFieldSql TaskSubsystem where
   sqlType _ = SqlString
 
---------------------------------------------------------------------------------
 -- TaskResult
---------------------------------------------------------------------------------
 
 data TaskResult
   = TaskRunning
@@ -648,9 +644,7 @@ instance PersistField NodeAdminState where
 instance PersistFieldSql NodeAdminState where
   sqlType _ = SqlString
 
---------------------------------------------------------------------------------
 -- Entity definitions
---------------------------------------------------------------------------------
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
@@ -744,6 +738,16 @@ DiskImageImportIdentity
     target Text
     importUrl Text Maybe
     UniqueDiskImageImportIdentity diskImageId
+    deriving Show Eq Generic
+
+-- Effective recipe and resolved source versions used to build this artifact.
+-- Sources live in the JSON manifest, without foreign keys, so deleting an
+-- old source version does not prevent retaining a flattened artifact.
+DiskImageBuildIdentity
+    diskImageId DiskImageId
+    fingerprint Text
+    inputs Text
+    UniqueDiskImageBuildIdentity diskImageId
     deriving Show Eq Generic
 
 -- Per-node paths for an image version. Attachment requires a placement

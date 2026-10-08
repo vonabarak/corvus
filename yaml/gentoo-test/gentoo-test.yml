@@ -1,5 +1,6 @@
+# `make build` updates ../gentoo-headless before evaluating this build.
 vars:
-  image_if_exists: overwrite
+  image_if_exists: update
 
 pipeline:
   - build:
