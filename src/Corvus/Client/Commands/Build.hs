@@ -95,11 +95,8 @@ runBuild fmt conn yaml bcOpts wait = do
       onEnd = do
         _ <- tryPutMVar successVar True
         putMVar done ()
-      useCache = bcoUseCache bcOpts
-      buildCacheFlag = bcoBuildCache bcOpts
-      rebuildFromInt = fromIntegral (bcoRebuildFrom bcOpts)
   r <-
-    try (CR.rpcBuild conn yaml useCache buildCacheFlag rebuildFromInt onEvent onEnd)
+    try (CR.rpcBuild conn yaml onEvent onEnd)
       :: IO (Either SomeException Int64)
   case r of
     Left e -> do
@@ -142,12 +139,6 @@ runBuild fmt conn yaml bcOpts wait = do
       PipelineEnd (BuildResult builds) -> do
         TIO.putStrLn "Pipeline finished:"
         mapM_ renderOne builds
-      StepCacheHit idx _ ->
-        TIO.putStrLn ("[step " <> T.pack (show idx) <> " cache-hit] reusing cached snapshot")
-      StepCacheStore idx _ ->
-        TIO.putStrLn ("[step " <> T.pack (show idx) <> " cache-store] snapshot written")
-      StepCacheRestore prefix _ ->
-        TIO.putStrLn ("[cache] resuming from step " <> T.pack (show prefix))
     renderOne bo = do
       let prefix = "  - " <> boName bo
       case (boArtifactDiskId bo, boError bo) of

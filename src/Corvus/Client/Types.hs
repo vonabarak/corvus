@@ -47,23 +47,14 @@ data WaitOptions = WaitOptions
   }
   deriving (Show, Eq)
 
--- | Knobs for @crv build@. The cache flags OR with the per-build
--- YAML fields (@useCache:@ / @buildCache:@); the 'bcoRebuildFrom'
--- field is CLI-only and caps the matched prefix length when reusing
--- a cache (0 = unset). 'bcoVars' / 'bcoVarFiles' feed the
--- client-side @{{ name }}@ substitution pass — see
--- 'Corvus.Client.BuildVars.applyBuildVars'.
 data BuildClientOptions = BuildClientOptions
-  { bcoUseCache :: !Bool
-  , bcoBuildCache :: !Bool
-  , bcoRebuildFrom :: !Int
-  , bcoVars :: ![(Text, Text)]
+  { bcoVars :: ![(Text, Text)]
   , bcoVarFiles :: ![FilePath]
   }
   deriving (Show, Eq)
 
 defaultBuildClientOptions :: BuildClientOptions
-defaultBuildClientOptions = BuildClientOptions False False 0 [] []
+defaultBuildClientOptions = BuildClientOptions [] []
 
 -- | Command line options.
 --
@@ -305,8 +296,7 @@ data Command
     -- | Apply environment from YAML config file (file path, skipExisting, waitOptions)
     Apply !FilePath !Bool !WaitOptions
   | -- | Build OS images from a YAML pipeline file. Async by default;
-    -- @--wait@ blocks until completion. Cache flags layer on top of
-    -- the YAML's own @useCache:@ / @buildCache:@ fields (OR semantics).
+    -- @--wait@ blocks until completion.
     Build !FilePath !BuildClientOptions !WaitOptions
   | -- Task history commands
 

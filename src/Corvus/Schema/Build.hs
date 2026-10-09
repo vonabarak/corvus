@@ -18,7 +18,6 @@ module Corvus.Schema.Build
   ( PipelineConfig (..)
   , PipelineStep (..)
   , Build (..)
-  , BuildCacheMode (..)
   , BuildTarget (..)
   , BuildIfExists (..)
   , BuildIdentity (..)
@@ -125,47 +124,11 @@ data Build = Build
   , buildCleanup :: CleanupMode
   , buildBootKeys :: [BootKey]
   , buildWaitForShutdownSec :: Int
-  , buildUseCache :: Bool
-  , buildBuildCache :: Bool
   , buildResolvedTemplate :: Maybe TemplateDetails
   , buildIdentity :: Maybe BuildIdentity
   -- ^ Captured before baking; published atomically with the artifact.
-  , buildCacheMode :: BuildCacheMode
-  -- ^ How the build-step cache stores and restores each step.
-  -- Defaults to 'CacheModeMemory' (vmstate-aware, preserves the
-  -- bake VM's mounts/modules/daemons across cache resumes — the
-  -- whole reason this feature exists). Switch to 'CacheModeDisk'
-  -- to trade correctness of mid-pipeline kernel-state side
-  -- effects for ~RAM-worth smaller cache footprint.
   }
   deriving (Show)
-
--- | Storage model for each cached build step.
---
---   * 'CacheModeMemory' (default): per-step QMP @snapshot-save@
---     captures vmstate (RAM + device + CPU state) alongside the
---     bake VM's writable qcow2 disks atomically. Cache resume
---     drives @snapshot-load@ + @cont@ so the next un-cached
---     provisioner sees the bake VM exactly as the previous step
---     left it — mounts, modules, running daemons all preserved.
---     Cache footprint grows by ≈RAM size per cached step.
---   * 'CacheModeDisk': per-step
---     @blockdev-snapshot-internal-sync@ captures the qcow2 active
---     state only. Cache resume is a cold disk rollback + VmStart
---     cycle; everything outside the disk (mounts, modules,
---     running services) is gone. Smaller footprint but provisioner
---     pipelines must establish their own preconditions inside each
---     step.
-data BuildCacheMode
-  = CacheModeMemory
-  | CacheModeDisk
-  deriving (Eq, Show)
-
-instance FromJSON BuildCacheMode where
-  parseJSON = withText "BuildCacheMode" $ \t -> case T.toLower t of
-    "memory" -> pure CacheModeMemory
-    "disk" -> pure CacheModeDisk
-    other -> fail ("cacheMode: expected 'memory' or 'disk', got: " <> T.unpack other)
 
 instance FromJSON Build where
   parseJSON = withObject "Build" $ \o -> do
@@ -184,11 +147,8 @@ instance FromJSON Build where
       <*> o .:? "cleanup" .!= CleanupAlways
       <*> o .:? "bootKeys" .!= []
       <*> o .:? "waitForShutdownSec" .!= 3600
-      <*> o .:? "useCache" .!= False
-      <*> o .:? "buildCache" .!= False
       <*> pure Nothing
       <*> pure Nothing
-      <*> o .:? "cacheMode" .!= CacheModeMemory
 
 -- | Build-level defaults applied to every 'ProvShell' step.
 --

@@ -370,7 +370,6 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'deleteSavedState) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotCreateLive) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotDeleteLive) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'snapshotCreateLiveMany) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotCreateWithVmstate) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotLoadWithVmstate) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotDeleteWithVmstate) s_))
@@ -384,7 +383,7 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'cleanupTpmMigrationArchive) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmSetBalloon) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -463,8 +462,6 @@ class (Session'server_ s_) where
     session'snapshotCreateLive _ = GH.methodUnimplemented
     session'snapshotDeleteLive :: s_ -> (GH.MethodHandler Session'snapshotDeleteLive'params Session'snapshotDeleteLive'results)
     session'snapshotDeleteLive _ = GH.methodUnimplemented
-    session'snapshotCreateLiveMany :: s_ -> (GH.MethodHandler Session'snapshotCreateLiveMany'params Session'snapshotCreateLiveMany'results)
-    session'snapshotCreateLiveMany _ = GH.methodUnimplemented
     session'snapshotCreateWithVmstate :: s_ -> (GH.MethodHandler Session'snapshotCreateWithVmstate'params Session'snapshotCreateWithVmstate'results)
     session'snapshotCreateWithVmstate _ = GH.methodUnimplemented
     session'snapshotLoadWithVmstate :: s_ -> (GH.MethodHandler Session'snapshotLoadWithVmstate'params Session'snapshotLoadWithVmstate'results)
@@ -567,32 +564,30 @@ instance (GH.HasMethod "snapshotCreateLive" Session Session'snapshotCreateLive'p
     methodByLabel  = (GH.Method 11450192344861352079 37)
 instance (GH.HasMethod "snapshotDeleteLive" Session Session'snapshotDeleteLive'params Session'snapshotDeleteLive'results) where
     methodByLabel  = (GH.Method 11450192344861352079 38)
-instance (GH.HasMethod "snapshotCreateLiveMany" Session Session'snapshotCreateLiveMany'params Session'snapshotCreateLiveMany'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 39)
 instance (GH.HasMethod "snapshotCreateWithVmstate" Session Session'snapshotCreateWithVmstate'params Session'snapshotCreateWithVmstate'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 40)
+    methodByLabel  = (GH.Method 11450192344861352079 39)
 instance (GH.HasMethod "snapshotLoadWithVmstate" Session Session'snapshotLoadWithVmstate'params Session'snapshotLoadWithVmstate'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 41)
+    methodByLabel  = (GH.Method 11450192344861352079 40)
 instance (GH.HasMethod "snapshotDeleteWithVmstate" Session Session'snapshotDeleteWithVmstate'params Session'snapshotDeleteWithVmstate'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 42)
+    methodByLabel  = (GH.Method 11450192344861352079 41)
 instance (GH.HasMethod "guestSetTime" Session Session'guestSetTime'params Session'guestSetTime'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 43)
+    methodByLabel  = (GH.Method 11450192344861352079 42)
 instance (GH.HasMethod "deleteTpmState" Session Session'deleteTpmState'params Session'deleteTpmState'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 44)
+    methodByLabel  = (GH.Method 11450192344861352079 43)
 instance (GH.HasMethod "diskOpenWrite" Session Session'diskOpenWrite'params Session'diskOpenWrite'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 45)
+    methodByLabel  = (GH.Method 11450192344861352079 44)
 instance (GH.HasMethod "vmEjectMedia" Session Session'vmEjectMedia'params Session'vmEjectMedia'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 46)
+    methodByLabel  = (GH.Method 11450192344861352079 45)
 instance (GH.HasMethod "vmChangeMedia" Session Session'vmChangeMedia'params Session'vmChangeMedia'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 47)
+    methodByLabel  = (GH.Method 11450192344861352079 46)
 instance (GH.HasMethod "prepareTpmMigration" Session Session'prepareTpmMigration'params Session'prepareTpmMigration'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 48)
+    methodByLabel  = (GH.Method 11450192344861352079 47)
 instance (GH.HasMethod "restoreTpmMigration" Session Session'restoreTpmMigration'params Session'restoreTpmMigration'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 49)
+    methodByLabel  = (GH.Method 11450192344861352079 48)
 instance (GH.HasMethod "cleanupTpmMigrationArchive" Session Session'cleanupTpmMigrationArchive'params Session'cleanupTpmMigrationArchive'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 50)
+    methodByLabel  = (GH.Method 11450192344861352079 49)
 instance (GH.HasMethod "vmSetBalloon" Session Session'vmSetBalloon'params Session'vmSetBalloon'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 51)
+    methodByLabel  = (GH.Method 11450192344861352079 50)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -3098,90 +3093,10 @@ instance (C.Marshal Session'snapshotDeleteLive'results (C.Parsed Session'snapsho
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotDeleteLive'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotCreateLiveMany'params 
-type instance (R.ReprFor Session'snapshotCreateLiveMany'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'snapshotCreateLiveMany'params) where
-    typeId  = 17352390649456236637
-instance (C.TypedStruct Session'snapshotCreateLiveMany'params) where
-    numStructWords  = 2
-    numStructPtrs  = 2
-instance (C.Allocate Session'snapshotCreateLiveMany'params) where
-    type AllocHint Session'snapshotCreateLiveMany'params = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'snapshotCreateLiveMany'params (C.Parsed Session'snapshotCreateLiveMany'params))
-instance (C.AllocateList Session'snapshotCreateLiveMany'params) where
-    type ListAllocHint Session'snapshotCreateLiveMany'params = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'snapshotCreateLiveMany'params (C.Parsed Session'snapshotCreateLiveMany'params))
-data instance C.Parsed Session'snapshotCreateLiveMany'params
-    = Session'snapshotCreateLiveMany'params 
-        {paths :: (RP.Parsed (R.List Basics.Text))
-        ,name :: (RP.Parsed Basics.Text)
-        ,vmId :: (RP.Parsed Std_.Int64)
-        ,quiesce :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'snapshotCreateLiveMany'params))
-deriving instance (Std_.Eq (C.Parsed Session'snapshotCreateLiveMany'params))
-instance (C.Parse Session'snapshotCreateLiveMany'params (C.Parsed Session'snapshotCreateLiveMany'params)) where
-    parse raw_ = (Session'snapshotCreateLiveMany'params <$> (GH.parseField #paths raw_)
-                                                        <*> (GH.parseField #name raw_)
-                                                        <*> (GH.parseField #vmId raw_)
-                                                        <*> (GH.parseField #quiesce raw_))
-instance (C.Marshal Session'snapshotCreateLiveMany'params (C.Parsed Session'snapshotCreateLiveMany'params)) where
-    marshalInto raw_ Session'snapshotCreateLiveMany'params{..} = (do
-        (GH.encodeField #paths paths raw_)
-        (GH.encodeField #name name raw_)
-        (GH.encodeField #vmId vmId raw_)
-        (GH.encodeField #quiesce quiesce raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "paths" GH.Slot Session'snapshotCreateLiveMany'params (R.List Basics.Text)) where
-    fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "name" GH.Slot Session'snapshotCreateLiveMany'params Basics.Text) where
-    fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "vmId" GH.Slot Session'snapshotCreateLiveMany'params Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "quiesce" GH.Slot Session'snapshotCreateLiveMany'params Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode) where
-    fieldByLabel  = (GH.dataField 0 1 16 0)
-data Session'snapshotCreateLiveMany'results 
-type instance (R.ReprFor Session'snapshotCreateLiveMany'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'snapshotCreateLiveMany'results) where
-    typeId  = 15677871614244384781
-instance (C.TypedStruct Session'snapshotCreateLiveMany'results) where
-    numStructWords  = 1
-    numStructPtrs  = 1
-instance (C.Allocate Session'snapshotCreateLiveMany'results) where
-    type AllocHint Session'snapshotCreateLiveMany'results = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'snapshotCreateLiveMany'results (C.Parsed Session'snapshotCreateLiveMany'results))
-instance (C.AllocateList Session'snapshotCreateLiveMany'results) where
-    type ListAllocHint Session'snapshotCreateLiveMany'results = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'snapshotCreateLiveMany'results (C.Parsed Session'snapshotCreateLiveMany'results))
-data instance C.Parsed Session'snapshotCreateLiveMany'results
-    = Session'snapshotCreateLiveMany'results 
-        {result :: (RP.Parsed DiskOpResult)
-        ,quiesced :: (RP.Parsed Std_.Bool)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'snapshotCreateLiveMany'results))
-deriving instance (Std_.Eq (C.Parsed Session'snapshotCreateLiveMany'results))
-instance (C.Parse Session'snapshotCreateLiveMany'results (C.Parsed Session'snapshotCreateLiveMany'results)) where
-    parse raw_ = (Session'snapshotCreateLiveMany'results <$> (GH.parseField #result raw_)
-                                                         <*> (GH.parseField #quiesced raw_))
-instance (C.Marshal Session'snapshotCreateLiveMany'results (C.Parsed Session'snapshotCreateLiveMany'results)) where
-    marshalInto raw_ Session'snapshotCreateLiveMany'results{..} = (do
-        (GH.encodeField #result result raw_)
-        (GH.encodeField #quiesced quiesced raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "result" GH.Slot Session'snapshotCreateLiveMany'results DiskOpResult) where
-    fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "quiesced" GH.Slot Session'snapshotCreateLiveMany'results Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 0 1 0)
 data Session'snapshotCreateWithVmstate'params 
 type instance (R.ReprFor Session'snapshotCreateWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreateWithVmstate'params) where
-    typeId  = 16101421658982316407
+    typeId  = 17352390649456236637
 instance (C.TypedStruct Session'snapshotCreateWithVmstate'params) where
     numStructWords  = 1
     numStructPtrs  = 3
@@ -3226,7 +3141,7 @@ instance (GH.HasField "vmId" GH.Slot Session'snapshotCreateWithVmstate'params St
 data Session'snapshotCreateWithVmstate'results 
 type instance (R.ReprFor Session'snapshotCreateWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreateWithVmstate'results) where
-    typeId  = 15319697288655617572
+    typeId  = 15677871614244384781
 instance (C.TypedStruct Session'snapshotCreateWithVmstate'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3256,7 +3171,7 @@ instance (GH.HasField "result" GH.Slot Session'snapshotCreateWithVmstate'results
 data Session'snapshotLoadWithVmstate'params 
 type instance (R.ReprFor Session'snapshotLoadWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotLoadWithVmstate'params) where
-    typeId  = 13379629769303057490
+    typeId  = 16101421658982316407
 instance (C.TypedStruct Session'snapshotLoadWithVmstate'params) where
     numStructWords  = 1
     numStructPtrs  = 3
@@ -3301,7 +3216,7 @@ instance (GH.HasField "vmId" GH.Slot Session'snapshotLoadWithVmstate'params Std_
 data Session'snapshotLoadWithVmstate'results 
 type instance (R.ReprFor Session'snapshotLoadWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotLoadWithVmstate'results) where
-    typeId  = 10484588875035174898
+    typeId  = 15319697288655617572
 instance (C.TypedStruct Session'snapshotLoadWithVmstate'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3331,7 +3246,7 @@ instance (GH.HasField "result" GH.Slot Session'snapshotLoadWithVmstate'results D
 data Session'snapshotDeleteWithVmstate'params 
 type instance (R.ReprFor Session'snapshotDeleteWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDeleteWithVmstate'params) where
-    typeId  = 14347331234765982838
+    typeId  = 13379629769303057490
 instance (C.TypedStruct Session'snapshotDeleteWithVmstate'params) where
     numStructWords  = 1
     numStructPtrs  = 2
@@ -3371,7 +3286,7 @@ instance (GH.HasField "vmId" GH.Slot Session'snapshotDeleteWithVmstate'params St
 data Session'snapshotDeleteWithVmstate'results 
 type instance (R.ReprFor Session'snapshotDeleteWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDeleteWithVmstate'results) where
-    typeId  = 14767847684973433713
+    typeId  = 10484588875035174898
 instance (C.TypedStruct Session'snapshotDeleteWithVmstate'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3401,7 +3316,7 @@ instance (GH.HasField "result" GH.Slot Session'snapshotDeleteWithVmstate'results
 data Session'guestSetTime'params 
 type instance (R.ReprFor Session'guestSetTime'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'guestSetTime'params) where
-    typeId  = 12950672055964986808
+    typeId  = 14347331234765982838
 instance (C.TypedStruct Session'guestSetTime'params) where
     numStructWords  = 1
     numStructPtrs  = 0
@@ -3431,7 +3346,7 @@ instance (GH.HasField "vmId" GH.Slot Session'guestSetTime'params Std_.Int64) whe
 data Session'guestSetTime'results 
 type instance (R.ReprFor Session'guestSetTime'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'guestSetTime'results) where
-    typeId  = 11219506602945326464
+    typeId  = 14767847684973433713
 instance (C.TypedStruct Session'guestSetTime'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3461,7 +3376,7 @@ instance (GH.HasField "result" GH.Slot Session'guestSetTime'results DiskOpResult
 data Session'deleteTpmState'params 
 type instance (R.ReprFor Session'deleteTpmState'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteTpmState'params) where
-    typeId  = 14396184920231242233
+    typeId  = 12950672055964986808
 instance (C.TypedStruct Session'deleteTpmState'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3491,7 +3406,7 @@ instance (GH.HasField "vmName" GH.Slot Session'deleteTpmState'params Basics.Text
 data Session'deleteTpmState'results 
 type instance (R.ReprFor Session'deleteTpmState'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteTpmState'results) where
-    typeId  = 18125263205622004658
+    typeId  = 11219506602945326464
 instance (C.TypedStruct Session'deleteTpmState'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -3516,7 +3431,7 @@ instance (C.Marshal Session'deleteTpmState'results (C.Parsed Session'deleteTpmSt
 data Session'diskOpenWrite'params 
 type instance (R.ReprFor Session'diskOpenWrite'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskOpenWrite'params) where
-    typeId  = 13925541470899200758
+    typeId  = 14396184920231242233
 instance (C.TypedStruct Session'diskOpenWrite'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3546,7 +3461,7 @@ instance (GH.HasField "destPath" GH.Slot Session'diskOpenWrite'params Basics.Tex
 data Session'diskOpenWrite'results 
 type instance (R.ReprFor Session'diskOpenWrite'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskOpenWrite'results) where
-    typeId  = 12295800475057107102
+    typeId  = 18125263205622004658
 instance (C.TypedStruct Session'diskOpenWrite'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3576,7 +3491,7 @@ instance (GH.HasField "sink" GH.Slot Session'diskOpenWrite'results Capnp.Gen.ByI
 data Session'vmEjectMedia'params 
 type instance (R.ReprFor Session'vmEjectMedia'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmEjectMedia'params) where
-    typeId  = 9547302620639351284
+    typeId  = 13925541470899200758
 instance (C.TypedStruct Session'vmEjectMedia'params) where
     numStructWords  = 2
     numStructPtrs  = 0
@@ -3611,7 +3526,7 @@ instance (GH.HasField "driveId" GH.Slot Session'vmEjectMedia'params Std_.Int64) 
 data Session'vmEjectMedia'results 
 type instance (R.ReprFor Session'vmEjectMedia'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmEjectMedia'results) where
-    typeId  = 11251615629224092590
+    typeId  = 12295800475057107102
 instance (C.TypedStruct Session'vmEjectMedia'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -3636,7 +3551,7 @@ instance (C.Marshal Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'
 data Session'vmChangeMedia'params 
 type instance (R.ReprFor Session'vmChangeMedia'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmChangeMedia'params) where
-    typeId  = 13072044293411856950
+    typeId  = 9547302620639351284
 instance (C.TypedStruct Session'vmChangeMedia'params) where
     numStructWords  = 2
     numStructPtrs  = 2
@@ -3681,7 +3596,7 @@ instance (GH.HasField "format" GH.Slot Session'vmChangeMedia'params Basics.Text)
 data Session'vmChangeMedia'results 
 type instance (R.ReprFor Session'vmChangeMedia'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmChangeMedia'results) where
-    typeId  = 11993669989086491528
+    typeId  = 11251615629224092590
 instance (C.TypedStruct Session'vmChangeMedia'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -3706,7 +3621,7 @@ instance (C.Marshal Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedi
 data Session'prepareTpmMigration'params 
 type instance (R.ReprFor Session'prepareTpmMigration'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'prepareTpmMigration'params) where
-    typeId  = 10211772327123698838
+    typeId  = 13072044293411856950
 instance (C.TypedStruct Session'prepareTpmMigration'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3736,7 +3651,7 @@ instance (GH.HasField "vmName" GH.Slot Session'prepareTpmMigration'params Basics
 data Session'prepareTpmMigration'results 
 type instance (R.ReprFor Session'prepareTpmMigration'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'prepareTpmMigration'results) where
-    typeId  = 15013204939972778009
+    typeId  = 11993669989086491528
 instance (C.TypedStruct Session'prepareTpmMigration'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3766,7 +3681,7 @@ instance (GH.HasField "archivePath" GH.Slot Session'prepareTpmMigration'results 
 data Session'restoreTpmMigration'params 
 type instance (R.ReprFor Session'restoreTpmMigration'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'restoreTpmMigration'params) where
-    typeId  = 14123564710931201902
+    typeId  = 10211772327123698838
 instance (C.TypedStruct Session'restoreTpmMigration'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3796,7 +3711,7 @@ instance (GH.HasField "vmName" GH.Slot Session'restoreTpmMigration'params Basics
 data Session'restoreTpmMigration'results 
 type instance (R.ReprFor Session'restoreTpmMigration'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'restoreTpmMigration'results) where
-    typeId  = 11919681427679042146
+    typeId  = 15013204939972778009
 instance (C.TypedStruct Session'restoreTpmMigration'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -3821,7 +3736,7 @@ instance (C.Marshal Session'restoreTpmMigration'results (C.Parsed Session'restor
 data Session'cleanupTpmMigrationArchive'params 
 type instance (R.ReprFor Session'cleanupTpmMigrationArchive'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'cleanupTpmMigrationArchive'params) where
-    typeId  = 18285722263799615971
+    typeId  = 14123564710931201902
 instance (C.TypedStruct Session'cleanupTpmMigrationArchive'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -3851,7 +3766,7 @@ instance (GH.HasField "vmName" GH.Slot Session'cleanupTpmMigrationArchive'params
 data Session'cleanupTpmMigrationArchive'results 
 type instance (R.ReprFor Session'cleanupTpmMigrationArchive'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'cleanupTpmMigrationArchive'results) where
-    typeId  = 10548626588249548089
+    typeId  = 11919681427679042146
 instance (C.TypedStruct Session'cleanupTpmMigrationArchive'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -3876,7 +3791,7 @@ instance (C.Marshal Session'cleanupTpmMigrationArchive'results (C.Parsed Session
 data Session'vmSetBalloon'params 
 type instance (R.ReprFor Session'vmSetBalloon'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetBalloon'params) where
-    typeId  = 17201424421732847586
+    typeId  = 18285722263799615971
 instance (C.TypedStruct Session'vmSetBalloon'params) where
     numStructWords  = 2
     numStructPtrs  = 0
@@ -3911,7 +3826,7 @@ instance (GH.HasField "targetBytes" GH.Slot Session'vmSetBalloon'params Std_.Wor
 data Session'vmSetBalloon'results 
 type instance (R.ReprFor Session'vmSetBalloon'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetBalloon'results) where
-    typeId  = 11405991015675800505
+    typeId  = 10548626588249548089
 instance (C.TypedStruct Session'vmSetBalloon'results) where
     numStructWords  = 1
     numStructPtrs  = 1

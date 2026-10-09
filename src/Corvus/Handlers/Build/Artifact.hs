@@ -51,8 +51,8 @@ import System.FilePath (takeDirectory, (</>))
 -- | Publish the bake VM's artifact by CLONING it (via
 -- @qemu-img convert@) into a fresh non-ephemeral 'DiskImage'. The
 -- bake VM's original artifact disk stays attached and ephemeral so
--- a follow-up @--use-cache@ build can roll it back to a cached
--- step. @qemu-img convert@ copies only the source qcow2's active
+-- cleanup can remove it after publication.
+-- @qemu-img convert@ copies only the source qcow2's active
 -- state and does NOT preserve internal snapshots, so the published
 -- disk is hard-guaranteed flat (verifiable via
 -- @qemu-img snapshot -l@ returning empty output).
@@ -173,8 +173,8 @@ checkIfExistsPreBake state name target = do
 
 -- | Reuse only the selected version's matching provenance. Missing metadata
 -- rebuilds once; a failed bake never alters the previous version or tags.
-checkBuildUpdate :: ServerState -> BuildSink -> Text -> BuildIdentity -> Bool -> LoggingT IO (Maybe Int64)
-checkBuildUpdate state sink name identity force = do
+checkBuildUpdate :: ServerState -> BuildSink -> Text -> BuildIdentity -> LoggingT IO (Maybe Int64)
+checkBuildUpdate state sink name identity = do
   let note message = logInfoN message >> liftIO (sink (BuildLogLine message))
   existing <-
     liftIO $
@@ -189,13 +189,12 @@ checkBuildUpdate state sink name identity force = do
         )
         (ssDbPool state)
   case existing of
-    Just (key, Just fingerprint) | not force && fingerprint == biFingerprint identity -> do
+    Just (key, Just fingerprint) | fingerprint == biFingerprint identity -> do
       note $ "target '" <> name <> "' inputs unchanged; skipping bake (ifExists: update)"
       pure (Just (fromSqlKey key))
     _ -> do
       let reason = case existing of
             Nothing -> "target missing"
-            _ | force -> "explicit rebuild requested"
             Just (_, Nothing) -> "build identity missing"
             _ -> "build inputs changed"
       note $ "target '" <> name <> "': " <> reason <> "; baking (ifExists: update)"

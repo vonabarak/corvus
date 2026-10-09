@@ -160,13 +160,10 @@ instance CGS.BuildEventSink'server_ ClientBuildEventSink where
 rpcBuild
   :: CapnpConnection
   -> Text
-  -> Bool
-  -> Bool
-  -> Int32
   -> (BuildEvent -> IO ())
   -> IO ()
   -> IO Int64
-rpcBuild conn yaml useCache buildCache rebuildFromStep onEvent onEnd = do
+rpcBuild conn yaml onEvent onEnd = do
   sinkClient <- export @CGS.BuildEventSink (ccSupervisor conn) (ClientBuildEventSink onEvent onEnd)
   CGCorvus.Daemon'build'results {CGCorvus.taskId = tid} <-
     callOn
@@ -174,9 +171,6 @@ rpcBuild conn yaml useCache buildCache rebuildFromStep onEvent onEnd = do
       CGCorvus.Daemon'build'params
         { CGCorvus.yaml = yaml
         , CGCorvus.sink = sinkClient
-        , CGCorvus.useCache = useCache
-        , CGCorvus.buildCache = buildCache
-        , CGCorvus.rebuildFrom = rebuildFromStep
         }
       (ccDaemon conn)
   pure tid

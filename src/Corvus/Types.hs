@@ -49,8 +49,6 @@ module Corvus.Types
   , getDefaultSocketPath
 
     -- * Build options
-  , BuildOptions (..)
-  , defaultBuildOptions
   )
 where
 
@@ -534,19 +532,3 @@ getDefaultSocketPath = do
   mRuntimeDir <- lookupEnv "XDG_RUNTIME_DIR"
   let baseDir = fromMaybe "/tmp" mRuntimeDir
   pure $ baseDir </> "corvus" </> "corvus.sock"
-
--- | Runtime options for @daemon.build@. None of these belong to the
--- per-build YAML schema directly: 'boUseCache' and 'boBuildCache' OR
--- with the build's YAML-level flags so an operator can enable caching
--- on a per-invocation basis without editing the YAML, and
--- 'boRebuildFrom' is purely a CLI knob (1-based step index that caps
--- the matched prefix at @K = min K (rebuildFrom - 1)@; 0 means unset).
-data BuildOptions = BuildOptions
-  { boUseCache :: !Bool
-  , boBuildCache :: !Bool
-  , boRebuildFrom :: !Int
-  }
-  deriving (Eq, Show)
-
-defaultBuildOptions :: BuildOptions
-defaultBuildOptions = BuildOptions False False 0

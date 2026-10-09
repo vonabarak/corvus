@@ -38,7 +38,7 @@ import Control.Monad (void)
 import Corvus.Action (Action (..), acApplySink, classifyResponse, createTaskRecord, mkActionContext, runAction, runActionAsyncWithId, runAndFinalize)
 import Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply)
 import Corvus.Handlers.Apply.Validation (handleApplyValidate)
-import Corvus.Handlers.Build (BuildOptions (..), BuildSink, runBuildPipeline)
+import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
 import Corvus.Handlers.Core (handlePing, handleShutdown, handleStatus)
 import Corvus.Model
 import Corvus.Protocol (Response (..))
@@ -189,9 +189,6 @@ instance CGCorvus.Daemon'server_ DaemonCap where
       \CGCorvus.Daemon'build'params
         { CGCorvus.yaml = yamlText
         , CGCorvus.sink = sinkClient
-        , CGCorvus.useCache = useCache
-        , CGCorvus.buildCache = buildCache
-        , CGCorvus.rebuildFrom = rebuildFromI32
         } -> do
           startedAt <- getCurrentTime
           let pool = ssDbPool st
@@ -227,13 +224,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
           void $ async $ do
             let sink :: BuildSink
                 sink = pushEvent
-            let opts =
-                  BuildOptions
-                    { boUseCache = useCache
-                    , boBuildCache = buildCache
-                    , boRebuildFrom = fromIntegral rebuildFromI32
-                    }
-            resp <- try (runBuildPipeline st taskKey sink yamlText opts) :: IO (Either SomeException Response)
+            resp <- try (runBuildPipeline st taskKey sink yamlText) :: IO (Either SomeException Response)
             finishedAt <- getCurrentTime
             case resp of
               Right r -> do

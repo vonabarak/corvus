@@ -127,19 +127,6 @@ interface Session {
   snapshotDeleteLive @38 (path :Text, name :Text, vmId :Int64)
                         -> (result :DiskOpResult);
 
-  # Atomic multi-disk live snapshot. Wraps N
-  # `blockdev-snapshot-internal-sync` actions in a single QMP
-  # `transaction`, so either every disk gets the named snapshot or
-  # none of them do. `quiesce` controls QGA fsfreeze the same way
-  # `snapshotCreateLive` does; the freeze (if any) covers the whole
-  # transaction. Used by the build-step cache to snapshot the bake
-  # VM's artifact + system disks atomically per step.
-  snapshotCreateLiveMany @39 (paths :List(Text),
-                              name :Text,
-                              vmId :Int64,
-                              quiesce :Enums.QuiesceMode = auto)
-                            -> (result :DiskOpResult, quiesced :Bool);
-
   # Full-machine snapshot create. The agent issues a single QMP
   # `snapshot-save` async job that writes QEMU vmstate (RAM +
   # device model + CPU state) into the carrier disk's qcow2 and
@@ -150,7 +137,7 @@ interface Session {
   # otherwise. No QGA fsfreeze: vmstate captures the in-flight
   # page cache and writeback queue, so freezing would be both
   # unnecessary and harmful under a multi-second save.
-  snapshotCreateWithVmstate @40 (vmstateDevicePath :Text,
+  snapshotCreateWithVmstate @39 (vmstateDevicePath :Text,
                                  devicePaths       :List(Text),
                                  name              :Text,
                                  vmId              :Int64)
@@ -163,7 +150,7 @@ interface Session {
   # are paused (QMP `stop`) before issuing; the agent does NOT
   # `cont` the VM afterwards — the caller does that after any
   # post-load setup (clock resync, QGA handshake).
-  snapshotLoadWithVmstate   @41 (vmstateDevicePath :Text,
+  snapshotLoadWithVmstate   @40 (vmstateDevicePath :Text,
                                  devicePaths       :List(Text),
                                  name              :Text,
                                  vmId              :Int64)
@@ -176,7 +163,7 @@ interface Session {
   # `blockdev-snapshot-delete-internal-sync` leaves vmstate
   # orphaned. No `vmstateDevicePath` parameter: snapshot-delete's
   # QMP signature only takes `tag` + `devices`.
-  snapshotDeleteWithVmstate @42 (devicePaths :List(Text),
+  snapshotDeleteWithVmstate @41 (devicePaths :List(Text),
                                  name        :Text,
                                  vmId        :Int64)
                                -> (result :DiskOpResult);
@@ -187,7 +174,7 @@ interface Session {
   # snapshot-time, which breaks anything time-sensitive
   # (cert validation, build mtime comparisons, NTP). Best-effort:
   # `DiskOpResult.error` is non-empty when QGA isn't reachable.
-  guestSetTime              @43 (vmId :Int64)
+  guestSetTime              @42 (vmId :Int64)
                                -> (result :DiskOpResult);
 
   # Image download (curl, fall back to wget) + xz decompression +
@@ -268,7 +255,7 @@ interface Session {
   vmPause @18 (vmId :Int64) -> ();
   # Set an absolute guest RAM target in bytes, validated against the live spec.
   # Returns when QEMU accepts the command; the guest responds asynchronously.
-  vmSetBalloon @51 (vmId :Int64, targetBytes :UInt64) -> (status :BalloonStatus, message :Text);
+  vmSetBalloon @50 (vmId :Int64, targetBytes :UInt64) -> (status :BalloonStatus, message :Text);
 
   # QMP `cont` — resume from pause.
   vmResume @19 (vmId :Int64) -> ();
@@ -291,7 +278,7 @@ interface Session {
   # Recursively remove the persistent swtpm state directory for
   # `vmName`. Idempotent when it does not exist. The daemon calls
   # this before disabling TPM and before deleting a TPM-enabled VM.
-  deleteTpmState @44 (vmName :Text) -> ();
+  deleteTpmState @43 (vmName :Text) -> ();
 
   # Prepare the persistent swtpm state of a stopped VM for migration.
   # The agent writes a private archive beside the VM's state directory and
@@ -299,16 +286,16 @@ interface Session {
   # normal agent-to-agent reader path.  The archive is agent-owned and must be
   # removed with `cleanupTpmMigrationArchive` after the migration completes or
   # rolls back.
-  prepareTpmMigration @48 (vmName :Text) -> (archivePath :Text);
+  prepareTpmMigration @47 (vmName :Text) -> (archivePath :Text);
 
   # Atomically install the already-transferred TPM archive for `vmName`.
   # Extraction happens in a private staging directory and is promoted only
   # after a complete successful extraction.  Refuses to overwrite state.
-  restoreTpmMigration @49 (vmName :Text) -> ();
+  restoreTpmMigration @48 (vmName :Text) -> ();
 
   # Remove the private migration archive for `vmName`. Idempotent; used on
   # both source and destination after success or rollback.
-  cleanupTpmMigrationArchive @50 (vmName :Text) -> ();
+  cleanupTpmMigrationArchive @49 (vmName :Text) -> ();
 
   # Execute a command via QGA on the running VM. Agent locates
   # the QGA socket from the ledger entry for req.vmId.
@@ -479,18 +466,18 @@ interface Session {
   # Open a node-local, atomic file writer for a daemon-mediated client upload.
   # The returned ByteSink writes to a temporary sibling and renames it into
   # place only after end().
-  diskOpenWrite @45 (destPath :Text) -> (sink :Streams.ByteSink);
+  diskOpenWrite @44 (destPath :Text) -> (sink :Streams.ByteSink);
 
   # Eject the media of a CD-ROM drive. QEMU `eject` against the
   # legacy drive backend drive-<driveId>. Throws if the drive is
   # not removable (checked via `query-block` before the command).
-  vmEjectMedia @46 (vmId :Int64, driveId :Int64) -> ();
+  vmEjectMedia @45 (vmId :Int64, driveId :Int64) -> ();
 
   # Replace the media of a CD-ROM drive in place. QEMU
   # `blockdev-change-medium` against drive-<driveId>; `format` is
   # the qcow2/raw image format name. Throws if the drive is not
   # removable (checked via `query-block` before the command).
-  vmChangeMedia @47 (vmId :Int64, driveId :Int64,
+  vmChangeMedia @46 (vmId :Int64, driveId :Int64,
                      filePath :Text, format :Text) -> ();
 }
 

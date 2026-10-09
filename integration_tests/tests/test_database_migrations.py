@@ -151,8 +151,8 @@ class DatabaseMigrationCase(SingleNodeCase):
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
             assert client.vms.get("migration-vm").show().name == "migration-vm"
-        assert "migrated from version 2 to 11" in self._logs()
-        assert self._query("SELECT version FROM schema_version") == "11"
+        assert "migrated from version 2 to 12" in self._logs()
+        assert self._query("SELECT version FROM schema_version") == "12"
         assert (
             self._query("SELECT graphics_adapter FROM vm WHERE id = 1") == "virtio-vga"
         )
@@ -232,9 +232,9 @@ class DatabaseMigrationCase(SingleNodeCase):
             assert client.vms.list() == []
         assert self._query("SELECT COUNT(*) FROM disk_image_build_identity") == "0"
         assert self._query("SELECT COUNT(*) FROM disk_image_upload_identity") == "0"
-        assert "Created database schema at version 11" in self._logs()
+        assert "Created database schema at version 12" in self._logs()
         assert "migrated from version" not in self._logs()
-        assert self._query("SELECT version FROM schema_version") == "11"
+        assert self._query("SELECT version FROM schema_version") == "12"
 
     def test_03_retired_migration_refuses_startup(self) -> None:
         self._prepare(historical=True)

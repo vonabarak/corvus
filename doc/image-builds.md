@@ -20,9 +20,8 @@ A `build:` step:
    construction — `qemu-img convert` does NOT carry over the source's
    internal qcow2 snapshot table, so the published image is
    guaranteed to have zero snapshots.
-7. Tears down the bake VM and any other ephemeral resources, unless
-   `--build-cache` left cache rows referencing the bake VM (in which
-   case the bake VM survives — see [Build-step cache](#build-step-cache)).
+7. Tears down the bake VM and any other ephemeral resources according to
+   the build’s `cleanup:` policy.
 
 An `apply:` step embeds the full
 [`crv apply` schema](apply-configuration.md) and runs through the same
@@ -152,9 +151,6 @@ pipeline:
         path: builds/debian/               # optional, see below
         ifExists: error                    # error (default) | skip | overwrite | update — see below
 
-      useCache: false                      # default: false; equivalent to --use-cache
-      buildCache: false                    # default: false; equivalent to --build-cache
-      cacheMode: memory                    # memory (default) | disk — see "Build-step cache" below
 
       strategy: overlay                    # overlay (default) | from-scratch | installer
 
@@ -233,7 +229,7 @@ target:
 Targets accept `name` or `name:tag`. Existing-target checks use that tag.
 A failed build preserves the previous tag mapping. Templates resolve floating
 tags once at build start; the resolved version IDs contribute to the build
-cache key, so moving a tag cannot reuse a cache for an older base image.
+artifact fingerprint, so moving a tag causes dependent builds to run again.
 
 #### How build metadata is created
 
@@ -272,7 +268,7 @@ identifiers and execution policies that should not force a rebuild:
 | Template SSH keys | Use sorted public key material instead of key database IDs. |
 | Provisioners | Keep script text, file contents and destination/mode, shell environment/workdir/timeouts, wait conditions, and reboot settings. Preserve execution order. |
 | Environment variables | Sort by variable name and exclude daemon-injected bake VM and task identifiers, which change between executions. |
-| Output and execution policies | Exclude the build name/description, node selection, output path, `ifExists`, cleanup and shutdown-wait policies, and cache settings. Keep target format, size, and compaction. |
+| Output and execution policies | Exclude the build name/description, node selection, output path, `ifExists`, cleanup and shutdown-wait policies. Keep target format, size, and compaction. |
 
 The daemon encodes the manifest as canonical UTF-8 JSON, recursively sorting
 object keys while preserving array order, then computes its SHA-256 fingerprint.
@@ -293,8 +289,7 @@ for the new output version:
 
 The image record, tag updates, node placement, and metadata row are saved in
 the same database transaction. Metadata is recorded for every successfully
-published build, regardless of its `ifExists` policy, including builds that
-resume from cache and installer builds. A failed build leaves the previous
+published build, regardless of its `ifExists` policy, including installer builds. A failed build leaves the previous
 artifact, tags, and metadata intact. Deleting an output image removes its
 metadata; source IDs embedded in the JSON do not prevent deleting old source
 versions.
@@ -313,15 +308,13 @@ metadata by that selected image version's ID:
 | The target exists but has no build metadata | Build and publish a version with metadata. This includes imported images and outputs created before metadata was recorded. |
 | The stored fingerprint differs from the current fingerprint | Build and publish a new version. |
 | The fingerprints match | Skip the build and return the existing output image ID. |
-| `--rebuild-from N` is set with `N > 0` | Bypass the matching-fingerprint skip and execute the build. |
 
 Equality is a comparison of the two fingerprints. The daemon does not compare
 the saved `inputs` JSON field by field, download source images, or ask a node
-agent to hash disk contents for this check. A match returns before build-cache
-lookup or bake VM creation and does not create a new metadata row. Otherwise,
-the normal build and cache workflow runs, and successful publication saves the
-current manifest against the new output image ID. Cache flags alone do not
-bypass a matching fingerprint. `overwrite` always executes the build and
+agent to hash disk contents for this check. A match returns before bake VM
+creation and does not create a new metadata row. Otherwise, the build runs
+all provisioners and successful publication saves the current manifest against
+the new output image ID. `overwrite` always executes the build and
 publishes a fresh version.
 
 Combine disk-level `ifExists: update` and a verified import checksum with build
@@ -346,8 +339,7 @@ A's fingerprint changes and it publishes `A2`. When B runs next, it resolves
 dependency change through the chain even if the build recipes are unchanged.
 
 Changes outside declared inputs, such as package repository contents or
-files behind a shared directory, are not detected. Use `overwrite` or
-`--rebuild-from` when those inputs require a refresh.
+files behind a shared directory, are not detected. Use `overwrite` when those inputs require a refresh.
 
 The same field name `ifExists:` exists at the top level of an `apply:`
 document (see [apply-configuration](apply-configuration.md)), where it
@@ -616,156 +608,11 @@ After a successful build the published artifact is a **clone** of the
 bake VM's artifact disk (created via `qemu-img convert`, non-ephemeral,
 named by the build's `name:` field). The bake VM's original artifact
 disk stays attached and ephemeral, so the standard cleanup pass reaps
-it together with the bake VM — unless `--build-cache` left cache rows
-referencing the bake VM, in which case the cleanup skips the
-`VmDelete` and the bake VM survives for future `--use-cache` resumes.
+it together with the bake VM when the cleanup policy calls for teardown.
 
 Stranded ephemeral resources are named with the prefix
 `__build_<task-id>_…` so they're greppable via `crv vm list` /
 `crv disk list`.
-
-## Build-step cache
-
-`crv build` can cache the output of each successful provisioner step
-as a qcow2 internal snapshot, keyed by a hash of the step's content
-chained through all prior steps and the build envelope. Two
-independent flags control the cache; both default to **off**:
-
-| Flag (CLI / YAML) | Effect |
-|---|---|
-| `--use-cache` / `useCache: true` | If a cached prefix matches the current build's chain, reuse the bake VM, roll its writable disks back to the cached step, and resume from the first unmatched step. |
-| `--build-cache` / `buildCache: true` | After each successful step, take an atomic multi-disk live snapshot of the bake VM's writable disks and write a `BuildCacheEntry` row tying that snapshot to the chain hash. The bake VM survives the cleanup pass while any cache row references it. |
-
-The `--rebuild-from N` flag (1-based step index) caps the matched
-prefix length so step `N` and everything after it is always
-re-executed, even if those steps' content is unchanged. Only
-meaningful with `--use-cache`.
-
-```bash
-# Prime the cache: every successful step gets a snapshot.
-crv build pipeline.yml --wait --build-cache
-
-# Use the primed cache without extending it. Steps whose content
-# hasn't changed re-run from the snapshot in ~ms; the first
-# unmatched step rebakes from there.
-crv build pipeline.yml --wait --use-cache
-
-# Iterative workflow: use existing cache, write new entries for
-# steps that hadn't been cached yet.
-crv build pipeline.yml --wait --use-cache --build-cache
-
-# Force step 3 and beyond to re-execute even though their content
-# matches a cache prefix.
-crv build pipeline.yml --wait --use-cache --rebuild-from 3
-```
-
-### What goes into the chain hash
-
-Every step's hash is `sha256(canonical-YAML(envelope || step-i))`
-folded left-to-right. The envelope captures the YAML fields that
-affect what the bake VM **does** (template, target spec, strategy,
-VM cpu/ram, shell defaults, and boot keys); it excludes the
-operator-policy fields (`name`, `description`, `node`, `cleanup`,
-`waitForShutdownSec`, `useCache`, `buildCache`). Per-step inputs
-filter out the auto-injected `CORVUS_BAKEVM_ID` /
-`CORVUS_BUILD_TASK_ID` / `CORVUS_BUILD_TASK_ID` envs (they change
-every invocation and would defeat caching), and the runtime-only
-`shell.script` / `file.from` fields (always
-`Nothing` post-client-inlining).
-
-Editing a provisioner step invalidates that step's chain hash **and
-every subsequent step's** — a single character change in step 4 of a
-10-step build invalidates steps 4..10 in the cache. Reordering steps
-is also a content change (the hash includes the step's position).
-
-### Strategy interactions
-
-- **`overlay`** caches just the artifact disk (one snapshot per step).
-- **`from-scratch`** caches both the bake VM's system disk and the
-  artifact disk per step, atomically via a QMP `transaction`.
-  Provisioner steps can install tools into the bake VM that later
-  steps depend on, so the cached state must include the system
-  disk's progression too.
-- **`installer`** skips the cache layer entirely — no provisioners,
-  nothing to snapshot per step.
-
-The overlay and from-scratch strategies already require
-`guestAgent: true` on their bake template for provisioner exec; the
-cache inherits that precondition since it uses QGA `fsfreeze` to
-ensure each cache snapshot is filesystem-consistent.
-
-### `cacheMode` — what each per-step snapshot captures
-
-| Mode | Per-step snapshot | Cache resume |
-|---|---|---|
-| `memory` (default) | Vmstate (RAM + device + CPU state) **plus** the qcow2 active state, atomically via QMP `snapshot-save`. Carrier disk is the artifact (overlay) or the bake VM's system disk (from-scratch); siblings get block snapshots under the same tag. | Bake VM launched paused (`qemu -S`), QMP `snapshot-load` restores RAM + every disk, `cont` resumes CPUs, QGA `guest-set-time` resyncs the wall clock. The bake VM is in the exact pre-snapshot state — mounts, modules, running daemons, tmpfs contents (e.g. `/tmp`) all intact. |
-| `disk` | Just the qcow2 active state per writable disk via `blockdev-snapshot-internal-sync`, bracketed by QGA `fsfreeze` for filesystem consistency. | Bake VM stopped, every disk rolled back with offline `qemu-img snapshot -a`, then `VmStart` reboots. Anything outside the disk (mounts, modules, running daemons, tmpfs) is lost — the provisioner step that runs next sees a fresh boot. |
-
-**When to pick which:**
-
-- **`memory`** is the right default for any multi-step bake whose
-  later steps assume the kernel/runtime state set up by earlier
-  steps — bind mounts of the sysroot, `losetup`/`dmsetup` handles,
-  loaded modules, daemons started but not enabled, tmpfs scratch
-  dirs. Without it the bake's implicit contract breaks on
-  `--use-cache`. The cost is **≈ RAM-size per cached step** of
-  extra qcow2 footprint.
-- **`disk`** is the opt-out for builds whose provisioner steps
-  establish their own preconditions on every invocation and don't
-  rely on any cross-step in-memory state. Smaller cache footprint,
-  cheaper to keep around.
-
-Switching modes invalidates the cache: the on-disk artifacts are
-not interchangeable, so `cacheMode` is in the envelope hash. A
-priming run in `memory` mode and a reuse run in `disk` mode will
-miss the cache entirely.
-
-**QEMU 6.0+ required** for `memory` mode — the agent
-capability-probes via `query-commands` and refuses with a clear
-error on older builds. All modern QEMU packages ship 6.0 or
-later (Gentoo `app-emulation/qemu`, Debian stable, the upstream
-QEMU containers).
-
-**Standalone `crv disk snapshot rollback`** on a vmstate-aware
-snapshot drives the same restore lifecycle. The VM-scoped
-`crv vm snapshot rollback` additionally handles the
-stopped-VM case (paused-start + snapshot-load + cont).
-See [doc/snapshots.md](snapshots.md).
-
-### Lifecycle of a cached bake VM
-
-A bake VM with at least one `BuildCacheEntry` row survives every
-`cleanup:` mode — `cleanupBakeVm` consults the cache table and
-skips the `VmDelete`. After a successful build the bake VM is
-**always powered off** (the publish path issues a graceful `VmStop`
-before cloning the artifact); a retained bake VM lives in
-`stopped` state until either:
-
-- A subsequent `--use-cache` build starts it again, rolls the
-  writable disks back to the matched step, and resumes from there.
-- An operator runs `crv vm delete <bake-vm-name>`, which cascades
-  the cache rows (`deleteVm` cleans them up explicitly).
-- A `crv disk snapshot delete` removes one of the cache snapshots,
-  which cascades the matching cache row (`deleteDiskAndSnapshots`).
-
-If `--use-cache` is set but reuse fails for any reason — the cached
-VM was deleted out-of-band, a cache snapshot was deleted, the
-rollback couldn't take the qcow2 lock — the daemon purges the
-stale cache rows pointing at that VM and falls back to a fresh
-bake. The operator sees a `cache: reuse failed (...); rebuilding
-from scratch` log line and the build proceeds normally.
-
-### Cache snapshots vs. operator snapshots
-
-Cache snapshots are stored alongside the disk's regular qcow2
-internal snapshots, named `cache-<first-16-chars-of-chain-hash>`.
-They appear in `crv disk show <bake-artifact> --field snapshots`
-with `live=True, quiesced=True` columns set. The published
-artifact is **always** a flat standalone qcow2 with zero
-snapshots — `qemu-img convert` (used by the publish path) copies
-only the source's active state and does not preserve internal
-snapshots. Operators never see cache snapshots leak into a shipped
-artifact.
 
 ## Predefined provisioner env
 

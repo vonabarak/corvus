@@ -194,10 +194,6 @@ async def stream_apply_events(
 async def stream_build_events(
     daemon: capnp.lib.capnp._DynamicCapabilityClient,
     yaml: str,
-    *,
-    use_cache: bool = False,
-    build_cache: bool = False,
-    rebuild_from: int = 0,
 ) -> AsyncIterator[t.BuildStreamItem]:
     """Yield BuildEvent dataclasses, then a final `('task_id', N)` tuple.
 
@@ -210,18 +206,12 @@ async def stream_build_events(
                 # BuildLogLine / BuildStepStart / ... event dataclasses
                 ...
 
-    The cache flags (``use_cache``, ``build_cache``, ``rebuild_from``)
-    layer on top of the YAML's own ``useCache:`` / ``buildCache:``
-    fields (OR semantics). Default off for all three.
     """
     queue: asyncio.Queue[_BuildQueueItem] = asyncio.Queue()
     sink = _BuildEventSinkServer(queue)
     promise = daemon.build(
         yaml=yaml,
         sink=sink,
-        useCache=use_cache,
-        buildCache=build_cache,
-        rebuildFrom=rebuild_from,
     )
     # Drain events from the queue. The daemon signals end-of-stream
     # by calling sink.end(); we then await the original build() promise

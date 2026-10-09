@@ -146,8 +146,6 @@ spec = describe "Schema.Build" $ do
           bvmRam (buildVm b) `shouldBe` 4294967296
           buildBootKeys b `shouldBe` []
           buildWaitForShutdownSec b `shouldBe` 3600
-          buildUseCache b `shouldBe` False
-          buildBuildCache b `shouldBe` False
         Left e -> expectationFailure e
 
     it "parses installer strategy with bootKeys + waitForShutdownSec" $ do

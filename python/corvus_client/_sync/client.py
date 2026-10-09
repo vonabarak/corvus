@@ -128,10 +128,6 @@ class Client:
     def build_stream(
         self,
         yaml_path: str,
-        *,
-        use_cache: bool = False,
-        build_cache: bool = False,
-        rebuild_from: int = 0,
     ) -> Iterator[t.BuildStreamItem]:
         """Iterate build events from a YAML pipeline file.
 
@@ -142,25 +138,15 @@ class Client:
         """
         agen = self._a.build_stream(
             yaml_path,
-            use_cache=use_cache,
-            build_cache=build_cache,
-            rebuild_from=rebuild_from,
         )
         return _SyncIterator(agen, self._rl)
 
     def build_stream_text(
         self,
         yaml_text: str,
-        *,
-        use_cache: bool = False,
-        build_cache: bool = False,
-        rebuild_from: int = 0,
     ) -> Iterator[t.BuildStreamItem]:
         agen = self._a.build_stream_text(
             yaml_text,
-            use_cache=use_cache,
-            build_cache=build_cache,
-            rebuild_from=rebuild_from,
         )
         return _SyncIterator(agen, self._rl)
 

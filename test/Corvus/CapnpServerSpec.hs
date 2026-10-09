@@ -235,7 +235,7 @@ spec = withTestDb $ sequential $ do
         done <- newEmptyMVar
         let onEvent ev = atomicModifyIORef' eventsRef (\xs -> (xs ++ [ev], ()))
             onEnd = putMVar done ()
-        tid <- CR.rpcBuild conn "" False False 0 onEvent onEnd
+        tid <- CR.rpcBuild conn "" onEvent onEnd
         tid `shouldSatisfy` (> 0)
         -- Give the daemon at most 10 s to finish even on an empty
         -- (invalid) YAML — it should fail validation quickly and

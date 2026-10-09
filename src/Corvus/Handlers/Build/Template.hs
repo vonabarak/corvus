@@ -134,10 +134,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
       let size = btSize target
       -- ephemeral=True for the bake-VM-attached disk; publish
       -- produces a CLONE (non-ephemeral) so the bake disk stays
-      -- ephemeral whether the build succeeds or fails. If
-      -- @--build-cache@ leaves cache rows behind, 'cleanupBakeVm'
-      -- skips the @VmDelete@ and the bake VM + this ephemeral
-      -- disk both survive for future cache hits.
+      -- ephemeral whether the build succeeds or fails.
       diskResp <-
         liftIO $
           runActionAsSubtask

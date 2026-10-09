@@ -281,30 +281,6 @@ instance CGNA.Session'server_ SessionCap where
               { CGNA.result = encodeDiskOpResult result
               }
 
-  session'snapshotCreateLiveMany sc =
-    -- Same async/op-lock pattern as 'session'snapshotCreateLive'.
-    handleParsedAsync $
-      \CGNA.Session'snapshotCreateLiveMany'params
-        { CGNA.paths = ps
-        , CGNA.name = n
-        , CGNA.vmId = vid
-        , CGNA.quiesce = q
-        } ->
-          withVmOpLock sc vid $ do
-            (result, quiesced) <-
-              NSL.createSnapshotLiveMany
-                (scQgaConns sc)
-                agentQemuConfig
-                vid
-                n
-                (map T.unpack ps)
-                (decodeQuiesceMode q)
-            pure
-              CGNA.Session'snapshotCreateLiveMany'results
-                { CGNA.result = encodeDiskOpResult result
-                , CGNA.quiesced = quiesced
-                }
-
   session'snapshotCreateWithVmstate sc =
     -- Same async/op-lock pattern as 'session'snapshotCreateLive'.
     -- vmstate save can take several seconds for large RAM; the

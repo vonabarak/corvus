@@ -588,7 +588,7 @@ pipeline:
               image: gentoo-headless (standalone — no host mounts)
               built: $(date -Iseconds)
               build-id: $(date +%s)
-              built-by: corvus build-cache memory-mode demo (use-cache pass)
+              built-by: Corvus image build
               EOF
 
               sync

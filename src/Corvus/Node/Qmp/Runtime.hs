@@ -424,8 +424,8 @@ queryJobs config vmId = do
 -- small window between @forkProcess@ returning a pid (the agent's
 -- vmStart RPC returns) and the socket being ready to accept
 -- connections. A daemon-side caller that immediately invokes
--- a QMP command (e.g. @snapshot-load@ in the build-cache memory-
--- mode resume path) hits "ENOENT" on the socket path during that
+-- a QMP command (e.g. @snapshot-load@ in the full-machine snapshot
+-- restore path) hits "ENOENT" on the socket path during that
 -- window. This helper bridges the gap with a bounded poll: try
 -- @query-commands@; on a connect-style failure, sleep and retry;
 -- on any other outcome (success, structured error), return.

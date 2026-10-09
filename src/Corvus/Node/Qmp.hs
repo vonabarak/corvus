@@ -22,7 +22,6 @@ module Corvus.Node.Qmp
   , qmpEject
   , qmpChangeMedium
   , qmpBlockSnapshotCreate
-  , qmpBlockSnapshotCreateMany
   , qmpBlockSnapshotDelete
   , qmpFindBlockDeviceByPath
   , qmpQueryCommands

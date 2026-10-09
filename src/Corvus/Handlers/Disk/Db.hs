@@ -109,16 +109,9 @@ isCircularBacking diskId newBackingId
             let parentId = fromSqlKey parentKey
              in if parentId == diskId then pure True else walk parentId
 
--- | Delete disk and its snapshots, including any cache entries the
--- snapshots feed.
+-- | Delete a disk and its snapshots.
 deleteDiskAndSnapshots :: Int64 -> SqlPersistT IO ()
 deleteDiskAndSnapshots diskId = do
-  -- Cache rows reference Snapshot via foreign key. With cascade not
-  -- declared in the schema, we explicitly clean up the cache rows
-  -- belonging to this disk's snapshots before dropping the snapshots.
-  snaps <- selectList [M.SnapshotDiskImageId ==. toSqlKey diskId] []
-  forM_ snaps $ \(Entity sk _) ->
-    deleteWhere [M.BuildCacheEntrySnapshotId ==. sk]
   deleteWhere [M.SnapshotDiskImageId ==. toSqlKey diskId]
   deleteWhere [DiskImageImportIdentityDiskImageId ==. toSqlKey diskId]
   deleteWhere [DiskImageUploadIdentityDiskImageId ==. toSqlKey diskId]

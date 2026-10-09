@@ -909,7 +909,7 @@ pipeline:
           # provisioners (qemu, postgresql, ghc, node, …) peak at
           # ~12 GB total with MAKEOPTS=-j$(nproc) on 8 cores. The
           # build's own `vm:` block is only used for cache-hash
-          # computation (see Build/Cache/Hash.hs), not for sizing
+          # computation (see Build/Identity.hs), not for sizing
           # the bake VM — so the bake-VM RAM has to live here, on
           # the template. Runtime VMs that don't need this much
           # can override per-VM (corvus-test-node.yml's harness

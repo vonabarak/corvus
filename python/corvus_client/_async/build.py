@@ -131,10 +131,6 @@ def preprocess_build_yaml(yaml_path: str) -> str:
 async def stream_build_from_file(
     daemon: capnp.lib.capnp._DynamicCapabilityClient,
     yaml_path: str,
-    *,
-    use_cache: bool = False,
-    build_cache: bool = False,
-    rebuild_from: int = 0,
 ) -> AsyncIterator[types.BuildStreamItem]:
     """Run `Daemon.build` on a preprocessed YAML file.
 
@@ -146,9 +142,6 @@ async def stream_build_from_file(
     async for item in stream_build_events(
         daemon,
         text,
-        use_cache=use_cache,
-        build_cache=build_cache,
-        rebuild_from=rebuild_from,
     ):
         yield item
 

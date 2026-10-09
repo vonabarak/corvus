@@ -81,7 +81,7 @@ before their backing images. `--node` limits placement deletion to that node,
 so an unused copy can be removed while another node still uses the version.
 The final placement is retained while any VM or overlay references the version.
 
-Snapshots do not protect historical versions. Snapshots, build-cache entries,
+Snapshots do not protect historical versions. Snapshots,
 source identities, and tags are removed with version metadata after its last
 placement is deleted. While any copy remains, that metadata is retained.
 

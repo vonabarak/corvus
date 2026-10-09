@@ -2,7 +2,7 @@
 
 module Corvus.BuildIdentitySpec (spec) where
 
-import Corvus.Build.Cache.Hash (buildInputIdentity, envelopeHash)
+import Corvus.Build.Identity (buildInputIdentity)
 import Corvus.DiskSelector (DiskSelector (..))
 import Corvus.Model
 import Corvus.Protocol (NamedRef (..))
@@ -97,7 +97,7 @@ spec = describe "build input identity" $ do
       template t = build {buildResolvedTemplate = Just t}
   it "stores valid deterministic JSON and a SHA-256 fingerprint" $ do
     identity build `shouldBe` identity build
-    T.length (biFingerprint (identity build)) `shouldBe` 64
+    biFingerprint (identity build) `shouldBe` "81064a06a8c688fa3e80933083fbc0b7106adeb2e45acb23d471346570cc690e"
     (Aeson.eitherDecodeStrict' (TE.encodeUtf8 (biInputs (identity build))) :: Either String Aeson.Value) `shouldSatisfy` either (const False) (const True)
   it "ignores allocated template, shared directory, audio and SSH key IDs and labels" $ do
     let recreated =
@@ -118,7 +118,6 @@ spec = describe "build input identity" $ do
         withDrive d = template sampleDetails {tvdDrives = [d]}
     fingerprint build `shouldBe` fingerprint (withDrive drive {tvdiDiskImage = Just (NamedRef 7 "renamed"), tvdiDiskSelector = Just (ImageId 7)})
     fingerprint build `shouldNotBe` fingerprint (withDrive drive {tvdiDiskImage = Just (NamedRef 8 "base-disk")})
-    envelopeHash build `shouldNotBe` envelopeHash (withDrive drive {tvdiDiskImage = Just (NamedRef 8 "base-disk")})
   it "includes every source-backed drive, including read-only firmware/media" $ do
     let drives = tvdDrives sampleDetails
         media version = TemplateDriveInfo (Just (NamedRef version "media")) Nothing Nothing InterfaceIde (Just MediaCdrom) True CacheNone False StrategyDirect Nothing Nothing Nothing
@@ -143,7 +142,7 @@ spec = describe "build input identity" $ do
           ]
     mapM_ (\b -> fingerprint b `shouldNotBe` fingerprint build) changes
     biFingerprint (buildInputIdentity build ["new public key"]) `shouldNotBe` fingerprint build
-  it "ignores output and operational policy, including cache mode" $ do
+  it "ignores output and operational policy" $ do
     let changed =
           build
             { buildName = "other"
@@ -151,9 +150,6 @@ spec = describe "build input identity" $ do
             , buildNode = "other-node"
             , buildCleanup = CleanupNever
             , buildWaitForShutdownSec = 99
-            , buildUseCache = True
-            , buildBuildCache = True
-            , buildCacheMode = CacheModeDisk
             , buildTarget = (buildTarget build) {btPath = Just "/another/path", btIfExists = BuildIfExistsUpdate}
             }
     fingerprint changed `shouldBe` fingerprint build

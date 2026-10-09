@@ -170,18 +170,15 @@ library
       Corvus.Handlers.Apply.Vm
       Corvus.Handlers.Apply.Execute
       Corvus.Handlers.Build
-      Corvus.Handlers.Build.Cache
       Corvus.Handlers.Build.Cleanup
       Corvus.Handlers.Build.Qga
       Corvus.Handlers.Build.Provisioner
       Corvus.Handlers.Build.Artifact
-      Corvus.Handlers.Build.CacheResume
       Corvus.Handlers.Build.Installer
       Corvus.Handlers.Build.Template
       Corvus.Handlers.Build.CleanupBakeVm
       Corvus.Handlers.Build.Run
-      Corvus.Build.Cache.Hash
-      Corvus.Build.Cache.Store
+      Corvus.Build.Identity
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle
       Corvus.Client.Commands.GuestExec
@@ -285,6 +282,7 @@ library
       Corvus.Database.Migrations.V009
       Corvus.Database.Migrations.V010
       Corvus.Database.Migrations.V011
+      Corvus.Database.Migrations.V012
       Corvus.Handlers.AudioDevice
       Corvus.Handlers.Disk.RegisterPlacement
       Corvus.Handlers.Disk.Tags
@@ -763,8 +761,6 @@ test-suite corvus-test
       Corvus.ActionSpec
       Corvus.ApplySpec
       Corvus.BalloonParserSpec
-      Corvus.BuildCacheHashSpec
-      Corvus.BuildCachePruneSpec
       Corvus.BuildCleanupSpec
       Corvus.BuildIdentitySpec
       Corvus.BuildSchemaSpec

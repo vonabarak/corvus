@@ -77,7 +77,7 @@ NodeAgentClient/         # Daemon-side client shim for corvus-nodeagent
 Netd/                    # corvus-netd runtime, kernel networking, dnsmasq,
                          # nftables, cleanup, net-agent caps
 NetAgentClient/          # Daemon-side client shim for corvus-netd
-Build/                   # Image-build cache hashing and store helpers
+Build/                   # Image-build artifact identity hashing
 Schema/                  # YAML schema parsers for apply/template/build/cloud-init
 Qemu/                    # Shared QEMU config facade retained for compatibility
 Utils/                   # YAML, network/subnet helpers

@@ -82,8 +82,6 @@ module Corvus.Model
   , CloudInitId
   , TemplateCloudInit (..)
   , TemplateCloudInitId
-  , BuildCacheEntry (..)
-  , BuildCacheEntryId
 
     -- * Task enums
   , TaskSubsystem (..)
@@ -950,18 +948,4 @@ TemplateCloudInit
     UniqueTemplateCloudInitVm templateId
     deriving Show Eq Generic
 
--- Cache per pipeline, step and disk role. pipelineKey combines envelope
--- hash and build name; chainHash chains step hashes. snapshotId captures
--- output in the owning bake VM. Disk/snapshot and VM deletion enforce
--- cascades in application code, consistent with other schema references.
-BuildCacheEntry
-    pipelineKey Text
-    stepIndex Int
-    chainHash Text
-    diskRole Text
-    snapshotId SnapshotId
-    vmId VmId
-    createdAt UTCTime
-    UniqueBuildCacheChainDisk pipelineKey chainHash diskRole
-    deriving Show Eq Generic
 |]

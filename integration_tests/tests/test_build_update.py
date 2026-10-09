@@ -12,8 +12,6 @@ import pytest
 from corvus_client.types import (
     BuildLogLine,
     BuildPipelineEnd,
-    BuildStepCacheRestore,
-    BuildStepCacheStore,
     BuildStepStart,
     BuildStreamItem,
 )
@@ -49,7 +47,6 @@ def _build(
         "name": name,
         "template": template,
         "strategy": "overlay",
-        "cacheMode": "disk",
         "target": {"ifExists": policy, "format": "qcow2", "size": "2G"},
         "vm": {"cpuCount": 2, "ram": "1024M"},
         "provisioners": [{"shell": shell}],
@@ -60,7 +57,7 @@ def _build(
 class TestBuildUpdate(SingleNodeCase):
     @contextmanager
     def _resources(self) -> Generator[str]:
-        """Own all versions and cache-retained bake VMs created by one scenario."""
+        """Own all image versions and temporary resources created by one scenario."""
         prefix = f"update-{secrets.token_hex(3)}"
         try:
             yield prefix
@@ -78,17 +75,10 @@ class TestBuildUpdate(SingleNodeCase):
     def _run(
         self,
         steps: list[dict[str, object]],
-        *,
-        use_cache: bool = False,
-        build_cache: bool = False,
-        rebuild_from: int = 0,
     ) -> tuple[dict[str, int], list[BuildStreamItem]]:
         events = list(
             self.client.build_stream_text(
                 yaml.safe_dump({"pipeline": steps}),
-                use_cache=use_cache,
-                build_cache=build_cache,
-                rebuild_from=rebuild_from,
             )
         )
         end = next(event for event in events if isinstance(event, BuildPipelineEnd))
@@ -102,10 +92,7 @@ class TestBuildUpdate(SingleNodeCase):
 
     @staticmethod
     def _assert_skipped(events: list[BuildStreamItem], count: int) -> None:
-        assert not any(
-            isinstance(event, (BuildStepStart, BuildStepCacheRestore))
-            for event in events
-        )
+        assert not any(isinstance(event, BuildStepStart) for event in events)
         assert (
             sum(
                 isinstance(event, BuildLogLine)
@@ -158,7 +145,7 @@ class TestBuildUpdate(SingleNodeCase):
             before = database.query(
                 "SELECT COUNT(*) FROM task WHERE command = 'instantiate'"
             )
-            same, events = self._run(pipeline(), use_cache=True, build_cache=True)
+            same, events = self._run(pipeline())
             assert same == initial
             self._assert_skipped(events, 3)
             assert (
@@ -308,11 +295,67 @@ class TestBuildUpdate(SingleNodeCase):
             forced, _ = run()
             assert all(forced[name] != changed[name] for name in (media, first, second))
 
-    def test_missing_metadata_force_and_cache_publication(self) -> None:
-        """Old outputs rebuild once. Explicit rebuild and overwrite bypass the
+    def test_overwrite_and_failed_retry_run_every_provisioner(self) -> None:
+        """Each bake starts with a fresh VM, including retries after a failed suffix."""
+        base = self.register_base_images()["alpine"]
+        with self._resources() as prefix, SqliteDatabase(self.node) as database:
+            artifact, template = prefix + "-image", prefix + "-tpl"
+            self.client.templates.create(yaml.safe_dump(_template(template, base)))
+
+            def pipeline(fail: bool = False) -> list[dict[str, object]]:
+                build = _build(artifact, template, policy="overwrite")
+                build["provisioners"] = [
+                    {"shell": "test ! -e /tmp/build-prefix; touch /tmp/build-prefix"},
+                    {
+                        "shell": "test -e /tmp/build-prefix; "
+                        + ("exit 7" if fail else "true")
+                    },
+                ]
+                return [{"build": build}]
+
+            def assert_steps(events: list[BuildStreamItem]) -> None:
+                assert [
+                    event.step_index
+                    for event in events
+                    if isinstance(event, BuildStepStart)
+                ] == [1, 2]
+                assert not [
+                    vm
+                    for vm in self.client.vms.list()
+                    if vm.name.startswith("__build_") and prefix in vm.name
+                ]
+
+            first, events = self._run(pipeline())
+            assert_steps(events)
+            second, events = self._run(pipeline())
+            assert_steps(events)
+            assert second[artifact] != first[artifact]
+            failed = list(
+                self.client.build_stream_text(
+                    yaml.safe_dump({"pipeline": pipeline(fail=True)})
+                )
+            )
+            assert_steps(failed)
+            end = next(event for event in failed if isinstance(event, BuildPipelineEnd))
+            assert end.builds[0].error_message
+            assert self.client.disks.get(artifact).show().id == second[artifact]
+            retried, events = self._run(pipeline())
+            assert_steps(events)
+            assert retried[artifact] != second[artifact]
+            assert database.query(
+                "SELECT COUNT(*) FROM snapshot WHERE disk_image_id = ?",
+                (retried[artifact],),
+            ) == [[0]]
+            assert not [
+                image
+                for image in self.client.disks.list()
+                if image.name.startswith("__build_") and prefix in image.name
+            ]
+
+    def test_missing_metadata_overwrite_and_publication(self) -> None:
+        """Old outputs rebuild once. Overwrite bypasses the
         update check; a named tag checks its selected version independently of
-        latest. Cache-resumed publications retain input identities, and changing
-        the source cannot restore an old cache. A vanished floating source must
+        latest. Fresh publications retain input identities. A vanished source must
         fail instead of silently reusing output.
         """
         base = self.register_base_images()["alpine"]
@@ -329,13 +372,17 @@ class TestBuildUpdate(SingleNodeCase):
             def pipeline(policy: str = "update") -> list[dict[str, object]]:
                 return [{"build": _build(artifact, template, policy=policy)}]
 
-            first, events = self._run(pipeline(), build_cache=True)
+            first, events = self._run(pipeline())
             assert first[artifact] != old
-            assert any(isinstance(event, BuildStepCacheStore) for event in events)
-            same, events = self._run(pipeline(), use_cache=True, build_cache=True)
+            assert [
+                event.step_index
+                for event in events
+                if isinstance(event, BuildStepStart)
+            ] == [1]
+            same, events = self._run(pipeline())
             assert same == first
             self._assert_skipped(events, 1)
-            forced, _ = self._run(pipeline(), rebuild_from=1)
+            forced, _ = self._run(pipeline("overwrite"))
             assert forced[artifact] != first[artifact]
             self.client.disks.get(first[artifact]).tag("stable")
             tagged, events = self._run(
@@ -344,16 +391,24 @@ class TestBuildUpdate(SingleNodeCase):
             assert tagged[artifact + ":stable"] == first[artifact]
             self._assert_skipped(events, 1)
             assert self.client.disks.get(artifact).show().id == forced[artifact]
-            overwritten, events = self._run(pipeline("overwrite"), use_cache=True)
+            overwritten, events = self._run(pipeline("overwrite"))
             assert overwritten[artifact] != forced[artifact]
-            assert any(isinstance(event, BuildStepCacheRestore) for event in events)
+            assert [
+                event.step_index
+                for event in events
+                if isinstance(event, BuildStepStart)
+            ] == [1]
             same, events = self._run(pipeline())
             assert same == overwritten
             self._assert_skipped(events, 1)
             self.wait_for_task(self.client, self.client.disks.import_(source, path))
-            changed, events = self._run(pipeline(), use_cache=True)
+            changed, events = self._run(pipeline())
             assert changed[artifact] != same[artifact]
-            assert not any(isinstance(event, BuildStepCacheRestore) for event in events)
+            assert [
+                event.step_index
+                for event in events
+                if isinstance(event, BuildStepStart)
+            ] == [1]
             same, events = self._run(pipeline())
             assert same == changed
             self._assert_skipped(events, 1)
@@ -362,10 +417,11 @@ class TestBuildUpdate(SingleNodeCase):
                 (same[artifact],),
             ) == [[1]]
 
-            # Remove the cache VM's overlays before deleting their source.
-            for vm in self.client.vms.list():
-                if vm.name.startswith("__build_") and prefix in vm.name:
-                    self.client.vms.get(vm.id).delete()
+            assert not [
+                vm
+                for vm in self.client.vms.list()
+                if vm.name.startswith("__build_") and prefix in vm.name
+            ]
             for image in reversed(self.client.disks.list()):
                 if image.name == source:
                     self.client.disks.get(image.id).delete()

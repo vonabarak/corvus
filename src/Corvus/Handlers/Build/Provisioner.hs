@@ -8,6 +8,7 @@
 -- the bake VM via the nodeagent's guest-exec RPC.
 module Corvus.Handlers.Build.Provisioner
   ( provisionerOutputCap
+    -- | Run every provisioner in order, stopping on the first failure.
   , runProvisioners
   , runProvisioner
   , runProvisionerBody
@@ -60,38 +61,24 @@ import Paths_corvus (version)
 provisionerOutputCap :: Int
 provisionerOutputCap = 64 * 1024
 
--- | Iterate provisioners @startIdx..N@ in order. After each
--- successful step the 'postStep' hook fires with the 1-based step
--- index — used by the build cache to snapshot the bake VM's
--- writable disks and record a 'BuildCacheEntry'. A 'Left' from
--- either the provisioner or the hook aborts the loop.
 runProvisioners
   :: ServerState
   -> TaskId
   -> BuildSink
   -> Int64
   -> Build
-  -> UTCTime
-  -> Int
-  -- ^ starting step index (1-based; passing N+1 means "all cached, skip")
-  -> (Int -> LoggingT IO (Either Text ()))
-  -- ^ per-step success hook
   -> LoggingT IO (Either Text ())
-runProvisioners state parentTaskId sink vmId b _startTime startIdx postStep = do
+runProvisioners state parentTaskId sink vmId b = do
   cEnv <- liftIO $ buildCorvusEnv state b vmId parentTaskId
   let sd = buildShellDefaults b
-      provs = drop (startIdx - 1) (buildProvisioners b)
+      provs = buildProvisioners b
       go _ [] = pure $ Right ()
       go idx (p : ps) = do
         r <- runProvisioner state parentTaskId sink vmId sd cEnv idx p
         case r of
           Left err -> pure $ Left err
-          Right () -> do
-            hookR <- postStep idx
-            case hookR of
-              Left err -> pure $ Left err
-              Right () -> go (idx + 1) ps
-  go startIdx provs
+          Right () -> go (idx + 1) ps
+  go 1 provs
 
 -- | Predefined environment variables exposed to every shell provisioner.
 -- Names are stable; values are read from the current 'Build', the bake

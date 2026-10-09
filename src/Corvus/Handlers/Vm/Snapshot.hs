@@ -252,8 +252,7 @@ findCarrierSnapshot vmId name = do
 
 -- | Rollback path for a stopped VM. Launches QEMU paused, drives
 -- @snapshot-load@, then @cont@s — leaving the VM running at the
--- captured state. Mirrors the build-cache resume choreography in
--- 'Corvus.Handlers.Build.resumeMemoryCacheBakeVm'.
+-- captured state.
 rollbackFromStopped
   :: ServerState
   -> Int64
