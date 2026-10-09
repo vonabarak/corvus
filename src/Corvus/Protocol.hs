@@ -149,6 +149,7 @@ data Response
     RespDiskNotFound
   | -- | Disk operation successful
     RespDiskOk
+  | RespDiskCleanup {report :: !DiskCleanupReport}
   | -- | List of snapshots
     RespSnapshotList {snapshots :: ![SnapshotInfo]}
   | -- | Snapshot created successfully

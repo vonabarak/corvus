@@ -87,6 +87,7 @@ library:
     - cbits
   exposed-modules:
     - Corvus.DiskSelector
+    - Corvus.ImageOperationGuard
     - Corvus.Images
     - Corvus.Protocol
     - Corvus.Protocol.JsonOptions
@@ -130,6 +131,8 @@ library:
     - Corvus.Handlers.Disk.Upload
     - Corvus.Handlers.Disk.Create
     - Corvus.Handlers.Disk.Derive
+    - Corvus.Handlers.Disk.Cleanup
+    - Corvus.Handlers.Disk.CleanupGraph
     - Corvus.Handlers.Disk.Maintenance
     - Corvus.Handlers.Disk.Placement
     - Corvus.Handlers.Disk.Path

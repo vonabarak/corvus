@@ -50,6 +50,7 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (Exception, SomeException, fromException, throwIO, try)
 import Control.Monad (when)
 import qualified Control.Monad.Catch as MC
+import Corvus.ImageOperationGuard (withImageOperationGuard)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -151,6 +152,9 @@ throwIfCancelled ctx = do
 -- Each handler is a data type that implements this class.
 class Action a where
   -- | Which subsystem this action belongs to (vm, disk, network, etc.)
+  actionExclusiveImages :: a -> Bool
+  actionExclusiveImages _ = False
+
   actionSubsystem :: a -> TaskSubsystem
 
   -- | Command name for task recording (e.g. "create", "start", "resize")
@@ -310,7 +314,7 @@ runAndFinalizeResult :: (Action a) => ServerState -> ActionContext -> a -> IO (E
 runAndFinalizeResult state ctx action = do
   let taskKey = acTaskId ctx
       pool = ssDbPool state
-  result <- try (actionExecute ctx action)
+  result <- try (withImageOperationGuard (ssImageOperations state) (actionExclusiveImages action) (actionExecute ctx action))
   finishTime <- getCurrentTime
   -- Was cancellation requested for this task tree? Read BEFORE
   -- unregistering, since the top-level task's token is dropped by
@@ -401,7 +405,7 @@ orElse Nothing b = b
 executeCreate :: (Action a) => ActionContext -> a -> TaskId -> IO (Either Text Int64)
 executeCreate parentCtx action taskId = do
   let ctx = parentCtx {acTaskId = taskId}
-  result <- try $ actionExecute ctx action
+  result <- try $ withImageOperationGuard (ssImageOperations (acState ctx)) (actionExclusiveImages action) (actionExecute ctx action)
   case result of
     Left (err :: SomeException) -> pure $ Left $ T.pack $ show err
     Right resp -> do
@@ -444,6 +448,7 @@ classifyResponse = \case
   RespBalloonDriverNotReady -> (TaskError, Just "VirtIO balloon guest driver is not ready")
   RespInvalidBalloonTarget -> (TaskError, Just "Balloon target must be positive and not exceed the VM RAM ceiling")
   RespBalloonError msg -> (TaskError, Just msg)
+  RespDiskCleanup report | dcrFailures report > 0 -> (TaskError, Just "Some image placements could not be deleted; see cleanup report")
   RespError msg -> (TaskError, Just msg)
   RespVmNotFound -> (TaskError, Just "VM not found")
   RespDiskNotFound -> (TaskError, Just "Disk not found")

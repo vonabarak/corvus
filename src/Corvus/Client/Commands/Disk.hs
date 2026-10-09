@@ -10,6 +10,7 @@ module Corvus.Client.Commands.Disk
   , handleDiskRegister
   , handleDiskImport
   , handleDiskUpload
+  , handleDiskCleanup
   , handleDiskDelete
   , handleDiskRegisterPlacement
   , handleDiskTag
@@ -54,7 +55,7 @@ import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emit
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..), SnapshotInfo (..))
-import Corvus.Protocol.Disk (parseUploadIfExists)
+import Corvus.Protocol.Disk (DiskCleanupPlacement (..), DiskCleanupReport (..), DiskCleanupVersion (..), parseUploadIfExists)
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Corvus.Wire.Enums (toCapnpDriveFormat)
@@ -626,3 +627,47 @@ handleDiskRegisterPlacement fmt conn diskRef nodeRef path = do
   case result of
     Left err -> emitRpcError fmt err (putStrLn ("Error: " <> show err)) >> pure False
     Right () -> emitOk fmt (putStrLn "Image placement registered.") >> pure True
+
+handleDiskCleanup :: OutputFormat -> CapnpConnection -> Maybe Text -> Text -> Bool -> Bool -> IO Bool
+handleDiskCleanup fmt conn name node tagged dry = do
+  result <- try @SomeException (CR.rpcDiskCleanup conn name node tagged dry)
+  case result of
+    Left err -> do
+      emitRpcError fmt err $ putStrLn ("Error: " ++ show err)
+      pure False
+    Right report -> do
+      emitResult fmt report $ printCleanup report
+      pure (dcrFailures report == 0)
+
+printCleanup :: DiskCleanupReport -> IO ()
+printCleanup report = do
+  mapM_ printVersion (dcrVersions report)
+  putStrLn $
+    "Removed "
+      ++ show (dcrRemovedVersions report)
+      ++ " versions and "
+      ++ show (dcrRemovedPlacements report)
+      ++ " placements; "
+      ++ show (dcrFailures report)
+      ++ " failures."
+  where
+    printVersion version = do
+      let ref = dcvDiskImage version
+      putStrLn $
+        T.unpack (nrName ref)
+          ++ " #"
+          ++ show (nrId ref)
+          ++ ": "
+          ++ T.unpack (dcvStatus version)
+          ++ explanation (dcvReason version)
+      mapM_
+        ( \p ->
+            putStrLn $
+              "  "
+                ++ T.unpack (nrName (dcpNode p))
+                ++ ": "
+                ++ T.unpack (dcpStatus p)
+                ++ explanation (dcpReason p)
+        )
+        (dcvPlacements version)
+    explanation reason = if T.null reason then "" else " (" ++ T.unpack reason ++ ")"

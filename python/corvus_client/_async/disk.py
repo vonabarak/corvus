@@ -33,6 +33,43 @@ class AsyncDiskManager:
         resp = await mgr.list()
         return [conv.disk_image_info(d) for d in resp.disks]
 
+    async def cleanup(
+        self,
+        name: str | None = None,
+        *,
+        all_images: bool = False,
+        node: int | str | None = None,
+        include_tagged: bool = False,
+        dry_run: bool = False,
+    ) -> types.DiskCleanupReport:
+        """Remove unused historical versions. Partial failures remain retryable.
+
+        Select exactly one bare family name or ``all_images=True``.
+        ``latest``, template references and required placements are retained.
+        Dry runs return planned outcomes and create no tasks.
+        """
+        if all_images == (name is not None):
+            raise ValueError("Select exactly one image name or all_images=True")
+        if name is not None:
+            if (
+                not isinstance(name, str)
+                or not name
+                or ":" in name
+                or name[0].isdigit()
+            ):
+                raise ValueError("cleanup requires a bare image family name")
+            disk_entity_ref(name)
+        mgr = await self._ensure()
+        params = _schema.disk.DiskCleanupParams.new_message()
+        params.name = name or ""
+        params.allImages = all_images
+        params.includeTagged = include_tagged
+        params.dryRun = dry_run
+        if node is not None:
+            params.node = entity_ref(node)
+        resp = await mgr.cleanup(params=params)
+        return conv.disk_cleanup_report(resp.report)
+
     async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncDisk:
         mgr = await self._ensure()
         resp = await mgr.get(ref=disk_entity_ref(ref, by_name=by_name))

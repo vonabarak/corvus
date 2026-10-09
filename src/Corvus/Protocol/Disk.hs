@@ -7,6 +7,9 @@ module Corvus.Protocol.Disk
   , parseUploadIfExists
   , DiskImageInfo (..)
   , DiskImagePlacement (..)
+  , DiskCleanupReport (..)
+  , DiskCleanupVersion (..)
+  , DiskCleanupPlacement (..)
   , SnapshotInfo (..)
   )
 where
@@ -99,3 +102,38 @@ parseUploadIfExists value = case value of
   "overwrite" -> Right UploadOverwrite
   "update" -> Right UploadUpdate
   _ -> Left "upload.ifExists must be error, skip, overwrite or update"
+
+-- | A completed cleanup, including skips and retryable node failures.
+data DiskCleanupReport = DiskCleanupReport
+  { dcrDryRun :: !Bool
+  , dcrVersions :: ![DiskCleanupVersion]
+  , dcrRemovedVersions :: !Int64
+  , dcrRemovedPlacements :: !Int64
+  , dcrFailures :: !Int64
+  }
+  deriving (Eq, Show, Generic)
+
+data DiskCleanupVersion = DiskCleanupVersion
+  { dcvDiskImage :: !NamedRef
+  , dcvTags :: ![Text]
+  , dcvStatus :: !Text
+  , dcvReason :: !Text
+  , dcvVersionDeleted :: !Bool
+  , dcvPlacements :: ![DiskCleanupPlacement]
+  }
+  deriving (Eq, Show, Generic)
+
+data DiskCleanupPlacement = DiskCleanupPlacement
+  { dcpNode :: !NamedRef
+  , dcpFilePath :: !Text
+  , dcpStatus :: !Text
+  , dcpReason :: !Text
+  }
+  deriving (Eq, Show, Generic)
+
+instance ToJSON DiskCleanupReport where
+  toJSON = genericToJSON innerOptions
+instance ToJSON DiskCleanupVersion where
+  toJSON = genericToJSON innerOptions
+instance ToJSON DiskCleanupPlacement where
+  toJSON = genericToJSON innerOptions

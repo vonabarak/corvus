@@ -14,6 +14,7 @@ module Corvus.Client.Capnp.Rpc.Disk
 
     -- * Disk lifecycle
   , rpcDiskCreate
+  , rpcDiskCleanup
   , rpcDiskDelete
   , rpcDiskRegisterPlacement
   , rpcDiskTag
@@ -84,6 +85,7 @@ import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
 import qualified Data.ByteString as BS
 import Data.Function ((&))
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -570,3 +572,23 @@ rpcDiskRegisterPlacement conn ref nodeRef path = do
   disk <- getDiskClient conn ref
   _ <- callOn #registerPlacement CGDisk.Disk'registerPlacement'params {CGDisk.node = toCapnpEntityRef nodeRef, CGDisk.path = path} disk
   pure ()
+
+rpcDiskCleanup :: CapnpConnection -> Maybe Text -> Text -> Bool -> Bool -> IO PD.DiskCleanupReport
+rpcDiskCleanup conn name node tagged dry = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  CGDisk.DiskManager'cleanup'results {CGDisk.report = report} <-
+    callOn
+      #cleanup
+      CGDisk.DiskManager'cleanup'params
+        { CGDisk.params =
+            CGDisk.DiskCleanupParams
+              { CGDisk.name = fromMaybe "" name
+              , CGDisk.allImages = isNothing name
+              , CGDisk.node = toCapnpEntityRef (entityRefFromText node)
+              , CGDisk.includeTagged = tagged
+              , CGDisk.dryRun = dry
+              }
+        }
+      mgr
+  pure (WDisk.fromCapnpDiskCleanupReport report)

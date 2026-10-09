@@ -18,6 +18,25 @@ class SyncDiskManager:
     def list(self) -> list[types.DiskImageInfo]:
         return self._rl.run(self._a.list())
 
+    def cleanup(
+        self,
+        name: str | None = None,
+        *,
+        all_images: bool = False,
+        node: int | str | None = None,
+        include_tagged: bool = False,
+        dry_run: bool = False,
+    ) -> types.DiskCleanupReport:
+        return self._rl.run(
+            self._a.cleanup(
+                name,
+                all_images=all_images,
+                node=node,
+                include_tagged=include_tagged,
+                dry_run=dry_run,
+            )
+        )
+
     def get(self, ref: int | str, *, by_name: bool = False) -> SyncDisk:
         return SyncDisk(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 

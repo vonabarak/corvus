@@ -28,6 +28,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
 import Control.Exception (SomeException, onException, throwIO, try)
 import Control.Monad (when)
 import Corvus.Action (runAction, runActionAsyncWithId)
+import Corvus.Handlers.Disk.Cleanup (DiskCleanup (..), previewDiskCleanup)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
 import Corvus.Handlers.Disk.Import (DiskImportAction (..))
@@ -56,14 +57,14 @@ import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types (ServerState (..), lookupNodeAgent)
-import Corvus.Wire.Disk (toCapnpDiskImageInfo, toCapnpSnapshotInfo)
+import Corvus.Wire.Disk (toCapnpDiskCleanupReport, toCapnpDiskImageInfo, toCapnpSnapshotInfo)
 import Corvus.Wire.Enums (fromCapnpDriveFormat, fromCapnpUploadIfExists)
 import Corvus.Wire.Error (ErrorCode (..))
 import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
 import Data.Char (isHexDigit)
 import Data.Int (Int64)
 import qualified Data.Text as T
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (fromSqlKey, toSqlKey)
 import Supervisors (Supervisor)
 
 -- ---------------------------------------------------------------------
@@ -82,6 +83,20 @@ newDiskManagerCap st sup cn = pure (DiskManagerCap st sup cn)
 instance SomeServer DiskManagerCap
 
 instance CGDisk.DiskManager'server_ DiskManagerCap where
+  diskManager'cleanup (DiskManagerCap st _ cn) =
+    handleParsed $ \CGDisk.DiskManager'cleanup'params {params = CGDisk.DiskCleanupParams {..}} -> do
+      when (allImages == not (T.null name)) $ throwError (RespError "Select exactly one image name or allImages")
+      nodeRef' <- capnpRefToRef node
+      nodeId <-
+        if T.null (P.unRef nodeRef') || P.unRef nodeRef' == "0"
+          then pure Nothing
+          else Just . toSqlKey <$> (resolveOrThrow =<< resolveNode nodeRef' (ssDbPool st))
+      let options = DiskCleanup (if allImages then Nothing else Just name) nodeId includeTagged
+      resp <- if dryRun then previewDiskCleanup st options else runAction st cn options
+      case resp of
+        RespDiskCleanup report -> pure CGDisk.DiskManager'cleanup'results {CGDisk.report = toCapnpDiskCleanupReport report}
+        _ -> throwError resp
+
   diskManager'list (DiskManagerCap st _ cn) = handleParsed $ \_ -> do
     resp <- handleDiskList st
     case resp of

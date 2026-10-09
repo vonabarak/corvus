@@ -186,6 +186,7 @@ runCommand opts = do
       DiskImport name source mPath mFormatStr ephemeral nodeRef waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpts
       DiskUpload name source formatStr mPath ephemeral nodeRef policy -> handleDiskUpload fmt conn name source formatStr mPath ephemeral nodeRef policy
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
+      DiskCleanup name node tagged dry -> handleDiskCleanup fmt conn name node tagged dry
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskRegisterPlacement diskRef nodeRef path -> handleDiskRegisterPlacement fmt conn diskRef nodeRef path
       DiskTag diskRef tagName -> handleDiskTag fmt conn False diskRef tagName

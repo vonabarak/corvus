@@ -34,6 +34,39 @@ struct DiskImagePlacement {
   filePath @1 :Text;
 }
 
+# Cleanup retains latest, template references, and required backing chains.
+struct DiskCleanupParams {
+  name @0 :Text; # Bare family name; empty only with allImages.
+  allImages @1 :Bool;
+  node @2 :Common.EntityRef; # Unset/byId 0 means all nodes.
+  includeTagged @3 :Bool;
+  dryRun @4 :Bool;
+}
+
+struct DiskCleanupPlacement {
+  node @0 :Common.NamedRef;
+  filePath @1 :Text;
+  status @2 :Text; # retained, planned, removed, failed
+  reason @3 :Text;
+}
+
+struct DiskCleanupVersion {
+  diskImage @0 :Common.NamedRef;
+  tags @1 :List(Text);
+  status @2 :Text;
+  reason @3 :Text;
+  versionDeleted @4 :Bool;
+  placements @5 :List(DiskCleanupPlacement);
+}
+
+struct DiskCleanupReport {
+  dryRun @0 :Bool;
+  versions @1 :List(DiskCleanupVersion);
+  removedVersions @2 :Int64;
+  removedPlacements @3 :Int64;
+  failures @4 :Int64;
+}
+
 struct DiskAttachment {
   vm @0 :Common.NamedRef;
 }
@@ -240,6 +273,7 @@ interface DiskManager {
   # the drive at the new image. For a stopped VM: only the drive row
   # is updated; the new media is picked up at the next boot.
   mediaChange   @13 (driveId :Int64, newDiskRef :Common.EntityRef) -> ();
+  cleanup @14 (params :DiskCleanupParams) -> (report :DiskCleanupReport);
 }
 
 # A one-shot client-upload session. finish() publishes the completed image and

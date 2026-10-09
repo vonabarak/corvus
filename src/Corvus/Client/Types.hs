@@ -139,7 +139,8 @@ data Command
   | -- | Refresh disk image size from qemu-img info
     DiskRefresh !Text
   | -- | Delete disk image
-    DiskDelete !Text
+    DiskCleanup !(Maybe Text) !Text !Bool !Bool
+  | DiskDelete !Text
   | -- | Resize disk image (diskRef, newSize)
     DiskResize !Text !Int64
   | DiskRegisterPlacement !Text !Text !Text

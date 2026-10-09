@@ -6,6 +6,8 @@ module Corvus.Wire.Disk
   ( toCapnpDiskImageInfo
   , fromCapnpDiskImageInfo
   , toCapnpSnapshotInfo
+  , toCapnpDiskCleanupReport
+  , fromCapnpDiskCleanupReport
   , fromCapnpSnapshotInfo
   )
 where
@@ -102,3 +104,54 @@ fromCapnpSnapshotInfo CGDisk.SnapshotInfo {..} =
     , P.sniQuiesced = quiesced
     , P.sniHasVmstate = hasVmstate
     }
+
+toCapnpDiskCleanupReport :: P.DiskCleanupReport -> C.Parsed CGDisk.DiskCleanupReport
+toCapnpDiskCleanupReport P.DiskCleanupReport {..} =
+  CGDisk.DiskCleanupReport
+    { CGDisk.dryRun = dcrDryRun
+    , CGDisk.versions = map version dcrVersions
+    , CGDisk.removedVersions = dcrRemovedVersions
+    , CGDisk.removedPlacements = dcrRemovedPlacements
+    , CGDisk.failures = dcrFailures
+    }
+  where
+    version P.DiskCleanupVersion {..} =
+      CGDisk.DiskCleanupVersion
+        { CGDisk.diskImage = toCapnpNamedRef dcvDiskImage
+        , CGDisk.tags = dcvTags
+        , CGDisk.status = dcvStatus
+        , CGDisk.reason = dcvReason
+        , CGDisk.versionDeleted = dcvVersionDeleted
+        , CGDisk.placements = map placement dcvPlacements
+        }
+    placement P.DiskCleanupPlacement {..} =
+      CGDisk.DiskCleanupPlacement
+        { CGDisk.node = toCapnpNamedRef dcpNode
+        , CGDisk.filePath = dcpFilePath
+        , CGDisk.status = dcpStatus
+        , CGDisk.reason = dcpReason
+        }
+
+fromCapnpDiskCleanupReport :: C.Parsed CGDisk.DiskCleanupReport -> P.DiskCleanupReport
+fromCapnpDiskCleanupReport CGDisk.DiskCleanupReport {..} =
+  P.DiskCleanupReport
+    dryRun
+    (map version versions)
+    removedVersions
+    removedPlacements
+    failures
+  where
+    version CGDisk.DiskCleanupVersion {..} =
+      P.DiskCleanupVersion
+        (fromCapnpNamedRef diskImage)
+        tags
+        status
+        reason
+        versionDeleted
+        (map placement placements)
+    placement CGDisk.DiskCleanupPlacement {..} =
+      P.DiskCleanupPlacement
+        (fromCapnpNamedRef node)
+        filePath
+        status
+        reason

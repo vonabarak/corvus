@@ -794,3 +794,30 @@ class TaskProgressFinished:
 TaskProgressEvent: TypeAlias = (
     TaskProgressStarted | TaskProgressProgress | TaskProgressFinished
 )
+
+
+@dataclass(frozen=True)
+class DiskCleanupPlacement:
+    node: NamedRef
+    file_path: str
+    status: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class DiskCleanupVersion:
+    disk_image: NamedRef
+    tags: list[str]
+    status: str
+    reason: str
+    version_deleted: bool
+    placements: list[DiskCleanupPlacement]
+
+
+@dataclass(frozen=True)
+class DiskCleanupReport:
+    dry_run: bool
+    versions: list[DiskCleanupVersion]
+    removed_versions: int
+    removed_placements: int
+    failures: int

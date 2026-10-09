@@ -48,6 +48,16 @@ diskCreateCommand =
     <*> ephemeralSwitch
     <*> nodeOption
 
+diskCleanupCommand :: Parser Command
+diskCleanupCommand =
+  DiskCleanup
+    <$> ( (Just <$> argument (T.pack <$> str) (metavar "NAME" <> help "Bare image family name"))
+            <|> (Nothing <$ flag' () (long "all" <> help "Clean all registered image families"))
+        )
+    <*> nodeOption
+    <*> switch (long "include-tagged" <> help "Also remove older tagged versions; retain latest")
+    <*> switch (long "dry-run" <> help "Report eligible versions without deleting files or recording tasks")
+
 -- | Parser for disk delete
 diskDeleteCommand :: Parser Command
 diskDeleteCommand =
@@ -482,7 +492,8 @@ nodeOption =
 diskCommandParser :: Parser Command
 diskCommandParser =
   subparser
-    ( command "tag" (info (DiskTag <$> selector <*> tagArg) (progDesc "Assign or move an image tag"))
+    ( command "cleanup" (info diskCleanupCommand (progDesc "Remove unused older image versions"))
+        <> command "tag" (info (DiskTag <$> selector <*> tagArg) (progDesc "Assign or move an image tag"))
         <> command "untag" (info (DiskUntag <$> selector <*> tagArg) (progDesc "Remove an image tag"))
         <> command
           "create"

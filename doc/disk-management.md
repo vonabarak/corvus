@@ -14,6 +14,7 @@ crv disk resize <disk> --size <SIZE>
 crv disk refresh <disk>
 crv disk list
 crv disk show <disk>
+crv disk cleanup NAME | --all [--node NODE] [--include-tagged] [--dry-run]
 crv disk delete <disk>
 crv disk tag <disk> <tag>
 crv disk untag <disk> <tag>
@@ -56,6 +57,60 @@ reservations do not expose an image or change tags. Explicit destination paths
 must be unused; publishing a new tag never overwrites the old file.
 `<drive>` is the numeric drive row id of a VM's drive (see
 `crv vm show <vm>`, the `ID` column of its drive list).
+
+## Cleaning older versions
+
+Preview or remove historical versions of one family or every registered family:
+
+```bash
+crv disk cleanup ubuntu --dry-run
+crv disk cleanup ubuntu
+crv disk cleanup --all --include-tagged
+crv disk cleanup ubuntu --node worker-1
+```
+
+Choose exactly one bare image name or `--all`; IDs and `name:tag` selectors
+are not cleanup targets. By default cleanup selects only untagged versions.
+`--include-tagged` also selects ordinary tagged versions. The version currently
+tagged `latest` is always retained, even if a newer version exists.
+
+Templates protect both pinned image IDs and the current resolution of floating
+name/tag references. VM attachments protect their node's placement. Retained
+overlays protect their backing chain on each node; eligible overlays are removed
+before their backing images. `--node` limits placement deletion to that node,
+so an unused copy can be removed while another node still uses the version.
+The final placement is retained while any VM or overlay references the version.
+
+Snapshots do not protect historical versions. Snapshots, build-cache entries,
+source identities, and tags are removed with version metadata after its last
+placement is deleted. While any copy remains, that metadata is retained.
+
+Cleanup returns a completed report with nested image/node references, per-version
+and per-placement outcomes (`retained`, `planned`, `removed`, `failed`), reasons,
+and counts of removed versions, removed placements, and failures. An unreachable
+node or failed deletion leaves its placement recorded for retry; cleanup continues
+with other eligible versions. The CLI prints the full report and exits nonzero
+when failures remain. `-o json` exposes the same report for scripts.
+
+`--dry-run` simulates the same dependency ordering without deleting files or
+recording tasks. Its removal counts are zero; `planned` outcomes show eligibility
+and do not guarantee node availability. A missing named family is an error;
+`--all` on an empty registry succeeds. Repeated cleanup is safe.
+
+The daemon waits for active mutating operations (including builds) and holds an
+exclusive mutation lease while cleaning up. This prevents publication, tag,
+template, attachment, and backing-chain changes from racing with deletion.
+Other mutations wait until cleanup finishes; read-only queries and task
+cancellation remain available through separate connections. Cleanup snapshots
+its candidate IDs once and supports cancellation between placement deletions.
+
+Both Python clients expose `disks.cleanup(name=None, *, all_images=False,
+node=None, include_tagged=False, dry_run=False)`, returning `DiskCleanupReport`.
+RPC clients call `DiskManager.cleanup(DiskCleanupParams)` with exactly one
+nonempty `name` or `allImages=true`; `node` is an optional `Common.EntityRef`.
+The REST gateway exposes `POST /disks/cleanup` with the Python argument names
+as JSON fields, returning the report (HTTP 200 also for partial failures;
+inspect `failures`). There is no GUI workflow or automatic retention policy.
 
 ## Per-node placement
 

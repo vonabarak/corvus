@@ -147,6 +147,59 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(name)
 
+    def test_cleanup_node_copy_with_remote_attachment(self) -> None:
+        """Remove alpha's old copy while a VM and snapshots use beta's copy."""
+        client = self.client_alpha
+        name = _uniq("cleanup-replica")
+        old = client.disks.create(name, size=16777216, path=f"/tmp/{name}-old.qcow2")
+        old_info = old.show()
+        vm = None
+        latest = None
+        try:
+            task = client.disks.copy(
+                old_info.id, self.beta_name, to_path=f"/tmp/{name}-beta.qcow2"
+            )
+            self.wait_for_task(client, task, timeout_sec=60.0)
+            old.snapshot_create("preserved")
+            latest = client.disks.create(name, size=16777216)
+            vm = client.vms.create(
+                _uniq("cleanup-vm"),
+                node=self.beta_name,
+                ram=134217728,
+                headless=True,
+                guest_agent=False,
+                cloud_init=False,
+            )
+            vm.attach_disk(old_info.id, interface="virtio", read_only=True)
+            preview = client.disks.cleanup(name, node=self.alpha_name, dry_run=True)
+            assert (
+                next(v for v in preview.versions if v.disk_image.id == old_info.id)
+                .placements[0]
+                .status
+                == "planned"
+            )
+            report = client.disks.cleanup(name, node=self.alpha_name)
+            assert report.removed_placements == 1 and report.removed_versions == 0
+            assert report.failures == 0
+            assert {p.node.name for p in old.show().placements} == {self.beta_name}
+            assert not self._file_exists(
+                self.node_alpha, old_info.placements[0].file_path
+            )
+            assert len(old.snapshot_list()) == 1
+            assert (
+                client.disks.cleanup(name, node=self.beta_name).removed_placements == 0
+            )
+            vm.delete(keep_disks=True)
+            vm = None
+            report = client.disks.cleanup(name)
+            assert report.removed_versions == report.removed_placements == 1
+        finally:
+            if vm is not None:
+                vm.delete(keep_disks=True)
+            self._delete_silent(str(old_info.id))
+            if latest is not None:
+                latest.delete()
+
     def test_move_detached_disk(self) -> None:
         """Create on alpha; move to beta. One placement (beta);
         source file unlinked."""

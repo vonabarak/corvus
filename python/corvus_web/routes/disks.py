@@ -33,6 +33,29 @@ router = APIRouter(prefix="/disks", tags=["disks"])
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
+class CleanupBody(BaseModel):  # type: ignore[explicit-any]
+    name: str | None = None
+    all_images: bool = False
+    node: int | str | None = None
+    include_tagged: bool = False
+    dry_run: bool = False
+
+
+@router.post("/cleanup")
+async def cleanup_disks(body: CleanupBody, client: ClientDep) -> JsonObject:
+    try:
+        report = await client.disks.cleanup(
+            body.name,
+            all_images=body.all_images,
+            node=body.node,
+            include_tagged=body.include_tagged,
+            dry_run=body.dry_run,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return to_dict(report)
+
+
 class ResizeBody(BaseModel):  # type: ignore[explicit-any]
     new_size: int = Field(
         ...,

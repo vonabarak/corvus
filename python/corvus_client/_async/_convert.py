@@ -676,3 +676,31 @@ def task_progress_event(r: capnp.lib.capnp._DynamicStructReader) -> t.TaskProgre
             message=_nz_text(g.message),
         )
     raise ValueError(f"unknown TaskProgressEvent variant: {which!r}")
+
+
+def disk_cleanup_report(r: capnp.lib.capnp._DynamicStructReader) -> t.DiskCleanupReport:
+    return t.DiskCleanupReport(
+        dry_run=r.dryRun,
+        versions=[
+            t.DiskCleanupVersion(
+                disk_image=named_ref(v.diskImage),
+                tags=list(v.tags),
+                status=v.status,
+                reason=v.reason,
+                version_deleted=v.versionDeleted,
+                placements=[
+                    t.DiskCleanupPlacement(
+                        node=named_ref(p.node),
+                        file_path=p.filePath,
+                        status=p.status,
+                        reason=p.reason,
+                    )
+                    for p in v.placements
+                ],
+            )
+            for v in r.versions
+        ],
+        removed_versions=r.removedVersions,
+        removed_placements=r.removedPlacements,
+        failures=r.failures,
+    )

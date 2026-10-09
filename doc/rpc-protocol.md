@@ -15,7 +15,7 @@ runnable Python example.
 | `schema/common.capnp` | Cross-cutting types: `EntityRef`, `NamedRef`, `StatusInfo`, `ViewGrant`. |
 | `schema/enums.capnp` | Shared enums (`VmStatus`, `DriveFormat`, `TaskResult`, …). |
 | `schema/vm.capnp` | `VmManager` + `Vm` cap; per-VM lifecycle, snapshots, console. |
-| `schema/disk.capnp` | `DiskManager` + `Disk` cap; CRUD, overlays, snapshots. |
+| `schema/disk.capnp` | `DiskManager` + `Disk` cap; CRUD, overlays, snapshots, version cleanup. |
 | `schema/network.capnp` | `NetworkManager` + `Network` cap; virtual networks. |
 | `schema/node.capnp` | `NodeManager` + `Node` cap; node registration, health, and scheduling metadata. |
 | `schema/sshkey.capnp` | `SshKeyManager` + `SshKey` cap. |
