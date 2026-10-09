@@ -9,18 +9,14 @@ module Corvus.Handlers.Vm.Start
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Monad (filterM, forM_, unless, when)
+import Control.Monad (forM_, unless, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
+import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
-import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
-import Corvus.Handlers.Scheduler (pickNodeForVm)
 import Corvus.Handlers.Vm.CloudInit (ensureCloudInitIso)
-import Corvus.Handlers.Vm.Console (generateSpicePassword)
 import Corvus.Handlers.Vm.Db
-import Corvus.Handlers.Vm.Monitor (attachVmMonitor, releaseManagedTaps)
-import Corvus.Model (DriveFormat (..), VmStatus (..))
+import Corvus.Handlers.Vm.Monitor (attachVmMonitor)
+import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
@@ -30,20 +26,14 @@ import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
-import Corvus.Qemu (QemuConfig, getGuestAgentSocket, getMonitorSocket, getSerialSocket)
 import Corvus.Types
 import Data.Int (Int64)
-import Data.List (isPrefixOf)
-import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (getCurrentTime)
-import Data.Word (Word32)
 import Database.Persist
 import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
-import System.FilePath ((</>))
 
 startVariantFor :: Vm -> VmStatus -> VmAction
 startVariantFor vm = \case

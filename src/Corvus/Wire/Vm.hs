@@ -58,7 +58,7 @@ import Corvus.Wire.Enums
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.SharedDir (fromCapnpSharedDirInfo, toCapnpSharedDirInfo)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 
 toCapnpAudioDeviceInfo :: P.AudioDeviceInfo -> C.Parsed CGVm.AudioDeviceInfo
 toCapnpAudioDeviceInfo P.AudioDeviceInfo {..} =

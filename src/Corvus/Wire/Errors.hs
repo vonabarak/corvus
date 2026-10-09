@@ -2,7 +2,7 @@
 
 -- | Typed errors for the Cap'n Proto wire layer.
 --
--- These are the failure cases that 'Corvus.Wire' can produce while
+-- These are the failure cases that the wire converters can produce while
 -- decoding values from a Cap'n Proto message. Successful encodes are
 -- always total (Haskell → Cap'n Proto cannot fail at this layer).
 module Corvus.Wire.Errors

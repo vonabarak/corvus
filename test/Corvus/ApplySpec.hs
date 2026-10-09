@@ -16,11 +16,7 @@ import qualified Corvus.Action as Action
 import Corvus.Handlers.Apply.Execute (executeApply)
 import Corvus.Handlers.Apply.Validation (handleApplyValidate)
 import Corvus.Model
-  ( EntityField (..)
-  , SshKey (..)
-  , Task (..)
-  , TaskResult (..)
-  , TaskSubsystem (..)
+  ( SshKey (..)
   , Unique (..)
   )
 import Corvus.Protocol (ApplyEvent (..), ApplyResult (..))
@@ -29,10 +25,9 @@ import Corvus.Types (ssDbPool)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (entityVal, getBy, insert)
+import Database.Persist (getBy, insert)
 import Database.Persist.Sql (runSqlPool)
 import Test.DSL.Core (runDb)
-import Test.DSL.When (withState)
 import Test.Prelude
 
 spec :: Spec

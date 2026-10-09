@@ -107,7 +107,7 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Database.Persist
-import Database.Persist.Sql (PersistFieldSql (..), SqlType (..), fromSqlKey, toSqlKey)
+import Database.Persist.Sql (PersistFieldSql (..), fromSqlKey, toSqlKey)
 import Database.Persist.TH
 import GHC.Generics (Generic)
 

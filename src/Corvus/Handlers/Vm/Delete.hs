@@ -8,44 +8,25 @@ module Corvus.Handlers.Vm.Delete
   )
 where
 
-import Control.Concurrent (threadDelay)
-import Control.Monad (filterM, forM_, unless, when)
+import Control.Monad (filterM, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
+import Control.Monad.Logger (logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
-import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
-import Corvus.Handlers.Scheduler (pickNodeForVm)
-import Corvus.Handlers.Vm.CloudInit (ensureCloudInitIso)
-import Corvus.Handlers.Vm.Console (generateSpicePassword)
 import Corvus.Handlers.Vm.Db
 import Corvus.Handlers.Vm.Lifecycle (VmReset (..))
-import Corvus.Handlers.Vm.Monitor (attachVmMonitor, releaseManagedTaps)
-import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
-import Corvus.Model.VmState (VmAction (..), validateTransition)
-import Corvus.Node.SpicePort (withAllocatedSpicePort)
-import Corvus.Node.VsockCid (withAllocatedVsockCid)
 import qualified Corvus.NodeAgentClient as NOA
-import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
-import Corvus.Qemu (QemuConfig, getGuestAgentSocket, getMonitorSocket, getSerialSocket)
 import Corvus.Types
 import Data.Int (Int64)
-import Data.List (isPrefixOf)
-import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
-import Data.Pool (Pool)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (getCurrentTime)
-import Data.Word (Word32)
 import Database.Persist
-import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
-import System.FilePath ((</>))
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 handleVmDelete :: ActionContext -> Int64 -> Bool -> Bool -> IO Response
 handleVmDelete ctx vmId keepDisks force = do

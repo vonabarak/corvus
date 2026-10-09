@@ -32,7 +32,6 @@ import Corvus.Types
 import Data.Maybe (isNothing)
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (getDbPool, getTempDir)
-import Test.DSL.When (createTestServerState)
 import Test.Prelude
 
 -- | Build a fresh state. 'createTestServerState' pre-registers

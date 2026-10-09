@@ -61,6 +61,16 @@ flags:
     manual: true
     default: true
 
+ghc-options:
+  - -Werror=unused-imports
+  - -Werror=unused-top-binds
+  - -Werror=unused-local-binds
+  - -Werror=unused-matches
+  - -Werror=unused-type-patterns
+  - -Werror=unused-foralls
+  - -Werror=unused-record-wildcards
+  - -Werror=redundant-constraints
+
 default-extensions:
   - OverloadedStrings
   - DeriveGeneric
@@ -243,7 +253,6 @@ library:
     - Corvus.Client.Commands.Build
     - Corvus.Client.BuildVars
     - Corvus.Client.Completion
-    - Corvus.Wire
     - Corvus.Wire.Error
     - Corvus.Wire.Errors
     - Corvus.Wire.Time

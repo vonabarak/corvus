@@ -40,7 +40,7 @@ module Corvus.Client.Commands.Vm
   )
 where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, finally, try)
 import Control.Monad (unless, when)

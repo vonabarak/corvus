@@ -33,8 +33,8 @@ spec = sequential $ withTestDb $ do
     testCase "groups sibling rows into one VmSnapshotInfo per name" $ do
       given $ do
         vmId <- insertVm "vm-multi" VmRunning
-        d1 <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
-        d2 <- insertDiskImage "data" "data.qcow2" FormatQcow2
+        d1 <- insertDiskImage "boot" FormatQcow2
+        d2 <- insertDiskImage "data" FormatQcow2
         _ <- attachDrive vmId d1 InterfaceVirtio
         _ <- attachDrive vmId d2 InterfaceVirtio
         -- One vmstate snapshot named "cp1" across both disks;
@@ -53,7 +53,7 @@ spec = sequential $ withTestDb $ do
     testCase "ignores snapshot names that have no vmstate carrier" $ do
       given $ do
         vmId <- insertVm "vm-disk-only" VmRunning
-        d <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
+        d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         -- Disk-only snapshot — not surfaced by the VM-scoped list.
         _ <- insertSnapshot d "disk-only"
@@ -71,7 +71,7 @@ spec = sequential $ withTestDb $ do
     testCase "rejects a stopped VM with a clear error message" $ do
       given $ do
         vmId <- insertVm "vm-stopped" VmStopped
-        d <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
+        d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         pure ()
       when_ $ vmSnapshotCreate 1 "cp1"
@@ -84,8 +84,8 @@ spec = sequential $ withTestDb $ do
     testCase "rejects a duplicate snapshot name before any agent call" $ do
       given $ do
         vmId <- insertVm "vm-dupe" VmRunning
-        d1 <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
-        d2 <- insertDiskImage "data" "data.qcow2" FormatQcow2
+        d1 <- insertDiskImage "boot" FormatQcow2
+        d2 <- insertDiskImage "data" FormatQcow2
         _ <- attachDrive vmId d1 InterfaceVirtio
         _ <- attachDrive vmId d2 InterfaceVirtio
         -- Existing snapshot under "cp1" on disk d2 — should block
@@ -118,7 +118,7 @@ spec = sequential $ withTestDb $ do
     testCase "fails for a snapshot that doesn't exist for this VM" $ do
       given $ do
         vmId <- insertVm "vm-no-snap" VmRunning
-        d <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
+        d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         pure ()
       when_ $ vmSnapshotRollback 1 "missing"
@@ -128,7 +128,7 @@ spec = sequential $ withTestDb $ do
     testCase "rejects a non-running VM (vmstate delete needs live QMP)" $ do
       given $ do
         vmId <- insertVm "vm-stopped-del" VmStopped
-        d <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
+        d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         _ <- insertSnapshotWithVmstate d "cp1" True
         pure ()
@@ -140,7 +140,7 @@ spec = sequential $ withTestDb $ do
     testCase "fails for a snapshot that doesn't exist for this VM" $ do
       given $ do
         vmId <- insertVm "vm-no-such-del" VmRunning
-        d <- insertDiskImage "boot" "boot.qcow2" FormatQcow2
+        d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         pure ()
       when_ $ vmSnapshotDelete 1 "missing"

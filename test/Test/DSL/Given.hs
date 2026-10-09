@@ -5,21 +5,15 @@
 module Test.DSL.Given
   ( -- * VM setup
     insertVm
-  , insertVmFull
-  , insertHeadlessVm
   , insertRunningVmWithGuestAgent
   , setVmTpm
   , givenVmExists
   , givenCloudInitVmExists
-  , givenRunningVmExists
 
     -- * Disk image setup
   , insertDiskImage
-  , insertDiskImageFull
   , insertDiskImageWithBacking
   , insertDiskImageOnTestNode
-  , givenDiskExists
-  , givenDiskOnTestNodeExists
 
     -- * Drive setup
   , attachDrive
@@ -29,7 +23,6 @@ module Test.DSL.Given
     -- * Snapshot setup
   , insertSnapshot
   , insertSnapshotWithVmstate
-  , givenSnapshotExists
 
     -- * Network setup
   , insertNetwork
@@ -39,21 +32,14 @@ module Test.DSL.Given
 
     -- * Shared directory setup
   , insertSharedDir
-  , givenSharedDirExists
 
     -- * SSH key setup
   , insertSshKey
-  , givenSshKeyExists
   , attachSshKeyToVm
 
     -- * Node setup
   , seedTestNode
   , setTestNodeNetdDisabled
-
-    -- * Utilities
-  , defaultVm
-  , defaultDiskImage
-  , defaultDrive
   )
 where
 
@@ -63,11 +49,9 @@ import Corvus.Model
 import qualified Corvus.Model as M
 import Data.Int (Int64)
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (Key, getBy, insert)
+import Database.Persist (getBy, insert)
 import qualified Database.Persist
-import Database.Persist.Sql (Entity (..), fromSqlKey, toSqlKey)
 import Test.DSL.Core (TestM, runDb)
 
 --------------------------------------------------------------------------------
@@ -209,131 +193,13 @@ insertRunningVmWithGuestAgent name = do
           }
   pure $ fromSqlKey key
 
--- | Insert a headless VM with the given name and status. Used by
--- SPICE-related tests that need to assert "no graphical console".
-insertHeadlessVm :: Text -> VmStatus -> TestM Int64
-insertHeadlessVm name status = do
-  nodeKey <- seedTestNode
-  now <- liftIO getCurrentTime
-  key <-
-    runDb $
-      insert
-        Vm
-          { vmName = name
-          , vmNodeId = nodeKey
-          , vmCreatedAt = now
-          , vmStatus = status
-          , vmLifecycleRevision = 0
-          , vmRuntimeGeneration = Nothing
-          , vmCpuCount = 2
-          , vmRam = 4294967296
-          , vmDescription = Nothing
-          , vmHeadless = True
-          , vmGuestAgent = False
-          , vmTpm = False
-          , vmCloudInit = False
-          , vmHealthcheck = Nothing
-          , vmAutostart = False
-          , vmSpicePort = Nothing
-          , vmVsockCid = Nothing
-          , vmErrorMessage = Nothing
-          , vmLastErrorAt = Nothing
-          , vmRebootQuirk = False
-          , vmCpuModel = "host"
-          , vmGraphicsAdapter = GraphicsVirtioVga
-          , vmVsock = True
-          , vmBalloon = True
-          , vmRng = True
-          }
-  pure $ fromSqlKey key
-
--- | Insert a VM with full control over all fields
-insertVmFull
-  :: Text
-  -> VmStatus
-  -> Int
-  -> Int64
-  -> Maybe Text
-  -> Maybe Int64
-  -> TestM Int64
-insertVmFull name status cpus ram desc _pid = do
-  nodeKey <- seedTestNode
-  now <- liftIO getCurrentTime
-  key <-
-    runDb $
-      insert
-        Vm
-          { vmName = name
-          , vmNodeId = nodeKey
-          , vmCreatedAt = now
-          , vmStatus = status
-          , vmLifecycleRevision = 0
-          , vmRuntimeGeneration = Nothing
-          , vmCpuCount = cpus
-          , vmRam = ram
-          , vmDescription = desc
-          , vmHeadless = False
-          , vmGuestAgent = False
-          , vmTpm = False
-          , vmCloudInit = False
-          , vmHealthcheck = Nothing
-          , vmAutostart = False
-          , vmSpicePort = Nothing
-          , vmVsockCid = Nothing
-          , vmErrorMessage = Nothing
-          , vmLastErrorAt = Nothing
-          , vmRebootQuirk = False
-          , vmCpuModel = "host"
-          , vmGraphicsAdapter = GraphicsVirtioVga
-          , vmVsock = True
-          , vmBalloon = True
-          , vmRng = True
-          }
-  pure $ fromSqlKey key
-
--- | Default VM values for reference
--- | Stub VM used in pure tests that don't touch the DB.
--- Carries an unpersisted node id — callers comparing whole 'Vm'
--- values must mind this.
-defaultVm :: IO Vm
-defaultVm = do
-  now <- getCurrentTime
-  pure
-    Vm
-      { vmName = "test-vm"
-      , vmNodeId = toSqlKey 1 :: NodeId
-      , vmCreatedAt = now
-      , vmStatus = VmStopped
-      , vmLifecycleRevision = 0
-      , vmRuntimeGeneration = Nothing
-      , vmCpuCount = 2
-      , vmRam = 4294967296
-      , vmDescription = Nothing
-      , vmHeadless = False
-      , vmGuestAgent = False
-      , vmTpm = False
-      , vmCloudInit = False
-      , vmHealthcheck = Nothing
-      , vmAutostart = False
-      , vmSpicePort = Nothing
-      , vmVsockCid = Nothing
-      , vmErrorMessage = Nothing
-      , vmLastErrorAt = Nothing
-      , vmRebootQuirk = False
-      , vmCpuModel = "host"
-      , vmGraphicsAdapter = GraphicsVirtioVga
-      , vmVsock = True
-      , vmBalloon = True
-      , vmRng = True
-      }
-
 --------------------------------------------------------------------------------
 -- Disk Image Setup
 --------------------------------------------------------------------------------
 
 -- | Insert a disk image with minimal parameters
-insertDiskImage :: Text -> Text -> DriveFormat -> TestM Int64
-insertDiskImage name path format = do
+insertDiskImage :: Text -> DriveFormat -> TestM Int64
+insertDiskImage name format = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
@@ -348,37 +214,14 @@ insertDiskImage name path format = do
           }
   pure $ fromSqlKey key
 
--- | Insert a disk image with full control over all fields
-insertDiskImageFull
-  :: Text
-  -> Text
-  -> DriveFormat
-  -> Maybe Int64
-  -> TestM Int64
-insertDiskImageFull name path format size = do
-  now <- liftIO getCurrentTime
-  key <-
-    runDb $
-      publishImage
-        DiskImage
-          { diskImageName = name
-          , diskImageFormat = format
-          , diskImageSize = size
-          , diskImageCreatedAt = now
-          , diskImageBackingImageId = Nothing
-          , diskImageEphemeral = False
-          }
-  pure $ fromSqlKey key
-
 -- | Insert a disk image with an optional backing image (for overlay disks)
 insertDiskImageWithBacking
   :: Text
-  -> Text
   -> DriveFormat
   -> Maybe Int64
   -> Maybe Int64
   -> TestM Int64
-insertDiskImageWithBacking name path format size mBackingId = do
+insertDiskImageWithBacking name format size mBackingId = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
@@ -422,20 +265,6 @@ insertDiskImageOnTestNode name path format = do
           , diskImageNodeFilePath = path
           }
   pure $ fromSqlKey diskKey
-
--- | Default disk image values for reference
-defaultDiskImage :: IO DiskImage
-defaultDiskImage = do
-  now <- getCurrentTime
-  pure
-    DiskImage
-      { diskImageName = "test-disk"
-      , diskImageFormat = FormatQcow2
-      , diskImageSize = Just 10737418240
-      , diskImageCreatedAt = now
-      , diskImageBackingImageId = Nothing
-      , diskImageEphemeral = False
-      }
 
 --------------------------------------------------------------------------------
 -- Drive Setup
@@ -502,19 +331,6 @@ attachCdromDrive vmId mDiskImageId = do
           , driveDiscard = False
           }
   pure $ fromSqlKey key
-
--- | Default drive values for reference
-defaultDrive :: Int64 -> Int64 -> Drive
-defaultDrive vmId diskImageId =
-  Drive
-    { driveVmId = toSqlKey vmId
-    , driveDiskImageId = Just (toSqlKey diskImageId)
-    , driveInterface = InterfaceVirtio
-    , driveMedia = Just MediaDisk
-    , driveReadOnly = False
-    , driveCacheType = CacheWriteback
-    , driveDiscard = False
-    }
 
 --------------------------------------------------------------------------------
 -- Snapshot Setup
@@ -684,32 +500,6 @@ givenCloudInitVmExists name = do
           }
   pure $ fromSqlKey key
 
--- | Create a running VM with the given name
-givenRunningVmExists :: Text -> TestM Int64
-givenRunningVmExists name = insertVm name VmRunning
-
--- | Create a qcow2 disk image with the given name
-givenDiskExists :: Text -> TestM Int64
-givenDiskExists name = insertDiskImage name ("/test/images/" <> name <> ".qcow2") FormatQcow2
-
--- | Same as 'givenDiskExists' but also places the image on the
--- test-node via 'DiskImageNode' so 'handleDiskAttach' /
--- 'handleVmStart' can find it under the same-node invariant.
-givenDiskOnTestNodeExists :: Text -> TestM Int64
-givenDiskOnTestNodeExists name =
-  insertDiskImageOnTestNode
-    name
-    ("/test/images/" <> name <> ".qcow2")
-    FormatQcow2
-
--- | Create a snapshot for a disk
-givenSnapshotExists :: Int64 -> Text -> TestM Int64
-givenSnapshotExists = insertSnapshot
-
--- | Create a shared directory for a VM with default settings
-givenSharedDirExists :: Int64 -> Text -> Text -> TestM Int64
-givenSharedDirExists vmId path tag = insertSharedDir vmId path tag CacheAuto False
-
 --------------------------------------------------------------------------------
 -- SSH Key Setup
 --------------------------------------------------------------------------------
@@ -727,10 +517,6 @@ insertSshKey name publicKey = do
           , sshKeyCreatedAt = now
           }
   pure $ fromSqlKey key
-
--- | Create an SSH key with default public key
-givenSshKeyExists :: Text -> TestM Int64
-givenSshKeyExists name = insertSshKey name ("ssh-ed25519 AAAA... " <> name)
 
 -- | Attach an SSH key to a VM
 attachSshKeyToVm :: Int64 -> Int64 -> TestM Int64

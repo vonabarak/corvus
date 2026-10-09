@@ -6,8 +6,7 @@
 module Corvus.Node.Qmp.Runtime where
 
 import Control.Concurrent (threadDelay)
-import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), EnumText (..))
-import Corvus.Node.Qmp.Transport (classifyQmpResponse, extractReplyLine, sendQmpCommand, sendQmpRaw)
+import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpRaw)
 import Corvus.Node.Qmp.Types (QmpBalloonFailure (..), QmpMigrationStatus (..), QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Node.Runtime (shellQuotePath)
@@ -17,7 +16,6 @@ import qualified Data.ByteString as BSWide
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T

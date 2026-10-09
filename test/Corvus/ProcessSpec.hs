@@ -12,11 +12,10 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad.Logger (NoLoggingT, runNoLoggingT)
 import Corvus.Process
-import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Types (ProcessID)
-import System.Process (getPid, proc, spawnProcess, terminateProcess, waitForProcess)
+import System.Process (getPid, spawnProcess, terminateProcess, waitForProcess)
 import qualified System.Process as P
 import Test.Hspec
 

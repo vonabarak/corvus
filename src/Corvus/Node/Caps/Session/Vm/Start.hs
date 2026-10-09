@@ -24,97 +24,60 @@ module Corvus.Node.Caps.Session.Vm.Start
   , respawnAfterExit
   ) where
 
-import qualified Capnp as C
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
-import qualified Capnp.Gen.Streams as CGS
-import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (withMVar)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
-import qualified Corvus.Model as M
 import Corvus.Node.Caps.Session.Utils
   ( FirstQgaPingResult (..)
   , SessionCap (..)
   , agentQemuConfig
   , captureStderrTail
-  , decodeQuiesceMode
-  , encodeDiskOpResult
   , forwardPipeToLog
   , monitorBufferCapacity
-  , parseFormat
-  , pollForExit
-  , requireRemovableDrive
-  , retryBlockdevDel
   , scMonitorBuffers
-  , scOwner
   , scQgaConns
   , scSerialBuffers
-  , scSup
-  , scTlsConfig
-  , scTransferTokens
   , scVmLedger
-  , scVmOpLocks
   , serialBufferCapacity
-  , stderrTailCapacity
   , tshow
-  , vfsBinary
   , waitForFirstQgaPing
   )
-import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.Command as NC
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
-import qualified Corvus.Node.Runtime as NR
-import qualified Corvus.Node.SnapshotLive as NSL
-import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
+import Corvus.Node.SocketBuffer (startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
-import qualified Corvus.Node.Transfer as NTr
-import Corvus.Node.VmSpec (VmAgentState (..), VmGuestExecReq (..), VmSpec (..), VmStopKind (..))
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
-import Corvus.Rpc.Streams (callSink)
-import Corvus.Types (SocketBufferHandle (..))
 import Corvus.Wire.Enums (fromCapnpGraphicsAdapter)
 import Corvus.Wire.Errors (WireError)
-import qualified Data.ByteString as BS
-import Data.Either (lefts, rights)
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
-import Data.List (find)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
-import GHC.Clock (getMonotonicTime)
-import Supervisors (Supervisor)
-import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, removeFile, removePathForcibly, renameFile)
-import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory)
-import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
+import System.Directory (removeFile)
+import System.IO (Handle)
 import System.Posix.Types (CPid (..))
 import System.Process
   ( ProcessHandle
   , StdStream (..)
   , createProcess
   , getPid
-  , getProcessExitCode
   , proc
   , std_err
   , std_out
-  , waitForProcess
   )
-import qualified System.Timeout
 
 import Corvus.Node.Caps.Session.Vm.Lifecycle (outgoingMigrateTimeoutSec, pollOutgoingMigrate)
 import Corvus.Node.Caps.Session.Vm.Process (prepareVmRuntime, reapSpawnedHelpers, reapVmHelpers, spawnVmHelpers)
@@ -259,25 +222,6 @@ decodeVmAudioDeviceSpec CGNA.VmAudioDeviceSpec {CGNA.audioDeviceId = aid, CGNA.b
     , VS.vasOptions = options
     }
 
-decodeVmGuestExecReq :: CGNA.Parsed CGNA.VmGuestExecReq -> VS.VmGuestExecReq
-decodeVmGuestExecReq
-  CGNA.VmGuestExecReq
-    { CGNA.vmId = vid
-    , CGNA.path = p
-    , CGNA.args = as
-    , CGNA.captureOutput = co
-    , CGNA.inputData = i
-    , CGNA.timeoutSec = t
-    } =
-    VS.VmGuestExecReq
-      { VS.vgeVmId = vid
-      , VS.vgePath = p
-      , VS.vgeArgs = as
-      , VS.vgeCaptureOutput = co
-      , VS.vgeInputData = i
-      , VS.vgeTimeoutSec = t
-      }
-
 encodeVmRuntimeInfo :: L.VmLiveState -> CGNA.Parsed CGNA.VmRuntimeInfo
 encodeVmRuntimeInfo live =
   CGNA.VmRuntimeInfo
@@ -290,58 +234,6 @@ encodeVmRuntimeInfo live =
     , CGNA.lifecycleRevision = VS.vsLifecycleRevision (L.vlsSpec live)
     , CGNA.runtimeGeneration = VS.vsRuntimeGeneration (L.vlsSpec live)
     }
-
-encodeVmStopResult :: VS.VmStopKind -> Text -> CGNA.Parsed CGNA.VmStopResult
-encodeVmStopResult k m =
-  CGNA.VmStopResult
-    { CGNA.kind = case k of
-        VS.VmStopStopped -> CGNA.VmStopKind'stopped
-        VS.VmStopAlreadyStopped -> CGNA.VmStopKind'alreadyStopped
-        VS.VmStopTimeout -> CGNA.VmStopKind'timeout
-        VS.VmStopFailed -> CGNA.VmStopKind'failed
-    , CGNA.message = m
-    }
-
-encodeVmAgentStatus
-  :: VS.VmAgentState -> Int32 -> Int32 -> CGNA.Parsed CGNA.VmAgentStatus
-encodeVmAgentStatus s qpid lec =
-  CGNA.VmAgentStatus
-    { CGNA.state = case s of
-        VS.VmAgentRunning -> CGNA.VmAgentState'running
-        VS.VmAgentStopped -> CGNA.VmAgentState'stopped
-        VS.VmAgentErrored -> CGNA.VmAgentState'errored
-        VS.VmAgentUnknown -> CGNA.VmAgentState'unknown
-    , CGNA.qemuPid = qpid
-    , CGNA.lastExitCode = lec
-    }
-
-encodeVmGuestExecInfo
-  :: NGA.GuestExecResult -> CGNA.Parsed CGNA.VmGuestExecInfo
-encodeVmGuestExecInfo r = case r of
-  NGA.GuestExecSuccess code out err ->
-    CGNA.VmGuestExecInfo
-      { CGNA.exitCode = fromIntegral code :: Int32
-      , CGNA.hasExit = True
-      , CGNA.signal = 0
-      , CGNA.stdout = TE.encodeUtf8 out
-      , CGNA.stderr = TE.encodeUtf8 err
-      }
-  NGA.GuestExecError err ->
-    CGNA.VmGuestExecInfo
-      { CGNA.exitCode = -1
-      , CGNA.hasExit = False
-      , CGNA.signal = 0
-      , CGNA.stdout = BS.empty
-      , CGNA.stderr = TE.encodeUtf8 err
-      }
-  NGA.GuestExecConnectionFailed err ->
-    CGNA.VmGuestExecInfo
-      { CGNA.exitCode = -1
-      , CGNA.hasExit = False
-      , CGNA.signal = 0
-      , CGNA.stdout = BS.empty
-      , CGNA.stderr = TE.encodeUtf8 err
-      }
 
 -- ---------------------------------------------------------------------------
 -- Handler implementations

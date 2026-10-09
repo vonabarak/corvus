@@ -53,8 +53,7 @@ import System.Posix.User (getEffectiveGroupID, getEffectiveUserID)
 --
 -- @waitMs@ is the per-spec ping-after-start timeout the agent
 -- will use when @vm.guestAgent@ is true (0 to skip; daemon
--- decides the default — typically the @qcHealthcheckInterval@ ×
--- some factor).
+-- supplies the timeout independently of the node status poller cadence).
 assembleVmSpec
   :: Pool SqlBackend
   -> QemuConfig

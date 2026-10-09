@@ -22,7 +22,6 @@ module Corvus.NodeAgentClient.Disk
   , diskDownload
   , diskDecompressXz
   , diskHash
-  , diskMd5
   , DiskOpenReadResult (..)
   , diskOpenRead
   , attachReader
@@ -249,9 +248,7 @@ diskInspect nac path = remote $ do
 -- the caller of 'diskDownload' supplied. A no-op callback (used
 -- when no progress reporting is wanted) makes the exported server
 -- a cheap one-shot — cancelled when the supervisor exits.
-newtype DaemonDiskDownloadSink = DaemonDiskDownloadSink
-  { ddsOnProgress :: Int64 -> Int64 -> IO ()
-  }
+newtype DaemonDiskDownloadSink = DaemonDiskDownloadSink (Int64 -> Int64 -> IO ())
 
 instance SomeServer DaemonDiskDownloadSink
 
@@ -306,9 +303,6 @@ diskHash nac algorithm path = remote $ do
       CGNA.Session'diskHash'params {CGNA.path = path, CGNA.algorithm = algorithm}
       (nacSession nac)
   pure h
-
-diskMd5 :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError T.Text)
-diskMd5 nac = diskHash nac "md5"
 
 -- ---------------------------------------------------------------------------
 -- Inter-agent disk transfer

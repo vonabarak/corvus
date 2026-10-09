@@ -12,7 +12,6 @@
 -- `NodeConns` has `ncNodeAgent = Nothing`).
 module Corvus.GuestExecSpec (spec) where
 
-import Corvus.Model (VmStatus (..))
 import Test.Prelude
 
 spec :: Spec

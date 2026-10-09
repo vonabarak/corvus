@@ -16,7 +16,7 @@ import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 import System.Timeout (timeout)
 import Test.DSL.When (createTestServerState)
 import qualified Test.Database as Db

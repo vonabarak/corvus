@@ -6,7 +6,6 @@ module Corvus.Node.GuestAgent.Transport
   , sendJson
   , recvJson
   , recvJsonWithin
-  , decodeBase64
   , decodeBase64Bytes
   )
 where
@@ -18,8 +17,7 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
-import Data.Text.Encoding.Error (lenientDecode)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Word (Word8)
 import Network.Socket (Socket)
 import Network.Socket.ByteString (recv, sendAll)
@@ -62,13 +60,6 @@ recvJsonWithin micros sock callLabel = do
   case mResponse of
     Just response -> pure response
     Nothing -> ioError . userError $ T.unpack callLabel <> ": no reply within " <> show (micros `div` 1000000) <> "s"
-
-decodeBase64 :: Text -> Text
-decodeBase64 text
-  | T.null text = ""
-  | otherwise = case B64.decode (encodeUtf8 text) of
-      Right decoded -> decodeUtf8With lenientDecode decoded
-      Left _ -> text
 
 decodeBase64Bytes :: Text -> BS.ByteString
 decodeBase64Bytes text

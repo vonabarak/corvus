@@ -29,7 +29,7 @@ import Corvus.Handlers.Disk.Agent
   , hashFileViaAgent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
-import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, sanitizeDiskName)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Images
 
@@ -44,14 +44,12 @@ import Corvus.Node.Image (ImageResult (..), detectFormatFromPath, detectFormatFr
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging)
-import Data.Int (Int64)
 import Data.List (isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (runSqlPool)
-import System.FilePath ((</>))
 
 data ChecksumTarget
   = ChecksumTargetDownload

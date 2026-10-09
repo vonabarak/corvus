@@ -61,7 +61,6 @@ import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVa
 import qualified Control.Exception as E
 import Control.Monad.Logger (logDebugN, runStderrLoggingT)
 import qualified Corvus.Model as M
-import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
@@ -70,18 +69,15 @@ import qualified Corvus.Node.SnapshotLive as NSL
 import Corvus.Node.SocketBuffer (flushBuffer)
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
-import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
-import qualified Data.ByteString as BS
-import Data.Int (Int32, Int64)
+import Data.Int (Int64)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)

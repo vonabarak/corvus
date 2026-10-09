@@ -19,34 +19,30 @@ where
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
-import Corvus.Action (mkActionContext, runActionAsSubtask)
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
   , getImageSizeViaAgent
   , rebaseImageViaAgent
   )
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
-import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import Corvus.Handlers.Disk.Path (resolveDiskFilePath, resolveDiskPath)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Images
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
-import Corvus.Protocol (Response (RespDiskOk, RespError))
 import Corvus.Protocol.Build (BuildEvent (BuildLogLine), BuildSink)
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Schema.Build
 import Corvus.Types
 import Data.Int (Int64)
 import qualified Data.List
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (get, getBy, insert, insert_, selectList, update, (==.))
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey, (=.))
-import System.Directory (createDirectoryIfMissing, removeDirectory, removeFile, renameFile)
-import System.FilePath (takeDirectory, (</>))
+import Database.Persist (get, getBy, insert_, update)
+import Database.Persist.Sql (runSqlPool, (=.))
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (takeDirectory)
 
 -- | Publish the bake VM's artifact by CLONING it (via
 -- @qemu-img convert@) into a fresh non-ephemeral 'DiskImage'. The

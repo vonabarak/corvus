@@ -39,7 +39,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..))
+import Network.Socket (Family (..), SockAddr (..), Socket)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv)
 

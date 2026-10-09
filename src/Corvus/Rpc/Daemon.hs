@@ -28,15 +28,13 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
-import Capnp.Rpc (IsClient (..))
 import Capnp.Rpc.Server (SomeServer)
-import Capnp.Rpc.Untyped (nullClient)
 import Control.Concurrent (myThreadId)
 import Control.Concurrent.Async (async)
 import Control.Exception (SomeException, try)
 import Control.Monad (void)
-import Corvus.Action (Action (..), acApplySink, classifyResponse, createTaskRecord, mkActionContext, runAction, runActionAsyncWithId, runAndFinalize)
-import Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply)
+import Corvus.Action (Action (..), acApplySink, classifyResponse, createTaskRecord, mkActionContext, runAndFinalize)
+import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Apply.Validation (handleApplyValidate)
 import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
 import Corvus.Handlers.Core (handlePing, handleShutdown, handleStatus)
@@ -55,17 +53,16 @@ import Corvus.Rpc.Streams (callSink)
 import Corvus.Rpc.Task (newTaskManagerCap)
 import Corvus.Rpc.Template (newTemplateManagerCap)
 import Corvus.Rpc.Vm (newVmManagerCap)
-import Corvus.Schema.Apply (ApplyConfig, IfExists (..), acIfExists)
+import Corvus.Schema.Apply (ApplyConfig)
 import Corvus.Types (ServerState (..), newTaskCancelToken, registerTaskThread)
 import Corvus.Wire.Apply (toCapnpApplyEvent, toCapnpApplyResult)
 import Corvus.Wire.Build (toCapnpBuildEvent)
 import Corvus.Wire.Common (toCapnpStatusInfo)
-import Data.Function ((&))
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (insert, update, (=.))
-import Database.Persist.Sql (fromSqlKey, runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 import Supervisors (Supervisor)
 
 -- | The root Daemon cap, parameterised over the shared server state,

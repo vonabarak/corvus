@@ -11,7 +11,6 @@ import Corvus.Handlers.Apply.Overwrite
 import Corvus.Handlers.Apply.Resolve
 import Corvus.Handlers.Apply.Validation (validateConfig)
 import Corvus.Handlers.Apply.Vm (ApplyVmCreate (..))
-import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..))
@@ -28,7 +27,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
 import Database.Persist ((==.))
-import Database.Persist.Sql (fromSqlKey, runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 
 data ApplyAction = ApplyAction {aaConfig :: ApplyConfig, aaSkipExisting :: Bool}
 instance Action ApplyAction where

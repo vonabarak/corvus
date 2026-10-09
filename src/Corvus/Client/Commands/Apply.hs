@@ -17,7 +17,7 @@ module Corvus.Client.Commands.Apply
   )
 where
 
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryPutMVar)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
 import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)

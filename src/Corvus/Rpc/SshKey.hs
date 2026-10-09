@@ -12,7 +12,7 @@ where
 
 import Capnp (export)
 import qualified Capnp.Gen.Sshkey as CGSsh
-import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveSshKey)
 import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..), handleSshKeyList)

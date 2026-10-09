@@ -19,7 +19,6 @@ import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NodeAdminState)
-import qualified Corvus.Model as M
 import Corvus.Protocol (NodeDetails (..), NodeInfo (..))
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)

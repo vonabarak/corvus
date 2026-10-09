@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeOperators #-}
 
 module Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter, resolveDiskName) where
 
@@ -15,12 +14,12 @@ import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
 
-resolveByName :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record) => ServerState -> (Text -> Unique record) -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
+resolveByName :: (ToBackendKey SqlBackend record) => ServerState -> (Text -> Unique record) -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
 resolveByName state mkUnique localMap name = case Map.lookup name localMap of
   Just rid -> pure $ Just rid
   Nothing -> fmap (fromSqlKey . entityKey) <$> runSqlPool (getBy $ mkUnique name) (ssDbPool state)
 
-resolveByNameFilter :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record) => ServerState -> (Text -> [Filter record]) -> (NodeId -> [Filter record]) -> Map.Map Text Int64 -> Text -> Text -> IO (Maybe Int64)
+resolveByNameFilter :: (ToBackendKey SqlBackend record) => ServerState -> (Text -> [Filter record]) -> (NodeId -> [Filter record]) -> Map.Map Text Int64 -> Text -> Text -> IO (Maybe Int64)
 resolveByNameFilter state mkFilter mkNodeFilter localMap name nodeRef = case Map.lookup name localMap of
   Just rid -> pure $ Just rid
   Nothing -> do

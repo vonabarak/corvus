@@ -46,7 +46,7 @@ import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Task History Handlers (read-only queries)

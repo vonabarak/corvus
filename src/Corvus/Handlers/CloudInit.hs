@@ -49,7 +49,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (SqlBackend, runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Handlers

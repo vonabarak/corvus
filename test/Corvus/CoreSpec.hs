@@ -2,7 +2,7 @@
 
 module Corvus.CoreSpec (spec) where
 
-import Corvus.Protocol (Response (..), StatusInfo (..))
+import Corvus.Protocol (StatusInfo (..))
 import Test.Prelude
 
 spec :: Spec

@@ -11,7 +11,6 @@ module Corvus.NodeAgentClient.Core
   ( NodeAgentClient (..)
   , NodeAgentError (..)
   , withNodeAgentClient
-  , defaultNodeAgentAddress
   , ping
   , sessionPing
   , agentVersion
@@ -22,7 +21,6 @@ module Corvus.NodeAgentClient.Core
   )
 where
 
-import Capnp (export)
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc
@@ -64,9 +62,6 @@ data NodeAgentError
   deriving (Show)
 
 instance E.Exception NodeAgentError
-
-defaultNodeAgentAddress :: (String, Int)
-defaultNodeAgentAddress = ("127.0.0.1", 9878)
 
 withNodeAgentClient
   :: String

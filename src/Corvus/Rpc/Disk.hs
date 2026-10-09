@@ -23,7 +23,7 @@ import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
 import Control.Exception (SomeException, onException, throwIO, try)
 import Control.Monad (when)
@@ -97,7 +97,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         RespDiskCleanup report -> pure CGDisk.DiskManager'cleanup'results {CGDisk.report = toCapnpDiskCleanupReport report}
         _ -> throwError resp
 
-  diskManager'list (DiskManagerCap st _ cn) = handleParsed $ \_ -> do
+  diskManager'list (DiskManagerCap st _ _) = handleParsed $ \_ -> do
     resp <- handleDiskList st
     case resp of
       RespDiskList disks ->
@@ -420,7 +420,7 @@ data DiskCap = DiskCap
 instance SomeServer DiskCap
 
 instance CGDisk.Disk'server_ DiskCap where
-  disk'show (DiskCap st _ eid cn) = handleParsed $ \_ -> do
+  disk'show (DiskCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleDiskShow st eid
     case resp of
       RespDiskInfo info ->
@@ -457,7 +457,7 @@ instance CGDisk.Disk'server_ DiskCap where
           pure CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = client, CGDisk.snapshotId = sid}
         _ -> throwError resp
 
-  disk'snapshotList (DiskCap st _ eid cn) = handleParsed $ \_ -> do
+  disk'snapshotList (DiskCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleSnapshotList st eid
     case resp of
       RespSnapshotList snaps ->
@@ -519,7 +519,7 @@ data SnapshotCap = SnapshotCap
 instance SomeServer SnapshotCap
 
 instance CGDisk.Snapshot'server_ SnapshotCap where
-  snapshot'show (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
+  snapshot'show (SnapshotCap st diskId sid _) = handleParsed $ \_ -> do
     resp <- handleSnapshotList st diskId
     case resp of
       RespSnapshotList snaps ->

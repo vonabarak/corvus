@@ -54,12 +54,9 @@ import Corvus.ImageOperationGuard (withImageOperationGuard)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Protocol.Apply (ApplySink, silentApplySink)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types
 import Corvus.Wire.Enums (toCapnpTaskResult)
-import Data.Foldable (for_)
-import Data.Function ((&))
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe
@@ -68,7 +65,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (SqlBackend, runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Action Context

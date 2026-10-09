@@ -8,7 +8,6 @@
 -- pinned down here rather than relived in every callsite spec.
 module Corvus.ResolveSpec (spec) where
 
-import Control.Monad.IO.Class (liftIO)
 import Corvus.Handlers.Resolve
   ( ResolveError (..)
   , resolveDisk
@@ -23,11 +22,10 @@ import qualified Corvus.Model as M
 import Corvus.Protocol (Ref (..))
 import Data.Either (isLeft)
 import Data.Pool (Pool)
-import Data.Text (Text)
 import Data.Time (getCurrentTime)
 import Database.Persist (insert)
 import Database.Persist.Sql (SqlBackend, fromSqlKey)
-import Test.DSL.Core (TestM, getDbPool, runDb)
+import Test.DSL.Core (getDbPool, runDb)
 import Test.Prelude
 
 withPool :: (Pool SqlBackend -> IO a) -> TestM a
@@ -116,7 +114,7 @@ spec = sequential $ withTestDb $ do
 
   describe "resolveDisk" $ do
     testCase "resolves a numeric ref that exists" $ do
-      diskId <- insertDiskImage "img1" "/tmp/img1.qcow2" FormatQcow2
+      diskId <- insertDiskImage "img1" FormatQcow2
       r <- withPool $ resolveDisk (Ref "1")
       liftIO $ r `shouldBe` Right diskId
 
@@ -125,7 +123,7 @@ spec = sequential $ withTestDb $ do
       liftIO $ r `shouldSatisfy` isLeft
 
     testCase "resolves an existing disk by name" $ do
-      _ <- insertDiskImage "ubuntu" "/tmp/u.qcow2" FormatQcow2
+      _ <- insertDiskImage "ubuntu" FormatQcow2
       r <- withPool $ resolveDisk (Ref "ubuntu")
       liftIO $ case r of
         Right _ -> pure ()

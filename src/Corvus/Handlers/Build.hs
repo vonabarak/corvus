@@ -44,7 +44,6 @@ import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (getTemplateDetails)
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Protocol.Build (BuildSink)
 import Corvus.Schema.Build
 import Corvus.Types
 import Data.Int (Int64)
@@ -54,7 +53,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Yaml (decodeEither')
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Streaming sink

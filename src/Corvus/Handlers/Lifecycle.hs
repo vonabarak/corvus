@@ -17,23 +17,20 @@ module Corvus.Handlers.Lifecycle
 where
 
 import Control.Concurrent.STM (readTVarIO)
-import Control.Monad (forM_, unless, when)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Network (NetworkStart (..))
-import Corvus.Handlers.Vm (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
-import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (addUTCTime, getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Startup Action

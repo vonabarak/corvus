@@ -45,12 +45,12 @@ import Control.Exception (Exception, SomeException, fromException, toException)
 import Corvus.Client.Human (HumanJSON (..))
 import Corvus.Client.Types (BorderStyleOpt (..), Options (..), OutputFormat (..))
 import Corvus.Wire.Error (errorCodeText, parseWireError)
-import Data.Aeson (Key, ToJSON, Value, encode, object, toJSON, (.=))
+import Data.Aeson (Key, Value, encode, object, toJSON, (.=))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Char (toLower)
 import Data.List (sortOn)
-import Data.Maybe (fromMaybe, maybe)
+import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import qualified Data.Text as T

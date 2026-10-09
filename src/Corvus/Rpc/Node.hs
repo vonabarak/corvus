@@ -90,7 +90,7 @@ data NodeCap = NodeCap
 instance SomeServer NodeCap
 
 instance CGNode.Node'server_ NodeCap where
-  node'show (NodeCap st eid cn) = handleParsed $ \_ -> do
+  node'show (NodeCap st eid _) = handleParsed $ \_ -> do
     resp <- handleNodeShow st eid
     case resp of
       RespNodeDetails det ->

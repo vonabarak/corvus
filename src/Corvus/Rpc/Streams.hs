@@ -68,7 +68,6 @@ callSink
      , C.IsStruct params
      , C.IsStruct results
      , C.Parse params (C.Parsed params)
-     , C.Parse results (C.Parsed results)
      )
   => C.Method iface params results
   -> C.Parsed params

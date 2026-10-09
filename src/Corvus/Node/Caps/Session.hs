@@ -28,73 +28,41 @@ module Corvus.Node.Caps.Session
 where
 
 import qualified Capnp as C
-import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
-import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (TVar, readTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (forM_, unless, void, when)
+import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
-import qualified Corvus.Node.Command as NC
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Image as NI
-import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
-import qualified Corvus.Node.Runtime as NR
 import qualified Corvus.Node.SnapshotLive as NSL
-import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.NodeAgentClient as NOA
-import qualified Corvus.Process as P
-import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import Corvus.Rpc.Streams (callSink, runByteSinkRelay)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
 import Corvus.Wire.Errors (showWireError)
-import qualified Data.ByteString as BS
-import Data.Either (lefts, rights)
-import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.Int (Int32, Int64)
-import Data.List (find)
+import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import Data.Word (Word32)
-import GHC.Clock (getMonotonicTime)
-import Supervisors (Supervisor)
-import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, removeFile, removePathForcibly, renameFile)
+import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
 
-import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, tshow, vmOpLockFor, withVmOpLock)
+import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, tshow, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
-import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
-import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
-import System.Posix.Types (CPid (..))
-import System.Process
-  ( ProcessHandle
-  , StdStream (..)
-  , createProcess
-  , getPid
-  , proc
-  , std_err
-  , std_out
-  , waitForProcess
-  )
-import qualified System.Timeout (timeout)
 
 instance SomeServer SessionCap
 
@@ -828,7 +796,7 @@ instance CGNA.Session'server_ SessionCap where
       -- open it.  The sink itself writes to a sibling .upload.part and only
       -- renames on end(), so a disconnected client cannot publish a partial
       -- installer medium.
-      (sinkImpl, _done) <- NTr.newAtomicFileWriterSink (T.unpack destPathTxt)
+      sinkImpl <- NTr.newAtomicFileWriterSink (T.unpack destPathTxt)
       sinkClient <- C.export @CGS.ByteSink (scSup sc) sinkImpl
       pure CGNA.Session'diskOpenWrite'results {CGNA.sink = sinkClient}
 
@@ -838,9 +806,9 @@ instance CGNA.Session'server_ SessionCap where
 -- Opens a fresh @NodeAgentClient@ session to the source agent at
 -- @(host, port)@, claims the reader by token via @attachReader@,
 -- exports a local 'FileWriterSink' against @partPath@, then runs
--- @reader.pipeInto(sink)@. Blocks until the sink reports
--- completion. The caller is responsible for fsync / rename of
--- @partPath@ to its final location and md5 verification.
+-- @reader.pipeInto(sink)@. Blocks until the sink flushes and closes
+-- the file. The caller verifies its md5 and renames @partPath@
+-- to its final location.
 importFromPeer
   :: SessionCap
   -> FilePath
@@ -863,7 +831,7 @@ importFromPeer sc partPath host port token mTls = do
   -- @subdir/@ on demand; without this, @openBinaryFile@ inside
   -- 'NTr.newFileWriterSink' fails with ENOENT.
   createDirectoryIfMissing True (takeDirectory partPath)
-  (sinkImpl, done) <- NTr.newFileWriterSink partPath
+  sinkImpl <- NTr.newFileWriterSink partPath
   sinkClient <- C.export @CGS.ByteSink (scSup sc) sinkImpl
   NOA.withNodeAgentClient host port (scOwner sc) mTls $ \case
     Left err ->
@@ -879,13 +847,6 @@ importFromPeer sc partPath host port token mTls = do
             Left err ->
               E.throwIO . userError $ "pipeInto failed: " <> show err
             Right () -> pure ()
-
--- 'pipeInto' returns when the source side calls 'sink.end',
--- which signals the writer; wait for the writer to flush /
--- close before we return.
--- caller-supplied output sink) to the existing 'runByteSinkRelay'
--- (re-used from the daemon's chardev plumbing), and return the
--- inbound 'ByteSink' cap the caller can write to.
 
 -- | Common body of 'openSerialConsole' / 'openHmpMonitor':
 -- look up the buffer handle for @vmId@, wire it up via

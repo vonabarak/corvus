@@ -33,7 +33,7 @@ module Corvus.Handlers.Disk.Db
   )
 where
 
-import Control.Monad (forM, forM_)
+import Control.Monad (forM)
 import Corvus.Images
 import Corvus.Model
 import qualified Corvus.Model as M

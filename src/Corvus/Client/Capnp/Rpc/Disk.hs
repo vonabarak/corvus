@@ -58,7 +58,6 @@ import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Vm as CGVm
 import Control.Exception (SomeException, throwIO, try)
-import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Client.Capnp.Rpc.Vm (getVmClient, rpcVmShow)
 import Corvus.Model

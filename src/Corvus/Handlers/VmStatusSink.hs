@@ -48,7 +48,6 @@ import Corvus.Types
   , runServerLogging
   , vmStatsRingCapacity
   )
-import qualified Corvus.Types
 import Data.Int (Int64)
 import Data.List (find)
 import qualified Data.Map.Strict as Map

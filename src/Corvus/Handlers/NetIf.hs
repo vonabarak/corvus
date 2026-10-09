@@ -16,7 +16,6 @@ where
 
 import Corvus.Action
 
-import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Handlers.Network as NetworkH
 import qualified Corvus.Handlers.Network.Ipam as Ipam
 import Corvus.Model (NetInterfaceType (..), Network (..), NetworkDeviceModel, NetworkInterface (..), TaskSubsystem (..), Vm (..), VmId, VmStatus (..))

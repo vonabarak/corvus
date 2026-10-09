@@ -10,7 +10,6 @@ import Corvus.Protocol.Template
 import Corvus.Schema.Build
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import qualified Data.Yaml as Yaml

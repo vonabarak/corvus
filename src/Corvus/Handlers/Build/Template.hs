@@ -8,44 +8,28 @@ module Corvus.Handlers.Build.Template
   ( resolveTemplateAndValidate
   , instantiateBakeVm
   , setupTargetDisk
-  , resolveTemplateIdOrErr
   , sanitizeNameFragment
   )
 where
 
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logInfoN)
+import Control.Monad.Logger (LoggingT)
 import Corvus.Action (mkActionContext, runActionAsSubtask)
 import Corvus.Handlers.Build.Cleanup (CleanupStack, push)
 import Corvus.Handlers.Build.CleanupBakeVm (cleanupBakeVm)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..))
 import Corvus.Handlers.Disk.Create (DiskCreate (..))
-import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
-import Corvus.Handlers.Disk.Path (resolveDiskFilePathPure)
 import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..))
-import Corvus.Handlers.Vm (VmDelete (..))
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.Build (Build (..), BuildStrategy (..), BuildTarget (..), btFormat, btSize)
 import Corvus.Types
 import Data.Int (Int64)
-import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
-import System.Directory (createDirectoryIfMissing)
-import System.FilePath (takeDirectory)
-
--- | Look up a template by name, returning its id and whether guest-agent
--- is enabled. Both of those have to be true for a build to proceed.
-resolveTemplateIdOrErr :: ServerState -> Text -> IO (Either Text (Int64, Bool))
-resolveTemplateIdOrErr state name = do
-  mEntity <- runSqlPool (getBy (UniqueTemplateVmName name)) (ssDbPool state)
-  pure $ case mEntity of
-    Nothing -> Left $ "template '" <> name <> "' not found"
-    Just (Entity key tpl) -> Right (fromSqlKey key, templateVmGuestAgent tpl)
+import Database.Persist.Sql (runSqlPool)
 
 -- | Validate the captured template rather than resolving floating inputs a
 -- second time. The installer strategy does not require a guest agent.

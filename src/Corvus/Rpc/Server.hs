@@ -30,7 +30,7 @@ import Control.Exception (bracket, catch)
 import Control.Monad (forever, unless, void)
 import Corvus.Rpc.Daemon (newDaemonCap)
 import qualified Corvus.Tls as Tls
-import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath)
+import Corvus.Types (ListenAddress (..), ServerState (..))
 import qualified Data.Default as Def
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -51,7 +51,7 @@ import Supervisors (Supervisor, withSupervisor)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn, stderr)
-import System.IO.Error (IOError, isEOFError)
+import System.IO.Error (isEOFError)
 
 -- | Run the Cap'n Proto RPC server on the given address.
 -- Blocks the calling thread; spawns a fresh handler per connection.

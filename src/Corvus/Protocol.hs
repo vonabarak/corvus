@@ -304,9 +304,6 @@ data Response
     RespBuildResult {buildResult :: !BuildResult}
   | -- | Build started asynchronously (parent task id, mirrors RespApplyStarted).
     RespBuildStarted {taskId :: !Int64}
-  | -- | Build accepted with @--wait@; events stream over a separate
-    -- 'BuildEventSink' cap (Phase 6).
-    RespBuildStreamStarted
   | -- | List of nodes
     RespNodeList {nodes :: ![NodeInfo]}
   | -- | Single node details

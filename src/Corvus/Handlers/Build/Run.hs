@@ -19,7 +19,6 @@ import Corvus.Handlers.Build.Provisioner (runProvisioners)
 import Corvus.Handlers.Vm (VmStart (..), VmStop (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Protocol.Build (BuildSink (..))
 import Corvus.Schema.Build (Build, BuildStrategy (..), BuildTarget)
 import Corvus.Types (ServerState)
 import Data.Int (Int64)
@@ -60,7 +59,6 @@ runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId targe
           sink
           vmIdLong
           artifactDiskId
-          target
           needFlatten
           b
       _ ->

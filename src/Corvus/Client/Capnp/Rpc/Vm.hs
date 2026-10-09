@@ -63,10 +63,6 @@ module Corvus.Client.Capnp.Rpc.Vm
   , rpcVmHmpMonitor
   , streamByteSinkMethod
 
-    -- * Guest-agent subscription
-  , rpcVmSubscribeGuestAgent
-  , GuestAgentStatusEvent (..)
-
     -- * Helpers
   , getVmClient
   )
@@ -74,23 +70,17 @@ where
 
 import Capnp (export)
 import qualified Capnp as C
-import qualified Capnp.Gen.Cloudinit as CGCI
 import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Corvus as CGCorvus
-import qualified Capnp.Gen.Network as CGNet
-import qualified Capnp.Gen.Sshkey as CGSsh
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc.Server (SomeServer, handleParsed)
-import qualified Capnp.Rpc.Untyped (nullClient)
 import Control.Exception (SomeException, try)
 import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model
   ( AudioBackend
   , AudioDeviceModel (..)
-  , CacheType
-  , DriveMedia (..)
   , GraphicsAdapter (..)
   , NetInterfaceType
   , NetworkDeviceModel
@@ -100,20 +90,17 @@ import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.SharedDir as PSd
 import qualified Corvus.Protocol.SshKey as PSk
 import qualified Corvus.Protocol.Vm as PV
-import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
+import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpViewGrant, toCapnpEntityRef)
 import Corvus.Wire.Enums
   ( toCapnpAudioBackend
   , toCapnpAudioDeviceModel
-  , toCapnpCacheType
-  , toCapnpDriveMedia
   , toCapnpGraphicsAdapter
   , toCapnpNetInterfaceType
   , toCapnpNetworkDeviceModel
   , toCapnpSharedDirCache
   )
 import Corvus.Wire.Errors (WireError, showWireError)
-import qualified Corvus.Wire.Network as WNet
 import qualified Corvus.Wire.SharedDir as WSd
 import qualified Corvus.Wire.SshKey as WSsh
 import qualified Corvus.Wire.Vm as WVm
@@ -122,7 +109,6 @@ import Data.Function ((&))
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Word (Word32, Word64)
 
 -- | Call a method on a cap and return its parsed results struct.
@@ -615,10 +601,7 @@ rpcSshKeyListForVm conn vmRef = do
 -- VM streaming (Phase 6b)
 -- ---------------------------------------------------------------------
 
-data ClientByteSink = ClientByteSink
-  { cbsOnWrite :: BS.ByteString -> IO ()
-  , cbsOnEnd :: IO ()
-  }
+data ClientByteSink = ClientByteSink (BS.ByteString -> IO ()) (IO ())
 
 instance SomeServer ClientByteSink
 
@@ -698,65 +681,6 @@ rpcVmHmpMonitor conn vmRef onOutput onEnd = do
     (\CGVm.Vm'hmpMonitor'results {CGVm.input} -> input)
     onOutput
     onEnd
-
--- ---------------------------------------------------------------------
--- Guest-agent subscription (Phase 6d)
--- ---------------------------------------------------------------------
-
-data GuestAgentStatusEvent = GuestAgentStatusEvent
-  { gaseVmId :: !Int64
-  , gaseLastHealthcheck :: !Int64
-  , gaseEnabled :: !Bool
-  , gaseReachable :: !Bool
-  , gaseMessage :: !Text
-  }
-  deriving (Eq, Show)
-
-newtype ClientGuestAgentSink = ClientGuestAgentSink
-  { cgasOnStatus :: GuestAgentStatusEvent -> IO ()
-  }
-
-instance SomeServer ClientGuestAgentSink
-
-instance CGS.GuestAgentStatusSink'server_ ClientGuestAgentSink where
-  guestAgentStatusSink'push (ClientGuestAgentSink onStatus) =
-    handleParsed $ \CGS.GuestAgentStatusSink'push'params {CGS.status = s} -> do
-      let CGS.GuestAgentStatus
-            { CGS.vmId = vid
-            , CGS.lastHealthcheck = lhc
-            , CGS.enabled = en
-            , CGS.reachable = rc
-            } = s
-          msg = case s of
-            CGS.GuestAgentStatus {CGS.message = m} -> m
-          ev =
-            GuestAgentStatusEvent
-              { gaseVmId = vid
-              , gaseLastHealthcheck = lhc
-              , gaseEnabled = en
-              , gaseReachable = rc
-              , gaseMessage = msg
-              }
-      _ <- try (onStatus ev) :: IO (Either SomeException ())
-      pure CGS.GuestAgentStatusSink'push'results
-
-rpcVmSubscribeGuestAgent
-  :: CapnpConnection
-  -> EntityRef
-  -> (GuestAgentStatusEvent -> IO ())
-  -> IO (C.Client CGS.Handle)
-rpcVmSubscribeGuestAgent conn vmRef onStatus = do
-  vmClient <- getVmClient conn vmRef
-  sinkClient <-
-    export @CGS.GuestAgentStatusSink
-      (ccSupervisor conn)
-      (ClientGuestAgentSink onStatus)
-  CGVm.Vm'subscribeGuestAgent'results {CGVm.handle} <-
-    callOn
-      #subscribeGuestAgent
-      CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient}
-      vmClient
-  pure handle
 
 -- ---------------------------------------------------------------------
 -- Helpers

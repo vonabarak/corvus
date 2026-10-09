@@ -126,6 +126,12 @@ role-based field naming, and the documented exceptions.
 
 ### After Code Changes
 
+Haskell builds treat unused imports, top-level and local bindings, matches,
+type patterns, quantified variables, record wildcards, and redundant constraints
+as errors. These shared options live in `package.yaml` and apply to the library,
+executables, and tests. Exported definitions still need caller checks: GHC treats
+exports as used. Keep conditional imports valid for both database backends.
+
 Run `make format` and `make lint` after modifying Haskell or Python source
 files. `make format` edits files in place. `make lint` is read-only and covers
 static analysis plus formatter check passes, so run `make format` first and fix

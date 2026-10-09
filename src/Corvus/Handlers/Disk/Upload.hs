@@ -23,12 +23,10 @@ import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageInfo (..))
 import Corvus.Protocol
-import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist
 import Database.Persist.Sql (runSqlPool)
 
 -- | Read-only policy decision, before reserving an ID or opening a writer.

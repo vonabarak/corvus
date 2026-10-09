@@ -39,7 +39,6 @@ import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Types
   ( ListenAddress (..)
   , NodeConns (..)
-  , ServerState (..)
   , newAutostartFlags
   , newServerState
   , registerNodeConns
@@ -47,7 +46,6 @@ import Corvus.Types
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
-import qualified Data.Text as T
 import Database.Persist (delete, update, (=.))
 import Database.Persist.Sql (runSqlPool, toSqlKey)
 import Network.Socket

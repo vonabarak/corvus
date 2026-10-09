@@ -92,7 +92,7 @@ data NetworkCap = NetworkCap
 instance SomeServer NetworkCap
 
 instance CGNet.Network'server_ NetworkCap where
-  network'show (NetworkCap st eid cn) = handleParsed $ \_ -> do
+  network'show (NetworkCap st eid _) = handleParsed $ \_ -> do
     resp <- handleNetworkShow st eid
     case resp of
       RespNetworkDetails info ->

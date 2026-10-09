@@ -5,16 +5,11 @@ module Corvus.StartupShutdownSpec (spec) where
 
 import Corvus.Model
 import qualified Corvus.Model as M
-import Corvus.Protocol (Response (..))
 import Corvus.Server (handleGracefulShutdown, handleStartup)
-import Data.Int (Int64)
-import Data.Maybe (isJust, isNothing)
-import qualified Data.Text as T
-import Data.Time (UTCTime, addUTCTime, getCurrentTime)
+import Data.Maybe (isJust)
+import Data.Time (addUTCTime, getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
-import Test.DSL.Core (TestM, getDbPool, getTempDir, runDb)
-import Test.DSL.When (createTestServerState)
+import Test.DSL.Core (getDbPool, getTempDir, runDb)
 import Test.Prelude
 
 spec :: Spec

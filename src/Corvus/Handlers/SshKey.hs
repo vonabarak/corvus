@@ -24,13 +24,12 @@ where
 
 import Corvus.Action
 
-import Control.Monad (forM, when)
+import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
-import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types
 import Data.Int (Int64)
@@ -38,7 +37,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 --------------------------------------------------------------------------------
 -- SSH Key CRUD Handlers

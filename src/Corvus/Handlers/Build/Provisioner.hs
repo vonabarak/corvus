@@ -49,10 +49,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (getCurrentTime)
 import qualified Data.Version as Version
 import Database.Persist (insert, update)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey, (=.))
+import Database.Persist.Sql (runSqlPool, (=.))
 import Paths_corvus (version)
 
 -- | Per-step output cap persisted to @task.message@. Streamed lines are

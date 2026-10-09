@@ -12,23 +12,19 @@ module Test.DSL.When
   , vmStart
   , vmStop
   , vmPause
-  , vmReset
   , vmSetBalloon
 
     -- * Disk commands
   , diskCreate
   , diskCreateOverlay
   , diskRegister
-  , diskRegisterWithBacking
   , diskClone
-  , diskImport
   , diskRebase
   , diskDelete
   , diskResize
   , diskList
   , diskShow
   , diskAttach
-  , diskAttachReadOnly
   , diskDetach
   , mediaEject
   , mediaChange
@@ -61,7 +57,6 @@ module Test.DSL.When
   , whenSshKeyDelete
   , whenSshKeyList
   , whenSshKeyAttach
-  , whenSshKeyDetach
   , whenSshKeyListForVm
 
     -- * VM edit
@@ -95,15 +90,11 @@ module Test.DSL.When
   , whenTemplateDelete
   , whenTemplateList
   , whenTemplateShow
-  , whenTemplateInstantiate
 
     -- * Guest exec commands
   , whenGuestExec
 
     -- * Cloud-init config commands
-  , whenCloudInitSet
-  , whenCloudInitGet
-  , whenCloudInitDelete
 
     -- * Low-level
   , createTestServerState
@@ -115,32 +106,12 @@ import Control.Concurrent.Async (async)
 import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Reader (asks)
-import Corvus.Action (runAction, runActionAsync)
+import Corvus.Action (runAction)
 import Corvus.Database (unknownDatabaseRuntimeInfo)
 import Corvus.Handlers
-import Corvus.Handlers.Apply.Execute (ApplyAction (..))
-import Corvus.Handlers.Apply.Validation (handleApplyValidate)
 import Corvus.Handlers.Build ()
-import Corvus.Handlers.CloudInit (CloudInitDelete (..), CloudInitSet (..), handleCloudInitGet)
-import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
-import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
-import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
-import Corvus.Handlers.Disk.Import (DiskImportAction (..))
-import Corvus.Handlers.Disk.Maintenance (DiskDelete (..), DiskRefresh (..), DiskResize (..))
 import Corvus.Handlers.Disk.Media (MediaChange (..), MediaEject (..))
-import Corvus.Handlers.Disk.Query (handleDiskList, handleDiskShow)
-import Corvus.Handlers.Disk.Rebase (DiskRebase (..))
-import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotList)
-import Corvus.Handlers.GuestExec (GuestExec (..))
-import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
-import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..), handleNetworkList, handleNetworkShow)
 import Corvus.Handlers.Node (NodeEdit (..))
-import Corvus.Handlers.Resolve
-import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
-import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyCreate (..), SshKeyDelete (..), SshKeyDetach (..), handleSshKeyList, handleSshKeyListForVm)
-import Corvus.Handlers.Template (TemplateCreate (..), TemplateDelete (..), TemplateInstantiate (..), TemplateUpdate (..), handleTemplateList, handleTemplateShow)
-import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..), VmStart (..), VmStop (..), handleVmList, handleVmShow)
 import qualified Corvus.Handlers.Vm as VmHandlers
 import Corvus.Handlers.Vm.Balloon (VmSetBalloon (..))
 import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..), VmSnapshotRollback (..), handleVmSnapshotList)
@@ -159,7 +130,6 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Word (Word64)
 import Database.Persist.Sql (SqlBackend, toSqlKey)
 import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
-import qualified Test.Database as DB
 import Test.Settings (getTestLogLevel)
 
 --------------------------------------------------------------------------------
@@ -245,21 +215,6 @@ withState body = do
 toRef :: Int64 -> Ref
 toRef = Ref . T.pack . show
 
--- | Resolve a 'Ref' to a 'VmId', failing the test on miss.
-resolveVmId :: ServerState -> Ref -> IO Int64
-resolveVmId st r = do
-  e <- resolveVm r (ssDbPool st)
-  case e of
-    Right vid -> pure vid
-    Left _ -> error ("Test.DSL.When.resolveVmId: VM not found for " <> show r)
-
-resolveDiskId :: ServerState -> Ref -> IO Int64
-resolveDiskId st r = do
-  e <- resolveDisk r (ssDbPool st)
-  case e of
-    Right d -> pure d
-    Left _ -> error ("Test.DSL.When.resolveDiskId: disk not found for " <> show r)
-
 --------------------------------------------------------------------------------
 -- VM Commands
 --------------------------------------------------------------------------------
@@ -291,9 +246,6 @@ vmPause vmId = withState (\st -> runAction st "alice" (VmPause vmId))
 vmSetBalloon :: Int64 -> Word64 -> TestM Response
 vmSetBalloon vmId target = withState (\st -> runAction st "alice" (VmSetBalloon vmId target))
 
-vmReset :: Int64 -> TestM Response
-vmReset vmId = withState (\st -> runAction st "alice" (VmReset vmId))
-
 --------------------------------------------------------------------------------
 -- Disk Commands
 --------------------------------------------------------------------------------
@@ -310,12 +262,6 @@ diskRegister :: Text -> Text -> DriveFormat -> TestM Response
 diskRegister name filePath format =
   withState (\st -> runAction st "alice" (DiskRegister name filePath (Just format) Nothing False ""))
 
-diskRegisterWithBacking :: Text -> Text -> DriveFormat -> Text -> TestM Response
-diskRegisterWithBacking name filePath format backingRef =
-  withState $ \st -> do
-    backingId <- resolveDiskId st (Ref backingRef)
-    runAction st "alice" (DiskRegister name filePath (Just format) (Just backingId) False "")
-
 diskClone :: Text -> Int64 -> Maybe Text -> TestM Response
 diskClone name baseDiskId mPath =
   withState (\st -> runAction st "alice" (DiskClone name baseDiskId Nothing mPath False))
@@ -323,10 +269,6 @@ diskClone name baseDiskId mPath =
 diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM Response
 diskRebase diskId mNewBackingId unsafe =
   withState (\st -> runAction st "alice" (DiskRebase diskId mNewBackingId unsafe))
-
-diskImport :: Text -> Text -> Maybe Text -> Maybe Text -> Bool -> TestM Response
-diskImport name source mPath mFormat _wait =
-  withState (\st -> runAction st "alice" (DiskImportAction name source mPath mFormat Nothing False ""))
 
 diskDelete :: Int64 -> TestM Response
 diskDelete diskId = withState (\st -> runAction st "alice" (DiskDelete diskId))
@@ -344,10 +286,6 @@ diskShow diskId = withState (`handleDiskShow` diskId)
 diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
 diskAttach vmId diskId interface media =
   withState (\st -> runAction st "alice" (DiskAttach vmId diskId interface media False False CacheWriteback))
-
-diskAttachReadOnly :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
-diskAttachReadOnly vmId diskId interface media =
-  withState (\st -> runAction st "alice" (DiskAttach vmId diskId interface media True False CacheNone))
 
 diskDetach :: Int64 -> Int64 -> TestM Response
 diskDetach vmId diskId =
@@ -457,9 +395,6 @@ whenSshKeyList = withState handleSshKeyList
 
 whenSshKeyAttach :: Int64 -> Int64 -> TestM Response
 whenSshKeyAttach vmId keyId = withState (\st -> runAction st "alice" (SshKeyAttach vmId keyId))
-
-whenSshKeyDetach :: Int64 -> Int64 -> TestM Response
-whenSshKeyDetach vmId keyId = withState (\st -> runAction st "alice" (SshKeyDetach vmId keyId))
 
 whenSshKeyListForVm :: Int64 -> TestM Response
 whenSshKeyListForVm vmId = withState (`handleSshKeyListForVm` vmId)
@@ -576,11 +511,6 @@ whenTemplateShow tplId = withState (`handleTemplateShow` tplId)
 whenTemplateUpdate :: Int64 -> Text -> TestM Response
 whenTemplateUpdate tplId yaml = withState (\st -> runAction st "alice" (TemplateUpdate tplId yaml))
 
-whenTemplateInstantiate :: Int64 -> Text -> TestM Response
-whenTemplateInstantiate tplId name =
-  -- Empty node ref → scheduler picks (the seeded test-node).
-  withState (\st -> runAction st "alice" (TemplateInstantiate tplId name ""))
-
 --------------------------------------------------------------------------------
 -- Guest Exec
 --------------------------------------------------------------------------------
@@ -591,13 +521,3 @@ whenGuestExec vmId cmd = withState (\st -> runAction st "alice" (GuestExec vmId 
 --------------------------------------------------------------------------------
 -- Cloud-init Config Commands
 --------------------------------------------------------------------------------
-
-whenCloudInitSet :: Int64 -> Maybe Text -> Maybe Text -> Bool -> TestM Response
-whenCloudInitSet vmId mUserData mNetworkConfig injectSshKeys =
-  withState (\st -> runAction st "alice" (CloudInitSet vmId mUserData mNetworkConfig injectSshKeys))
-
-whenCloudInitGet :: Int64 -> TestM Response
-whenCloudInitGet vmId = withState (`handleCloudInitGet` vmId)
-
-whenCloudInitDelete :: Int64 -> TestM Response
-whenCloudInitDelete vmId = withState (\st -> runAction st "alice" (CloudInitDelete vmId))

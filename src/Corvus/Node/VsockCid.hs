@@ -35,7 +35,6 @@ import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Sql (SqlBackend, runSqlPool)
 import Foreign.C.Types (CInt (..), CULLong (..))
-import System.Directory (doesPathExist)
 
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA

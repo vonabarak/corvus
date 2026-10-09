@@ -12,7 +12,7 @@ import Corvus.Model
 import Data.Either (isLeft)
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Database.Persist
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 import qualified Test.Database as Db
 import Test.Hspec
 

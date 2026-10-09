@@ -33,7 +33,7 @@
 --   * 'newFileWriterSink' — build a 'ByteSink' cap server the
 --                         destination hands to a peer's 'pipeInto';
 --                         it writes bytes to @destPath.part@ and
---                         signals completion via a 'MVar'.
+--                         completes when the sink's 'end' call returns.
 --   * 'newToken'        — 128-bit hex-encoded single-use ticket.
 --   * 'registerReader' / 'redeemReader' — registry operations the
 --                         RPC handlers use.
@@ -53,8 +53,6 @@ module Corvus.Node.Transfer
   , FileWriterSink (..)
   , newFileWriterSink
   , newAtomicFileWriterSink
-  , FileWriterDone (..)
-  , waitFileWriter
   )
 where
 
@@ -66,16 +64,11 @@ import Control.Concurrent.MVar
   ( MVar
   , modifyMVar
   , modifyMVar_
-  , newEmptyMVar
   , newMVar
-  , putMVar
   , readMVar
-  , takeMVar
-  , tryPutMVar
   , withMVar
   )
 import qualified Control.Exception as E
-import Control.Monad (unless, void, when)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
 import qualified Data.ByteString as BS
@@ -90,7 +83,6 @@ import System.IO
   , Handle
   , IOMode (..)
   , hClose
-  , hFileSize
   , hFlush
   , hSetBuffering
   , openBinaryFile
@@ -170,9 +162,8 @@ redeemReader (TokenRegistry mv) token =
 -- | A 'DiskReader' server impl. Owns an open file handle and
 -- streams its contents through a caller-supplied 'ByteSink' when
 -- @pipeInto@ is invoked. Closing is idempotent.
-data FileReader = FileReader
-  { frPath :: !FilePath
-  , frHandle :: !(MVar (Maybe Handle))
+newtype FileReader = FileReader
+  { frHandle :: MVar (Maybe Handle)
   -- ^ 'Nothing' once the file has been closed (after EOF or
   -- explicit cancel).
   }
@@ -197,7 +188,7 @@ newFileReader path = do
   h <- openBinaryFile path ReadMode
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   mv <- newMVar (Just h)
-  pure FileReader {frPath = path, frHandle = mv}
+  pure FileReader {frHandle = mv}
 
 closeReader :: FileReader -> IO ()
 closeReader fr =
@@ -244,18 +235,10 @@ callSinkEnd = callSink #end CGS.ByteSink'end'params
 -- ---------------------------------------------------------------------------
 -- ByteSink server (destination side)
 
--- | Completion signal from a 'FileWriterSink'. 'fwdSuccess' fires
--- with 'Nothing' on clean EOF or 'Just' an error message if a
--- write or close raised. Set exactly once.
-newtype FileWriterDone = FileWriterDone {unFileWriterDone :: MVar (Maybe Text)}
-
 -- | A 'ByteSink' server impl that writes bytes received over
--- 'write' into a local file handle, then signals completion via a
--- 'FileWriterDone' when 'end' is invoked (or when a write fails).
+-- 'write' into a local file handle and flushes and closes on 'end'.
 data FileWriterSink = FileWriterSink
   { fwsHandle :: !(MVar (Maybe Handle))
-  , fwsBytes :: !(MVar Int)
-  , fwsDone :: !FileWriterDone
   , fwsOnClose :: !(IO ())
   , fwsOnAbort :: !(IO ())
   }
@@ -265,24 +248,12 @@ instance SomeServer FileWriterSink
 instance CGS.ByteSink'server_ FileWriterSink where
   byteSink'write fws =
     handleParsed $ \CGS.ByteSink'write'params {CGS.chunk = chunk} -> do
-      r <-
-        E.try @E.SomeException $ writeChunk fws chunk
-      case r of
-        Left e -> do
-          signalDone fws (Just (T.pack (show e)))
-          E.throwIO e
-        Right () -> pure ()
+      writeChunk fws chunk
       pure CGS.ByteSink'write'results
 
   byteSink'end fws =
     handleParsed $ \_ -> do
-      r <-
-        E.try @E.SomeException $ closeWriter fws
-      case r of
-        Left e -> do
-          signalDone fws (Just (T.pack (show e)))
-          E.throwIO e
-        Right () -> signalDone fws Nothing
+      closeWriter fws
       pure CGS.ByteSink'end'results
 
   byteSink'abort fws = handleParsed $ \_ -> do
@@ -290,47 +261,37 @@ instance CGS.ByteSink'server_ FileWriterSink where
       mapM_ hClose mh
       fwsOnAbort fws
       pure Nothing
-    signalDone fws (Just "Upload aborted")
     pure CGS.ByteSink'abort'results
 
--- | Build a 'FileWriterSink' that writes to @path@. Caller fsyncs
--- + renames the resulting file after 'waitFileWriter' returns.
-newFileWriterSink :: FilePath -> IO (FileWriterSink, FileWriterDone)
+-- | Build a 'FileWriterSink' that writes to @path@. The 'end' call
+-- flushes and closes the file before returning.
+newFileWriterSink :: FilePath -> IO FileWriterSink
 newFileWriterSink path = newFileWriterSinkWith path (pure ())
 
 -- | A writer for client uploads.  Bytes land in a sibling temporary file and
 -- are atomically promoted only after the sender closes the stream.
-newAtomicFileWriterSink :: FilePath -> IO (FileWriterSink, FileWriterDone)
+newAtomicFileWriterSink :: FilePath -> IO FileWriterSink
 newAtomicFileWriterSink destPath = do
   createDirectoryIfMissing True (takeDirectory destPath)
   (partPath, handle) <- openBinaryTempFile (takeDirectory destPath) ".corvus-upload.part"
   newFileWriterSinkWithHandle handle (createLink partPath destPath `E.finally` removeFile partPath) (removeFile partPath)
 
-newFileWriterSinkWith :: FilePath -> IO () -> IO (FileWriterSink, FileWriterDone)
+newFileWriterSinkWith :: FilePath -> IO () -> IO FileWriterSink
 newFileWriterSinkWith path onClose = do
   h <- openBinaryFile path WriteMode
   newFileWriterSinkWithHandle h onClose (pure ())
 
-newFileWriterSinkWithHandle :: Handle -> IO () -> IO () -> IO (FileWriterSink, FileWriterDone)
+newFileWriterSinkWithHandle :: Handle -> IO () -> IO () -> IO FileWriterSink
 newFileWriterSinkWithHandle h onClose onAbort = do
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   hv <- newMVar (Just h)
-  bv <- newMVar 0
-  done <- FileWriterDone <$> newEmptyMVar
   let fws =
         FileWriterSink
           { fwsHandle = hv
-          , fwsBytes = bv
-          , fwsDone = done
           , fwsOnClose = onClose
           , fwsOnAbort = onAbort
           }
-  pure (fws, done)
-
--- | Block until a sink reports completion. Returns 'Nothing' on
--- clean EOF, 'Just msg' on error.
-waitFileWriter :: FileWriterDone -> IO (Maybe Text)
-waitFileWriter (FileWriterDone mv) = readMVar mv
+  pure fws
 
 writeChunk :: FileWriterSink -> BS.ByteString -> IO ()
 writeChunk fws chunk =
@@ -338,7 +299,6 @@ writeChunk fws chunk =
     Nothing -> E.throwIO (userError "Upload stream is closed")
     Just h -> do
       BS.hPut h chunk
-      modifyMVar_ (fwsBytes fws) (\n -> pure (n + BS.length chunk))
 
 closeWriter :: FileWriterSink -> IO ()
 closeWriter fws = do
@@ -354,8 +314,3 @@ closeWriter fws = do
         Right () -> pure ()
       pure (Nothing, closed)
   either E.throwIO pure result
-
-signalDone :: FileWriterSink -> Maybe Text -> IO ()
-signalDone fws result = do
-  let FileWriterDone mv = fwsDone fws
-  void $ tryPutMVar mv result

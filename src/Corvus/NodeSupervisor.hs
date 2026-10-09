@@ -28,7 +28,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (filterM, forM_, unless, when)
+import Control.Monad (forM_, unless, when)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Network (autostartNetworksOnNode)
 import qualified Corvus.Handlers.Network.PeerSpec as PS
@@ -50,9 +50,8 @@ import Corvus.Types
   , runFilteredLogging
   )
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), get, selectList, (==.))
+import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
 import Supervisors (withSupervisor)
 import System.Posix.User (getRealUserID)

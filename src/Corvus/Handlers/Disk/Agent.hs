@@ -45,7 +45,6 @@ module Corvus.Handlers.Disk.Agent
   , downloadImageViaAgent
   , decompressXzViaAgent
   , hashFileViaAgent
-  , md5HashFileViaAgent
 
     -- * Inter-agent transfer
   , openReadViaAgent
@@ -190,8 +189,7 @@ getImageInfoViaAgent state nid path = do
         }
 
 -- | Convenience: returns 'Nothing' on any failure (no-agent
--- included). Matches the existing 'NI.getImageSize' surface
--- the daemon already uses for disk-refresh + register flows.
+-- included). Used for disk-refresh and register flows.
 getImageSizeViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Maybe Int64)
 getImageSizeViaAgent state nid path = do
   r <- getImageInfoViaAgent state nid path
@@ -214,8 +212,7 @@ rollbackSnapshotViaAgent :: ServerState -> M.NodeId -> FilePath -> Text -> IO NI
 rollbackSnapshotViaAgent state nid path name =
   withDiskOp state nid $ \nac -> NOA.snapshotRollback nac (T.pack path) name
 
--- | Merging a snapshot is just a delete on qcow2; mirror
--- 'NI.mergeSnapshot' for callers.
+-- | Merging a snapshot is a delete on qcow2, preserving the current state.
 mergeSnapshotViaAgent :: ServerState -> M.NodeId -> FilePath -> Text -> IO NI.ImageResult
 mergeSnapshotViaAgent = deleteSnapshotViaAgent
 
@@ -357,9 +354,6 @@ decompressXzViaAgent state nid xzPath = do
 hashFileViaAgent :: ServerState -> M.NodeId -> Text -> FilePath -> IO (Either Text Text)
 hashFileViaAgent state nid algorithm path =
   withEitherText state nid $ \nac -> NOA.diskHash nac algorithm (T.pack path)
-
-md5HashFileViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text Text)
-md5HashFileViaAgent state nid = hashFileViaAgent state nid "md5"
 
 -- ---------------------------------------------------------------------------
 -- Inter-agent transfer

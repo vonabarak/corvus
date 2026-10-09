@@ -395,7 +395,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             # QGA healthcheck: `last_healthcheck` is set by the
             # poller after the first ping (the same ping that
             # flips status `starting` → `running`), and refreshed
-            # every `qcHealthcheckInterval` seconds. We poll until
+            # every node status poller tick (10 seconds). We poll until
             # the timestamp advances; if it never does, the
             # steady-state poller never came up.
             hc0 = vm.cap.show().last_healthcheck

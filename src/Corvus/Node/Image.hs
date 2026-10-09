@@ -24,15 +24,12 @@ module Corvus.Node.Image
   , resizeImage
   , rebaseImage
   , getImageInfo
-  , getImageSize
   , parseImageInfo
 
     -- * Snapshot operations
   , createSnapshot
   , deleteSnapshot
   , rollbackSnapshot
-  , mergeSnapshot
-  , listSnapshots
   , cloneImage
 
     -- * Download operations
@@ -60,7 +57,6 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
 import qualified Crypto.Hash as Hash
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
@@ -71,8 +67,7 @@ import Data.Int (Int64)
 import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, getCurrentTime)
-import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, removeFile)
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import qualified System.Directory as D
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension)
@@ -267,14 +262,6 @@ getImageInfo path = do
         ExitFailure _ -> pure $ Left $ T.pack stderr
         ExitSuccess -> pure $ parseImageInfo stdout
 
--- | Get the virtual size of a disk image in bytes, returning Nothing on any failure.
-getImageSize :: FilePath -> IO (Maybe Int64)
-getImageSize path = do
-  result <- getImageInfo path
-  pure $ case result of
-    Right info -> Just (fromIntegral $ iiVirtualSize info)
-    Left _ -> Nothing
-
 --------------------------------------------------------------------------------
 -- JSON wire types for @qemu-img info --output=json@.
 --
@@ -402,36 +389,6 @@ rollbackSnapshot path name = do
             then pure $ ImageFormatNotSupported "Snapshots require qcow2 format"
             else pure $ ImageError $ T.pack stderr
 
--- | Merge a snapshot (deletes snapshot metadata, preserving current disk state)
--- For internal qcow2 snapshots, merging simply removes the snapshot record
--- while keeping all current data intact. This is the opposite of rollback.
-mergeSnapshot
-  :: FilePath
-  -- ^ File path
-  -> Text
-  -- ^ Snapshot name to merge (delete)
-  -> IO ImageResult
-mergeSnapshot path name = do
-  exists <- doesFileExist path
-  if not exists
-    then pure ImageNotFound
-    else deleteSnapshot path name
-
--- | List snapshots in an image (qcow2 only)
-listSnapshots
-  :: FilePath
-  -- ^ File path
-  -> IO (Either Text [SnapshotData])
-listSnapshots path = do
-  exists <- doesFileExist path
-  if not exists
-    then pure $ Left "Image file not found"
-    else do
-      infoResult <- getImageInfo path
-      case infoResult of
-        Left err -> pure $ Left err
-        Right info -> pure $ Right $ iiSnapshots info
-
 -- | Clone a disk image file via @qemu-img convert -O <destFormat>@.
 --
 -- Uses 'convert' rather than a flat byte copy so:
@@ -528,9 +485,7 @@ downloadImageRaw destPath url onProgress = do
         Right (_, _, mStderr, ph) -> do
           finalize
             ph
-            mStderr
             total
-            "curl"
             ( \case
                 ExitSuccess -> pure ImageSuccess
                 ExitFailure n -> do
@@ -565,18 +520,13 @@ downloadImageRaw destPath url onProgress = do
               threadDelay 250_000
               loop
 
-    finalize ph mStderr total binaryName onExit = do
+    finalize ph total onExit = do
       poll <- async (pollSize ph total)
       exit <- waitForProcess ph
       cancel poll
       finalSize <- currentFileSize destPath
       safeProgress finalSize total
-      result <- onExit exit
-      -- Touch the binaryName so it appears in the closure's free
-      -- vars (silences -Wunused-matches when both transports succeed
-      -- without ever stringifying the name).
-      _ <- pure (binaryName :: String)
-      pure result
+      onExit exit
 
     runWget total urlStr = do
       let wgetProc =
@@ -591,9 +541,7 @@ downloadImageRaw destPath url onProgress = do
         Right (_, _, mStderr, ph) ->
           finalize
             ph
-            mStderr
             total
-            "wget"
             ( \case
                 ExitSuccess -> pure ImageSuccess
                 ExitFailure n -> readErrText mStderr >>= \err -> pure $ ImageError $ "wget failed (exit " <> T.pack (show n) <> "): " <> err

@@ -45,9 +45,8 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Network.Simple.TCP as TCP
 import Network.Socket (Socket)
-import Supervisors (Supervisor, withSupervisor)
+import Supervisors (withSupervisor)
 import System.IO (stderr)
-import System.IO.Error (IOError)
 
 -- | Default bind address. Mirrors the daemon's default of binding
 -- on every interface — multi-node deploys need netd reachable

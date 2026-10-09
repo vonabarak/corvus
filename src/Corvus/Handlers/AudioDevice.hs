@@ -18,8 +18,8 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), SelectOpt (Asc), delete, get, insert, selectList, update, (=.), (==.))
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist (SelectOpt (Asc), delete, get, insert, selectList, update, (=.), (==.))
+import Database.Persist.Sql (runSqlPool)
 
 data AudioDeviceAdd = AudioDeviceAdd Int64 AudioBackend AudioDeviceModel Text
 data AudioDeviceEdit = AudioDeviceEdit Int64 Int64 AudioBackend (Maybe AudioDeviceModel) Text

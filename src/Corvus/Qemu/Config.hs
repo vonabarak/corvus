@@ -33,8 +33,6 @@ data QemuConfig = QemuConfig
   -- ^ Path to the swtpm binary
   , qcSharedMemSize :: Maybe Int64
   -- ^ Shared memory size in bytes for virtiofs, Nothing uses VM RAM
-  , qcHealthcheckInterval :: Int
-  -- ^ Healthcheck ping interval in seconds (default 10)
   , qcSpiceBindAddress :: !Text
   -- ^ Address QEMU binds the SPICE TCP listener to. Defaults to
   -- @127.0.0.1@ for Unix-socket daemons; for TCP daemons the CLI wires
@@ -65,7 +63,6 @@ defaultQemuConfig =
     , qcVirtiofsdBinary = "/usr/libexec/virtiofsd"
     , qcSwtpmBinary = "swtpm"
     , qcSharedMemSize = Nothing -- Will use VM RAM size
-    , qcHealthcheckInterval = 10
     , qcSpiceBindAddress = "127.0.0.1"
     , qcSpicePortMin = 5900
     , qcSpicePortMax = 5999

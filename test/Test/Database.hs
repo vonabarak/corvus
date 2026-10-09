@@ -16,7 +16,6 @@ module Test.Database
 
     -- * Database operations
   , runDb
-  , getPool
 
     -- * Configuration
   , TestDbConfig (..)
@@ -64,10 +63,6 @@ data TestEnv = TestEnv
   , teTempDir :: !FilePath
   -- ^ Temporary directory for test files
   }
-
--- | Get the database pool from the test environment
-getPool :: TestEnv -> Pool SqlBackend
-getPool = tePool
 
 -- | Run a database action in the test environment
 runDb :: (MonadIO m) => TestEnv -> SqlPersistT IO a -> m a

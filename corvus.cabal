@@ -186,7 +186,6 @@ library
       Corvus.Client.Commands.Build
       Corvus.Client.BuildVars
       Corvus.Client.Completion
-      Corvus.Wire
       Corvus.Wire.Error
       Corvus.Wire.Errors
       Corvus.Wire.Time
@@ -290,7 +289,6 @@ library
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck
       Corvus.Model.EnumText
-      Corvus.Node.Caps.Session.Disk
       Corvus.Node.Caps.Session.Utils
       Corvus.Node.Caps.Session.Vm
       Corvus.Node.Caps.Session.Vm.Access
@@ -342,6 +340,7 @@ library
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
   include-dirs:
       cbits
   c-sources:
@@ -424,7 +423,7 @@ executable corvus
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , aeson-qq
@@ -497,6 +496,7 @@ executable corvus-code-metrics
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
   build-depends:
       Cabal
     , aeson
@@ -567,7 +567,7 @@ executable corvus-netd
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , aeson-qq
@@ -637,7 +637,7 @@ executable corvus-nodeagent
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , aeson-qq
@@ -707,7 +707,7 @@ executable crv
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -threaded -rtsopts
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts
   build-depends:
       aeson
     , aeson-qq
@@ -847,7 +847,7 @@ test-suite corvus-test
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Cabal
     , QuickCheck

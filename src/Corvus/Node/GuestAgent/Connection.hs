@@ -59,7 +59,7 @@ withPersistentConn connsVar config vmId retries timeoutMicros action = do
       result <- runOnce connVar path
       case result of
         Right value -> pure (Right value)
-        Left err | count > 1 -> threadDelay 1000000 >> go connVar path (count - 1)
+        Left _ | count > 1 -> threadDelay 1000000 >> go connVar path (count - 1)
         Left err -> pure (Left err)
 
     runOnce connVar path = mask $ \restore -> do

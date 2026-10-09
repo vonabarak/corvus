@@ -53,7 +53,6 @@ module Corvus.Client.Capnp.Rpc
   )
 where
 
-import Capnp (IsCap, IsStruct, Method, Parse, Parsed, Pipeline, callP, defaultLimit, evalLimitT, parse)
 import qualified Capnp as C
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Sshkey as CGSsh

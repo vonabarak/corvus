@@ -1,7 +1,6 @@
 {-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -27,15 +26,12 @@ where
 import Capnp (export)
 import qualified Capnp as C
 import qualified Capnp.Gen.Cloudinit as CGCI
-import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (fromClient)
 import Capnp.Rpc.Server (SomeServer, handleParsed)
 import Capnp.Rpc.Untyped (nullClient)
-import qualified Capnp.Rpc.Untyped (nullClient)
 import Control.Exception (SomeException, try)
-import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import qualified Corvus.Protocol.Apply as PA
 import Corvus.Protocol.Build (BuildEvent)
@@ -44,9 +40,8 @@ import Corvus.Wire.Apply (fromCapnpApplyEvent, fromCapnpApplyResult)
 import Corvus.Wire.Build (fromCapnpBuildEvent)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, toCapnpEntityRef)
-import Corvus.Wire.Errors (WireError, showWireError)
 import Data.Function ((&))
-import Data.Int (Int32, Int64)
+import Data.Int (Int64)
 import Data.Text (Text)
 
 -- | Call a method on a cap and return its parsed results struct.
@@ -64,10 +59,6 @@ callOn
 callOn method p client = do
   raw <- (client & C.callP method p) >>= C.waitPipeline
   C.evalLimitT C.defaultLimit (C.parse raw)
-
-failOnWire :: Either WireError a -> IO a
-failOnWire (Right a) = pure a
-failOnWire (Left e) = fail ("wire decode error: " <> show (showWireError e))
 
 -- =====================================================================
 -- Apply (streaming)

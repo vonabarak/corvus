@@ -6,11 +6,10 @@ module Corvus.Handlers.Apply.Overwrite (Overwrite (..), preflightDiskOverwrite, 
 import Corvus.Model
 import Corvus.Protocol (Response)
 import Corvus.Types (ServerState (..))
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 data Overwrite = Overwrite {oPreflight :: IO (Either Text ()), oDelete :: IO Response}
 preflightDiskOverwrite state name eid = attachedMessage state (vmsAttachedToDisk $ toSqlKey eid) ("cannot overwrite disk '" <> name <> "': attached to VM(s) ") "; detach or delete those VMs first"

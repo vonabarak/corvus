@@ -22,7 +22,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist.Sql (fromSqlKey, runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 
 -- | Nothing selects every registered family; node Nothing selects every node.
 data DiskCleanup = DiskCleanup

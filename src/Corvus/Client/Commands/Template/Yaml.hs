@@ -13,7 +13,6 @@ where
 
 import Corvus.Protocol
   ( CloudInitInfo (..)
-  , NamedRef (..)
   , TemplateAudioDeviceInfo (..)
   , TemplateDetails (..)
   , TemplateDriveInfo (..)

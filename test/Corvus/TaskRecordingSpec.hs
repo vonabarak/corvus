@@ -15,7 +15,6 @@ module Corvus.TaskRecordingSpec (spec) where
 
 import Control.Exception (throwIO)
 import Corvus.Action (Action (..), TaskCancelledException (..), runAction)
-import Corvus.Model (Task (..), TaskResult (..), TaskSubsystem (..))
 import Test.Prelude
 
 -- | A minimal Action that always cancels, used to exercise the

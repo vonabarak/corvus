@@ -11,20 +11,17 @@ module Corvus.SpicePortSpec (spec) where
 
 import Control.Concurrent.Async (replicateConcurrently)
 import Control.Exception (bracket)
-import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Model as M
 import Corvus.Node.SpicePort (allocateSpicePort, withAllocatedSpicePort)
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Types (ServerState (..))
 import Data.List (nub, sort)
-import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (insert)
 import Database.Persist.Sql (runSqlPool)
 import qualified Network.Socket as NS
 import Test.DSL.Core (getDbPool, getTempDir, runDb)
-import Test.DSL.When (createTestServerState)
 import Test.Prelude
 
 spec :: Spec

@@ -29,7 +29,7 @@ import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Corvus.Action (runAction, runActionAsync, runActionAsyncWithId)
 import Corvus.Handlers.AudioDevice (AudioDeviceAdd (..), AudioDeviceEdit (..), AudioDeviceRemove (..), handleAudioDeviceList)
@@ -73,7 +73,7 @@ import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
 import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
-import Corvus.Rpc.Streams (EmptyHandle (..), runByteSinkRelay)
+import Corvus.Rpc.Streams (EmptyHandle (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
 import Corvus.Wire.Common (ViewGrant (..), toCapnpViewGrant)
@@ -212,7 +212,7 @@ instance CGVm.Vm'server_ VmCap where
       RespAudioDeviceList devices -> pure CGVm.Vm'listAudioDevices'results {CGVm.audioDevices = map toCapnpAudioDeviceInfo devices}
       _ -> throwError resp
 
-  vm'show (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'show (VmCap st _ eid _) = handleParsed $ \_ -> do
     detResp <- handleVmShow st eid
     case detResp of
       RespVmDetails det -> do
@@ -321,7 +321,7 @@ instance CGVm.Vm'server_ VmCap where
         pure CGVm.Vm'cloudInit'results {CGVm.config = toCapnpCloudInitInfo emptyInfo}
       _ -> throwError resp
 
-  vm'viewGrant (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'viewGrant (VmCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleVmViewGrant st eid
     case resp of
       RespVmViewGrant host port password ttl ->
@@ -365,7 +365,7 @@ instance CGVm.Vm'server_ VmCap where
       RespOk -> pure CGVm.Vm'setBalloon'results
       other -> throwError other
 
-  vm'sendCtrlAltDel (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'sendCtrlAltDel (VmCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleVmSendCtrlAltDel st eid
     case resp of
       RespOk -> pure CGVm.Vm'sendCtrlAltDel'results
@@ -424,7 +424,7 @@ instance CGVm.Vm'server_ VmCap where
       handle <- export @CGS.Handle sup EmptyHandle
       pure CGVm.Vm'subscribeGuestAgent'results {CGVm.handle = handle}
 
-  vm'serialConsoleFlush (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'serialConsoleFlush (VmCap st _ eid _) = handleParsed $ \_ -> do
     -- Validator first; proxy to the agent on success.
     _ <- handleSerialConsoleFlush st eid
     r <- withVmNodeAgent st eid $ \nac -> NOA.flushSerialConsole nac eid
@@ -433,7 +433,7 @@ instance CGVm.Vm'server_ VmCap where
       Right (Left e) -> throwFailed (T.pack (show e))
       Right (Right ()) -> pure CGVm.Vm'serialConsoleFlush'results
 
-  vm'hmpMonitorFlush (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'hmpMonitorFlush (VmCap st _ eid _) = handleParsed $ \_ -> do
     _ <- handleHmpMonitorFlush st eid
     r <- withVmNodeAgent st eid $ \nac -> NOA.flushHmpMonitor nac eid
     case r of
@@ -535,7 +535,7 @@ instance CGVm.Vm'server_ VmCap where
       RespOk -> pure CGVm.Vm'removeNetIf'results
       _ -> throwError resp
 
-  vm'listNetIfs (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'listNetIfs (VmCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleNetIfList st eid
     case resp of
       RespNetIfList nis ->
@@ -577,7 +577,7 @@ instance CGVm.Vm'server_ VmCap where
       RespSharedDirOk -> pure CGVm.Vm'removeSharedDir'results
       _ -> throwError resp
 
-  vm'listSharedDirs (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'listSharedDirs (VmCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleSharedDirList st eid
     case resp of
       RespSharedDirList sds ->
@@ -606,7 +606,7 @@ instance CGVm.Vm'server_ VmCap where
       RespOk -> pure CGVm.Vm'detachSshKey'results
       _ -> throwError resp
 
-  vm'listSshKeys (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'listSshKeys (VmCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleSshKeyListForVm st eid
     case resp of
       RespSshKeyList keys ->

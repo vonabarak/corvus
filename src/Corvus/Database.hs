@@ -28,37 +28,40 @@ module Corvus.Database
   )
 where
 
-import Control.Exception (SomeException, bracket, throwIO, try)
+import Control.Exception (SomeException, throwIO, try)
+#if defined(WITH_SQLITE)
+import Control.Exception (bracket)
 import Control.Monad (when)
+import Control.Monad.Logger (logWarnN)
+#endif
 import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Logger (LoggingT, logWarnN, runStdoutLoggingT)
+import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
 import Corvus.Database.Migration
 import qualified Corvus.Database.Migrations as Migrations
 import Corvus.Model (migrateAll)
 import qualified Data.ByteString as BS
-import Data.ByteString.Char8 (pack)
 import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit)
 import Data.Either (fromRight)
-import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (PersistValue (..))
 import Database.Persist.Sql (Single (..), SqlBackend, rawExecute, rawSql, runMigration, runSqlPool, showMigration)
 #if defined(WITH_POSTGRESQL)
+import Data.ByteString.Char8 (pack)
 import Database.Persist.Postgresql (createPostgresqlPool)
 #endif
 #if defined(WITH_SQLITE)
 import qualified Database.Sqlite as Sqlite
 import Database.Persist.Sqlite (createSqlitePool)
-#endif
-import Control.Monad.Trans.Reader (ReaderT)
-import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
+import System.Directory (createDirectoryIfMissing, getHomeDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))
+#endif
+import Control.Monad.Trans.Reader (ReaderT)
+import System.Directory (doesFileExist)
 import System.IO (IOMode (ReadMode), withBinaryFile)
-import System.IO.Error (userError)
 
 currentSchemaVersion :: Int
 -- Bump whenever 'migrateAll' gains a persistent-schema change. Version 2
@@ -343,8 +346,8 @@ warnIfSqliteHeaderVersionMismatch' path
 warnIfSqliteHeaderVersionMismatch' _ = pure ()
 #endif
 
-currentSqliteRuntimeVersionNumber :: IO (Maybe Int)
 #if defined(WITH_SQLITE)
+currentSqliteRuntimeVersionNumber :: IO (Maybe Int)
 currentSqliteRuntimeVersionNumber = do
   result <- try queryVersion :: IO (Either SomeException (Maybe Int))
   pure $ fromRight Nothing result
@@ -360,9 +363,6 @@ currentSqliteRuntimeVersionNumber = do
                 PersistText versionText -> pure $ sqliteVersionNumberFromText versionText
                 _ -> pure Nothing
             Sqlite.Done -> pure Nothing
-#else
-currentSqliteRuntimeVersionNumber = pure Nothing
-#endif
 
 sqliteVersionNumberToText :: Int -> Text
 sqliteVersionNumberToText versionNumber =
@@ -372,6 +372,8 @@ sqliteVersionNumberToText versionNumber =
       <> show ((versionNumber `div` 1000) `mod` 1000)
       <> "."
       <> show (versionNumber `mod` 1000)
+
+#endif
 
 isPostgresqlUrl :: String -> Bool
 isPostgresqlUrl value =
@@ -390,6 +392,7 @@ hasUriScheme value =
     isSchemeChar c = isAlphaNum c || c == '+' || c == '-' || c == '.'
     isAsciiAlpha c = isAsciiLower c || isAsciiUpper c
 
+#if defined(WITH_SQLITE)
 defaultSqlitePath :: IO FilePath
 defaultSqlitePath = do
   mDataHome <- lookupEnv "XDG_DATA_HOME"
@@ -405,3 +408,4 @@ defaultSqlitePath = do
 ensureSqliteParent :: FilePath -> IO ()
 ensureSqliteParent ":memory:" = pure ()
 ensureSqliteParent path = createDirectoryIfMissing True (takeDirectory path)
+#endif

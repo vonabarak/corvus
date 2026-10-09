@@ -47,16 +47,12 @@ module Corvus.Qemu
   , createSnapshot
   , deleteSnapshot
   , rollbackSnapshot
-  , mergeSnapshot
-  , listSnapshots
   , ImageInfo (..)
   , SnapshotData (..)
   , ImageResult (..)
   )
 where
 
-import Corvus.Node.Command
-import Corvus.Node.GuestAgent
 import Corvus.Node.Image
 import Corvus.Node.Qmp
 import Corvus.Node.Runtime

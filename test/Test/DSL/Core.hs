@@ -24,14 +24,13 @@ module Test.DSL.Core
 
     -- * HSpec integration
   , testCase
-  , withFreshDb
   )
 where
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, asks, runReaderT)
 import Corvus.Protocol (Response)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Pool (Pool)
 import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
 import qualified Test.Database as DB
@@ -126,7 +125,3 @@ testCase name action = it name $ \dbEnv -> do
   -- Phase 1 lib still uses that placeholder pervasively).
   DB.resetTestDb env
   runTestM env action
-
--- | Run a test with a fresh database (alias for clarity)
-withFreshDb :: TestM () -> SpecWith DB.TestEnv -> SpecWith DB.TestEnv
-withFreshDb setup specs = specs

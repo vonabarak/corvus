@@ -22,7 +22,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, insert_, runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 data ApplyVmCreate = ApplyVmCreate {avcKeyMap :: Map.Map Text Int64, avcDiskMap :: Map.Map Text Int64, avcNwMap :: Map.Map Text Int64, avcVm :: ApplyVm}
 instance Action ApplyVmCreate where

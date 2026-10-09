@@ -62,7 +62,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Sql (SqlBackend, SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Action types
@@ -215,7 +215,7 @@ handleVmSnapshotRollback state vmId name = runServerLogging state $ do
         Just (carrierDiskId, carrierSnap) ->
           case vmStatus vm of
             VmStopped ->
-              rollbackFromStopped state vmId vm carrierDiskId carrierSnap
+              rollbackFromStopped state vmId carrierDiskId carrierSnap
             VmRunning ->
               handleVmstateRollback state (fromSqlKey carrierDiskId) carrierSnap
             VmPaused ->
@@ -256,11 +256,10 @@ findCarrierSnapshot vmId name = do
 rollbackFromStopped
   :: ServerState
   -> Int64
-  -> Vm
   -> DiskImageId
   -> Snapshot
   -> LoggingT IO Response
-rollbackFromStopped state vmId vm carrierDiskId carrierSnap = do
+rollbackFromStopped state vmId carrierDiskId carrierSnap = do
   mClaimed <-
     liftIO $
       runSqlPool

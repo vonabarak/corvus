@@ -13,7 +13,6 @@ module Corvus.Client.Types
 
     -- * Build client options
   , BuildClientOptions (..)
-  , defaultBuildClientOptions
 
     -- * Snapshot options
   , QuiesceModeFlag (..)
@@ -52,9 +51,6 @@ data BuildClientOptions = BuildClientOptions
   , bcoVarFiles :: ![FilePath]
   }
   deriving (Show, Eq)
-
-defaultBuildClientOptions :: BuildClientOptions
-defaultBuildClientOptions = BuildClientOptions [] []
 
 -- | Command line options.
 --

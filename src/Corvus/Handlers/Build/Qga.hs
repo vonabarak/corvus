@@ -27,7 +27,6 @@ where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
-import Control.Exception (SomeException, try)
 import Corvus.Node.GuestAgent (GuestExecResult (..))
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.NodeAgentClient as NOA

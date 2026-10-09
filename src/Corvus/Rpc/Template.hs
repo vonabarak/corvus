@@ -87,7 +87,7 @@ data TemplateCap = TemplateCap
 instance SomeServer TemplateCap
 
 instance CGT.Template'server_ TemplateCap where
-  template'show (TemplateCap st _ eid cn) = handleParsed $ \_ -> do
+  template'show (TemplateCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleTemplateShow st eid
     case resp of
       RespTemplateInfo det ->

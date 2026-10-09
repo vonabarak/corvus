@@ -39,7 +39,7 @@ import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), get)
+import Database.Persist (get)
 import Database.Persist.Sql (runSqlPool)
 import System.FilePath (takeFileName, (</>))
 

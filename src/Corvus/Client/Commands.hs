@@ -53,7 +53,7 @@ import Corvus.Protocol (StatusInfo (..), VmDetails (..))
 import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
-import Data.Aeson (Value, object, toJSON, (.=))
+import Data.Aeson (Value, object, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.Maybe (isJust)

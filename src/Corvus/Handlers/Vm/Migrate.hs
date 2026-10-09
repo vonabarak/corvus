@@ -72,7 +72,6 @@ import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging, withNodeAgent)
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
-import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (runSqlPool)

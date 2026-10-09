@@ -18,7 +18,6 @@
 -- which is hard to set up through the public Action surface.
 module Corvus.SchedulerSpec (spec) where
 
-import Control.Monad.IO.Class (liftIO)
 import Corvus.Handlers.Scheduler
   ( pickNodeForDisk
   , pickNodeForNetwork
@@ -27,14 +26,11 @@ import Corvus.Handlers.Scheduler
 import Corvus.Model (NodeAdminState (..))
 import qualified Corvus.Model as M
 import Corvus.Types (ServerState (..), reserveRam)
-import Data.Int (Int64)
-import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (deleteWhere, insert)
 import Database.Persist.Sql (Filter, fromSqlKey)
-import Test.DSL.Core (TestM, getDbPool, getTempDir, runDb)
-import Test.DSL.When (createTestServerState)
+import Test.DSL.Core (getDbPool, getTempDir, runDb)
 import Test.Prelude
 
 -- | Wipe the seeded 'test-node' row so each test owns the full

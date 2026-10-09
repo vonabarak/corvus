@@ -29,8 +29,8 @@ spec = sequential $ withTestDb $ do
 
     testCase "returns one row per inserted image" $ do
       given $ do
-        _ <- insertDiskImage "a" "/a.qcow2" FormatQcow2
-        _ <- insertDiskImage "b" "/b.qcow2" FormatQcow2
+        _ <- insertDiskImage "a" FormatQcow2
+        _ <- insertDiskImage "b" FormatQcow2
         pure ()
       when_ diskList
       then_ $ responseIs $ \case
@@ -40,7 +40,7 @@ spec = sequential $ withTestDb $ do
   describe "diskShow" $ do
     testCase "returns DiskInfo for an existing image" $ do
       given $ do
-        _ <- insertDiskImage "show-me" "/show-me.qcow2" FormatQcow2
+        _ <- insertDiskImage "show-me" FormatQcow2
         pure ()
       when_ $ diskShow 1
       then_ $ responseIs $ \case
@@ -83,7 +83,7 @@ spec = sequential $ withTestDb $ do
 
     testCase "a failed new registration preserves the existing version" $ do
       given $ do
-        _ <- insertDiskImage "existing" "/baseimages/existing.qcow2" FormatQcow2
+        _ <- insertDiskImage "existing" FormatQcow2
         pure ()
       when_ $ diskRegister "existing" "/baseimages/existing.qcow2" FormatQcow2
       then_ $ do
@@ -103,7 +103,7 @@ spec = sequential $ withTestDb $ do
 
     testCase "deletes a disk image that has no overlays + no drives" $ do
       given $ do
-        _ <- insertDiskImage "doomed" "/doomed.qcow2" FormatQcow2
+        _ <- insertDiskImage "doomed" FormatQcow2
         pure ()
       when_ $ diskDelete 1
       then_ $ do
@@ -112,8 +112,8 @@ spec = sequential $ withTestDb $ do
 
     testCase "refuses to delete a disk that's an overlay base" $ do
       given $ do
-        baseId <- insertDiskImage "base" "/base.qcow2" FormatQcow2
-        _ <- insertDiskImageWithBacking "ov" "/ov.qcow2" FormatQcow2 Nothing (Just baseId)
+        baseId <- insertDiskImage "base" FormatQcow2
+        _ <- insertDiskImageWithBacking "ov" FormatQcow2 Nothing (Just baseId)
         pure ()
       when_ $ diskDelete 1
       then_ $ do
@@ -153,7 +153,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         -- insertDiskImage skips the DiskImageNode row; same-node
         -- guard in handleDiskAttach catches this.
-        _ <- insertDiskImage "orphan" "/orphan.qcow2" FormatQcow2
+        _ <- insertDiskImage "orphan" FormatQcow2
         _ <- insertVm "homeless" VmStopped
         pure ()
       when_ $ diskAttach 1 1 InterfaceVirtio (Just MediaDisk)
@@ -178,7 +178,7 @@ spec = sequential $ withTestDb $ do
   describe "diskDetach" $ do
     testCase "returns DriveNotFound when nothing is attached" $ do
       given $ do
-        _ <- insertDiskImage "free" "/free.qcow2" FormatQcow2
+        _ <- insertDiskImage "free" FormatQcow2
         _ <- insertVm "free-vm" VmStopped
         pure ()
       when_ $ diskDetach 1 1
@@ -290,7 +290,7 @@ spec = sequential $ withTestDb $ do
         diskId <- insertDiskImageOnTestNode "iso" "/iso.iso" FormatRaw
         -- new image exists but has no DiskImageNode row → same-node
         -- guard must reject it.
-        _ <- insertDiskImage "orphan" "/orphan.iso" FormatRaw
+        _ <- insertDiskImage "orphan" FormatRaw
         vmId <- insertVm "cd" VmStopped
         _ <- attachCdromDrive vmId (Just diskId)
         pure ()
@@ -319,7 +319,7 @@ spec = sequential $ withTestDb $ do
     testCase "changes a stopped VM's drive (DB-only, no agent needed)" $ do
       given $ do
         diskA <- insertDiskImageOnTestNode "isoA" "/isoA.iso" FormatRaw
-        diskB <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
+        _ <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
         vmId <- insertVm "cd" VmStopped
         _ <- attachCdromDrive vmId (Just diskA)
         pure ()
@@ -331,7 +331,7 @@ spec = sequential $ withTestDb $ do
     testCase "running VM: QMP failure leaves the DB untouched" $ do
       given $ do
         diskA <- insertDiskImageOnTestNode "isoA" "/isoA.iso" FormatRaw
-        diskB <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
+        _ <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
         vmId <- insertVm "cd" VmRunning
         _ <- attachCdromDrive vmId (Just diskA)
         pure ()

@@ -35,7 +35,7 @@ import Capnp.Rpc
   )
 import Control.Exception (Exception, SomeException, bracket, try)
 import qualified Corvus.Tls as Tls
-import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
+import Corvus.Types (ListenAddress (..))
 import qualified Data.Default as Def
 import Data.Text (Text)
 import qualified Data.Text as T

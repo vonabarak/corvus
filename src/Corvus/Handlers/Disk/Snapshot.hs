@@ -198,7 +198,7 @@ handleSnapshotCreateWithVmstate state diskId snapshotName' =
                   pure $
                     RespError
                       "Full-machine (--with-ram) snapshots require the VM to be running"
-                (vmId : _ : _)
+                (_ : _ : _)
                   | length runningVms > 1 ->
                       pure $
                         RespError
@@ -369,7 +369,7 @@ handleSnapshotDelete state diskId snapRef = runServerLogging state $ do
                 Nothing -> pure RespSnapshotNotFound
                 Just snapshot
                   | snapshotHasVmstate snapshot ->
-                      handleSnapshotDeleteWithVmstate state diskId snapshotId snapshot
+                      handleSnapshotDeleteWithVmstate state diskId snapshot
                   | otherwise ->
                       handleSnapshotDeletePlain state diskId snapshotId snapshot
 
@@ -424,8 +424,8 @@ handleSnapshotDeletePlain state diskId snapshotId snapshot = do
 -- discovered via a Drive-join against the same VM's writable
 -- qcow2 disk set and matching @snapshotName@.
 handleSnapshotDeleteWithVmstate
-  :: ServerState -> Int64 -> Int64 -> Snapshot -> LoggingT IO Response
-handleSnapshotDeleteWithVmstate state diskId carrierSnapId carrierSnap = do
+  :: ServerState -> Int64 -> Snapshot -> LoggingT IO Response
+handleSnapshotDeleteWithVmstate state diskId carrierSnap = do
   runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
   case runningVms of
     [] ->

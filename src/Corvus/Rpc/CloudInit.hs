@@ -13,7 +13,6 @@ module Corvus.Rpc.CloudInit
 where
 
 import qualified Capnp.Gen.Cloudinit as CGCI
-import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.CloudInit (CloudInitDelete (..), CloudInitSet (..), handleCloudInitGet)
@@ -39,7 +38,7 @@ newCloudInitManagerCap st sup cn = pure (CloudInitManagerCap st sup cn)
 instance SomeServer CloudInitManagerCap
 
 instance CGCI.CloudInitManager'server_ CloudInitManagerCap where
-  cloudInitManager'get (CloudInitManagerCap st _ cn) =
+  cloudInitManager'get (CloudInitManagerCap st _ _) =
     handleParsed $ \CGCI.CloudInitManager'get'params {..} -> do
       ref' <- capnpRefToRef vmRef
       eid <- resolveOrThrow =<< resolveVm ref' (ssDbPool st)

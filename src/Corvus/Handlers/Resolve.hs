@@ -24,21 +24,17 @@ where
 import Corvus.DiskSelector
 import Corvus.Images
 import Corvus.Model
-  ( DiskImage
-  , DiskImageId
+  ( DiskImageId
   , Entity (..)
   , Key
   , Network
   , Node
-  , SharedDir (..)
-  , SharedDirId
   , Snapshot (..)
   , SnapshotId
   , SshKey
   , TemplateVm
   , Unique (..)
   , Vm
-  , VmId
   , fromSqlKey
   , toSqlKey
   )
@@ -50,9 +46,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Filter, (==.))
 import Database.Persist.Sql
-  ( PersistEntity
-  , PersistEntityBackend
-  , SqlBackend
+  ( SqlBackend
   , ToBackendKey
   , get
   , getBy
@@ -95,10 +89,7 @@ resolveErrorMessage (RefAmbiguous entity ref count) =
 -- Otherwise, look up by the entity's unique name constraint.
 resolveRef
   :: forall record
-   . ( PersistEntity record
-     , PersistEntityBackend record ~ SqlBackend
-     , ToBackendKey SqlBackend record
-     )
+   . (ToBackendKey SqlBackend record)
   => (Text -> Unique record)
   -- ^ Unique constraint constructor (e.g., 'UniqueName')
   -> Text
@@ -128,10 +119,7 @@ resolveRef mkUnique typeName (Ref refText) pool =
 -- zero, one, or many rows.
 resolveByName
   :: forall record
-   . ( PersistEntity record
-     , PersistEntityBackend record ~ SqlBackend
-     , ToBackendKey SqlBackend record
-     )
+   . (ToBackendKey SqlBackend record)
   => Text
   -- ^ Entity type name for error messages
   -> (Text -> [Filter record])

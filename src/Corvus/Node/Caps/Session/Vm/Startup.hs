@@ -18,93 +18,28 @@ module Corvus.Node.Caps.Session.Vm.Startup
   , forkVmReaper
   ) where
 
-import qualified Capnp as C
-import qualified Capnp.Gen.Nodeagent as CGNA
-import qualified Capnp.Gen.Streams as CGS
-import qualified Capnp.Gen.Vm as CGVm
-import Capnp.Rpc (throwFailed)
-import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar (withMVar)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad (forM_, unless, void, when)
+import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
-import qualified Corvus.Model as M
+import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Node.Caps.Session.Utils
   ( SessionCap (..)
-  , agentQemuConfig
-  , captureStderrTail
-  , decodeQuiesceMode
-  , encodeDiskOpResult
-  , forwardPipeToLog
-  , monitorBufferCapacity
-  , parseFormat
-  , pollForExit
-  , requireRemovableDrive
-  , retryBlockdevDel
-  , scMonitorBuffers
-  , scOwner
   , scQgaConns
-  , scSerialBuffers
-  , scSup
-  , scTlsConfig
-  , scTransferTokens
   , scVmLedger
-  , scVmOpLocks
-  , serialBufferCapacity
-  , stderrTailCapacity
   , tshow
-  , vfsBinary
-  , waitForFirstQgaPing
   )
-import qualified Corvus.Node.CloudInit as NCI
-import qualified Corvus.Node.Command as NC
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
-import qualified Corvus.Node.Qmp as NQ
-import qualified Corvus.Node.Runtime as NR
-import qualified Corvus.Node.SnapshotLive as NSL
-import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
-import qualified Corvus.Node.Transfer as NTr
-import Corvus.Node.VmSpec (VmAgentState (..), VmGuestExecReq (..), VmSpec (..), VmStopKind (..))
 import qualified Corvus.Node.VmSpec as VS
-import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.Process as P
-import Corvus.Qemu.Config (QemuConfig (..))
-import Corvus.Rpc.Streams (callSink)
-import Corvus.Types (SocketBufferHandle (..))
-import qualified Data.ByteString as BS
-import Data.Either (lefts, rights)
-import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.Int (Int32, Int64)
-import Data.List (find)
-import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust, isNothing)
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import Data.Word (Word32)
-import GHC.Clock (getMonotonicTime)
-import Supervisors (Supervisor)
-import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, removeFile, removePathForcibly, renameFile)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory)
-import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Posix.Types (CPid (..))
 import System.Process
-  ( ProcessHandle
-  , StdStream (..)
-  , createProcess
-  , getPid
-  , getProcessExitCode
-  , proc
-  , std_err
-  , std_out
-  , waitForProcess
+  ( waitForProcess
   )
-import qualified System.Timeout
 
 import Corvus.Node.Caps.Session.Vm.Process (reapSpawnedHelpers)
 

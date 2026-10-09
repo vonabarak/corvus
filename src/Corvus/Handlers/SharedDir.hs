@@ -21,13 +21,12 @@ import Control.Monad.Logger (logDebugN, logInfoN)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Shared Directory Handlers

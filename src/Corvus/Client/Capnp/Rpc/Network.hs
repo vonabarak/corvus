@@ -32,14 +32,11 @@ import qualified Capnp.Gen.Network as CGNet
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import qualified Corvus.Protocol.Network as PN
 import Corvus.Wire.Common (EntityRef (..), entityRefFromText, toCapnpEntityRef)
-import Corvus.Wire.Enums (toCapnpNodeAdminState)
-import Corvus.Wire.Errors (WireError, showWireError)
 import qualified Corvus.Wire.Network as WNet
 import Data.Function ((&))
 import Data.Int (Int64)
 import qualified Data.Maybe
 import Data.Text (Text)
-import qualified Data.Text as T
 
 -- | Call a method on a cap and return its parsed results struct.
 callOn
@@ -56,10 +53,6 @@ callOn
 callOn method p client = do
   raw <- (client & C.callP method p) >>= C.waitPipeline
   C.evalLimitT C.defaultLimit (C.parse raw)
-
-failOnWire :: Either WireError a -> IO a
-failOnWire (Right a) = pure a
-failOnWire (Left e) = fail ("wire decode error: " <> show (showWireError e))
 
 -- ---------------------------------------------------------------------
 -- Network read methods

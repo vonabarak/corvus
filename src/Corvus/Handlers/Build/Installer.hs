@@ -21,14 +21,13 @@ import Corvus.Handlers.Build.Artifact (publishArtifact)
 import Corvus.Model
 import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
 import Corvus.Protocol.Build (BuildEvent (BuildLogLine), BuildSink (..))
-import Corvus.Schema.Build (BootKey (..), Build (..), BuildTarget (..), btFormat, buildBootKeys, buildName, buildWaitForShutdownSec)
+import Corvus.Schema.Build (BootKey (..), Build, buildBootKeys, buildWaitForShutdownSec)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime)
 import Database.Persist (get)
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 -- | The installer strategy's middle: dispatch boot keys, wait for the
 -- guest to power itself off, then publish the artifact. No QGA, no
@@ -40,11 +39,10 @@ runInstallerPhase
   -> BuildSink
   -> Int64
   -> Int64
-  -> BuildTarget
   -> Bool
   -> Build
   -> LoggingT IO (Either Text Int64)
-runInstallerPhase state parentTaskId sink vmId artifactDiskId target needFlatten b = do
+runInstallerPhase state parentTaskId sink vmId artifactDiskId needFlatten b = do
   logInfoN $ "installer: bake VM " <> T.pack (show vmId) <> " started"
   liftIO $ sink (BuildLogLine "installer: bake VM started")
   -- Fire boot-time keystrokes (e.g. dismiss UEFI's "Press any key").

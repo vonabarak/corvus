@@ -4,7 +4,7 @@ module Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..), matchesDiskImport) wher
 
 import Control.Applicative ((<|>))
 import Corvus.Action
-import Corvus.Handlers.Apply.Resolve (resolveByName, resolveDiskName)
+import Corvus.Handlers.Apply.Resolve (resolveDiskName)
 import Corvus.Handlers.Apply.Validation (checksumSpecToImport)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
@@ -19,7 +19,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Database.Persist.Sql (runSqlPool, toSqlKey)
+import Database.Persist.Sql (runSqlPool)
 
 data ApplyDiskCreate = ApplyDiskCreate {adcConfig :: ApplyDisk, adcDiskMap :: Map.Map Text Int64}
 instance Action ApplyDiskCreate where

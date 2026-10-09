@@ -34,7 +34,7 @@ import qualified Corvus.Protocol as P
 import Corvus.Rpc.Error (resolveErrorWire, responseError)
 import Corvus.Wire.Common (EntityRef (..), fromCapnpEntityRef)
 import Corvus.Wire.Error (ErrorCode (..), WireErrorInfo (..), renderWireError)
-import Corvus.Wire.Errors (WireError, showWireError)
+import Corvus.Wire.Errors (showWireError)
 import Data.Text (Text)
 import qualified Data.Text as T
 

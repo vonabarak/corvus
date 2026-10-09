@@ -23,7 +23,7 @@ import Data.List (isPrefixOf, isSuffixOf)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), get, getBy)
+import Database.Persist (get, getBy)
 import Database.Persist.Sql (SqlBackend, runSqlPool)
 import System.FilePath (isRelative, (</>))
 

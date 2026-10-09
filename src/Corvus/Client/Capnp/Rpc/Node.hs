@@ -27,12 +27,12 @@ import qualified Capnp.Gen.Node as CGNode
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model (NodeAdminState (..))
 import qualified Corvus.Protocol.Node as PNode
-import Corvus.Wire.Common (EntityRef, entityRefFromText, toCapnpEntityRef)
+import Corvus.Wire.Common (EntityRef, toCapnpEntityRef)
 import Corvus.Wire.Enums (toCapnpNodeAdminState)
 import Corvus.Wire.Errors (WireError, showWireError)
 import qualified Corvus.Wire.Node as WNode
 import Data.Function ((&))
-import Data.Int (Int32, Int64)
+import Data.Int (Int64)
 import qualified Data.Maybe
 import Data.Text (Text)
 

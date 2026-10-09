@@ -190,10 +190,7 @@ resolveCertDir (CertSearchPath dirs) needed = go dirs
 -- loop that produced it; sockets get their own throwaway
 -- 'TLS.Context'.
 data TlsConfig = TlsConfig
-  { tcOwnRole :: !TlsRole
-  -- ^ Which slot the local component is filling (the CN prefix
-  -- of the cert we present to the peer).
-  , tcOwnCN :: !T.Text
+  { tcOwnCN :: !T.Text
   -- ^ Full CN read out of the loaded cert. Kept for log lines
   -- and for the unit tests; not consulted on every accept.
   , tcCertDir :: !FilePath
@@ -281,8 +278,7 @@ loadTlsConfig sp ownRole peerRole mPeerName = do
                       pure
                         ( Right
                             TlsConfig
-                              { tcOwnRole = ownRole
-                              , tcOwnCN = cn
+                              { tcOwnCN = cn
                               , tcCertDir = dir
                               , tcCredentials = TLS.Credentials [cred]
                               , tcCAStore = store

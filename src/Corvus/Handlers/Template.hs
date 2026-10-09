@@ -60,7 +60,7 @@ import qualified Data.Text.Encoding as T
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Yaml (decodeEither')
 import Database.Persist
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Handlers
@@ -598,7 +598,6 @@ finishInstantiation ctx vmId newVmName details = runServerLogging (acState ctx) 
 instantiateDriveIO :: ActionContext -> VmId -> Text -> TemplateDriveInfo -> IO (Either Text ())
 instantiateDriveIO ctx vmId vmName td = do
   let state = acState ctx
-      parentTaskId = acTaskId ctx
       vmIdLong = fromSqlKey vmId
       nameSuffix = fromMaybe (maybe "disk" nrName (tvdiDiskImage td)) (tvdiDiskName td)
       imagePrefix = if T.null vmName || not (isDigit (T.head vmName)) then vmName else "vm-" <> vmName

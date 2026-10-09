@@ -11,44 +11,32 @@ where
 import Corvus.Action
 import Corvus.Images
 
-import Control.Exception (SomeException, try)
-import Control.Monad (forM, forM_)
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
+import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
-  , createImageViaAgent
   , createOverlayViaAgent
-  , deleteImageViaAgent
-  , getImageInfoViaAgent
   , getImageSizeViaAgent
   , resizeImageViaAgent
   )
-import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
-import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow, diskImageNodeFilePathFor, getAttachedVms, getBackingChainIds, getDiskImageInfo, getOverlayIds, getReadWriteAttachedVms, getRunningAttachedVms, hasPlacementOnNode, listDiskImageNodes, listDiskImages, recordDiskImageNode)
-import Corvus.Handlers.Disk.Import (DiskImportAction (..), handleDiskImportCopy)
-import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
-import Corvus.Handlers.Disk.Rebase (DiskRebase (..), handleDiskRebase)
-import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotCreate, handleSnapshotDelete, handleSnapshotList, handleSnapshotMerge, handleSnapshotRollback)
-import Corvus.Handlers.Disk.Transfer (stageBackingChain, transferImageBetweenNodes)
-import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
-import Corvus.Handlers.Scheduler (pickNodeForDisk, pickNodeForExistingDisk)
+import Corvus.Handlers.Disk.Db (getRunningAttachedVms, recordDiskImageNode)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskPath, sanitizeDiskName)
+import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Model
 import qualified Corvus.Model as M
-import Corvus.Node.Image (ImageInfo (..), ImageResult (..), detectFormatFromPath)
+import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
-import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
-import Data.List (isPrefixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (runSqlPool)
-import System.FilePath (takeExtension, takeFileName, (</>))
+import System.FilePath (takeExtension, takeFileName)
 
-import Corvus.Handlers.Disk.Placement (nodeBasePathFor, withSelectedDiskNode)
+import Corvus.Handlers.Disk.Placement (nodeBasePathFor)
 
 -- | Create a qcow2 overlay backed by an existing disk image
 handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int64 -> Maybe T.Text -> Bool -> IO Response

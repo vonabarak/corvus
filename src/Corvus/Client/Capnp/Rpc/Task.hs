@@ -1,10 +1,8 @@
 {-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Task-related RPC wrappers extracted from "Corvus.Client.Capnp.Rpc".
 module Corvus.Client.Capnp.Rpc.Task
@@ -14,38 +12,24 @@ module Corvus.Client.Capnp.Rpc.Task
   , rpcTaskCancel
   , rpcTaskListChildren
 
-    -- * Task progress subscription
-  , rpcTaskSubscribe
-  , TaskProgressEvent (..)
-
     -- * Helpers
   , emptyCapnpEntityRef
   )
 where
 
-import Capnp (export)
 import qualified Capnp as C
 import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Corvus as CGCorvus
-import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
-import Capnp.Rpc.Server (SomeServer, handleParsed)
-import qualified Capnp.Rpc.Untyped (nullClient)
-import Control.Exception (SomeException, try)
-import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model (TaskResult, TaskSubsystem)
 import qualified Corvus.Protocol.Task as PT
-import Corvus.Wire.Common (EntityRef, toCapnpEntityRef)
 import Corvus.Wire.Enums (toCapnpTaskResult, toCapnpTaskSubsystem)
 import Corvus.Wire.Errors (WireError, showWireError)
 import qualified Corvus.Wire.Task as WTask
 import Data.Function ((&))
 import Data.Int (Int64)
 import Data.Maybe (isJust)
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Word (Word32)
 
 -- | Call a method on a cap and return its parsed results struct.
 callOn
@@ -114,60 +98,6 @@ rpcTaskListChildren conn parentId = do
   CGTask.TaskManager'listChildren'results {CGTask.tasks = ts} <-
     callOn #listChildren CGTask.TaskManager'listChildren'params {CGTask.parentId = parentId} mgr
   traverse (failOnWire . WTask.fromCapnpTaskInfo) ts
-
--- ---------------------------------------------------------------------
--- Task progress subscription (Phase 6e)
--- ---------------------------------------------------------------------
-
-data TaskProgressEvent
-  = TpeStarted !Int64 !Text !Text
-  | TpeProgress !Int64 !Int64 !Int64 !Text
-  | TpeFinished !Int64 !Text !Text
-  | TpeUnknown !Int64
-  deriving (Eq, Show)
-
-newtype ClientTaskProgressSink = ClientTaskProgressSink
-  { ctpsOnEvent :: TaskProgressEvent -> IO ()
-  }
-
-instance SomeServer ClientTaskProgressSink
-
-instance CGS.TaskProgressSink'server_ ClientTaskProgressSink where
-  taskProgressSink'push (ClientTaskProgressSink onEv) =
-    handleParsed $ \CGS.TaskProgressSink'push'params {CGS.event = e} -> do
-      let CGS.TaskProgressEvent {CGS.taskId = tid, CGS.union' = u} = e
-          decoded = case u of
-            CGS.TaskProgressEvent'started
-              CGS.TaskProgressEvent'started' {CGS.command = c, CGS.subsystem = ss} ->
-                TpeStarted tid c (T.pack (show ss))
-            CGS.TaskProgressEvent'progress
-              CGS.TaskProgressEvent'progress' {CGS.completed = co, CGS.total = to, CGS.label = lbl} ->
-                TpeProgress tid co to lbl
-            CGS.TaskProgressEvent'finished
-              CGS.TaskProgressEvent'finished' {CGS.result = r, CGS.message = m} ->
-                TpeFinished tid (T.pack (show r)) m
-            CGS.TaskProgressEvent'unknown' _ -> TpeUnknown tid
-      _ <- try (onEv decoded) :: IO (Either SomeException ())
-      pure CGS.TaskProgressSink'push'results
-
-rpcTaskSubscribe
-  :: CapnpConnection
-  -> Int64
-  -> (TaskProgressEvent -> IO ())
-  -> IO (C.Client CGS.Handle)
-rpcTaskSubscribe conn tid onEvent = do
-  CGCorvus.Daemon'tasks'results {CGCorvus.mgr = mgr} <-
-    callOn #tasks CGCorvus.Daemon'tasks'params (ccDaemon conn)
-  sinkClient <-
-    export @CGS.TaskProgressSink
-      (ccSupervisor conn)
-      (ClientTaskProgressSink onEvent)
-  CGTask.TaskManager'subscribe'results {CGTask.handle} <-
-    callOn
-      #subscribe
-      CGTask.TaskManager'subscribe'params {CGTask.taskId = tid, CGTask.sink = sinkClient}
-      mgr
-  pure handle
 
 -- ---------------------------------------------------------------------
 -- Helpers

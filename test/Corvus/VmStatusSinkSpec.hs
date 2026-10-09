@@ -24,17 +24,14 @@ module Corvus.VmStatusSinkSpec (spec) where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
-import Control.Monad.IO.Class (liftIO)
 import Corvus.Handlers.VmStatusSink (applyNodeStats)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.NodeStats as NS
 import Corvus.Types (ServerState)
-import Data.Int (Int64)
 import qualified Data.Text as T
 import Database.Persist (get, update, (=.))
 import Database.Persist.Sql (toSqlKey)
-import Test.DSL.Core (TestM, getDbPool, getTempDir, runDb)
-import Test.DSL.When (createTestServerState)
+import Test.DSL.Core (getDbPool, getTempDir, runDb)
 import Test.Prelude
 
 -- | Minimal 'NodeStats' carrying only an 'agentVersion'. Every

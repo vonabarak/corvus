@@ -23,7 +23,7 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (emitError, emitOkWith, emitRpcError)
 import Corvus.Client.Types (BuildClientOptions (..), OutputFormat, WaitOptions (..))
-import Corvus.Model (EnumText (..), TaskResult (..))
+import Corvus.Model (EnumText (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
 import Corvus.Protocol.Disk (parseUploadIfExists)
 import Corvus.Wire.Common (entityRefFromText)
@@ -83,10 +83,10 @@ handleBuild fmt conn path bcOpts waitOpts = do
                   pure False
                 Right daemonOnly -> do
                   let yaml = TE.decodeUtf8 (Yaml.encode daemonOnly)
-                  runBuild fmt conn yaml bcOpts (woWait waitOpts)
+                  runBuild fmt conn yaml (woWait waitOpts)
 
-runBuild :: OutputFormat -> CapnpConnection -> T.Text -> BuildClientOptions -> Bool -> IO Bool
-runBuild fmt conn yaml bcOpts wait = do
+runBuild :: OutputFormat -> CapnpConnection -> T.Text -> Bool -> IO Bool
+runBuild fmt conn yaml wait = do
   done <- newEmptyMVar :: IO (MVar ())
   -- Aggregate state surfaced after the stream ends: did any
   -- top-level step fail, and the final per-build summary.
