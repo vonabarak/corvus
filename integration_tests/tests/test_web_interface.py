@@ -31,15 +31,10 @@ What's covered:
   connect — a sentinel written via QGA to ``/dev/ttyS0`` shows up
   in the first WS frames.
 
+Daemon outage and recovery coverage lives in :mod:`test_web_reconnect`.
+
 What's NOT covered here:
 
-* Daemon-unreachable graceful degradation (the plan called for a
-  502 assertion). Implementing it cleanly requires killing the
-  VSOCK relay mid-test, which would prevent other class tests from
-  running on the same fixture — and the systemd-managed inner
-  daemon itself can't be cleanly torn down from a test method.
-  Future follow-up: a dedicated single-test class that ends with
-  the relay down.
 * The full SPICE WS bridge under spice-html5 — the test exercises
   the REST grant (the cheap, deterministic half) and a one-shot
   WebSocket open against the bridge. A real-protocol handshake

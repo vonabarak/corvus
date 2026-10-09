@@ -18,6 +18,7 @@ from corvus_client.exceptions import (
     BalloonDeviceNotEnabled,
     BalloonDriverNotReady,
     BalloonError,
+    ConnectError,
     CorvusError,
     DiskHasOverlays,
     DiskInUse,
@@ -214,3 +215,13 @@ def test_translate_unknown_message_degrades_to_server_error() -> None:
     out = translate_kj_exception(_fake_kj(f"{ENVELOPE}something weird"))
     assert isinstance(out, ServerError)
     assert str(out) == "something weird"
+
+
+def test_disconnected_type_is_a_connection_error() -> None:
+    # The classification must work independently of the transport's wording.
+    exc = capnp.KjException(
+        "opaque transport failure", type=capnp.KjException.Type.DISCONNECTED
+    )
+    out = translate_kj_exception(exc)
+    assert isinstance(out, ConnectError)
+    assert str(out) == "opaque transport failure"

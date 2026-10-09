@@ -1,7 +1,6 @@
 """Shared FastAPI dependencies.
 
-The gateway holds exactly one ``AsyncClient`` per process — opened in
-the app lifespan, stashed on ``app.state``. Routes pull it through the
+The gateway owns one replaceable daemon session. Routes pull its client through the
 :func:`get_client` dependency so unit tests can override it with a
 fake client via the standard FastAPI ``dependency_overrides`` mechanism.
 """
@@ -15,17 +14,11 @@ from fastapi import Request
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
 
+    from .connection import DaemonConnection
+
 
 def get_client(request: Request) -> AsyncClient:
     """Return the live AsyncClient for the current request.
 
-    The lifespan in :func:`corvus_web.app.create_app` is responsible
-    for opening it; if it's missing here the app was constructed
-    without going through the factory."""
-    client = getattr(request.app.state, "client", None)
-    if client is None:
-        raise RuntimeError(
-            "corvus-web: AsyncClient not on app.state — "
-            "the lifespan did not initialise correctly"
-        )
-    return cast("AsyncClient", client)
+    A daemon outage raises ConnectError, mapped to HTTP 502 by the app."""
+    return cast("DaemonConnection", request.app.state.connection).get_session().client

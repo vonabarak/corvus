@@ -280,6 +280,8 @@ def translate_kj_exception(exc: capnp.KjException) -> CorvusError:
     """Map a `capnp.KjException` to a typed Python exception."""
     description = getattr(exc, "description", None) or str(exc)
     body = _bare_message(description)
+    if exc.type == capnp.KjException.Type.DISCONNECTED:
+        return ConnectError(body, details=description)
     split = _split_wire_error(body)
     if split is not None:
         code, message = split

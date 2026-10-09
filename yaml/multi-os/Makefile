@@ -39,7 +39,7 @@ publish:
 	  echo "ERROR: failed to resolve Alpine filename" >&2; exit 1; \
 	fi; \
 	alpine_url="$(ALPINE_BASE)/$$alpine_file"; \
-	alpine_sha512=$$("$(CURL)" -fsS "$$alpine_url.sha512" | awk -v f="$$alpine_file" '($$2 == f || $$2 == "*" f) {print $$1; exit}'); \
+	alpine_sha512=$$("$(CURL)" -fsS "$$alpine_url.sha512"); \
 	for pair in \
 	  "debian_sha512:128:$$debian_sha512" \
 	  "ubuntu_sha256:64:$$ubuntu_sha256" \

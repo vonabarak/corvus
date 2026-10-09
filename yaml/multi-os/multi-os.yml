@@ -54,7 +54,6 @@ _ovmf_vars_drive: &ovmf_vars
 
 pipeline:
   - apply:
-      ifExists: skip
       disks:
         - name: debian-12-generic-base
           ifExists: "{{ image_if_exists }}"
@@ -144,6 +143,7 @@ pipeline:
               strategy: overlay
               cacheType: writeback
               discard: true
+              size: 20G
             - *ovmf_code
             - *ovmf_vars
           networkInterfaces:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError, TemplateNotFound
+from corvus_client.exceptions import ConnectError, CorvusError, TemplateNotFound
 from corvus_client.sizes import format_size
 from corvus_client.types import (
     CloudInitInfo,
@@ -176,6 +176,8 @@ async def create_template(body: TemplateYamlBody, client: ClientDep) -> JsonObje
     page."""
     try:
         tmpl = await client.templates.create(body.yaml)
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_dict(await tmpl.show())
@@ -194,6 +196,8 @@ async def update_template(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         await tmpl.update(body.yaml)
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # Fetch the post-update details so the frontend can refresh.

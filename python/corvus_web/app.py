@@ -1,8 +1,7 @@
 """FastAPI app factory + lifespan.
 
-The lifespan opens the pycapnp kj loop and a long-lived
-``AsyncClient`` connection to the daemon, stashes the client on
-``app.state``, and tears down in reverse on shutdown. All routes
+The lifespan opens the pycapnp kj loop and supervises replaceable
+``AsyncClient`` connections to the daemon. All routes
 reach the client via the :func:`corvus_web.deps.get_client`
 dependency.
 """
@@ -50,6 +49,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .config import CorvusWebConfig
+from .connection import DaemonConnection
 from .routes import (
     apply,
     disks,
@@ -139,9 +139,8 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
         # ``capnp.kj_loop()`` must wrap every Cap'n Proto call on this
         # thread. uvicorn already gives us a running asyncio loop; we
         # only need to enter the kj integration once here and tear it
-        # down after the AsyncClient is closed. AsyncExitStack keeps
-        # the unwind order correct even if AsyncClient.__aenter__ fails
-        # part-way through.
+        # down after the connection supervisor is stopped. AsyncExitStack
+        # keeps the unwind order correct when startup or shutdown fails.
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(capnp.kj_loop())
             client_kwargs: dict[str, object] = {}
@@ -157,9 +156,11 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
                     client_kwargs["tls"] = config.daemon_tls
                 if config.daemon_cert_dir is not None:
                     client_kwargs["cert_dir"] = config.daemon_cert_dir
-            client = await stack.enter_async_context(AsyncClient(**client_kwargs))  # type: ignore[arg-type]
-            app.state.client = client
+            connection = DaemonConnection(lambda: AsyncClient(**client_kwargs))  # type: ignore[arg-type]
+            app.state.connection = connection
             app.state.config = config
+            connection.start()
+            stack.push_async_callback(connection.close)
             # Background task polling the daemon's per-VM stats
             # cache; populates the in-memory map the /metrics
             # exposition endpoint walks on every scrape.

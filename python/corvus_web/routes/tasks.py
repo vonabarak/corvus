@@ -19,7 +19,7 @@ from contextlib import suppress
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError, TaskNotFound
+from corvus_client.exceptions import ConnectError, CorvusError, TaskNotFound
 from corvus_client.types import (
     TaskProgressEvent,
     TaskProgressFinished,
@@ -37,6 +37,7 @@ from fastapi import (
 
 from ..deps import get_client
 from ..lib import JsonObject, to_dict
+from ..websocket import run_daemon_websocket
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -106,6 +107,12 @@ def _task_progress_event_to_dict(event: TaskProgressEvent) -> JsonObject:
 
 @router.websocket("/{task_id}/ws")
 async def task_progress_ws(ws: WebSocket, task_id: int) -> None:
+    await run_daemon_websocket(
+        ws, lambda client: _task_progress_ws(ws, task_id, client)
+    )
+
+
+async def _task_progress_ws(ws: WebSocket, task_id: int, client: AsyncClient) -> None:
     """Subscribe to a task's progress stream and forward each event as
     a JSON frame.
 
@@ -114,11 +121,8 @@ async def task_progress_ws(ws: WebSocket, task_id: int) -> None:
     daemon closes the subscription handle; we drain any pending events
     and close the WebSocket with a normal 1000.
 
-    Dependency injection: pulls the client off ``ws.app.state`` for
-    the same reason ``serial_console_ws`` does (avoids a parallel
-    Annotated dep for WS endpoints)."""
-    client = ws.app.state.client
-    await ws.accept()
+    The shared wrapper owns the daemon session and WebSocket lifetime.
+    """
 
     queue: asyncio.Queue[TaskProgressEvent] = asyncio.Queue()
 
@@ -130,6 +134,8 @@ async def task_progress_ws(ws: WebSocket, task_id: int) -> None:
     except TaskNotFound as exc:
         await ws.close(code=1008, reason=str(exc))
         return
+    except ConnectError:
+        raise
     except CorvusError as exc:
         logger.warning("task progress WS: subscribe failed for %d: %s", task_id, exc)
         await ws.close(code=1011, reason=str(exc))
@@ -169,15 +175,14 @@ async def task_progress_ws(ws: WebSocket, task_id: int) -> None:
         asyncio.create_task(watch_disconnect(), name=f"task-progress-watch-{task_id}"),
     ]
     try:
-        _, pending = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
-            t.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await t
+        done, _ = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
     finally:
+        for task in tasks_:
+            task.cancel()
+        await asyncio.gather(*tasks_, return_exceptions=True)
         # Dropping the subscription handle tells the daemon to stop
         # pushing — its subscriber list gets pruned on the next event.
         with suppress(Exception):
             await subscription.close()
-        with suppress(Exception):
-            await ws.close()

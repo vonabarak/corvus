@@ -76,8 +76,9 @@ class WebGateway:
 
     The gateway picks a free loopback port, dials the daemon over the
     same TCP relay + mTLS cert dir the pycapnp client uses, and
-    blocks ``__enter__`` until the HTTP listener is accepting
-    connections. ``__exit__`` terminates the subprocess (SIGTERM,
+    blocks ``__enter__`` until the HTTP listener and daemon session are ready.
+    Set ``wait_for_daemon=False`` to test startup during a daemon outage.
+    ``__exit__`` terminates the subprocess (SIGTERM,
     then SIGKILL after 3 s).
     """
 
@@ -88,11 +89,13 @@ class WebGateway:
         bind_host: str = "127.0.0.1",
         bind_port: int | None = None,
         log_level: str = "warning",
+        wait_for_daemon: bool = True,
     ) -> None:
         self.node = node
         self._bind_host = bind_host
         self._bind_port = bind_port if bind_port is not None else _find_free_tcp_port()
         self._log_level = log_level
+        self._wait_for_daemon_on_start = wait_for_daemon
         self._proc: subprocess.Popen[bytes] | None = None
         # corvus-web's stdout + stderr go to this file. We read it
         # back on failure so the diagnostic surfaces in the pytest
@@ -115,6 +118,13 @@ class WebGateway:
     @property
     def port(self) -> int:
         return self._bind_port
+
+    @property
+    def pid(self) -> int:
+        """PID of the running gateway, for assertions across daemon restarts."""
+        if self._proc is None or self._proc.poll() is not None:
+            raise RuntimeError("Web gateway is not running")
+        return self._proc.pid
 
     def get(self, path: str, *, timeout_sec: float = 5.0) -> str:
         """GET ``base_url + path``, return the response body as text.
@@ -139,18 +149,21 @@ class WebGateway:
     def wait_for_metrics_warmup(self, *, timeout_sec: float = 30.0) -> None:
         """Block until ``GET /metrics`` returns 200 (not 503).
 
-        ``corvus-web`` returns 503 while the background metrics
-        poller hasn't completed its first cycle (see
-        ``python/corvus_web/routes/metrics.py:190-195``); under the
-        10-second poll cadence the first sample lands within one
-        interval. The default 30-second budget covers a slow daemon
-        cold-start without flaking on fast hardware.
+        This confirms a successful metrics poll, even for an empty cluster.
+        Tests that need VM samples must also wait for their actual data lines.
         """
+        self._wait_for_endpoint("/metrics", timeout_sec=timeout_sec)
+
+    def wait_for_daemon(self, *, timeout_sec: float = 30.0) -> None:
+        """Block until a REST request can reach the daemon over the new session."""
+        self._wait_for_endpoint("/api/ping", timeout_sec=timeout_sec)
+
+    def _wait_for_endpoint(self, path: str, *, timeout_sec: float) -> None:
         deadline = time.monotonic() + timeout_sec
         last_err: str | None = None
         while time.monotonic() < deadline:
             try:
-                with self.get_response("/metrics", timeout_sec=2.0) as resp:
+                with self.get_response(path, timeout_sec=2.0) as resp:
                     if resp.status == 200:
                         return
                     last_err = f"HTTP {resp.status}"
@@ -164,7 +177,7 @@ class WebGateway:
                 last_err = str(e)
             time.sleep(0.5)
         raise AssertionError(
-            f"corvus-web /metrics never returned 200 within {timeout_sec}s; "
+            f"corvus-web {path} never returned 200 within {timeout_sec}s; "
             f"last error: {last_err}; "
             f"corvus-web log tail:\n{self.log_tail()}"
         )
@@ -237,6 +250,8 @@ class WebGateway:
         )
         try:
             self._wait_for_listener(timeout_sec=20.0)
+            if self._wait_for_daemon_on_start:
+                self.wait_for_daemon()
         except BaseException:
             self.__exit__(None, None, None)
             raise

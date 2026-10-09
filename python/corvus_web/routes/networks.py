@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError, NetworkNotFound
+from corvus_client.exceptions import ConnectError, CorvusError, NetworkNotFound
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -78,6 +78,8 @@ async def create_network(body: NetworkCreateBody, client: ClientDep) -> JsonObje
             nat=body.nat,
             autostart=body.autostart,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_dict(await net.show())

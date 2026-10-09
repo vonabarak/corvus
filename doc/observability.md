@@ -35,6 +35,28 @@ The scrape cadence is the operator's call. The agent samples every
 10 seconds and the cached values change at most that fast, so a 15s
 or 30s Prometheus scrape interval is a sensible default.
 
+## Daemon outages and scrape availability
+
+The gateway stays running when the daemon is unavailable, including at
+startup. It reconnects automatically after connection loss, using fresh RPC
+capabilities for each session. A successful reconnection triggers an immediate
+metrics refresh; normal polling then continues every ten seconds.
+
+`/metrics` returns HTTP 503 until its first successful refresh. During an
+outage it serves cached samples for up to 60 seconds after the last successful
+refresh, excluding individual samples older than 60 seconds. After that grace
+period it returns HTTP 503 with a comment explaining that the cache is stale.
+A failed or interrupted poll never advances the successful-refresh timestamp.
+A healthy cluster with no VM samples still returns HTTP 200.
+
+Prometheus records a failed scrape when `/metrics` returns 503, so check
+`up{job="corvus"}` (or the job name in your scrape configuration) when Grafana
+shows no data. Check the gateway logs for connection failures and recovery,
+and `/api/status` for HTTP 502 while the daemon is unreachable. Once the daemon
+returns, REST requests and metrics recover without restarting the gateway or
+rebuilding the monitoring image. Resource freshness uses a monotonic clock,
+so changes to the host's wall clock do not extend the cache grace period.
+
 ## Metric reference
 
 All metric names are prefixed with `corvus_`. Counters end in

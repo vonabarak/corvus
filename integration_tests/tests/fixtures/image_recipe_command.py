@@ -12,7 +12,7 @@ FILENAME = "gentoo-cloud-20261008.qcow2"
 SHA256 = "a" * 64
 
 
-# Each manifest includes an unrelated entry to catch accidental first-row use.
+# Multi-file manifests include an unrelated entry to catch accidental first-row use.
 SHA512 = "a" * 128
 ALPINE_FILE = "nocloud_alpine-3.21.6-x86_64-bios-cloudinit-r0.qcow2"
 
@@ -49,7 +49,8 @@ def download_response(url: str) -> tuple[str, str]:
             f'<a href="{older}">{older}</a>\n<a href="{ALPINE_FILE}">{ALPINE_FILE}</a>',
         )
     if url.endswith(".sha512"):
-        return "alpine", f"{'b' * 128} unrelated.qcow2\n{SHA512} {ALPINE_FILE}"
+        # Alpine's per-image sidecar contains only the digest, without a filename.
+        return "alpine", SHA512
     raise ValueError(f"Unexpected download: {url}")
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError
+from corvus_client.exceptions import ConnectError, CorvusError
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -52,6 +52,8 @@ async def run_apply(body: ApplyBody, client: ClientDep) -> JsonObject:
         result, task_id = await client.apply(
             body.yaml, skip_existing=body.skip_existing, wait=True
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"result": to_dict(result), "task_id": task_id}

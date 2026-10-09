@@ -42,7 +42,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError, VmNotFound
+from corvus_client.exceptions import ConnectError, CorvusError, VmNotFound
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 from ..deps import get_client
@@ -129,6 +129,8 @@ async def create_spice_session(vm_id: int, client: ClientDep) -> dict[str, objec
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         grant = await vm.view_grant()
+    except ConnectError:
+        raise
     except CorvusError as exc:
         # Most common cause: VM not running, or headless VM with no
         # SPICE device. Daemon's message is already user-friendly.

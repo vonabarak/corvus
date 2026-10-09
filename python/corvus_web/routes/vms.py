@@ -13,13 +13,14 @@ import logging
 from contextlib import suppress
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError, VmNotFound
+from corvus_client.exceptions import ConnectError, CorvusError, VmNotFound
 from corvus_client.types import GuestAgentStatus, VmStats
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
 from ..lib import JsonObject, to_dict
+from ..websocket import run_daemon_websocket
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -61,6 +62,8 @@ async def add_audio_device(
         }
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -77,6 +80,8 @@ async def edit_audio_device(
         return {"status": "updated"}
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -91,6 +96,8 @@ async def remove_audio_device(
         return {"status": "removed"}
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -169,6 +176,8 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
             rng=body.rng,
             audio_devices=body.audio_devices,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         # Most likely a name collision or unknown node — surface as 400
         # so the form can re-render with the daemon's message.
@@ -346,6 +355,8 @@ async def attach_drive(
             cache_type=body.cache_type,
             discard=body.discard,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"drive_id": drive_id}
@@ -359,6 +370,8 @@ async def detach_drive(vm_id: int, drive_id: int, client: ClientDep) -> dict[str
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         await vm.detach_disk(drive_id)
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "detached"}
@@ -418,6 +431,8 @@ async def add_net_if(
             network_ref=_coerce_ref(body.network_ref) if body.network_ref else None,
             model=body.model,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"net_if_id": net_if_id}
@@ -432,6 +447,8 @@ async def edit_net_if(
         await vm.edit_net_if(net_if_id, body.model)
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "updated"}
@@ -447,6 +464,8 @@ async def remove_net_if(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         await vm.remove_net_if(net_if_id)
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "removed"}
@@ -481,6 +500,8 @@ async def attach_ssh_key(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         await vm.attach_ssh_key(_coerce_ref(body.key_ref))
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "attached"}
@@ -497,6 +518,8 @@ async def detach_ssh_key(vm_id: int, key_ref: str, client: ClientDep) -> dict[st
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         await vm.detach_ssh_key(_coerce_ref(key_ref))
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "detached"}
@@ -507,6 +530,10 @@ async def detach_ssh_key(vm_id: int, key_ref: str, client: ClientDep) -> dict[st
 
 @router.websocket("/{vm_id}/serial/ws")
 async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
+    await run_daemon_websocket(ws, lambda client: _serial_console_ws(ws, vm_id, client))
+
+
+async def _serial_console_ws(ws: WebSocket, vm_id: int, client: AsyncClient) -> None:
     """Bidirectional serial console over WebSocket.
 
     Wire shape:
@@ -525,20 +552,16 @@ async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
     ``finally`` so the daemon's ring-buffer subscriber count is
     correctly decremented even on abrupt client disconnects.
 
-    Dependency injection: we read the client off ``ws.app.state``
-    directly. The ``ClientDep`` shape is HTTP-Request-shaped; WS
-    endpoints would need a parallel dep that takes ``WebSocket``,
-    which is overkill for a single endpoint.
+    The shared wrapper owns the daemon session and WebSocket lifetime.
     """
-    client = ws.app.state.client
-
-    await ws.accept()
 
     try:
         vm = await client.vms.get(vm_id)
     except VmNotFound:
         await ws.close(code=1008, reason="VM not found")
         return
+    except ConnectError:
+        raise
     except CorvusError as exc:
         logger.warning("serial WS: vm lookup failed: %s", exc)
         await ws.close(code=1011, reason=str(exc))
@@ -546,6 +569,8 @@ async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
 
     try:
         stream = await vm.serial_console()
+    except ConnectError:
+        raise
     except CorvusError as exc:
         logger.warning("serial WS: open failed for vm %d: %s", vm_id, exc)
         # 1008 (policy violation) is the closest standard close code
@@ -586,16 +611,15 @@ async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
     try:
         # Whichever side finishes first (EOF from daemon, or client
         # disconnect) cancels the other so we don't leak a task.
-        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
-            t.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await t
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
     finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         with suppress(Exception):
             await stream.close()
-        with suppress(Exception):
-            await ws.close()
 
 
 # ---- guest-agent status WebSocket ----------------------------------------
@@ -603,6 +627,10 @@ async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
 
 @router.websocket("/{vm_id}/guest-agent/ws")
 async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
+    await run_daemon_websocket(ws, lambda client: _guest_agent_ws(ws, vm_id, client))
+
+
+async def _guest_agent_ws(ws: WebSocket, vm_id: int, client: AsyncClient) -> None:
     """Subscribe to per-VM guest-agent reachability events.
 
     The daemon's poller emits a ``GuestAgentStatus`` on every poll
@@ -614,8 +642,6 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
 
     Closing the WS drops the subscription handle, which prunes us
     from the daemon's subscriber list."""
-    client = ws.app.state.client
-    await ws.accept()
 
     try:
         vm = await client.vms.get(vm_id)
@@ -630,6 +656,8 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
 
     try:
         subscription = await vm.subscribe_guest_agent(on_event)
+    except ConnectError:
+        raise
     except CorvusError as exc:
         logger.warning("guest-agent WS: subscribe failed for vm %d: %s", vm_id, exc)
         await ws.close(code=1011, reason=str(exc))
@@ -657,16 +685,15 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
         asyncio.create_task(watch_disconnect(), name=f"guest-agent-watch-{vm_id}"),
     ]
     try:
-        _, pending = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
-            t.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await t
+        done, _ = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
     finally:
+        for task in tasks_:
+            task.cancel()
+        await asyncio.gather(*tasks_, return_exceptions=True)
         with suppress(Exception):
             await subscription.close()
-        with suppress(Exception):
-            await ws.close()
 
 
 # ---- VM resource stats: history + live WebSocket -------------------------
@@ -690,11 +717,13 @@ async def vm_stats_history(
 
 @router.websocket("/{vm_id}/stats/ws")
 async def vm_stats_ws(ws: WebSocket, vm_id: int) -> None:
+    await run_daemon_websocket(ws, lambda client: _vm_stats_ws(ws, vm_id, client))
+
+
+async def _vm_stats_ws(ws: WebSocket, vm_id: int, client: AsyncClient) -> None:
     """Live `VmStats` push (~10s cadence). Each frame is a JSON
     object mirroring the `VmStats` dataclass (snake_case fields,
     cumulative counters)."""
-    client = ws.app.state.client
-    await ws.accept()
 
     try:
         vm = await client.vms.get(vm_id)
@@ -709,6 +738,8 @@ async def vm_stats_ws(ws: WebSocket, vm_id: int) -> None:
 
     try:
         subscription = await vm.subscribe_stats(on_event)
+    except ConnectError:
+        raise
     except CorvusError as exc:
         logger.warning("vm-stats WS: subscribe failed for vm %d: %s", vm_id, exc)
         await ws.close(code=1011, reason=str(exc))
@@ -736,13 +767,12 @@ async def vm_stats_ws(ws: WebSocket, vm_id: int) -> None:
         asyncio.create_task(watch_disconnect(), name=f"vm-stats-watch-{vm_id}"),
     ]
     try:
-        _, pending = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
-            t.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await t
+        done, _ = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
     finally:
+        for task in tasks_:
+            task.cancel()
+        await asyncio.gather(*tasks_, return_exceptions=True)
         with suppress(Exception):
             await subscription.close()
-        with suppress(Exception):
-            await ws.close()

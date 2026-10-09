@@ -24,15 +24,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated
+from time import monotonic
+from typing import TYPE_CHECKING, cast
 
-from corvus_client.exceptions import CorvusError
+from corvus_client.exceptions import VmNotFound
 from corvus_client.types import VmStats
-from fastapi import APIRouter, Depends, FastAPI, Response
+from fastapi import APIRouter, FastAPI, Request, Response
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
@@ -41,25 +41,22 @@ from prometheus_client import (
     generate_latest,
 )
 
-from ..deps import get_client
-
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
+
+    from ..connection import DaemonConnection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 # How often the background task refreshes the cache. Matches the
 # agent's StatusPoller cadence so we don't sample faster than the
 # agent emits.
 POLL_INTERVAL_SECONDS = 10.0
 
-# Entries older than this are skipped on /metrics scrape. Two
-# missed cycles → the VM disappeared from the agent's snapshot or
-# corvus-web lost connectivity to the daemon. Prometheus's
-# `absent()` then surfaces the gap.
+# Samples older than this are excluded. When the entire poll has failed
+# for this long, /metrics returns 503 instead of a misleading empty 200.
 STALE_SECONDS = 60.0
 
 
@@ -86,55 +83,56 @@ class _CachedNode:
 
 
 class _MetricsCache:
-    """Per-process snapshot the /metrics handler reads from."""
+    """Per-application snapshot the /metrics handler reads from."""
 
     def __init__(self) -> None:
         self.vms: dict[int, _CachedSample] = {}
         self.nodes: dict[int, _CachedNode] = {}
-        # Set when at least one poll cycle completed — lets the
-        # endpoint return 503 during cold-start instead of an
-        # empty (and misleading) /metrics response.
-        self.warmed_up = False
+        self.last_successful_refresh: float | None = None
 
 
-# Module-level cache + task handle. The lifespan in app.py wires
-# `start_metrics_poller(app)` and stashes the task on app.state
-# for clean shutdown.
-_cache = _MetricsCache()
-
-
-def get_cache() -> _MetricsCache:
-    return _cache
+def get_cache(app: FastAPI) -> _MetricsCache:
+    return cast("_MetricsCache", app.state.metrics_cache)
 
 
 async def start_metrics_poller(app: FastAPI) -> asyncio.Task[None]:
-    """Spawn the background polling task. Returns the task so the
-    lifespan can cancel it on shutdown."""
+    """Poll independently of HTTP requests and wake promptly on reconnection."""
+    app.state.metrics_cache = _MetricsCache()
+    connection = cast("DaemonConnection", app.state.connection)
+    cache = get_cache(app)
 
     async def loop() -> None:
         while True:
-            try:
-                await _refresh_once(app.state.client)
-            except Exception as exc:  # broad: never let the poller die
-                logger.warning("metrics poller iteration failed: %s", exc)
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            connection.connected.clear()
+            session = connection.session
+            if session is not None:
+                try:
+                    snapshot = await _refresh_once(session.client)
+                    # A completed poll from an old session cannot make a new
+                    # connection appear healthy or overwrite its samples.
+                    if (
+                        connection.session is session
+                        and not session.disconnected.is_set()
+                    ):
+                        cache.nodes.update(snapshot.nodes)
+                        cache.vms.update(snapshot.vms)
+                        cache.last_successful_refresh = snapshot.last_successful_refresh
+                except Exception as exc:
+                    logger.warning("metrics poller iteration failed: %s", exc)
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    connection.connected.wait(), POLL_INTERVAL_SECONDS
+                )
 
     return asyncio.create_task(loop(), name="corvus-web-metrics-poller")
 
 
-async def _refresh_once(client: AsyncClient) -> None:
-    now = time.time()
-    # Refresh per-node observations first; if a node's agent has
-    # disconnected the daemon returns the most recent observation
-    # anyway, which is what Prometheus's `absent()` keys off after
-    # STALE_SECONDS.
-    try:
-        nodes = await client.nodes.list()
-    except CorvusError as exc:
-        logger.warning("metrics poller: nodes.list() failed: %s", exc)
-        nodes = []
+async def _refresh_once(client: AsyncClient) -> _MetricsCache:
+    """Stage a complete poll; exceptions leave the published cache untouched."""
+    snapshot = _MetricsCache()
+    nodes = await client.nodes.list()
     for n in nodes:
-        _cache.nodes[n.id] = _CachedNode(
+        snapshot.nodes[n.id] = _CachedNode(
             node_id=n.id,
             name=n.name,
             cpu_count=n.cpu_count,
@@ -143,62 +141,52 @@ async def _refresh_once(client: AsyncClient) -> None:
             storage_bytes_total=n.storage_bytes_total,
             storage_bytes_free=n.storage_bytes_free,
             load_avg1=n.load_avg1,
-            captured_at=now,
+            captured_at=0,
         )
 
-    try:
-        vms = await client.vms.list()
-    except CorvusError as exc:
-        logger.warning("metrics poller: vms.list() failed: %s", exc)
-        return
-
-    # Fetch each VM's latest sample. vm.show() reads from the
-    # daemon's in-memory cache (slice 3) — a quick TVar lookup, no
-    # DB hit per call.
+    vms = await client.vms.list()
     for v in vms:
         try:
             details = await (await client.vms.get(v.id)).show()
-        except CorvusError as exc:
-            logger.debug("metrics poller: vm %d show() failed: %s", v.id, exc)
+        except VmNotFound:
+            # Deletion between list and show is a normal enumeration race.
             continue
-        if details.stats is None:
+        if details.stats is None or details.stats.sampled_at_nanos == 0:
             continue
-        if details.stats.sampled_at_nanos == 0:
-            # Daemon has no real sample yet — skip rather than
-            # emit zero-valued metrics that would muddy rate().
-            continue
-        _cache.vms[v.id] = _CachedSample(
+        snapshot.vms[v.id] = _CachedSample(
             stats=details.stats,
             vm_id=v.id,
             vm_name=v.name,
             node_name=v.node.name,
-            captured_at=now,
+            captured_at=0,
         )
 
-    _cache.warmed_up = True
-
-
-# ---------------------------------------------------------------------------
-# /metrics endpoint
+    now = monotonic()
+    for node in snapshot.nodes.values():
+        node.captured_at = now
+    for sample in snapshot.vms.values():
+        sample.captured_at = now
+    snapshot.last_successful_refresh = now
+    return snapshot
 
 
 @router.get("/metrics", response_class=Response)
-async def metrics(
-    client: ClientDep,
-) -> Response:
-    """Render the Prometheus exposition format from the in-memory
-    cache. The dependency on ``get_client`` is unused at request
-    time but ensures the endpoint inherits the same auth posture
-    as the rest of the API surface."""
-    del client  # auth dependency only
-    if not _cache.warmed_up:
+async def metrics(request: Request) -> Response:
+    """Serve recent cached samples even during a brief daemon outage."""
+    cache = get_cache(request.app)
+    if cache.last_successful_refresh is None:
         return Response(
             "# metrics cache not yet warmed up\n",
             media_type=CONTENT_TYPE_LATEST,
             status_code=503,
         )
-    text = _emit(_cache)
-    return Response(text, media_type=CONTENT_TYPE_LATEST)
+    if monotonic() - cache.last_successful_refresh > STALE_SECONDS:
+        return Response(
+            "# metrics cache stale: no successful daemon refresh for 60 seconds\n",
+            media_type=CONTENT_TYPE_LATEST,
+            status_code=503,
+        )
+    return Response(_emit(cache), media_type=CONTENT_TYPE_LATEST)
 
 
 def _emit(cache: _MetricsCache) -> bytes:
@@ -305,7 +293,7 @@ def _emit(cache: _MetricsCache) -> bytes:
         registry=reg,
     )
 
-    now = time.time()
+    now = monotonic()
     for sample in _fresh_vms(cache, now):
         labels = (str(sample.vm_id), sample.vm_name, sample.node_name)
         vm_up.labels(*labels).set(1)

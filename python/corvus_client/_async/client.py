@@ -119,9 +119,9 @@ class AsyncClient:
             stream = await capnp.AsyncIoStream.create_connection(
                 self._host, self._port, **kwargs
             )
-            if self._tls_enabled:
-                self._validate_peer_cn(stream)
         self._stream = stream
+        if self._tls_enabled:
+            self._validate_peer_cn(stream)
         self._twoparty = capnp.TwoPartyClient(stream)
         self._daemon = self._twoparty.bootstrap().cast_as(_schema.corvus.Daemon)
         return self
@@ -197,6 +197,12 @@ class AsyncClient:
         return self._daemon
 
     # ---- top-level Daemon methods ----------------------------------------
+
+    async def wait_disconnected(self) -> None:
+        """Wait for this session's transport to disconnect; does not reconnect."""
+        if self._twoparty is None:
+            raise RuntimeError("AsyncClient: not connected")
+        await self._twoparty.on_disconnect()
 
     async def ping(self) -> None:
         await self.daemon.ping()

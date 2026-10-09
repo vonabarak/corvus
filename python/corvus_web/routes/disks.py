@@ -12,7 +12,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from corvus_client.exceptions import CorvusError, DiskNotFound, SnapshotNotFound
+from corvus_client.exceptions import (
+    ConnectError,
+    CorvusError,
+    DiskNotFound,
+    SnapshotNotFound,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -149,6 +154,8 @@ async def create_disk(body: DiskCreateBody, client: ClientDep) -> JsonObject:
             ephemeral=body.ephemeral,
             node=_ref_to_int_or_str(body.node) if body.node else None,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_dict(await disk.show())
@@ -164,6 +171,8 @@ async def create_overlay(body: DiskOverlayBody, client: ClientDep) -> JsonObject
             path=body.path,
             ephemeral=body.ephemeral,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_dict(await disk.show())
@@ -179,6 +188,8 @@ async def clone_disk(body: DiskCloneBody, client: ClientDep) -> JsonObject:
             path=body.path,
             ephemeral=body.ephemeral,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_dict(await disk.show())
@@ -198,6 +209,8 @@ async def import_url(body: DiskImportUrlBody, client: ClientDep) -> dict[str, in
             ephemeral=body.ephemeral,
             node=_ref_to_int_or_str(body.node) if body.node else None,
         )
+    except ConnectError:
+        raise
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"task_id": task_id}

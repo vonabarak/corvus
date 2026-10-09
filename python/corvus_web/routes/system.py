@@ -29,8 +29,7 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 @router.get("/ping")
 async def ping(client: ClientDep) -> dict[str, str]:
     """Round-trip to the daemon. Returns {"status": "ok"} on success;
-    the corvus_client exception translator surfaces ConnectError /
-    ProtocolError as a FastAPI 500 by default."""
+    a missing or disconnected daemon session returns HTTP 502."""
     await client.ping()
     return {"status": "ok"}
 

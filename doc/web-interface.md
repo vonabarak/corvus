@@ -4,6 +4,27 @@ Corvus ships with a browser UI served by the `corvus-web` HTTP gateway. It mirro
 
 `corvus-web` is a separate process from the daemon. It uses the Python `corvus_client` library to speak Cap'n Proto to the daemon and serves a React SPA over HTTP, plus a small REST + WebSocket bridge for the SPA to talk to.
 
+## Daemon connection lifecycle
+
+The HTTP gateway listens even if the daemon is unavailable at startup. It
+establishes a daemon connection in the background, verifies it with a ping,
+and replaces it after a transport disconnect. Each connection attempt has a
+five-second timeout. Failed attempts retry after 1, 2, 4, 8, 16, then 30 seconds;
+the delay resets after a successful connection. Unix sockets and TCP/mTLS use
+the same lifecycle and retain the configured transport and certificate checks.
+
+Daemon-dependent REST requests return HTTP 502 during an outage. Failed RPCs
+are never replayed automatically: the daemon may already have accepted a
+mutating request before its response was lost. Later requests use the new
+connection. Static UI resources remain available.
+
+Daemon-backed serial, guest-agent, VM statistics, and task-progress WebSockets
+close with code 1013 when their daemon session is unavailable or disconnects,
+even when no events are being sent. Clients must establish a new subscription
+after recovery. Existing SPICE TCP bridges have their own transport lifetime.
+The metrics endpoint serves a short cache grace period as described in
+[Observability](observability.md#daemon-outages-and-scrape-availability).
+
 ## Architecture
 
 ```
@@ -13,7 +34,7 @@ browser ──HTTP/WS──► corvus-web (Python, FastAPI)
                       corvusd (Haskell, Cap'n Proto RPC)
 ```
 
-One persistent `AsyncClient` is opened in the FastAPI lifespan and reused across requests. WebSockets in `corvus-web` bridge the daemon's existing streaming sinks (task progress, guest-agent reachability, serial-console bytes) to the browser.
+The FastAPI lifespan supervises one daemon session at a time and replaces its `AsyncClient` after a disconnect. WebSockets in `corvus-web` bridge the daemon's existing streaming sinks (task progress, guest-agent reachability, serial-console bytes) to the browser.
 
 ## Running
 

@@ -78,6 +78,7 @@ class TestImageRecipes:
         assert all(f"image_if_exists={policy}" in call.args for call in builds)
 
     def test_import_manifest_resolution(self, recipes: RecipeRunner) -> None:
+        """Resolve provider formats, including Alpine's digest-only sidecar."""
         result = recipes.run("multi-os", "build")
         assert result.returncode == 0, result.stdout + result.stderr
         args = publications(recipes)[0].args

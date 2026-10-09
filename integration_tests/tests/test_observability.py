@@ -21,8 +21,9 @@ This file:
 
 What's covered:
 
-* ``GET /metrics`` returns 503 during cold start, then 200 after the
-  poller's first iteration completes (~10 s).
+* ``GET /metrics`` returns real data after the first successful poll.
+  Deterministic cold-start and daemon outage checks live in
+  :mod:`test_web_reconnect`.
 * The exposition contains every counter family from the doc.
 * Counters cleared as monotonic (CPU seconds, disk-write bytes)
   strictly increase after a guest workload + one poller tick.
@@ -343,50 +344,4 @@ class TestObservability(SingleNodeCase):
                 )
                 assert all(f["host_rss_bytes"] > 0 for f in frames), (
                     f"WS frame had zero host_rss_bytes: {frames!r}"
-                )
-
-    def test_metrics_503_during_cold_start(self) -> None:
-        """Boot a fresh corvus-web with no VMs in the daemon yet, hit
-        ``/metrics`` immediately, and assert the documented 503-with-
-        ``warmed_up=False`` behaviour (see
-        ``python/corvus_web/routes/metrics.py:190-195``).
-
-        Smaller test: no VM boot needed. Useful to catch a refactor
-        that drops the warmup gate and starts emitting
-        empty-but-200 responses, which would silently
-        zero out Prometheus alerts.
-        """
-        with WebGateway(self.node) as web:
-            # Race the poller's first iteration. The
-            # ``wait_for_metrics_warmup`` helper is the opposite of
-            # what we want here — we explicitly do NOT wait for the
-            # cache to warm up. Hit /metrics immediately.
-            try:
-                with web.get_response("/metrics", timeout_sec=2.0) as resp:
-                    status = resp.status
-                    body = resp.read().decode("utf-8")
-            except Exception as e:
-                # If the very first scrape raises (e.g. urllib
-                # surfaces a 503 as HTTPError), that's still
-                # consistent with the documented behaviour.
-                from urllib.error import HTTPError
-
-                if isinstance(e, HTTPError) and e.code == 503:
-                    e.close()
-                    return
-                raise
-            # We expect 503; tolerate 200 only if the body indicates
-            # the cache was already warmed (the poller can complete
-            # one cycle inside the corvus-web startup window if the
-            # daemon is fast).
-            if status == 503:
-                assert "not yet warmed up" in body, (
-                    f"503 body should explain warmup: {body!r}"
-                )
-            else:
-                assert status == 200, f"unexpected status {status}"
-                # Cache warmed during startup — fine, just sanity-
-                # check the body shape.
-                assert "# HELP" in body or "# TYPE" in body, (
-                    f"200 with no exposition: {body!r}"
                 )
