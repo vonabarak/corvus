@@ -1,8 +1,8 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-ensure image-clean image-rebuild image-check image-cache-clean image-list images images-ensure images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh check check-haskell format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-ensure image-clean image-rebuild image-check image-cache-clean image-list images images-ensure images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh check check-haskell haskell-format-tools format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
-# Add ~/.local/bin to PATH for tools like hlint and fourmolu
+# Add ~/.local/bin to PATH for locally installed executables
 export PATH := $(HOME)/.local/bin:$(PATH)
 
 # Worker count for `make integration-tests`. When unset, the recipe auto-detects
@@ -242,15 +242,19 @@ MYPY ?= .venv/bin/python -m mypy
 RUFF ?= .venv/bin/python -m ruff
 CORVUS_WEB ?= $(if $(wildcard .venv/bin/corvus-web),.venv/bin/corvus-web,corvus-web)
 
+# Build the pinned Haskell formatter and linter in the tools project.
+haskell-format-tools:
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml build hlint fourmolu
+
 # Format Python (ruff) + Haskell (fourmolu) sources in place. When
 # `frontend/node_modules/` is present (operator has run
 # `make web-build` or `npm install`), also run the frontend's
 # prettier formatter — kept gated so the dev workflow for someone
 # touching only the Haskell/Python side doesn't require Node.
-format:
+format: haskell-format-tools
 	$(RUFF) format python integration_tests
 	$(RUFF) check --fix python integration_tests
-	fourmolu --mode inplace $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode inplace $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-format ; \
 	fi
@@ -261,9 +265,9 @@ format:
 # `make format` first to fix any formatting violations this flags.
 # Frontend lint piggybacks on `frontend/node_modules/` being present;
 # CI runs `make web-build` (which `npm ci`s) before `make check`.
-check:
-	hlint $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
-	fourmolu --mode check $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
+check: haskell-format-tools
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- hlint $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode check $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MAKE) typecheck-core

@@ -9,6 +9,9 @@ conventions. See [architecture](architecture.md) to locate components and
 Stack + Hpack (`package.yaml` -> `corvus.cabal`), LTS-23.28 resolver.
 Development executables and their dependencies use `tools/package.yaml` and
 `tools/stack.yaml`; normal application builds do not build that package.
+HLint 3.8 and Fourmolu 0.15.0.0 are pinned in the tools Stack project.
+`make format` and `make check` build and invoke those versions automatically;
+no global HLint or Fourmolu installation is required.
 
 ### Make Targets
 

@@ -120,22 +120,6 @@ jobs:
 
       # ----- Lint tooling -----------------------------------------------
 
-      # `hlint` + `fourmolu` get installed to ~/.local/bin/, which
-      # the Makefile prepends to PATH (top of Makefile). Use
-      # whatever versions the lts-23.28 resolver ships so we
-      # don't need an extra-deps entry; the dev tree pins are
-      # advisory.
-      - name: Install Haskell lint tools
-        run: |
-          set -ex
-          mkdir -p ~/.local/bin
-          stack install hlint fourmolu \
-            --system-ghc --no-install-ghc \
-            --local-bin-path ~/.local/bin
-          ls -la ~/.local/bin
-          ~/.local/bin/hlint --version
-          ~/.local/bin/fourmolu --version
-
       # Lint runs inside the shared .venv so mypy sees the same project,
       # pytest, and YAML typing dependencies as the Python tests. CI omits
       # the optional desktop extra because its type check is a separate gate.
@@ -160,7 +144,7 @@ jobs:
         run: |
           set -ex
           echo "PATH=$PATH"
-          which make stack ghc hlint fourmolu ruff mypy capnp python3 || true
+          which make stack ghc ruff mypy capnp python3 || true
           make --version | head -1
           stack --version
           ghc --version

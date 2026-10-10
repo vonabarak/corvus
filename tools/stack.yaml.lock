@@ -5,6 +5,20 @@
 
 packages:
 - completed:
+    hackage: hlint-3.8@sha256:c12a46452e85fc74fb7b0e25aa7653256716f5dc2f8168385b69c79c763d4a0d,4455
+    pantry-tree:
+      sha256: 2ea03fbf224056512452a896f811ac80ee9960cdb0a370fa3edb37dc81e8cb36
+      size: 6224
+  original:
+    hackage: hlint-3.8
+- completed:
+    hackage: fourmolu-0.15.0.0@sha256:2c4179e32c5226d903393f0d71cb2d845d5277a07b2df9e58efdc6e777b61ca8,6959
+    pantry-tree:
+      sha256: bfda4659124e4ed54171fc3dc0f0a73cb3a8373788b754144f8c8bf108eaa8e3
+      size: 161423
+  original:
+    hackage: fourmolu-0.15.0.0
+- completed:
     hackage: weeder-2.10.0@sha256:84db7d4d1efd3f2a92831084bbda77b6575c31677f549c5884e4c3c01f574046,3706
     pantry-tree:
       sha256: d9498b4f5b409c3d0988463c50bc301e3656568bb0487a8f13f96b04b1a59bde

@@ -4,6 +4,8 @@ compiler: ghc-9.8.4
 packages:
   - .
 extra-deps:
+  - hlint-3.8
+  - fourmolu-0.15.0.0
   - weeder-2.10.0
 system-ghc: false
 install-ghc: false
