@@ -1,12 +1,15 @@
 {
-  "covered_expressions": 28110,
-  "total_expressions": 98335,
-  "source_revision": "fb55a82",
+  "covered_expressions": 35909,
+  "total_expressions": 98136,
+  "source_revision": "96b2d5b+coverage-improvements",
   "ghc": "9.8.4",
-  "backends": ["sqlite", "postgresql"],
+  "backends": [
+    "sqlite",
+    "postgresql"
+  ],
   "test_backend": "sqlite",
   "seed": 20261010,
   "jobs": 1,
   "measurement_runs": 3,
-  "selection": "Lowest observed aggregate expression coverage before compiler and Weeder cleanup"
+  "selection": "Lowest observed aggregate expression coverage from three complete seeded SQLite runs with coverage improvements"
 }

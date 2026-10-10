@@ -165,9 +165,12 @@ before committing. `make check` replaces the former `lint` target and includes:
 
 Coverage includes every compiled authored library module under `src/`, including
 modules absent from the runtime trace (counted as uncovered). Generated code,
-vendor code, executables, and tests are excluded. The initial baseline in
-`coverage-baseline.json` is **28110 / 98335 expressions (28.585956%)**, the lowest
-of three full runs on revision `fb55a82`. The gate compares exact integer ratios,
+vendor code, executables, and tests are excluded. The baseline in
+`coverage-baseline.json` is **35909 / 98136 expressions (36.591057%)**, the lowest
+of three full SQLite runs with one worker and seed `20261010` after the coverage
+improvements. All three runs produced the same ratio. Parser coverage is 93.84%
+and wire coverage is 98.15%; these are improvement targets, while the automated
+gate enforces aggregate expression coverage. The gate compares exact integer ratios,
 so display rounding cannot hide a decrease. Missing, malformed, stale, or
 incompatible artifacts fail the check. HTML reports are written to
 `.stack-work/quality/authored-coverage/hpc_index.html`, including module details.

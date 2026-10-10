@@ -1,15 +1,9 @@
--- | Round-trip tests for the pure Cap'n Proto conversion layer.
---
--- These tests cover both directions of the converters in
--- "Corvus.Wire.Enums" and "Corvus.Wire.Common" — encode then decode
--- should be the identity for any well-formed Haskell value. The
--- struct-level converters in @Corvus.Wire.{Vm,Disk,...}@ are
--- exercised through the integration tests once Phase 3 wires them
--- into the server.
 module Corvus.WireSpec (spec) where
 
+import qualified Capnp.Gen.Enums as E
 import qualified Corvus.Model as M
 import qualified Corvus.Protocol as P
+import qualified Corvus.Protocol.Disk as PD
 import qualified Corvus.Protocol.Node as PN
 import qualified Corvus.Protocol.Task as PT
 import qualified Corvus.Protocol.Vm as PV
@@ -20,6 +14,7 @@ import Corvus.Wire.Common
   , toCapnpEntityRef
   )
 import Corvus.Wire.Enums
+import Corvus.Wire.Errors (WireError (..))
 import Corvus.Wire.Node (fromCapnpNodeDetails, fromCapnpNodeInfo, toCapnpNodeDetails, toCapnpNodeInfo)
 import Corvus.Wire.Task (fromCapnpTaskInfo, toCapnpTaskInfo)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
@@ -71,6 +66,30 @@ spec = do
       mapM_
         (\s -> fromCapnpTaskResult (toCapnpTaskResult s) `shouldBe` Right s)
         [minBound .. maxBound :: M.TaskResult]
+
+  describe "Wire.Enums additional constructors and unknown tags" $ do
+    it "AudioDeviceModel round-trips every constructor" $ mapM_ (\x -> fromCapnpAudioDeviceModel (toCapnpAudioDeviceModel x) `shouldBe` Right x) [minBound .. maxBound :: M.AudioDeviceModel]
+    it "NetworkDeviceModel round-trips every constructor" $ mapM_ (\x -> fromCapnpNetworkDeviceModel (toCapnpNetworkDeviceModel x) `shouldBe` Right x) [minBound .. maxBound :: M.NetworkDeviceModel]
+    it "GraphicsAdapter round-trips every constructor" $ mapM_ (\x -> fromCapnpGraphicsAdapter (toCapnpGraphicsAdapter x) `shouldBe` Right x) [minBound .. maxBound :: M.GraphicsAdapter]
+    it "AudioBackend round-trips every constructor" $ mapM_ (\x -> fromCapnpAudioBackend (toCapnpAudioBackend x) `shouldBe` Right x) [minBound .. maxBound :: M.AudioBackend]
+    it "NodeAdminState round-trips every constructor" $ mapM_ (\x -> fromCapnpNodeAdminState (toCapnpNodeAdminState x) `shouldBe` Right x) [minBound .. maxBound :: M.NodeAdminState]
+    it "UploadIfExists round-trips every policy" $ mapM_ (\x -> fromCapnpUploadIfExists (toCapnpUploadIfExists x) `shouldBe` Right x) [PD.UploadError, PD.UploadSkip, PD.UploadOverwrite, PD.UploadUpdate]
+    it "rejects unknown VmStatus tags" $ fromCapnpVmStatus (E.VmStatus'unknown' 65535) `shouldBe` Left (WireUnknownEnum "VmStatus" 65535)
+    it "rejects unknown DriveInterface tags" $ fromCapnpDriveInterface (E.DriveInterface'unknown' 65535) `shouldBe` Left (WireUnknownEnum "DriveInterface" 65535)
+    it "rejects unknown DriveFormat tags" $ fromCapnpDriveFormat (E.DriveFormat'unknown' 65535) `shouldBe` Left (WireUnknownEnum "DriveFormat" 65535)
+    it "rejects unknown DriveMedia tags" $ fromCapnpDriveMedia (E.DriveMedia'unknown' 65535) `shouldBe` Left (WireUnknownEnum "DriveMedia" 65535)
+    it "rejects unknown CacheType tags" $ fromCapnpCacheType (E.CacheType'unknown' 65535) `shouldBe` Left (WireUnknownEnum "CacheType" 65535)
+    it "rejects unknown NetInterfaceType tags" $ fromCapnpNetInterfaceType (E.NetInterfaceType'unknown' 65535) `shouldBe` Left (WireUnknownEnum "NetInterfaceType" 65535)
+    it "rejects unknown SharedDirCache tags" $ fromCapnpSharedDirCache (E.SharedDirCache'unknown' 65535) `shouldBe` Left (WireUnknownEnum "SharedDirCache" 65535)
+    it "rejects unknown TemplateCloneStrategy tags" $ fromCapnpTemplateCloneStrategy (E.TemplateCloneStrategy'unknown' 65535) `shouldBe` Left (WireUnknownEnum "TemplateCloneStrategy" 65535)
+    it "rejects unknown TaskSubsystem tags" $ fromCapnpTaskSubsystem (E.TaskSubsystem'unknown' 65535) `shouldBe` Left (WireUnknownEnum "TaskSubsystem" 65535)
+    it "rejects unknown TaskResult tags" $ fromCapnpTaskResult (E.TaskResult'unknown' 65535) `shouldBe` Left (WireUnknownEnum "TaskResult" 65535)
+    it "rejects unknown AudioDeviceModel tags" $ fromCapnpAudioDeviceModel (E.AudioDeviceModel'unknown' 65535) `shouldBe` Left (WireUnknownEnum "AudioDeviceModel" 65535)
+    it "rejects unknown NetworkDeviceModel tags" $ fromCapnpNetworkDeviceModel (E.NetworkDeviceModel'unknown' 65535) `shouldBe` Left (WireUnknownEnum "NetworkDeviceModel" 65535)
+    it "rejects unknown GraphicsAdapter tags" $ fromCapnpGraphicsAdapter (E.GraphicsAdapter'unknown' 65535) `shouldBe` Left (WireUnknownEnum "GraphicsAdapter" 65535)
+    it "rejects unknown AudioBackend tags" $ fromCapnpAudioBackend (E.AudioBackend'unknown' 65535) `shouldBe` Left (WireUnknownEnum "AudioBackend" 65535)
+    it "rejects unknown NodeAdminState tags" $ fromCapnpNodeAdminState (E.NodeAdminState'unknown' 65535) `shouldBe` Left (WireUnknownEnum "NodeAdminState" 65535)
+    it "rejects unknown UploadIfExists tags" $ fromCapnpUploadIfExists (E.UploadIfExists'unknown' 65535) `shouldBe` Left (WireUnknownEnum "UploadIfExists" 65535)
 
   describe "Wire.Common.EntityRef" $ do
     it "round-trips numeric ids" $

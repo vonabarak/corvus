@@ -12,6 +12,9 @@ module Corvus.BuildVarsSpec (spec) where
 
 import Corvus.Client.BuildVars (VarError (..), applyBuildVars)
 import Corvus.Utils.Yaml (yamlQQ)
+import qualified Data.Text as T
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 spec :: Spec
@@ -326,3 +329,49 @@ pipeline:
 |]
     r <- applyBuildVars [] [] doc
     r `shouldBe` Right expected
+
+  describe "variable files" $ do
+    it "uses later files before CLI overrides, preserving scalar values" $ withSystemTempDirectory "corvus-vars" $ \dir -> do
+      let first = dir </> "first.yaml"
+          second = dir </> "second.yaml"
+          doc =
+            [yamlQQ|vars: {value: default, number: 0, flag: false}
+result: "{{ value }} {{ number }} {{ flag }}"|]
+      writeFile first "value: first\nnumber: 1.5\nflag: true\n"
+      writeFile second "value: second\nnumber: null\n"
+      applyBuildVars [] [first, second] doc `shouldReturn` Right [yamlQQ|result: "second 1.5 true"|]
+      applyBuildVars [("value", "cli")] [first, second] doc `shouldReturn` Right [yamlQQ|result: "cli 1.5 true"|]
+    it "accepts empty files" $ withSystemTempDirectory "corvus-vars" $ \dir -> do
+      let path = dir </> "empty.yaml"
+          doc =
+            [yamlQQ|vars: {value: default}
+result: "{{ value }}"|]
+      writeFile path ""
+      applyBuildVars [] [path] doc `shouldReturn` Right [yamlQQ|result: default|]
+    mapM_
+      ( \(content, fragment) -> it ("rejects file content " <> show content) $ withSystemTempDirectory "corvus-vars" $ \dir -> do
+          let path = dir </> "invalid.yaml"
+          writeFile path content
+          result <- applyBuildVars [] [path] [yamlQQ|vars: {value: default}|]
+          case result of
+            Left (VarFileParse actual message) -> do
+              actual `shouldBe` path
+              message `shouldSatisfy` T.isInfixOf fragment
+            other -> expectationFailure (show other)
+      )
+      [("[", "YAML parse exception"), ("- value", "top-level mapping"), ("value: [one, two]", "must be a scalar"), ("value: {nested: object}", "must be a scalar")]
+    it "reports undeclared file variables" $ withSystemTempDirectory "corvus-vars" $ \dir -> do
+      let path = dir </> "unknown.yaml"
+      writeFile path "unknown: value"
+      applyBuildVars [] [path] [yamlQQ|vars: {}|] `shouldReturn` Left (VarUndeclaredCli "unknown")
+    it "reports the path of an unreadable file" $ withSystemTempDirectory "corvus-vars" $ \dir -> do
+      let path = dir </> "missing.yaml"
+      result <- applyBuildVars [] [path] [yamlQQ|vars: {}|]
+      case result of
+        Left (VarFileRead actual message) -> do
+          actual `shouldBe` path
+          message `shouldSatisfy` (not . T.null)
+        Left (VarFileParse actual message) -> do
+          actual `shouldBe` path
+          message `shouldSatisfy` (not . T.null)
+        other -> expectationFailure (show other)

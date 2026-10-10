@@ -60,7 +60,7 @@ import qualified Data.Text.Encoding as T
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Yaml (decodeEither')
 import Database.Persist
-import Database.Persist.Sql (SqlPersistT, runSqlPool)
+import Database.Persist.Sql (SqlPersistT, runSqlPool, transactionUndo)
 
 --------------------------------------------------------------------------------
 -- Handlers
@@ -108,7 +108,12 @@ handleTemplateUpdate state oldTidLong yamlContent = runServerLogging state $ do
           let oldTid = toSqlKey oldTidLong :: TemplateVmId
           let replaceTemplate = do
                 deleteTemplate oldTid
-                insertTemplateYaml ty now
+                inserted <- insertTemplateYaml ty now
+                -- Validation errors return normally rather than throwing, so
+                -- the transaction must be rolled back explicitly.
+                case inserted of
+                  Left _ -> transactionUndo >> pure inserted
+                  Right _ -> pure inserted
               runReplace = do
                 mOld <- get oldTid
                 case mOld of

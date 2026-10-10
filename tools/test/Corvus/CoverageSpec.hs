@@ -71,7 +71,7 @@ spec = describe "Haskell coverage gate" $ do
       calculateCoverage [] [] (Tix []) `shouldSatisfy` isLeft
   describe "artifact validation" $ do
     it "accepts the committed baseline for the quality compiler" $
-      readBaseline "coverage-baseline.json" `shouldReturn` Coverage 28110 98335
+      readBaseline "coverage-baseline.json" `shouldReturn` Coverage 35909 98136
     it "rejects missing artifacts" $
       loadCoverage "/nonexistent-corvus-coverage" "/nonexistent-corvus-trace" `shouldThrow` anyIOException
     it "rejects malformed mix files" $ withSystemTempDirectory "corvus-coverage" $ \dir -> do

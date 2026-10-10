@@ -542,6 +542,7 @@ test-suite corvus-test
   other-modules:
       Corvus.ActionSpec
       Corvus.ApplySpec
+      Corvus.ApplyValidationSpec
       Corvus.BalloonParserSpec
       Corvus.BuildCleanupSpec
       Corvus.BuildIdentitySpec
@@ -550,6 +551,8 @@ test-suite corvus-test
       Corvus.BuildVarsSpec
       Corvus.CapnpServerSpec
       Corvus.ClientOutputSpec
+      Corvus.ClientParserSpec
+      Corvus.CloudInitHandlerSpec
       Corvus.CloudInitSpec
       Corvus.CoreSpec
       Corvus.DatabaseMigrationSpec
@@ -577,6 +580,7 @@ test-suite corvus-test
       Corvus.QmpSpec
       Corvus.ResolveSpec
       Corvus.SchedulerSpec
+      Corvus.SchemaBoundarySpec
       Corvus.SharedDirSpec
       Corvus.SizeSpec
       Corvus.SizeYamlSpec
@@ -598,6 +602,7 @@ test-suite corvus-test
       Corvus.VmTransitionSpec
       Corvus.WireErrorSpec
       Corvus.WireSpec
+      Corvus.WireStructuresSpec
       SpecHook
       Test.Database
       Test.DSL.Core
