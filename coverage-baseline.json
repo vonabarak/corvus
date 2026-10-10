@@ -1,6 +1,8 @@
 {
   "covered_expressions": 35909,
   "total_expressions": 98136,
+  "cli_minimum_percent": 80,
+  "cli_command_module_minimum_percent": 80,
   "source_revision": "96b2d5b+coverage-improvements",
   "ghc": "9.8.4",
   "backends": [

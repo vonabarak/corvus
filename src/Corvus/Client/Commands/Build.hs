@@ -15,7 +15,7 @@ module Corvus.Client.Commands.Build
   )
 where
 
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Client.BuildVars (applyBuildVars, renderVarError)
@@ -23,7 +23,7 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (emitError, emitOkWith, emitRpcError)
 import Corvus.Client.Types (BuildClientOptions (..), OutputFormat, WaitOptions (..))
-import Corvus.Model (EnumText (..))
+import Corvus.Model (EnumText (..), TaskResult (TaskSuccess))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
 import Corvus.Protocol.Disk (parseUploadIfExists)
 import Corvus.Wire.Common (entityRefFromText)
@@ -33,8 +33,9 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Value (..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
@@ -88,13 +89,21 @@ handleBuild fmt conn path bcOpts waitOpts = do
 runBuild :: OutputFormat -> CapnpConnection -> T.Text -> Bool -> IO Bool
 runBuild fmt conn yaml wait = do
   done <- newEmptyMVar :: IO (MVar ())
-  -- Aggregate state surfaced after the stream ends: did any
-  -- top-level step fail, and the final per-build summary.
-  successVar <- newEmptyMVar :: IO (MVar Bool)
-  let onEvent ev = when wait (renderEvent ev)
+  -- Closing a stream is not evidence that its pipeline succeeded.
+  outcome <- newIORef (False, True)
+  let onEvent ev = do
+        atomicModifyIORef' outcome $ \(completed, successful) ->
+          let next = case ev of
+                StepEnd _ result _ -> (completed, successful && result == TaskSuccess)
+                BuildEnd (Left _) -> (completed, False)
+                PipelineEnd (BuildResult builds) ->
+                  (True, successful && all (isNothing . boError) builds)
+                _ -> (completed, successful)
+           in (next, ())
+        when wait (renderEvent ev)
       onEnd = do
-        _ <- tryPutMVar successVar True
-        putMVar done ()
+        _ <- tryPutMVar done ()
+        pure ()
   r <-
     try (CR.rpcBuild conn yaml onEvent onEnd)
       :: IO (Either SomeException Int64)
@@ -107,8 +116,8 @@ runBuild fmt conn yaml wait = do
       if wait
         then do
           takeMVar done
-          _ <- takeMVar successVar
-          pure True
+          (completed, successful) <- readIORef outcome
+          pure (completed && successful)
         else do
           emitOkWith fmt [("taskId", toJSON tid)] $
             putStrLn ("Build started; task id: " <> show tid)

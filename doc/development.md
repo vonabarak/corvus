@@ -160,7 +160,7 @@ before committing. `make check` replaces the former `lint` target and includes:
   sites use only some of it. Other instances remain subject to analysis. Add
   roots only with a documented reason; remove genuinely unused code.
 - The complete Haskell suite using SQLite, one worker, and seed `20261010`,
-  followed by an aggregate expression coverage gate. `MATCH` is rejected here;
+  followed by overall and CLI expression coverage gates. `MATCH` is rejected here;
   use `make unit-tests MATCH=...` for focused work.
 
 Coverage includes every compiled authored library module under `src/`, including
@@ -169,14 +169,26 @@ vendor code, executables, and tests are excluded. The baseline in
 `coverage-baseline.json` is **35909 / 98136 expressions (36.591057%)**, the lowest
 of three full SQLite runs with one worker and seed `20261010` after the coverage
 improvements. All three runs produced the same ratio. Parser coverage is 93.84%
-and wire coverage is 98.15%; these are improvement targets, while the automated
-gate enforces aggregate expression coverage. The gate compares exact integer ratios,
+and wire coverage is 98.15%. In addition to the overall baseline, the gate requires
+at least **80%** across `Corvus.Client` and its submodules, and **80%** in each
+nonempty `Corvus.Client.Commands` module and submodule. New command modules enter
+the gate automatically; unexecuted modules count as zero coverage. The CLI limits
+are recorded in `coverage-baseline.json`. The gate compares exact integer ratios,
 so display rounding cannot hide a decrease. Missing, malformed, stale, or
 incompatible artifacts fail the check. HTML reports are written to
 `.stack-work/quality/authored-coverage/hpc_index.html`, including module details.
 Review baseline increases explicitly; never lower it automatically to make a
 change pass. Coverage changes should be addressed with useful tests or removal
 of unreachable code.
+
+CLI unit tests use a strict in-process Cap'n Proto peer over temporary Unix
+sockets. They invoke the command dispatcher, decode and check requests, script
+results and failures, and capture output and exit status. Unexpected or missing
+RPCs fail a test. Local files and editor/viewer programs use temporary directories;
+interactive terminal cases use pseudo-terminals and restore file descriptors and
+terminal settings. These specs run sequentially because they change process-wide
+handles and environment variables. They require no daemon, database, VM, display,
+or installed editor/viewer. Use `make unit-tests MATCH=CLI` for focused runs.
 
 When `frontend/node_modules/` exists, both targets also cover frontend
 formatting/linting. If it does not exist and the change touched frontend code,

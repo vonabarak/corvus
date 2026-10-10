@@ -2,7 +2,9 @@
 
 module Corvus.Coverage
   ( Coverage (..)
+  , Baseline (..)
   , calculateCoverage
+  , cliCoverage
   , meetsBaseline
   , isAuthoredSource
   , loadCoverage
@@ -28,6 +30,32 @@ data Coverage = Coverage
   , totalExpressions :: Integer
   }
   deriving stock (Eq, Show)
+
+data Baseline = Baseline
+  { overallMinimum :: Coverage
+  , cliMinimumPercent :: Integer
+  , commandMinimumPercent :: Integer
+  }
+  deriving stock (Eq, Show)
+
+-- The trace has already been validated and zero-filled by calculateCoverage.
+-- Match complete module components, so ClientOther never enters CLI scope.
+cliCoverage :: Tix -> [(String, Mix)] -> Either String (Coverage, [(String, Coverage)])
+cliCoverage (Tix traces) mixes = do
+  measured <- forM traces $ \(TixModule name _ _ values) -> do
+    Mix _ _ _ _ entries <- maybe (Left ("Missing scoped metadata: " ++ name)) Right (Map.lookup name metadata)
+    let expressions = [tick | ((_, ExpBox _), tick) <- zip entries values]
+        coverage = Coverage (fromIntegral (length (filter (> 0) expressions))) (fromIntegral (length expressions))
+        moduleName = drop 1 (dropWhile (/= '/') name)
+    pure (moduleName, coverage)
+  let clients = filter (inScope "Corvus.Client" . fst) measured
+      commands = filter (\(name, c) -> inScope "Corvus.Client.Commands" name && totalExpressions c > 0) clients
+      aggregate = Coverage (sum (map (coveredExpressions . snd) clients)) (sum (map (totalExpressions . snd) clients))
+  unless (totalExpressions aggregate > 0 && not (null commands)) $ Left "Missing CLI or command coverage inventory"
+  pure (aggregate, commands)
+  where
+    metadata = Map.fromList mixes
+    inScope root name = name == root || (root ++ ".") `isPrefixOf` name
 
 meetsBaseline :: Coverage -> Coverage -> Bool
 meetsBaseline actual baseline =
@@ -75,7 +103,7 @@ calculateCoverage sources mixes (Tix traces) = do
     authoredNames = Set.fromList (map fst authored)
     sourceOf (_, Mix source _ _ _ _) = normalise source
 
-readBaseline :: FilePath -> IO Coverage
+readBaseline :: FilePath -> IO Baseline
 readBaseline path = do
   value <- eitherDecodeFileStrict' path >>= either (fail . ("Invalid coverage baseline: " ++)) pure
   either fail pure $
@@ -96,11 +124,14 @@ readBaseline path = do
             $ fail "Coverage baseline configuration does not match the canonical quality build"
           baseline <- Coverage <$> o .: "covered_expressions" <*> o .: "total_expressions"
           unless (meetsBaseline baseline baseline) $ fail "Invalid coverage baseline counts"
-          pure baseline
+          cliPercent <- o .: "cli_minimum_percent"
+          commandPercent <- o .: "cli_command_module_minimum_percent"
+          unless (all (\p -> p > 0 && p <= 100) [cliPercent, commandPercent]) $ fail "Invalid CLI coverage minimum"
+          pure (Baseline baseline cliPercent commandPercent)
       )
       value
 
-loadCoverage :: FilePath -> FilePath -> IO (Coverage, Tix)
+loadCoverage :: FilePath -> FilePath -> IO (Coverage, Tix, Coverage, [(String, Coverage)])
 loadCoverage mixDirectory tracePath = do
   sources <- filter isAuthoredSource <$> filesUnder "src"
   paths <- filter ((== ".mix") . takeExtension) <$> filesUnder mixDirectory
@@ -123,7 +154,9 @@ loadCoverage mixDirectory tracePath = do
   -- library unit is in scope, including its generated modules for validation.
   let unitPrefix = takeFileName mixDirectory ++ "/"
       trace = Tix [t | t@(TixModule name _ _ _) <- traces, unitPrefix `isPrefixOf` name]
-  either fail pure (calculateCoverage sources mixes trace)
+  (actual, authoredTrace) <- either fail pure (calculateCoverage sources mixes trace)
+  (clients, commands) <- either fail pure (cliCoverage authoredTrace mixes)
+  pure (actual, authoredTrace, clients, commands)
   where
     whenAuthored source = when (isAuthoredSource source)
 

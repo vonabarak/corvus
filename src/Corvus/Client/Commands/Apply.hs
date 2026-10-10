@@ -19,13 +19,12 @@ where
 
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
-import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (emitError, emitResult, emitRpcError)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
-import Corvus.Protocol (ApplyCreated (..), ApplyEvent (..), ApplyResult (..))
+import Corvus.Protocol (ApplyEvent (..))
 import Corvus.Size (formatSize)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
@@ -79,8 +78,7 @@ runStreaming fmt conn yaml skipExisting = do
       takeMVar done
       readIORef successVar
 
--- | Legacy non-streaming path. Mirrors the pre-streaming behaviour:
--- @wait=True@ prints a summary, @wait=False@ prints the task id.
+-- | Non-streaming path: structured wait results or a task id.
 runLegacy :: OutputFormat -> CapnpConnection -> Text -> Bool -> Bool -> IO Bool
 runLegacy fmt conn yaml skipExisting wait = do
   r <- try @SomeException (CR.rpcApply conn yaml skipExisting wait)
@@ -88,7 +86,7 @@ runLegacy fmt conn yaml skipExisting wait = do
     Right (result, taskId) ->
       if wait
         then do
-          emitResult fmt result $ printApplyResult result
+          emitResult fmt result (pure ())
           pure True
         else do
           emitResult fmt (T.pack $ show taskId) $
@@ -168,30 +166,3 @@ renderProgress name downloaded total =
 -- @"12.3 MB"@). Used by the live download progress renderer.
 humanBytes :: Int64 -> Text
 humanBytes = T.pack . formatSize
-
--- | Print apply result in human-readable format
-printApplyResult :: ApplyResult -> IO ()
-printApplyResult result = do
-  let keys = arSshKeys result
-      disks = arDisks result
-      networks = arNetworks result
-      vms = arVms result
-      total = length keys + length disks + length networks + length vms
-
-  putStrLn $ "Applied " ++ show total ++ " resources:"
-
-  unless (null keys) $ do
-    putStrLn $ "  SSH keys (" ++ show (length keys) ++ "):"
-    mapM_ (\c -> putStrLn $ "    - " ++ T.unpack (acName c) ++ " (id: " ++ show (acId c) ++ ")") keys
-
-  unless (null disks) $ do
-    putStrLn $ "  Disks (" ++ show (length disks) ++ "):"
-    mapM_ (\c -> putStrLn $ "    - " ++ T.unpack (acName c) ++ " (id: " ++ show (acId c) ++ ")") disks
-
-  unless (null networks) $ do
-    putStrLn $ "  Networks (" ++ show (length networks) ++ "):"
-    mapM_ (\c -> putStrLn $ "    - " ++ T.unpack (acName c) ++ " (id: " ++ show (acId c) ++ ")") networks
-
-  unless (null vms) $ do
-    putStrLn $ "  VMs (" ++ show (length vms) ++ "):"
-    mapM_ (\c -> putStrLn $ "    - " ++ T.unpack (acName c) ++ " (id: " ++ show (acId c) ++ ")") vms

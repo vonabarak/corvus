@@ -339,6 +339,7 @@ library:
     - Capnp.Gen.Vm
     - Capnp.Gen.Disk
     - Capnp.Gen.Network
+    - Capnp.Gen.Node
     - Capnp.Gen.Sshkey
     - Capnp.Gen.Template
     - Capnp.Gen.Task
@@ -450,6 +451,7 @@ tests:
       - aeson-qq
       - yaml
       - containers
+      - vector
       - temporary
       - capnp
       - supervisors
