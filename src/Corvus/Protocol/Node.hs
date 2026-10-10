@@ -43,7 +43,7 @@ data NodeInfo = NodeInfo
   -- ^ Derived live state: daemon currently holds a netd cap for this
   -- node. Always 'False' when 'noiNetdDisabled' is 'True'.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON NodeInfo where
   toJSON = genericToJSON innerOptions
@@ -74,7 +74,7 @@ data NodeDetails = NodeDetails
   , nodNetdDisabled :: !Bool
   , nodNetdConnected :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON NodeDetails where
   toJSON = genericToJSON innerOptions

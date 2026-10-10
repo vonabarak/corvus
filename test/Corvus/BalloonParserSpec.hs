@@ -15,7 +15,7 @@ spec = describe "balloon target sizes" $ do
         Success actual -> actual `shouldBe` bytes
         _ -> expectationFailure "expected a valid byte target"
     )
-    [("1B", 1), ("1k", 1024), ("768M", 768 * 1024 ^ 2), ("1g", 1024 ^ 3), ("1T", 1024 ^ 4), ("18446744073709551615B", maxBound)]
+    [("1B", 1), ("1k", 1024), ("768M", 768 * 1024 ^ (2 :: Int)), ("1g", 1024 ^ (3 :: Int)), ("1T", 1024 ^ (4 :: Int)), ("18446744073709551615B", maxBound)]
   mapM_
     ( \raw -> it ("rejects " ++ raw) $ case parseSize raw of
         Failure _ -> pure ()

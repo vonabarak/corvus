@@ -51,7 +51,7 @@ data QemuConfig = QemuConfig
   -- ^ High end (inclusive) of the AF_VSOCK CID range allocated to VMs
   -- (default: 1_000_000).
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Default QEMU configuration
 defaultQemuConfig :: QemuConfig

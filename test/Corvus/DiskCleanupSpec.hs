@@ -20,7 +20,7 @@ import Database.Persist.Sql (SqlPersistT, runSqlPool)
 import System.Timeout (timeout)
 import Test.DSL.When (createTestServerState)
 import qualified Test.Database as Db
-import Test.Hspec
+import Test.Hspec hiding (before)
 
 spec :: Spec
 spec = do

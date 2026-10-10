@@ -47,6 +47,9 @@ instance Format Module where
         "{-# OPTIONS_GHC -Wno-orphans #-}",
         "{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}",
         "{-# OPTIONS_GHC -Wno-name-shadowing #-}",
+        -- Generated modules expose their schema declarations and derive ordinary instances.
+        "{-# OPTIONS_GHC -Wno-missing-export-lists #-}",
+        "{-# OPTIONS_GHC -Wno-missing-deriving-strategies #-}",
         hcat
           [ "module ",
             PP.textStrict $ mconcat $ intersperse "." $ map Name.renderUnQ modName,

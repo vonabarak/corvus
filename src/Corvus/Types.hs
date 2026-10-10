@@ -523,7 +523,7 @@ data ListenAddress
     TcpAddress !String !Int
   | -- | Unix socket path
     UnixAddress !FilePath
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Get the default socket path ($XDG_RUNTIME_DIR/corvus/corvus.sock)
 -- Falls back to /tmp/corvus/corvus.sock if XDG_RUNTIME_DIR is not set

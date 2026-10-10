@@ -34,7 +34,7 @@ data TaskInfo = TaskInfo
   , tiMessage :: !(Maybe Text)
   , tiClientName :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON TaskInfo where
   toJSON = genericToJSON innerOptions

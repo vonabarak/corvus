@@ -70,8 +70,8 @@ handleVmStartValidate state vmId = do
             then do
               networkCheck <- runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
               case networkCheck of
-                Just networkName ->
-                  pure $ Left $ RespInvalidTransition currentStatus $ "Network '" <> networkName <> "' is not running"
+                Just managedNetworkName ->
+                  pure $ Left $ RespInvalidTransition currentStatus $ "Network '" <> managedNetworkName <> "' is not running"
                 Nothing -> pure $ Right (vm, currentStatus, nextStatus)
             else pure $ Right (vm, currentStatus, nextStatus)
 
@@ -149,7 +149,7 @@ handleVmStartExecute ctx vmId = do
 -- old "block until fully booted" semantics now that the agent
 -- returns from 'vmStart' before QGA is ready.
 waitForStartCompletion :: ServerState -> Int64 -> IO Response
-waitForStartCompletion state vmId = go (330 * 10)
+waitForStartCompletion state vmId = go (330 * 10 :: Int)
   where
     pool = ssDbPool state
     -- Five-minute QGA budget plus 30 seconds for status delivery.

@@ -59,16 +59,9 @@ import Text.Read (readMaybe)
 -- entity kind and the offending ref so the caller can both render a
 -- human message and pick the right wire error code.
 data ResolveError
-  = RefNotFound
-      { reEntity :: Text
-      , reRef :: Text
-      }
-  | RefAmbiguous
-      { reEntity :: Text
-      , reRef :: Text
-      , reCount :: Int
-      }
-  deriving (Eq, Show)
+  = RefNotFound Text Text
+  | RefAmbiguous Text Text Int
+  deriving stock (Eq, Show)
 
 -- | Render a 'ResolveError' to its canonical human-readable message.
 resolveErrorMessage :: ResolveError -> Text

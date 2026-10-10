@@ -73,7 +73,7 @@ data QuiesceMode
   = QuiesceAuto
   | QuiesceRequire
   | QuiesceSkip
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 quiesceModeToWire :: QuiesceMode -> CGE.QuiesceMode
 quiesceModeToWire QuiesceAuto = CGE.QuiesceMode'auto

@@ -33,6 +33,7 @@ import Corvus.Model
 import Corvus.Protocol
 import Corvus.Types
 import Data.Int (Int64)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -260,10 +261,10 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
             -- Get all VMs this key is attached to
             allAttachments <- runSqlPool (selectList [VmSshKeySshKeyId ==. sshKeyKey] []) pool
             vmRefs <- forM allAttachments $ \att -> do
-              let vmKey = vmSshKeyVmId (entityVal att)
-              mVm <- runSqlPool (get vmKey) pool
-              let vName = maybe "(deleted)" vmName mVm
-              pure NamedRef {nrId = fromSqlKey vmKey, nrName = vName}
+              let attachedVmKey = vmSshKeyVmId (entityVal att)
+              attachedVm <- runSqlPool (get attachedVmKey) pool
+              let vName = maybe "(deleted)" vmName attachedVm
+              pure NamedRef {nrId = fromSqlKey attachedVmKey, nrName = vName}
             pure $
               Just
                 SshKeyInfo
@@ -273,7 +274,7 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
                   , skiCreatedAt = sshKeyCreatedAt key
                   , skiAttachedVms = vmRefs
                   }
-      pure $ RespSshKeyList $ map (\(Just x) -> x) $ filter (/= Nothing) infos
+      pure $ RespSshKeyList $ catMaybes infos
 
 --------------------------------------------------------------------------------
 -- Action Types

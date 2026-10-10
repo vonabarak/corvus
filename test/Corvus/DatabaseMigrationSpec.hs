@@ -13,7 +13,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Database.Persist.Sql (PersistValue (..), Single (..), SqlBackend, SqlPersistT, rawExecute, rawSql, runSqlPool)
 import qualified Test.Database as TestDb
-import Test.Hspec
+import Test.Hspec hiding (before)
 
 spec :: Spec
 spec = do

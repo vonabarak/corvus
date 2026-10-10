@@ -1,0 +1,94 @@
+name: corvus-tools
+version: 0.1.0.0
+synopsis: Development checks for Corvus
+license: BSD-3-Clause
+dependencies:
+  - base >= 4.7 && < 5
+
+ghc-options:
+  - -Wall
+  - -Werror
+  - -Werror=incomplete-patterns
+  - -Werror=incomplete-uni-patterns
+  - -Werror=incomplete-record-updates
+  - -Werror=missing-fields
+  - -Werror=missing-methods
+  - -Wpartial-fields
+  - -Wmissing-deriving-strategies
+  - -Wmissing-export-lists
+  - -Wunused-packages
+  - -Werror=x-partial
+  - -Werror=unused-imports
+  - -Werror=unused-top-binds
+  - -Werror=unused-local-binds
+  - -Werror=unused-matches
+  - -Werror=unused-type-patterns
+  - -Werror=unused-foralls
+  - -Werror=unused-record-wildcards
+  - -Werror=redundant-constraints
+
+default-extensions:
+  - OverloadedStrings
+  - DeriveGeneric
+  - DeriveAnyClass
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+  - StandaloneDeriving
+  - TypeFamilies
+  - GADTs
+  - UndecidableInstances
+  - DataKinds
+  - FlexibleInstances
+  - MultiParamTypeClasses
+  - QuasiQuotes
+  - TemplateHaskell
+
+executables:
+  corvus-code-metrics:
+    main: Main.hs
+    source-dirs:
+      - code-metrics-cli
+      - code-metrics
+    dependencies:
+      - bytestring
+      - process
+      - directory
+      - filepath
+      - ghc
+      - Cabal
+  corvus-coverage-check:
+    main: Main.hs
+    source-dirs:
+      - coverage-check-cli
+      - coverage-check
+    dependencies:
+      - aeson
+      - containers
+      - directory
+      - filepath
+      - process
+      - hpc
+
+tests:
+  corvus-tools-test:
+    main: Main.hs
+    source-dirs:
+      - test-main
+      - test
+      - code-metrics
+      - coverage-check
+    build-tools:
+      - hspec-discover
+    dependencies:
+      - aeson
+      - bytestring
+      - containers
+      - directory
+      - filepath
+      - process
+      - ghc
+      - Cabal
+      - hpc
+      - hspec
+      - temporary
+      - time

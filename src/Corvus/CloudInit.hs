@@ -55,7 +55,7 @@ data CloudInitConfig = CloudInitConfig
   , ciInjectSshKeys :: !Bool
   -- ^ When True, inject DB SSH keys into custom userData
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Default cloud-init configuration
 defaultCloudInitConfig :: CloudInitConfig
@@ -178,7 +178,7 @@ data StaticNicConfig = StaticNicConfig
   , snicPrefix :: !Int
   , snicGateway :: !Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Build a cloud-init NoCloud @network-config@ (version 2 schema)
 -- with one Ethernet stanza per NIC, matched by MAC. Returns

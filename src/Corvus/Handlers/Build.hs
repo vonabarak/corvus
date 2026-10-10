@@ -8,7 +8,7 @@
 -- A build pipeline is procedural: instantiate a template, run a sequence of
 -- in-VM provisioners against it, capture one of its disks as a registered
 -- Corvus image, and tear down everything else. The single entry point is
--- 'BuildAction'; per-Build helpers run inline so the entire pipeline is one
+-- 'runBuildPipeline'; per-Build helpers run inline so the entire pipeline is one
 -- task with many subtasks (template instantiate, vm start, vm stop, …).
 --
 -- Cleanup of ephemeral resources is delegated to "Corvus.Handlers.Build.Cleanup".
@@ -16,11 +16,7 @@
 -- exists; on success or failure the stack is drained according to the
 -- @cleanup:@ mode in the YAML.
 module Corvus.Handlers.Build
-  ( -- * Action
-    BuildAction (..)
-
-    -- * Handlers
-  , runBuildPipeline
+  ( runBuildPipeline
 
     -- * Streaming sink
   , BuildSink
@@ -56,36 +52,8 @@ import Database.Persist
 import Database.Persist.Sql (runSqlPool)
 
 --------------------------------------------------------------------------------
--- Streaming sink
+-- Pipeline entry point
 --------------------------------------------------------------------------------
-
--- | Discard all events. Used when the operator did not request a live
--- stream — the full build still records subtasks and per-step messages
--- in the database, just nothing is pushed over the wire.
-noOpBuildSink :: BuildSink
-noOpBuildSink _ = pure ()
-
--- | Input for @daemon.build@.
-newtype BuildAction = BuildAction
-  { baYaml :: Text
-  }
-
-instance Action BuildAction where
-  actionSubsystem _ = SubBuild
-  actionCommand _ = "build"
-  actionExecute ctx a = handleBuildExecute (acState ctx) (acTaskId ctx) (baYaml a)
-
---------------------------------------------------------------------------------
--- Pipeline entry points
---------------------------------------------------------------------------------
-
--- | Action-driven entry point. Runs the build with no streaming sink,
--- producing a 'RespBuildResult' (or 'RespError') the same way it
--- always has. Used for @--wait=false@ (forked from
--- 'runActionAsyncWithId') and for any caller that doesn't want events.
-handleBuildExecute :: ServerState -> TaskId -> Text -> IO Response
-handleBuildExecute state parentTaskId =
-  runBuildPipeline state parentTaskId noOpBuildSink
 
 -- | Run a build pipeline, sending events to the supplied sink. Returns
 -- the same response shape as before. Per-step 'BuildEnd' events are

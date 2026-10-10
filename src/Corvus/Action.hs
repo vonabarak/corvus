@@ -120,7 +120,7 @@ mkActionContext state taskId clientName =
 -- 'TaskManager.cancel' @throwTo@. 'runAndFinalizeResult' catches
 -- it and finalises the task as 'TaskCancelled'.
 data TaskCancelledException = TaskCancelledException
-  deriving (Show)
+  deriving stock (Show)
 
 instance Exception TaskCancelledException
 
@@ -239,12 +239,12 @@ runActionAsSubtask parentCtx action = do
       -- Record the failed validation as a subtask
       taskKey <- createTaskRecord state clientName action (Just parentId)
       now <- getCurrentTime
-      let (taskResult, message) = classifyResponse errResp
+      let (resultStatus, message) = classifyResponse errResp
       runSqlPool
         ( update
             taskKey
             [ TaskFinishedAt =. Just now
-            , TaskResult =. taskResult
+            , TaskResult =. resultStatus
             , TaskMessage =. message
             ]
         )
@@ -261,8 +261,8 @@ runActionAsSubtask parentCtx action = do
           pure errResp
         Right resp -> do
           -- Also cancel siblings if the action returned an error response
-          let (taskResult, _) = classifyResponse resp
-          case taskResult of
+          let (resultStatus, _) = classifyResponse resp
+          case resultStatus of
             TaskError -> cancelRemainingSubtasks (ssDbPool state) parentId
             _ -> pure ()
           pure resp
@@ -343,20 +343,20 @@ runAndFinalizeResult state ctx action = do
       pure $ Left (RespError msg)
     else case result of
       Right response -> do
-        let (taskResult, message) = classifyResponse response
+        let (resultStatus, message) = classifyResponse response
             (mId, mName) = extractEntityFromResponse response
         runSqlPool
           ( update
               taskKey
               [ TaskFinishedAt =. Just finishTime
-              , TaskResult =. taskResult
+              , TaskResult =. resultStatus
               , TaskMessage =. message
               , TaskEntityId =. (mId `orElse` actionEntityId action)
               , TaskEntityName =. (mName `orElse` actionEntityName action)
               ]
           )
           pool
-        pushTaskFinished state (fromSqlKey taskKey) taskResult message
+        pushTaskFinished state (fromSqlKey taskKey) resultStatus message
         pure $ Right response
       Left (err :: SomeException) -> do
         let errMsg = T.pack (show err)
@@ -406,9 +406,9 @@ executeCreate parentCtx action taskId = do
   case result of
     Left (err :: SomeException) -> pure $ Left $ T.pack $ show err
     Right resp -> do
-      let (taskResult, msg) = classifyResponse resp
+      let (resultStatus, msg) = classifyResponse resp
           (mId, _) = extractEntityFromResponse resp
-      case taskResult of
+      case resultStatus of
         TaskSuccess -> case mId of
           Just eid -> pure $ Right (fromIntegral eid)
           Nothing -> pure $ Left "Action succeeded but no entity ID returned"

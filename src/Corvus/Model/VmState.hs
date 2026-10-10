@@ -55,7 +55,7 @@ data VmAction
   | -- Migration orchestrator completion
     ActionMigrateDone
   | ActionMigrateFail
-  deriving (Eq, Show, Bounded, Enum)
+  deriving stock (Eq, Show, Bounded, Enum)
 
 -- | Check if a state transition is valid.
 -- Returns @Right newStatus@ if valid, @Left errorMessage@ if invalid.

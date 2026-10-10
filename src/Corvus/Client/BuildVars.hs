@@ -68,7 +68,7 @@ data VarError
     VarFileParse FilePath Text
   | -- | A @--var-file@ couldn't be read.
     VarFileRead FilePath Text
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 renderVarError :: VarError -> Text
 renderVarError = \case

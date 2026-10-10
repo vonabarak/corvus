@@ -47,7 +47,7 @@ data ProcSample = ProcSample
   , psRssBytes :: !Word64
   -- ^ VmRSS from /proc/\<pid\>/status, normalised to bytes.
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Sample CPU jiffies + host RSS for the given pid. Returns
 -- 'Nothing' if either /proc file is missing or unparseable
@@ -105,7 +105,7 @@ data TapSample = TapSample
   { tsRxBytes :: !Word64
   , tsTxBytes :: !Word64
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Sample cumulative rx/tx byte counters for a host network
 -- device. Returns 'Nothing' if the sysfs path does not exist

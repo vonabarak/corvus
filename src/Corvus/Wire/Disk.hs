@@ -24,6 +24,7 @@ import Corvus.Wire.Common
 import Corvus.Wire.Enums (fromCapnpDriveFormat, toCapnpDriveFormat)
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
+import Prelude hiding (id)
 
 -- ---------------------------------------------------------------------
 -- Disk image

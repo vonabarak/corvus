@@ -24,7 +24,7 @@ data ApplyCreated = ApplyCreated
   { acName :: !Text
   , acId :: !Int64
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Summary of resources created by an apply operation
 data ApplyResult = ApplyResult
@@ -34,7 +34,7 @@ data ApplyResult = ApplyResult
   , arVms :: ![ApplyCreated]
   , arTemplates :: ![ApplyCreated]
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON ApplyCreated where
   toJSON = genericToJSON innerOptions
@@ -76,7 +76,7 @@ data ApplyEvent
   | -- | Terminal event: @(result, message, parentTaskId)@. Always
     -- the last event before @end()@.
     ApplyEnd !TaskResult !Text !Int64
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON ApplyEvent where
   toJSON = genericToJSON innerOptions

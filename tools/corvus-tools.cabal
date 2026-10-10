@@ -1,0 +1,136 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.39.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           corvus-tools
+version:        0.1.0.0
+synopsis:       Development checks for Corvus
+license:        BSD-3-Clause
+build-type:     Simple
+
+executable corvus-code-metrics
+  main-is: Main.hs
+  other-modules:
+      Corvus.CodeMetrics
+      Corvus.CodeMetrics.Settings
+      Paths_corvus_tools
+  autogen-modules:
+      Paths_corvus_tools
+  hs-source-dirs:
+      code-metrics-cli
+      code-metrics
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      TypeFamilies
+      GADTs
+      UndecidableInstances
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
+      QuasiQuotes
+      TemplateHaskell
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
+  build-depends:
+      Cabal
+    , base >=4.7 && <5
+    , bytestring
+    , directory
+    , filepath
+    , ghc
+    , process
+  default-language: Haskell2010
+
+executable corvus-coverage-check
+  main-is: Main.hs
+  other-modules:
+      Corvus.Coverage
+      Paths_corvus_tools
+  autogen-modules:
+      Paths_corvus_tools
+  hs-source-dirs:
+      coverage-check-cli
+      coverage-check
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      TypeFamilies
+      GADTs
+      UndecidableInstances
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
+      QuasiQuotes
+      TemplateHaskell
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , containers
+    , directory
+    , filepath
+    , hpc
+    , process
+  default-language: Haskell2010
+
+test-suite corvus-tools-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Corvus.CodeMetricsSpec
+      Corvus.CoverageSpec
+      Spec
+      Corvus.CodeMetrics
+      Corvus.CodeMetrics.Settings
+      Corvus.Coverage
+      Paths_corvus_tools
+  autogen-modules:
+      Paths_corvus_tools
+  hs-source-dirs:
+      test-main
+      test
+      code-metrics
+      coverage-check
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      TypeFamilies
+      GADTs
+      UndecidableInstances
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
+      QuasiQuotes
+      TemplateHaskell
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
+  build-tool-depends:
+      hspec-discover:hspec-discover
+  build-depends:
+      Cabal
+    , aeson
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , ghc
+    , hpc
+    , hspec
+    , process
+    , temporary
+    , time
+  default-language: Haskell2010

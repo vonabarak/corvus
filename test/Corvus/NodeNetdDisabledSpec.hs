@@ -25,13 +25,13 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- seedTestNode
         setTestNodeNetdDisabled True
-      when_ $ whenNetworkCreate "n-blocked" "10.0.0.0/24"
+      _ <- when_ $ whenNetworkCreate "n-blocked" "10.0.0.0/24"
       then_ $ responseIs $ \case
         RespNetworkError msg -> "netdDisabled" `T.isInfixOf` msg
         _ -> False
 
     testCase "still accepts NetworkCreate when the node has netd enabled" $ do
-      when_ $ whenNetworkCreate "n-ok" "10.0.0.0/24"
+      _ <- when_ $ whenNetworkCreate "n-ok" "10.0.0.0/24"
       then_ $ responseIs $ \case
         RespNetworkCreated _ -> True
         _ -> False
@@ -41,7 +41,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         setTestNodeNetdDisabled True
-      when_ $ whenNetIfAdd 1 NetTap "tap0" Nothing
+      _ <- when_ $ whenNetIfAdd 1 NetTap "tap0" Nothing
       then_ $ responseIs $ \case
         RespError msg -> "requires netd" `T.isInfixOf` msg
         _ -> False
@@ -50,7 +50,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         setTestNodeNetdDisabled True
-      when_ $ whenNetIfAdd 1 NetBridge "br0" Nothing
+      _ <- when_ $ whenNetIfAdd 1 NetBridge "br0" Nothing
       then_ $ responseIs $ \case
         RespError msg -> "requires netd" `T.isInfixOf` msg
         _ -> False
@@ -59,7 +59,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         setTestNodeNetdDisabled True
-      when_ $ whenNetIfAdd 1 NetMacvtap "eth0" Nothing
+      _ <- when_ $ whenNetIfAdd 1 NetMacvtap "eth0" Nothing
       then_ $ responseIs $ \case
         RespError msg -> "requires netd" `T.isInfixOf` msg
         _ -> False
@@ -68,7 +68,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         setTestNodeNetdDisabled True
-      when_ $ whenNetIfAdd 1 NetUser "" Nothing
+      _ <- when_ $ whenNetIfAdd 1 NetUser "" Nothing
       then_ $ responseIs $ \case
         RespNetIfAdded _ -> True
         _ -> False
@@ -77,7 +77,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         setTestNodeNetdDisabled True
-      when_ $ whenNetIfAdd 1 NetVde "/run/vde.ctl" Nothing
+      _ <- when_ $ whenNetIfAdd 1 NetVde "/run/vde.ctl" Nothing
       then_ $ responseIs $ \case
         RespNetIfAdded _ -> True
         _ -> False
@@ -88,7 +88,7 @@ spec = sequential $ withTestDb $ do
         _ <- seedTestNode
         pure ()
       -- Seeded test node has id 1 in a fresh per-test DB.
-      when_ $ whenNodeEditNetdDisabled 1 True
+      _ <- when_ $ whenNodeEditNetdDisabled 1 True
       then_ $ responseIs $ \case
         RespNodeEdited -> True
         _ -> False
@@ -97,7 +97,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertNetwork "owned-by-node" "10.0.0.0/24"
         pure ()
-      when_ $ whenNodeEditNetdDisabled 1 True
+      _ <- when_ $ whenNodeEditNetdDisabled 1 True
       then_ $ responseIs $ \case
         RespError msg ->
           "Cannot disable netd" `T.isInfixOf` msg
@@ -109,7 +109,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "v" VmStopped
         _ <- insertNetworkInterface vmId NetManaged "" "52:54:00:aa:bb:01"
         pure ()
-      when_ $ whenNodeEditNetdDisabled 1 True
+      _ <- when_ $ whenNodeEditNetdDisabled 1 True
       then_ $ responseIs $ \case
         RespError msg ->
           "Cannot disable netd" `T.isInfixOf` msg
@@ -122,7 +122,7 @@ spec = sequential $ withTestDb $ do
         setTestNodeNetdDisabled True
       -- The flip true→false isn't gated; flipping back is always
       -- legal so operators can recover from accidental toggles.
-      when_ $ whenNodeEditNetdDisabled 1 False
+      _ <- when_ $ whenNodeEditNetdDisabled 1 False
       then_ $ responseIs $ \case
         RespNodeEdited -> True
         _ -> False

@@ -131,6 +131,7 @@ syncGuest sock = do
   sendJson sock $ Aeson.object ["execute" .= ("guest-sync" :: Text), "arguments" .= Aeson.object ["id" .= syncId]]
   waitForSync syncId 10
   where
+    waitForSync :: Int -> Int -> IO ()
     waitForSync _ 0 = pure ()
     waitForSync expected remaining = do
       response <- recvJson sock

@@ -33,7 +33,7 @@ spec :: Spec
 spec = sequential $ withTestDb $ do
   describe "runAction task recording" $ do
     testCase "a successful whenVmCreate writes one success-tagged Task row" $ do
-      when_ $ whenVmCreate "tracked" 1 268435456 Nothing
+      _ <- when_ $ whenVmCreate "tracked" 1 268435456 Nothing
       then_ $ do
         responseIs $ \case
           RespVmCreated _ -> True
@@ -51,7 +51,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "dup" VmStopped
         pure ()
-      when_ $ whenVmCreate "dup" 1 268435456 Nothing
+      _ <- when_ $ whenVmCreate "dup" 1 268435456 Nothing
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -67,7 +67,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "running-delete" VmRunning
         pure ()
-      when_ $ whenVmDelete 1
+      _ <- when_ $ whenVmDelete 1
       then_ $ do
         responseIs (== RespVmMustBeStopped)
         vmExists 1
@@ -81,7 +81,7 @@ spec = sequential $ withTestDb $ do
         Nothing -> fail "expected one Task row, found none"
 
     testCase "whenSshKeyCreate records under the ssh-key subsystem" $ do
-      when_ $ whenSshKeyCreate "k" "ssh-ed25519 AAAA-k"
+      _ <- when_ $ whenSshKeyCreate "k" "ssh-ed25519 AAAA-k"
       then_ $ responseIs $ \case
         RespSshKeyCreated _ -> True
         _ -> False
@@ -93,15 +93,15 @@ spec = sequential $ withTestDb $ do
         Nothing -> fail "expected one Task row, found none"
 
     testCase "multiple actions land multiple Task rows in order" $ do
-      when_ $ whenVmCreate "a" 1 268435456 Nothing
-      when_ $ whenVmCreate "b" 1 268435456 Nothing
-      when_ $ whenSshKeyCreate "k" "ssh-ed25519 AAAA-k"
+      _ <- when_ $ whenVmCreate "a" 1 268435456 Nothing
+      _ <- when_ $ whenVmCreate "b" 1 268435456 Nothing
+      _ <- when_ $ whenSshKeyCreate "k" "ssh-ed25519 AAAA-k"
       then_ $ taskCount 3
 
     testCase "runAction stamps clientName on the Task row" $ do
       -- The DSL's whenVmCreate runs through `runAction state "alice" …`,
       -- so the recorded row should carry "alice".
-      when_ $ whenVmCreate "named-vm" 1 268435456 Nothing
+      _ <- when_ $ whenVmCreate "named-vm" 1 268435456 Nothing
       mTask <- getLastTask
       liftIO $ case mTask of
         Just (Entity _ t) -> taskClientName t `shouldBe` "alice"

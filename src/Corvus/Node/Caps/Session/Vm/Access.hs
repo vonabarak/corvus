@@ -299,3 +299,7 @@ handleVmSetSpiceTicket sc vmId password ttlSeconds = do
               (fromIntegral ttlSeconds)
           case r2 of
             NQ.QmpSuccess -> pure CGNA.Session'vmSetSpiceTicket'results
+            NQ.QmpError err -> throwFailed ("vmSetSpiceTicket: " <> err)
+            NQ.QmpConnectionFailed err -> throwFailed ("vmSetSpiceTicket: " <> err)
+        NQ.QmpError err -> throwFailed ("vmSetSpiceTicket: " <> err)
+        NQ.QmpConnectionFailed err -> throwFailed ("vmSetSpiceTicket: " <> err)

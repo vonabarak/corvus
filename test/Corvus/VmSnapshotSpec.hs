@@ -25,7 +25,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "vm-empty" VmStopped
         pure ()
-      when_ $ vmSnapshotList 1
+      _ <- when_ $ vmSnapshotList 1
       then_ $ responseIs $ \case
         RespVmSnapshotList [] -> True
         _ -> False
@@ -42,7 +42,7 @@ spec = sequential $ withTestDb $ do
         _ <- insertSnapshotWithVmstate d1 "cp1" True
         _ <- insertSnapshotWithVmstate d2 "cp1" False
         pure ()
-      when_ $ vmSnapshotList 1
+      _ <- when_ $ vmSnapshotList 1
       then_ $ responseIs $ \case
         RespVmSnapshotList [info] ->
           vsiName info == "cp1"
@@ -58,13 +58,13 @@ spec = sequential $ withTestDb $ do
         -- Disk-only snapshot — not surfaced by the VM-scoped list.
         _ <- insertSnapshot d "disk-only"
         pure ()
-      when_ $ vmSnapshotList 1
+      _ <- when_ $ vmSnapshotList 1
       then_ $ responseIs $ \case
         RespVmSnapshotList [] -> True
         _ -> False
 
     testCase "fails for a non-existent VM" $ do
-      when_ $ vmSnapshotList 999
+      _ <- when_ $ vmSnapshotList 999
       then_ responseIsVmNotFound
 
   describe "vm snapshot create validation" $ do
@@ -74,7 +74,7 @@ spec = sequential $ withTestDb $ do
         d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         pure ()
-      when_ $ vmSnapshotCreate 1 "cp1"
+      _ <- when_ $ vmSnapshotCreate 1 "cp1"
       then_ $ responseIs $ \case
         RespError msg ->
           T.isInfixOf "not running" msg
@@ -92,27 +92,27 @@ spec = sequential $ withTestDb $ do
         -- a new VM-scoped "cp1" before the daemon spawns a task.
         _ <- insertSnapshot d2 "cp1"
         pure ()
-      when_ $ vmSnapshotCreate 1 "cp1"
+      _ <- when_ $ vmSnapshotCreate 1 "cp1"
       then_ $ responseIs $ \case
         RespError msg -> T.isInfixOf "already exists" msg
         _ -> False
 
     testCase "fails for a non-existent VM" $ do
-      when_ $ vmSnapshotCreate 999 "cp1"
+      _ <- when_ $ vmSnapshotCreate 999 "cp1"
       then_ responseIsVmNotFound
 
     testCase "rejects when VM has no writable qcow2 drives" $ do
       given $ do
         _ <- insertVm "vm-no-drives" VmRunning
         pure ()
-      when_ $ vmSnapshotCreate 1 "cp1"
+      _ <- when_ $ vmSnapshotCreate 1 "cp1"
       then_ $ responseIs $ \case
         RespError msg -> T.isInfixOf "no writable qcow2" msg
         _ -> False
 
   describe "vm snapshot rollback validation" $ do
     testCase "fails for a non-existent VM" $ do
-      when_ $ vmSnapshotRollback 999 "cp1"
+      _ <- when_ $ vmSnapshotRollback 999 "cp1"
       then_ responseIsVmNotFound
 
     testCase "fails for a snapshot that doesn't exist for this VM" $ do
@@ -121,7 +121,7 @@ spec = sequential $ withTestDb $ do
         d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         pure ()
-      when_ $ vmSnapshotRollback 1 "missing"
+      _ <- when_ $ vmSnapshotRollback 1 "missing"
       then_ responseIsSnapshotNotFound
 
   describe "vm snapshot delete validation" $ do
@@ -132,7 +132,7 @@ spec = sequential $ withTestDb $ do
         _ <- attachDrive vmId d InterfaceVirtio
         _ <- insertSnapshotWithVmstate d "cp1" True
         pure ()
-      when_ $ vmSnapshotDelete 1 "cp1"
+      _ <- when_ $ vmSnapshotDelete 1 "cp1"
       then_ $ responseIs $ \case
         RespError msg -> T.isInfixOf "not running" msg
         _ -> False
@@ -143,9 +143,9 @@ spec = sequential $ withTestDb $ do
         d <- insertDiskImage "boot" FormatQcow2
         _ <- attachDrive vmId d InterfaceVirtio
         pure ()
-      when_ $ vmSnapshotDelete 1 "missing"
+      _ <- when_ $ vmSnapshotDelete 1 "missing"
       then_ responseIsSnapshotNotFound
 
     testCase "fails for a non-existent VM" $ do
-      when_ $ vmSnapshotDelete 999 "cp1"
+      _ <- when_ $ vmSnapshotDelete 999 "cp1"
       then_ responseIsVmNotFound

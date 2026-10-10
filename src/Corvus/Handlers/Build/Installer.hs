@@ -20,7 +20,7 @@ import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Handlers.Build.Artifact (publishArtifact)
 import Corvus.Model
 import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
-import Corvus.Protocol.Build (BuildEvent (BuildLogLine), BuildSink (..))
+import Corvus.Protocol.Build (BuildEvent (BuildLogLine), BuildSink)
 import Corvus.Schema.Build (BootKey (..), Build, buildBootKeys, buildWaitForShutdownSec)
 import Corvus.Types
 import Data.Int (Int64)

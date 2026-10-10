@@ -37,7 +37,7 @@ spec = sequential $ withTestDb $ do
 
   describe "whenApply: empty config" $ do
     testCase "succeeds with zero resources created" $ do
-      when_ $ whenApply "{}\n"
+      _ <- when_ $ whenApply "{}\n"
       then_ $ responseIs $ \case
         RespApplyResult r ->
           null (arSshKeys r)
@@ -58,7 +58,7 @@ spec = sequential $ withTestDb $ do
             \    publicKey: ssh-ed25519 AAAA-alice\n\
             \  - name: bob\n\
             \    publicKey: ssh-ed25519 AAAA-bob\n"
-      when_ $ whenApply yaml
+      _ <- when_ $ whenApply yaml
       then_ $ responseIs $ \case
         RespApplyResult r -> length (arSshKeys r) == 2
         _ -> False
@@ -73,7 +73,7 @@ spec = sequential $ withTestDb $ do
             \  - name: imported\n\
             \    format: qcow2\n\
             \    register: /baseimages/imported.qcow2\n"
-      when_ $ whenApply yaml
+      _ <- when_ $ whenApply yaml
       then_ $ do
         responseIs $ \case
           RespError _ -> True
@@ -87,7 +87,7 @@ spec = sequential $ withTestDb $ do
     testCase "surfaces a RespError instead of crashing the handler" $ do
       -- `disks: notalist` confuses the FromJSON instance, which
       -- emits an error message rather than a parsed config.
-      when_ $ whenApply "disks: notalist\n"
+      _ <- when_ $ whenApply "disks: notalist\n"
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -175,7 +175,7 @@ spec = sequential $ withTestDb $ do
             "sshKeys:\n\
             \  - name: shared\n\
             \    publicKey: ssh-ed25519 AAAA-shared\n"
-      when_ $ whenApply yaml
+      _ <- when_ $ whenApply yaml
       then_ $ responseIs $ \case
         -- 'ifExists' defaults to 'error', so the second insert
         -- comes back as RespError; ApplyResult is not returned.
@@ -192,7 +192,7 @@ spec = sequential $ withTestDb $ do
             \sshKeys:\n\
             \  - name: exists\n\
             \    publicKey: ssh-ed25519 AAAA-exists\n"
-      when_ $ whenApply yaml
+      _ <- when_ $ whenApply yaml
       then_ $ responseIs $ \case
         RespApplyResult _ -> True
         _ -> False
@@ -214,7 +214,7 @@ spec = sequential $ withTestDb $ do
             \sshKeys:\n\
             \  - name: rotate\n\
             \    publicKey: ssh-ed25519 AAAA-new\n"
-      when_ $ whenApply yaml
+      _ <- when_ $ whenApply yaml
       then_ $ do
         responseIs $ \case
           RespApplyResult r -> length (arSshKeys r) == 1
@@ -236,7 +236,7 @@ spec = sequential $ withTestDb $ do
             \sshKeys:\n\
             \  - name: shared\n\
             \    publicKey: ssh-ed25519 AAAA-rotated\n"
-      when_ $ whenApply yaml
+      _ <- when_ $ whenApply yaml
       then_ $ do
         -- The pre-flight returns 'Left' with an actionable
         -- message; the apply surfaces it as a RespError rather

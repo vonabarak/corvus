@@ -38,7 +38,6 @@ module Corvus.NetAgentClient
 
     -- * Liveness / negotiation
   , ping
-  , agentVersion
 
     -- * Networks
   , applyNetwork
@@ -47,11 +46,9 @@ module Corvus.NetAgentClient
 
     -- * TAPs
   , applyTap
-  , listTaps
   , deleteTap
 
     -- * Kernel knobs
-  , setIpForwarding
   )
 where
 
@@ -85,13 +82,13 @@ data NetworkSpec = NetworkSpec
   , nsDhcp :: !DhcpSpec
   , nsOverlay :: !OverlaySpec
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data NatSpec = NatSpec
   { natEnabled :: !Bool
   , natUplinkIf :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DhcpSpec = DhcpSpec
   { dhcpEnabled :: !Bool
@@ -104,13 +101,13 @@ data DhcpSpec = DhcpSpec
   , dhcpDnsServers :: ![T.Text]
   , dhcpHostDns :: !Bool
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DhcpHostReservation = DhcpHostReservation
   { dhrMac :: !T.Text
   , dhrIp :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Multi-node overlay configuration. 'OverlayNone' = single-node
 -- bridge (today's behavior); 'OverlayVxlan' wires a VTEP onto the
@@ -118,21 +115,21 @@ data DhcpHostReservation = DhcpHostReservation
 data OverlaySpec
   = OverlayNone
   | OverlayVxlan !VxlanSpec
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VxlanSpec = VxlanSpec
   { vsVni :: !Word32
   , vsLocalIp :: !T.Text
   , vsPeerIps :: ![T.Text]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data NetworkInfo = NetworkInfo
   { niSpec :: !NetworkSpec
   , niUpState :: !T.Text
   , niDnsmasqPid :: !Word32
   }
-  deriving (Show)
+  deriving stock (Show)
 
 data TapSpec = TapSpec
   { tsName :: !T.Text
@@ -140,13 +137,13 @@ data TapSpec = TapSpec
   , tsUid :: !Word32
   , tsGid :: !Word32
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data TapInfo = TapInfo
   { tiSpec :: !TapSpec
   , tiUpState :: !T.Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- ---------------------------------------------------------------------------
 -- Client handle + lifecycle
@@ -164,7 +161,7 @@ data NetAgentClient = NetAgentClient
 data NetAgentError
   = NetAgentConnectFailed !T.Text
   | NetAgentRemoteError !T.Text
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception NetAgentError
 
@@ -252,16 +249,6 @@ ping nac = remote $ do
     callOn #ping CGN.NetAgent'ping'params (nacAgent nac)
   pure ()
 
-agentVersion :: NetAgentClient -> IO (Either NetAgentError (T.Text, [T.Text]))
-agentVersion nac = remote $ do
-  CGN.NetAgent'version'results {CGN.info = info_} <-
-    callOn #version CGN.NetAgent'version'params (nacAgent nac)
-  let CGN.AgentInfo {CGN.semver = sv, CGN.capabilities = caps} = info_
-  pure (sv, caps)
-
--- ---------------------------------------------------------------------------
--- Networks
-
 applyNetwork
   :: NetAgentClient -> NetworkSpec -> IO (Either NetAgentError NetworkInfo)
 applyNetwork nac spec = remote $ do
@@ -302,36 +289,12 @@ applyTap nac spec = remote $ do
       (nacSession nac)
   pure (decodeTapInfo info_)
 
-listTaps :: NetAgentClient -> IO (Either NetAgentError [TapInfo])
-listTaps nac = remote $ do
-  CGN.Session'listTaps'results {CGN.taps = ts} <-
-    callOn
-      #listTaps
-      CGN.Session'listTaps'params
-      (nacSession nac)
-  pure (map decodeTapInfo ts)
-
 deleteTap :: NetAgentClient -> T.Text -> IO (Either NetAgentError ())
 deleteTap nac name = remote $ do
   _ :: C.Parsed CGN.Session'deleteTap'results <-
     callOn
       #deleteTap
       CGN.Session'deleteTap'params {CGN.name = name}
-      (nacSession nac)
-  pure ()
-
--- ---------------------------------------------------------------------------
--- Kernel knobs
-
-setIpForwarding :: NetAgentClient -> Bool -> IO (Either NetAgentError ())
-setIpForwarding nac enabled = remote $ do
-  _ :: C.Parsed CGN.Session'setIpForwarding'results <-
-    callOn
-      #setIpForwarding
-      CGN.Session'setIpForwarding'params
-        { CGN.enabled = enabled
-        , CGN.family_ = CGN.NetFamily'v4
-        }
       (nacSession nac)
   pure ()
 

@@ -51,18 +51,18 @@ data TapSpec = TapSpec
   , tsUid :: !Word32
   , tsGid :: !Word32
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data TapInfo = TapInfo
   { tiSpec :: !TapSpec
   , tiUpState :: !T.Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 data TapError
   = InvalidTapName !T.Text
   | KernelFailure !T.Text
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception TapError
 

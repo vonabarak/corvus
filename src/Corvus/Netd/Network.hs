@@ -86,13 +86,13 @@ data NetworkSpec = NetworkSpec
   , nsDhcp :: !DhcpSpec
   , nsOverlay :: !OverlaySpec
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data NatSpec = NatSpec
   { natEnabled :: !Bool
   , natUplinkIf :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DhcpSpec = DhcpSpec
   { dhcpEnabled :: !Bool
@@ -105,13 +105,13 @@ data DhcpSpec = DhcpSpec
   , dhcpDnsServers :: ![T.Text]
   , dhcpHostDns :: !Bool
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DhcpHostReservation = DhcpHostReservation
   { dhrMac :: !T.Text
   , dhrIp :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Overlay configuration. 'OverlayNone' is single-node behavior;
 -- 'OverlayVxlan' wires a VXLAN VTEP onto the bridge so the L2
@@ -119,14 +119,14 @@ data DhcpHostReservation = DhcpHostReservation
 data OverlaySpec
   = OverlayNone
   | OverlayVxlan !VxlanSpec
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VxlanSpec = VxlanSpec
   { vsVni :: !Word32
   , vsLocalIp :: !T.Text
   , vsPeerIps :: ![T.Text]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Live kernel/process handles the agent allocated for one
 -- network. Stays in the ledger alongside the spec.
@@ -141,7 +141,7 @@ data NetworkInfo = NetworkInfo
   , niUpState :: !T.Text
   , niDnsmasqPid :: !Word32
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- | Errors surfaced to the Session cap layer.
 data NetworkError
@@ -149,7 +149,7 @@ data NetworkError
   | KernelFailure !T.Text
   | NftFailure !T.Text
   | DnsmasqFailure !T.Text
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception NetworkError
 

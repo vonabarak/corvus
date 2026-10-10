@@ -102,7 +102,7 @@ data TlsRole
   | RoleNode
   | RoleNetd
   | RoleClient
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 roleFilename :: TlsRole -> T.Text
 roleFilename RoleDaemon = "corvus-daemon"
@@ -124,7 +124,7 @@ roleCNPrefix r = roleFilename r <> ":"
 -- so callers can carry the @CertSearchPath@ around without doing
 -- I/O.
 newtype CertSearchPath = CertSearchPath {certSearchDirs :: [FilePath]}
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Default search path for every component except the CLI:
 -- @$XDG_CONFIG_HOME/corvus/@ (default @~/.config/corvus/@), then
@@ -230,7 +230,7 @@ data TlsLoadError
   | -- | A cert in the chain didn't have a CN at all. The
     -- 'T.Text' names which file.
     TlsCertMissingCN !T.Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance E.Exception TlsLoadError
 

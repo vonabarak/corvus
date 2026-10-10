@@ -16,6 +16,7 @@ Corvus manages QEMU/KVM VMs. Haskell code lives in `src/` and `app/`;
   databases use versioned modules in `src/Corvus/Database/Migrations/`.
   Read the migration guide before changing schema versions or migrations.
 - `package.yaml` is the Hpack source for generated `corvus.cabal`.
+  Development tools have a separate package in `tools/`.
   Use `make build` for the Stack build.
 
 ## Implementation rules
@@ -50,8 +51,9 @@ Corvus manages QEMU/KVM VMs. Haskell code lives in `src/` and `app/`;
 
 ## Required commands
 
-- After Haskell or Python source changes, run `make format`, then `make lint`.
-  Formatting edits files; lint checks are read-only. Fix all lint warnings
+- After Haskell or Python source changes, run `make format`, then `make check`.
+  Formatting edits files; checks leave tracked files unchanged and include the
+  full Haskell suite, Weeder, and the coverage gate. Fix all check diagnostics
   before committing.
 - Both commands include frontend checks when `frontend/node_modules/` exists.
   If it is absent and frontend code changed, run the necessary frontend setup

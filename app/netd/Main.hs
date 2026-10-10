@@ -16,7 +16,7 @@
 -- systemd drives shutdown via SIGTERM with TimeoutStopSec=30s.
 -- The agent's own startup pass also runs cleanup, so each
 -- (re)start begins from an empty kernel state.
-module Main where
+module Main (main) where
 
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
@@ -50,7 +50,7 @@ data Options = Options
   , optNoTls :: Bool
   , optTlsCertDir :: Maybe FilePath
   }
-  deriving (Show)
+  deriving stock (Show)
 
 parseLogLevel :: String -> Either String LogLevel
 parseLogLevel s = case s of

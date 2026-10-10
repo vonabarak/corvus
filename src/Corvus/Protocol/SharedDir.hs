@@ -23,7 +23,7 @@ data SharedDirInfo = SharedDirInfo
   , sdiPid :: !(Maybe Int)
   -- ^ virtiofsd PID if running
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON SharedDirInfo where
   toJSON = genericToJSON innerOptions

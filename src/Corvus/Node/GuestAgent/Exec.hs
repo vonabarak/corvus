@@ -2,8 +2,7 @@
 
 -- | QGA command execution and status polling.
 module Corvus.Node.GuestAgent.Exec
-  ( guestExec
-  , guestExecWithTimeout
+  ( guestExecWithTimeout
   , guestExecWithStdin
   , splitLines
   , pollStatus
@@ -39,9 +38,6 @@ import System.Timeout (timeout)
 -- reused by a later request.
 pollRecvTimeoutMicros :: Int
 pollRecvTimeoutMicros = 5000000
-
-guestExec :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO GuestExecResult
-guestExec conns config vmId command = guestExecImpl conns config vmId command Nothing 600
 
 guestExecWithTimeout :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> Int -> IO GuestExecResult
 guestExecWithTimeout conns config vmId command = guestExecImpl conns config vmId command Nothing

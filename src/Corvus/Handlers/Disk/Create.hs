@@ -8,6 +8,8 @@ module Corvus.Handlers.Disk.Create
   )
 where
 
+import qualified Control.Monad.IO.Class
+import qualified Control.Monad.Logger
 import Corvus.Action
 import Corvus.Images
 
@@ -49,6 +51,7 @@ handleDiskCreate state name format size mPath ephemeral nodeRefText = runServerL
       withSelectedDiskNode state nodeRefText $
         createDiskOnNode state safeName format size mPath ephemeral
 
+createDiskOnNode :: (Control.Monad.IO.Class.MonadIO m, Control.Monad.Logger.MonadLogger m) => ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> NodeId -> m Response
 createDiskOnNode state safeName format size mPath ephemeral nid = do
   basePath <- liftIO $ nodeBasePathFor state nid
   reservedId <- liftIO $ runSqlPool reserveImageId (ssDbPool state)
@@ -111,6 +114,7 @@ handleDiskRegister state name filePath mFormat mBackingDiskId ephemeral nodeRefT
 -- | Register a file on one selected node. The caller has already validated
 -- the public name and resolved placement; this routine owns only image
 -- inspection and persistence, including the concurrent-register recovery.
+registerDiskOnNode :: (Control.Monad.IO.Class.MonadIO m) => ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Int64 -> Bool -> NodeId -> m Response
 registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
   basePath <- liftIO $ nodeBasePathFor state nid
   let storedPath = makeRelativeToBase basePath (T.unpack filePath)

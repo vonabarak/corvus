@@ -30,7 +30,7 @@ data NetworkInfo = NetworkInfo
   , nwiDomain :: !Text
   , nwiHostDns :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON NetworkInfo where
   toJSON = genericToJSON innerOptions

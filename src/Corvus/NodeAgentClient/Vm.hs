@@ -63,7 +63,7 @@ import Data.Word (Word32, Word64)
 data VmStartOutcome
   = VmStartStarted VmRuntimeInfo
   | VmStartVsockCidBusy
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- ---------------------------------------------------------------------------
 -- Encoders / decoders for VM abstraction wire types.

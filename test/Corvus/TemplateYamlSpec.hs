@@ -122,7 +122,7 @@ spec = do
           tyRng ty `shouldBe` True
           tyAutostart ty `shouldBe` False
           length (tyDrives ty) `shouldBe` 1
-          let [d] = tyDrives ty
+          [d] <- pure (tyDrives ty)
           tdyDiskImage d `shouldBe` Just (ImageTag "base-disk" "latest")
           tdyInterface d `shouldBe` InterfaceVirtio
           tdyMedia d `shouldBe` Just MediaDisk
@@ -133,20 +133,20 @@ spec = do
           tdySize d `shouldBe` Just 21474836480
           tdyEphemeral d `shouldBe` Just True
           length (tyNetworkInterfaces ty) `shouldBe` 1
-          let [n] = tyNetworkInterfaces ty
+          [n] <- pure (tyNetworkInterfaces ty)
           tnyType n `shouldBe` NetUser
           tnyHostDevice n `shouldBe` Nothing
           length (tySshKeys ty) `shouldBe` 1
-          let [k] = tySshKeys ty
+          [k] <- pure (tySshKeys ty)
           tkyName k `shouldBe` "admin-key"
           length (tySharedDirs ty) `shouldBe` 1
-          let [sd] = tySharedDirs ty
+          [sd] <- pure (tySharedDirs ty)
           tsdyPath sd `shouldBe` "/srv/data"
           tsdyTag sd `shouldBe` "data"
           tsdyCache sd `shouldBe` CacheAuto
           tsdyReadOnly sd `shouldBe` False
           length (tyAudioDevices ty) `shouldBe` 1
-          let [audioDevice] = tyAudioDevices ty
+          [audioDevice] <- pure (tyAudioDevices ty)
           tadyBackend audioDevice `shouldBe` AudioPipewire
           tadyOptions audioDevice `shouldBe` "out.name=speakers,in.name=mic"
 
@@ -174,7 +174,7 @@ spec = do
       case Yaml.decodeEither' (TE.encodeUtf8 yamlText) of
         Left err -> expectationFailure $ "parse failed: " ++ show err
         Right (ty :: TemplateYaml) -> do
-          let [d] = tyDrives ty
+          [d] <- pure (tyDrives ty)
           tdyDiskImage d `shouldBe` Nothing
           tdyStrategy d `shouldBe` StrategyCreate
           tdyFormat d `shouldBe` Just FormatQcow2

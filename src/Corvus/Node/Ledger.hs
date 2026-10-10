@@ -12,7 +12,6 @@ module Corvus.Node.Ledger
   , newVmLedger
   , readVms
   , lookupVm
-  , insertVm
   , removeVm
   , removeVmIfCurrent
   , VmStartAdmission (..)
@@ -117,9 +116,6 @@ readVms = readTVar . vmVar
 
 lookupVm :: VmLedger -> Int64 -> STM (Maybe VmLiveState)
 lookupVm l vmId = Map.lookup vmId <$> readTVar (vmVar l)
-
-insertVm :: VmLedger -> Int64 -> VmLiveState -> STM ()
-insertVm l vmId st = modifyTVar' (vmVar l) (Map.insert vmId st)
 
 removeVm :: VmLedger -> Int64 -> STM (Maybe VmLiveState)
 removeVm l vmId =

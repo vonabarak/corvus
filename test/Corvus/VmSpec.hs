@@ -48,7 +48,7 @@ spec = sequential $ withTestDb $ do
       vid <- insertVm "balloon-bounds" VmRunning
       runDb $ update (toSqlKey vid :: M.VmId) [M.VmBalloon =. True, M.VmRam =. 256]
       zero <- vmSetBalloon vid 0
-      high <- vmSetBalloon vid (257 * 1024 ^ 2)
+      high <- vmSetBalloon vid (257 * 1024 ^ (2 :: Int))
       liftIO $ do
         zero `shouldBe` RespInvalidBalloonTarget
         high `shouldBe` zero
@@ -118,7 +118,7 @@ spec = sequential $ withTestDb $ do
 
   describe "vmList" $ do
     testCase "returns the empty list when no VMs exist" $ do
-      when_ vmList
+      _ <- when_ vmList
       then_ $ responseIs $ \case
         RespVmList [] -> True
         _ -> False
@@ -128,7 +128,7 @@ spec = sequential $ withTestDb $ do
         _ <- insertVm "vm1" VmStopped
         _ <- insertVm "vm2" VmStopped
         pure ()
-      when_ vmList
+      _ <- when_ vmList
       then_ $ responseIs $ \case
         RespVmList xs -> length xs == 2
         _ -> False
@@ -155,7 +155,7 @@ spec = sequential $ withTestDb $ do
 
   describe "whenVmCreate" $ do
     testCase "creates a VM in the stopped state and writes a Task row" $ do
-      when_ $ whenVmCreate "first" 2 1073741824 (Just "desc")
+      _ <- when_ $ whenVmCreate "first" 2 1073741824 (Just "desc")
       then_ $ do
         responseIs $ \case
           RespVmCreated _ -> True
@@ -169,7 +169,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "dup" VmStopped
         pure ()
-      when_ $ whenVmCreate "dup" 1 536870912 Nothing
+      _ <- when_ $ whenVmCreate "dup" 1 536870912 Nothing
       then_ $ do
         -- Persistent's UniqueVmNamePerNode constraint surfaces as
         -- a generic error; we just assert no second row landed.
@@ -183,21 +183,21 @@ spec = sequential $ withTestDb $ do
 
   describe "whenVmEdit" $ do
     testCase "rejects an edit against an unknown VM" $ do
-      when_ $ whenVmEdit 999 (Just 4) Nothing Nothing Nothing
+      _ <- when_ $ whenVmEdit 999 (Just 4) Nothing Nothing Nothing
       then_ responseIsVmNotFound
 
     testCase "rewrites cpu, ram, description, and headless flags" $ do
       given $ do
         _ <- insertVm "to-edit" VmStopped
         pure ()
-      when_ $ whenVmEdit 1 (Just 4) (Just 8589934592) (Just "new-desc") (Just True)
+      _ <- when_ $ whenVmEdit 1 (Just 4) (Just 8589934592) (Just "new-desc") (Just True)
       then_ $ responseIs (== RespVmEdited)
 
     testCase "enables TPM on a stopped VM" $ do
       given $ do
         _ <- insertVm "tpm-enable" VmStopped
         pure ()
-      when_ $ whenVmSetTpm 1 True
+      _ <- when_ $ whenVmSetTpm 1 True
       then_ $ do
         responseIs (== RespVmEdited)
         vmHasTpm 1 True
@@ -206,7 +206,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "tpm-disable" VmStopped
         setVmTpm 1 True
-      when_ $ whenVmSetTpm 1 False
+      _ <- when_ $ whenVmSetTpm 1 False
       then_ $ do
         responseIs $ \case
           RespError _ -> True
@@ -218,14 +218,14 @@ spec = sequential $ withTestDb $ do
 
   describe "whenVmDelete" $ do
     testCase "refuses to delete an unknown VM" $ do
-      when_ $ whenVmDelete 999
+      _ <- when_ $ whenVmDelete 999
       then_ responseIsVmNotFound
 
     testCase "deletes a stopped VM and removes the row" $ do
       given $ do
         _ <- insertVm "doomed" VmStopped
         pure ()
-      when_ $ whenVmDelete 1
+      _ <- when_ $ whenVmDelete 1
       then_ $ do
         responseIs (== RespVmDeleted)
         vmNotExists 1
@@ -235,7 +235,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "alive" VmRunning
         pure ()
-      when_ $ whenVmDelete 1
+      _ <- when_ $ whenVmDelete 1
       then_ $ do
         responseIs (== RespVmMustBeStopped)
         vmExists 1
@@ -244,7 +244,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "tpm-doomed" VmStopped
         setVmTpm 1 True
-      when_ $ whenVmDelete 1
+      _ <- when_ $ whenVmDelete 1
       then_ $ do
         responseIs $ \case
           RespError _ -> True

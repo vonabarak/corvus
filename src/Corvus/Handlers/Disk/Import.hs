@@ -54,14 +54,14 @@ import Database.Persist.Sql (runSqlPool)
 data ChecksumTarget
   = ChecksumTargetDownload
   | ChecksumTargetFinal
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data ImportChecksum = ImportChecksum
   { icAlgorithm :: Text
   , icExpected :: Text
   , icTarget :: ChecksumTarget
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 importChecksumFromTuple :: (Text, Text, Text) -> ImportChecksum
 importChecksumFromTuple (algorithm, expected, target) =

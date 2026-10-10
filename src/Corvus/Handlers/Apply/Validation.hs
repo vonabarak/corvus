@@ -97,16 +97,20 @@ validateConfig config = do
 effectiveCloudInit :: ApplyVm -> Bool
 effectiveCloudInit v = fromMaybe (not $ null $ avSshKeys v) (avCloudInit v)
 
+checksumAlgorithmText :: ChecksumAlgorithm -> Text
 checksumAlgorithmText ChecksumMd5 = "md5"
 checksumAlgorithmText ChecksumSha1 = "sha1"
 checksumAlgorithmText ChecksumSha256 = "sha256"
 checksumAlgorithmText ChecksumSha512 = "sha512"
 checksumAlgorithmText ChecksumBlake2b = "blake2b"
+checksumTargetText :: ChecksumTarget -> Text
 checksumTargetText ChecksumDownload = "download"
 checksumTargetText ChecksumFinal = "final"
+checksumHexLength :: ChecksumAlgorithm -> Int
 checksumHexLength ChecksumMd5 = 32
 checksumHexLength ChecksumSha1 = 40
 checksumHexLength ChecksumSha256 = 64
 checksumHexLength ChecksumSha512 = 128
 checksumHexLength ChecksumBlake2b = 128
+checksumSpecToImport :: ChecksumSpec -> (Text, Text, Text)
 checksumSpecToImport cs = (checksumAlgorithmText (csAlgorithm cs), T.toLower (csValue cs), checksumTargetText (csTarget cs))

@@ -22,6 +22,7 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Corvus.Protocol.Apply as P
 import Corvus.Wire.Enums (fromCapnpTaskResult, toCapnpTaskResult)
 import Corvus.Wire.Errors (WireError (..))
+import Prelude hiding (id)
 
 toCapnpApplyCreated :: P.ApplyCreated -> C.Parsed CGCorvus.ApplyCreated
 toCapnpApplyCreated P.ApplyCreated {..} =

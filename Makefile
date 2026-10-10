@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-ensure image-clean image-rebuild image-check image-cache-clean image-list images images-ensure images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh lint format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests python-test integration-tests integration-tests-clean venv image image-ensure image-clean image-rebuild image-check image-cache-clean image-list images images-ensure images-clean images-rebuild dev-node-vm dev-node-vm-clean dev-node-vm-ssh check check-haskell format capnp code-metrics release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -156,6 +156,7 @@ test: unit-tests python-test integration-tests
 #
 # Uses script(1) to provide a pseudo-terminal, preventing hangs when piping output.
 unit-tests:
+	script -qec 'stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml test --test-arguments "$(if $(MATCH),--match \"$(MATCH)\",)"' /dev/null
 	script -qec 'stack test $(STACK_BUILD_FLAGS) --test-arguments "--jobs=$(shell nproc)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
 
 # Image build commands are dispatched to yaml/Makefile. Each image recipe
@@ -249,31 +250,32 @@ CORVUS_WEB ?= $(if $(wildcard .venv/bin/corvus-web),.venv/bin/corvus-web,corvus-
 format:
 	$(RUFF) format python integration_tests
 	$(RUFF) check --fix python integration_tests
-	fourmolu --mode inplace $(shell find src app test -name '*.hs')
+	fourmolu --mode inplace $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-format ; \
 	fi
 
 
-# Read-only verification. Lints Python (ruff check + strict mypy) and Haskell
-# (hlint), plus a `--check` pass of every formatter (Ruff + fourmolu)
-# that exits non-zero if any file would be reformatted. Does NOT edit
-# code — suited for CI / pre-merge gates and pre-push hooks. Run
+# Verification without edits to tracked files: formatting, static analysis,
+# a strict Haskell build, Weeder, unit tests, and expression coverage. Run
 # `make format` first to fix any formatting violations this flags.
 # Frontend lint piggybacks on `frontend/node_modules/` being present;
-# CI runs `make web-build` (which `npm ci`s) before `make lint`.
-lint:
-	hlint src app test
-	fourmolu --mode check $(shell find src app test -name '*.hs')
-	$(MAKE) code-metrics
+# CI runs `make web-build` (which `npm ci`s) before `make check`.
+check:
+	hlint $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
+	fourmolu --mode check $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MAKE) typecheck-core
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-lint ; \
 	fi
+	$(MAKE) check-haskell
 
-# The primary lint environment deliberately omits the large optional Qt
+check-haskell:
+	MATCH="$(MATCH)" script -qec 'bash scripts/check-haskell.sh $(STACK_BUILD_FLAGS)' /dev/null
+
+# The primary check environment deliberately omits the large optional Qt
 # runtime.  It still type-checks every non-desktop Python module and the
 # existing integration harness.  Desktop code has its own reproducible gate.
 typecheck-core:
@@ -286,7 +288,7 @@ desktop-typecheck:
 
 # Report and enforce size limits for authored Haskell source.
 code-metrics:
-	stack run $(STACK_BUILD_FLAGS) corvus-code-metrics
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml run corvus-code-metrics
 
 # Enable the repository-managed pre-commit hook for this checkout.
 install-git-hooks:

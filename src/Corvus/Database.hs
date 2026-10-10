@@ -75,25 +75,25 @@ data DatabaseConfig = DatabaseConfig
   { dcEngine :: !DatabaseEngine
   , dcValue :: !String
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DatabaseRuntimeInfo = DatabaseRuntimeInfo
   { driBackend :: !Text
   , driVersion :: !Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data SchemaMigrationDecision
   = SchemaMigrationNotNeeded
   | SchemaMigrationNeeded
   | SchemaMigrationRefusedNewer
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data SchemaMigrationResult
   = SchemaCreated !Int
   | SchemaAlreadyCurrent !Int
   | SchemaMigrated !Int !Int
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 databaseEngineLabel :: DatabaseEngine -> Text
 databaseEngineLabel DatabasePostgresql = "PostgreSQL"

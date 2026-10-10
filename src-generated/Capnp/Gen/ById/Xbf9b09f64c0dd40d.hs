@@ -4,6 +4,8 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+{-# OPTIONS_GHC -Wno-missing-deriving-strategies #-}
 module Capnp.Gen.ById.Xbf9b09f64c0dd40d(module Capnp.Gen.Enums) where
 import Capnp.Gen.Enums
 import qualified Prelude as Std_

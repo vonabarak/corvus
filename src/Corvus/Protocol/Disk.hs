@@ -33,7 +33,7 @@ data DiskImagePlacement = DiskImagePlacement
   { dipNode :: !NamedRef
   , dipFilePath :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Disk image info for list/show view
 data DiskImageInfo = DiskImageInfo
@@ -57,7 +57,7 @@ data DiskImageInfo = DiskImageInfo
   -- to. Cloud-init ISOs and template-instantiated disks default to
   -- ephemeral; everything else defaults to non-ephemeral.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Snapshot info
 data SnapshotInfo = SnapshotInfo
@@ -80,7 +80,7 @@ data SnapshotInfo = SnapshotInfo
   -- resumes the VM in the saved running state) rather than
   -- offline @qemu-img snapshot -a@.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON DiskImageInfo where
   toJSON = genericToJSON innerOptions
@@ -93,7 +93,7 @@ instance ToJSON SnapshotInfo where
 
 -- | Collision policy for client-local image publication.
 data UploadIfExists = UploadError | UploadSkip | UploadOverwrite | UploadUpdate
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 parseUploadIfExists :: Text -> Either Text UploadIfExists
 parseUploadIfExists value = case value of
@@ -111,7 +111,7 @@ data DiskCleanupReport = DiskCleanupReport
   , dcrRemovedPlacements :: !Int64
   , dcrFailures :: !Int64
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 data DiskCleanupVersion = DiskCleanupVersion
   { dcvDiskImage :: !NamedRef
@@ -121,7 +121,7 @@ data DiskCleanupVersion = DiskCleanupVersion
   , dcvVersionDeleted :: !Bool
   , dcvPlacements :: ![DiskCleanupPlacement]
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 data DiskCleanupPlacement = DiskCleanupPlacement
   { dcpNode :: !NamedRef
@@ -129,7 +129,7 @@ data DiskCleanupPlacement = DiskCleanupPlacement
   , dcpStatus :: !Text
   , dcpReason :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON DiskCleanupReport where
   toJSON = genericToJSON innerOptions

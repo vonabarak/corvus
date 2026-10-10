@@ -11,14 +11,10 @@ module Corvus.Client.Capnp.Rpc.Task
   , rpcTaskShow
   , rpcTaskCancel
   , rpcTaskListChildren
-
-    -- * Helpers
-  , emptyCapnpEntityRef
   )
 where
 
 import qualified Capnp as C
-import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Task as CGTask
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
@@ -98,11 +94,3 @@ rpcTaskListChildren conn parentId = do
   CGTask.TaskManager'listChildren'results {CGTask.tasks = ts} <-
     callOn #listChildren CGTask.TaskManager'listChildren'params {CGTask.parentId = parentId} mgr
   traverse (failOnWire . WTask.fromCapnpTaskInfo) ts
-
--- ---------------------------------------------------------------------
--- Helpers
--- ---------------------------------------------------------------------
-
-emptyCapnpEntityRef :: C.Parsed CGCommon.EntityRef
-emptyCapnpEntityRef =
-  CGCommon.EntityRef {CGCommon.union' = CGCommon.EntityRef'id 0}

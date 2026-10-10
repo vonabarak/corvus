@@ -25,7 +25,7 @@ data CloudInitConfigYaml = CloudInitConfigYaml
   , cicyNetworkConfig :: Maybe Text
   , cicyInjectSshKeys :: Bool
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON CloudInitConfigYaml where
   parseJSON = withObject "CloudInitConfigYaml" $ \o -> do

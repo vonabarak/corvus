@@ -15,6 +15,7 @@ import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem, toCapnpTa
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
 import Data.Maybe (fromMaybe)
+import Prelude hiding (id)
 
 toCapnpTaskInfo :: P.TaskInfo -> C.Parsed CGTask.TaskInfo
 toCapnpTaskInfo P.TaskInfo {..} =

@@ -1,22 +1,25 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Corvus.Handlers.Apply.Overwrite (Overwrite (..), preflightDiskOverwrite, preflightNetworkOverwrite, preflightVmOverwrite, preflightSshKeyOverwrite) where
+module Corvus.Handlers.Apply.Overwrite (Overwrite (..), preflightNetworkOverwrite, preflightVmOverwrite, preflightSshKeyOverwrite) where
 
 import Corvus.Model
 import Corvus.Protocol (Response)
 import Corvus.Types (ServerState (..))
+import qualified Data.Int
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 data Overwrite = Overwrite {oPreflight :: IO (Either Text ()), oDelete :: IO Response}
-preflightDiskOverwrite state name eid = attachedMessage state (vmsAttachedToDisk $ toSqlKey eid) ("cannot overwrite disk '" <> name <> "': attached to VM(s) ") "; detach or delete those VMs first"
+preflightNetworkOverwrite :: ServerState -> Text -> Data.Int.Int64 -> IO (Either Text ())
 preflightNetworkOverwrite state name eid = attachedMessage state (vmsAttachedToNetwork $ toSqlKey eid) ("cannot overwrite network '" <> name <> "': in use by VM(s) ") "; remove their network interfaces first"
+attachedMessage :: ServerState -> SqlPersistT IO [Text] -> Text -> Text -> IO (Either Text ())
 attachedMessage state query prefix suffix = do
   attached <- runSqlPool query (ssDbPool state)
   pure $ if null attached then Right () else Left $ prefix <> T.intercalate ", " attached <> suffix
+preflightVmOverwrite :: ServerState -> Text -> Data.Int.Int64 -> IO (Either Text ())
 preflightVmOverwrite state name eid = do
   mVm <- runSqlPool (get $ toSqlKey eid :: SqlPersistT IO (Maybe Vm)) (ssDbPool state)
   pure $ case mVm of
@@ -24,6 +27,7 @@ preflightVmOverwrite state name eid = do
     Just vm
       | vmStatus vm == VmStopped || vmStatus vm == VmError -> Right ()
       | otherwise -> Left $ "cannot overwrite VM '" <> name <> "': currently in status " <> enumToText (vmStatus vm) <> "; stop it first"
+preflightSshKeyOverwrite :: ServerState -> Data.Int.Int64 -> IO (Either Text ())
 preflightSshKeyOverwrite state eid = do
   let keyId = toSqlKey eid :: SshKeyId; pool = ssDbPool state
   vmRefs <- runSqlPool (selectList [VmSshKeySshKeyId ==. keyId] []) pool
@@ -36,10 +40,7 @@ preflightSshKeyOverwrite state eid = do
   where
     describe _ [] = ""; describe kind xs = kind <> "(s) " <> T.intercalate ", " xs
     names nameOf ks = do es <- mapM get ks; pure [nameOf e | Just e <- es]
-vmsAttachedToDisk diskId = do
-  drives <- selectList [DriveDiskImageId ==. Just diskId] []
-  vms <- mapM (get . driveVmId . entityVal) drives
-  pure [vmName v | Just v <- vms]
+vmsAttachedToNetwork :: NetworkId -> SqlPersistT IO [Text]
 vmsAttachedToNetwork nid = do
   nis <- selectList [NetworkInterfaceNetworkId ==. Just nid] []
   vms <- mapM (get . networkInterfaceVmId . entityVal) nis

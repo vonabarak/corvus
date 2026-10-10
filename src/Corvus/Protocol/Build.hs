@@ -5,7 +5,7 @@ module Corvus.Protocol.Build
   ( BuildResult (..)
   , BuildOne (..)
   , BuildEvent (..)
-  , BuildSink (..)
+  , BuildSink
   )
 where
 
@@ -24,13 +24,13 @@ data BuildOne = BuildOne
   , boError :: !(Maybe Text)
   -- ^ Error message on failure
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Aggregate result returned by a @ReqBuild@ call.
 newtype BuildResult = BuildResult
   { brBuilds :: [BuildOne]
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON BuildOne where
   toJSON = genericToJSON innerOptions
@@ -65,7 +65,7 @@ data BuildEvent
   | -- | Aggregate pipeline result, identical in shape to the response
     -- the non-streaming path returns. Always the last event.
     PipelineEnd !BuildResult
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON BuildEvent where
   toJSON = genericToJSON innerOptions

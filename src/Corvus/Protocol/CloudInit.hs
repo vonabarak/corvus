@@ -21,7 +21,7 @@ data CloudInitInfo = CloudInitInfo
   , ciiNetworkConfig :: !(Maybe Text)
   , ciiInjectSshKeys :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON CloudInitInfo where
   toJSON = genericToJSON innerOptions

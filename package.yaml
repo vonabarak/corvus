@@ -11,47 +11,6 @@ maintainer: author@example.com
 
 dependencies:
   - base >= 4.7 && < 5
-  - network-simple
-  - async
-  - stm
-  - text
-  - bytestring
-  - vector
-  - optparse-applicative
-  - unix
-  - directory
-  - filepath
-  - process
-  - network
-  - time
-  - persistent
-  - monad-logger
-  - resource-pool
-  - mtl
-  - exceptions
-  - aeson
-  - aeson-qq
-  - scientific
-  - yaml
-  - template-haskell
-  - haskell-src-meta
-  - random
-  - base64-bytestring
-  - containers
-  - temporary
-  - ansi-terminal
-  - gitrev
-  - capnp
-  - supervisors
-  - data-default
-  - tls
-  - crypton
-  - crypton-x509
-  - crypton-x509-store
-  - crypton-x509-validation
-  - asn1-types
-  - transformers
-  - memory
 
 flags:
   with-postgresql:
@@ -62,6 +21,18 @@ flags:
     default: true
 
 ghc-options:
+  - -Wall
+  - -Werror
+  - -Werror=incomplete-patterns
+  - -Werror=incomplete-uni-patterns
+  - -Werror=incomplete-record-updates
+  - -Werror=missing-fields
+  - -Werror=missing-methods
+  - -Wpartial-fields
+  - -Wmissing-deriving-strategies
+  - -Wmissing-export-lists
+  - -Wunused-packages
+  - -Werror=x-partial
   - -Werror=unused-imports
   - -Werror=unused-top-binds
   - -Werror=unused-local-binds
@@ -88,6 +59,47 @@ default-extensions:
   - TemplateHaskell
 
 library:
+  dependencies:
+    - network-simple
+    - async
+    - stm
+    - text
+    - bytestring
+    - vector
+    - optparse-applicative
+    - unix
+    - directory
+    - filepath
+    - process
+    - network
+    - time
+    - persistent
+    - monad-logger
+    - resource-pool
+    - exceptions
+    - aeson
+    - aeson-qq
+    - scientific
+    - yaml
+    - template-haskell
+    - haskell-src-meta
+    - random
+    - base64-bytestring
+    - containers
+    - temporary
+    - ansi-terminal
+    - gitrev
+    - capnp
+    - supervisors
+    - data-default
+    - tls
+    - crypton
+    - crypton-x509
+    - crypton-x509-store
+    - crypton-x509-validation
+    - asn1-types
+    - transformers
+    - memory
   source-dirs:
     - src
     - src-generated   # Cap'n Proto schema-generated modules; regenerate with `make capnp`
@@ -348,15 +360,6 @@ library:
         - -DWITH_SQLITE
 
 executables:
-  corvus-code-metrics:
-    main: Main.hs
-    source-dirs:
-      - app/code-metrics-cli
-      - app/code-metrics
-    dependencies:
-      - ghc
-      - Cabal
-
   corvus:
     main: Main.hs
     source-dirs: app/daemon
@@ -365,6 +368,15 @@ executables:
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
+      - async
+      - stm
+      - text
+      - containers
+      - monad-logger
+      - optparse-applicative
+      - directory
+      - filepath
+      - unix
       - corvus
 
   crv:
@@ -374,6 +386,8 @@ executables:
       - -threaded
       - -rtsopts
     dependencies:
+      - async
+      - optparse-applicative
       - corvus
 
   corvus-netd:
@@ -384,6 +398,11 @@ executables:
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
+      - async
+      - monad-logger
+      - text
+      - optparse-applicative
+      - unix
       - corvus
 
   corvus-nodeagent:
@@ -394,27 +413,50 @@ executables:
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
+      - async
+      - monad-logger
+      - text
+      - optparse-applicative
+      - unix
       - corvus
 
 tests:
   corvus-test:
+    build-tools:
+      - hspec-discover
     main: Spec.hs
     source-dirs:
       - test
-      - app/code-metrics
     ghc-options:
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
+      - stm
+      - text
+      - bytestring
+      - optparse-applicative
+      - unix
+      - directory
+      - filepath
+      - process
+      - network
+      - time
+      - persistent
+      - monad-logger
+      - resource-pool
+      - mtl
+      - aeson
+      - aeson-qq
+      - yaml
+      - containers
+      - temporary
+      - capnp
+      - supervisors
       - corvus
       - hspec
-      - hspec-discover
       - hspec-expectations
       - QuickCheck
-      - random
       - uuid
       - async
       - silently
-      - ghc
-      - Cabal

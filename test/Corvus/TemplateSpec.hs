@@ -31,41 +31,41 @@ spec :: Spec
 spec = sequential $ withTestDb $ do
   describe "whenTemplateList" $ do
     testCase "returns an empty list when no templates exist" $ do
-      when_ whenTemplateList
+      _ <- when_ whenTemplateList
       then_ $ responseIs $ \case
         RespTemplateList [] -> True
         _ -> False
 
   describe "whenTemplateCreate" $ do
     testCase "writes a template row from valid YAML" $ do
-      when_ $ whenTemplateCreate (minimalYaml "t1")
+      _ <- when_ $ whenTemplateCreate (minimalYaml "t1")
       then_ $ responseIs $ \case
         RespTemplateCreated _ -> True
         _ -> False
 
     testCase "rejects malformed YAML" $ do
-      when_ $ whenTemplateCreate "not: a: valid template"
+      _ <- when_ $ whenTemplateCreate "not: a: valid template"
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
 
     testCase "rejects a duplicate template name" $ do
       _ <- when_ $ whenTemplateCreate (minimalYaml "dup")
-      when_ $ whenTemplateCreate (minimalYaml "dup")
+      _ <- when_ $ whenTemplateCreate (minimalYaml "dup")
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
 
   describe "whenTemplateShow" $ do
     testCase "returns TemplateNotFound for unknown id" $ do
-      when_ $ whenTemplateShow 999
+      _ <- when_ $ whenTemplateShow 999
       then_ $ responseIs $ \case
         RespTemplateNotFound -> True
         _ -> False
 
     testCase "returns details for an existing template" $ do
       _ <- when_ $ whenTemplateCreate (minimalYaml "showable")
-      when_ $ whenTemplateShow 1
+      _ <- when_ $ whenTemplateShow 1
       then_ $ responseIs $ \case
         RespTemplateInfo _ -> True
         _ -> False
@@ -76,14 +76,14 @@ spec = sequential $ withTestDb $ do
       -- `RespError "Template not found"` rather than the
       -- dedicated RespTemplateNotFound constructor — TemplateShow
       -- uses the constructor; update uses the error string.
-      when_ $ whenTemplateUpdate 999 (minimalYaml "ghost")
+      _ <- when_ $ whenTemplateUpdate 999 (minimalYaml "ghost")
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
 
     testCase "rewrites the row when both id and YAML are valid" $ do
       _ <- when_ $ whenTemplateCreate (minimalYaml "orig")
-      when_ $ whenTemplateUpdate 1 (minimalYaml "renamed")
+      _ <- when_ $ whenTemplateUpdate 1 (minimalYaml "renamed")
       then_ $ responseIs $ \case
         RespTemplateUpdated _ -> True
         _ -> False
@@ -91,7 +91,7 @@ spec = sequential $ withTestDb $ do
   describe "whenTemplateDelete" $ do
     testCase "deletes an existing template" $ do
       _ <- when_ $ whenTemplateCreate (minimalYaml "doomed")
-      when_ $ whenTemplateDelete 1
+      _ <- when_ $ whenTemplateDelete 1
       then_ $ responseIs (== RespTemplateDeleted)
 
   describe "template sharedDirs round-trip" $ do
@@ -109,20 +109,21 @@ spec = sequential $ withTestDb $ do
             \    cache: never\n\
             \    readOnly: true\n"
       _ <- when_ $ whenTemplateCreate yaml
-      when_ $ whenTemplateShow 1
+      _ <- when_ $ whenTemplateShow 1
       then_ $ responseIs $ \case
         RespTemplateInfo details ->
           let sds = tvdSharedDirs details
               byTag t = filter (\sd -> tvsdiTag sd == t) sds
-              [d] = byTag "data"
-              [c] = byTag "certs"
-           in length sds == 2
-                && tvsdiPath d == "/srv/data"
-                && tvsdiCache d == CacheAuto
-                && not (tvsdiReadOnly d)
-                && tvsdiPath c == "/etc/ssl"
-                && tvsdiCache c == CacheNever
-                && tvsdiReadOnly c
+           in case (byTag "data", byTag "certs") of
+                ([d], [c]) ->
+                  length sds == 2
+                    && tvsdiPath d == "/srv/data"
+                    && tvsdiCache d == CacheAuto
+                    && not (tvsdiReadOnly d)
+                    && tvsdiPath c == "/etc/ssl"
+                    && tvsdiCache c == CacheNever
+                    && tvsdiReadOnly c
+                _ -> False
         _ -> False
 
     testCase "rejects a template with a duplicate sharedDirs tag" $ do
@@ -136,7 +137,7 @@ spec = sequential $ withTestDb $ do
             \    tag: same\n\
             \  - path: /b\n\
             \    tag: same\n"
-      when_ $ whenTemplateCreate yaml
+      _ <- when_ $ whenTemplateCreate yaml
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False

@@ -12,6 +12,7 @@ import qualified Capnp.Gen.Sshkey as CGSsh
 import qualified Corvus.Protocol.SshKey as P
 import Corvus.Wire.Common (fromCapnpNamedRef, toCapnpNamedRef)
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
+import Prelude hiding (id)
 
 toCapnpSshKeyInfo :: P.SshKeyInfo -> C.Parsed CGSsh.SshKeyInfo
 toCapnpSshKeyInfo P.SshKeyInfo {..} =

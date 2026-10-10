@@ -19,7 +19,7 @@ spec :: Spec
 spec = sequential $ withTestDb $ do
   describe "whenSshKeyList" $ do
     testCase "returns an empty list when no keys exist" $ do
-      when_ whenSshKeyList
+      _ <- when_ whenSshKeyList
       then_ $ responseIs $ \case
         RespSshKeyList [] -> True
         _ -> False
@@ -29,20 +29,20 @@ spec = sequential $ withTestDb $ do
         _ <- insertSshKey "alice" "ssh-ed25519 AAAA-alice"
         _ <- insertSshKey "bob" "ssh-ed25519 AAAA-bob"
         pure ()
-      when_ whenSshKeyList
+      _ <- when_ whenSshKeyList
       then_ $ responseIs $ \case
         RespSshKeyList xs -> length xs == 2
         _ -> False
 
   describe "whenSshKeyCreate" $ do
     testCase "writes a row" $ do
-      when_ $ whenSshKeyCreate "fresh" "ssh-ed25519 AAAA-fresh"
+      _ <- when_ $ whenSshKeyCreate "fresh" "ssh-ed25519 AAAA-fresh"
       then_ $ responseIs $ \case
         RespSshKeyCreated _ -> True
         _ -> False
 
     testCase "rejects an all-digit name" $ do
-      when_ $ whenSshKeyCreate "123" "ssh-ed25519 AAAA-x"
+      _ <- when_ $ whenSshKeyCreate "123" "ssh-ed25519 AAAA-x"
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -51,14 +51,14 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertSshKey "shared" "ssh-ed25519 AAAA-shared"
         pure ()
-      when_ $ whenSshKeyCreate "shared" "ssh-ed25519 AAAA-shared-alt"
+      _ <- when_ $ whenSshKeyCreate "shared" "ssh-ed25519 AAAA-shared-alt"
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
 
   describe "whenSshKeyDelete" $ do
     testCase "returns SshKeyNotFound for unknown id" $ do
-      when_ $ whenSshKeyDelete 999
+      _ <- when_ $ whenSshKeyDelete 999
       then_ $ responseIs $ \case
         RespSshKeyNotFound -> True
         _ -> False
@@ -67,7 +67,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertSshKey "lonely" "ssh-ed25519 AAAA-x"
         pure ()
-      when_ $ whenSshKeyDelete 1
+      _ <- when_ $ whenSshKeyDelete 1
       then_ $ responseIs (== RespSshKeyOk)
 
     testCase "refuses to delete a key that's attached to a VM" $ do
@@ -76,7 +76,7 @@ spec = sequential $ withTestDb $ do
         keyId <- insertSshKey "claimed" "ssh-ed25519 AAAA-claimed"
         _ <- attachSshKeyToVm vmId keyId
         pure ()
-      when_ $ whenSshKeyDelete 1
+      _ <- when_ $ whenSshKeyDelete 1
       then_ $ responseIs $ \case
         RespSshKeyInUse _ -> True
         _ -> False
@@ -86,7 +86,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertSshKey "k" "ssh-ed25519 AAAA-k"
         pure ()
-      when_ $ whenSshKeyAttach 999 1
+      _ <- when_ $ whenSshKeyAttach 999 1
       then_ responseIsVmNotFound
 
     testCase "refuses when the VM doesn't have cloud-init enabled" $ do
@@ -94,7 +94,7 @@ spec = sequential $ withTestDb $ do
         _ <- insertVm "no-ci" VmStopped
         _ <- insertSshKey "k" "ssh-ed25519 AAAA-k"
         pure ()
-      when_ $ whenSshKeyAttach 1 1
+      _ <- when_ $ whenSshKeyAttach 1 1
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -103,21 +103,21 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- givenCloudInitVmExists "user-vm"
         pure ()
-      when_ $ whenSshKeyAttach 1 999
+      _ <- when_ $ whenSshKeyAttach 1 999
       then_ $ responseIs $ \case
         RespSshKeyNotFound -> True
         _ -> False
 
   describe "whenSshKeyListForVm" $ do
     testCase "returns VmNotFound for an unknown VM" $ do
-      when_ $ whenSshKeyListForVm 999
+      _ <- when_ $ whenSshKeyListForVm 999
       then_ responseIsVmNotFound
 
     testCase "returns an empty list for a VM with no keys attached" $ do
       given $ do
         _ <- insertVm "v" VmStopped
         pure ()
-      when_ $ whenSshKeyListForVm 1
+      _ <- when_ $ whenSshKeyListForVm 1
       then_ $ responseIs $ \case
         RespSshKeyList [] -> True
         _ -> False

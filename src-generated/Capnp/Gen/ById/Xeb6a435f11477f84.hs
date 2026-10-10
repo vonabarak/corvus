@@ -4,6 +4,8 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+{-# OPTIONS_GHC -Wno-missing-deriving-strategies #-}
 module Capnp.Gen.ById.Xeb6a435f11477f84(module Capnp.Gen.Cloudinit) where
 import Capnp.Gen.Cloudinit
 import qualified Prelude as Std_

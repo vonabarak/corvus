@@ -169,7 +169,7 @@ emitResult fmt val textAction
 
 -- | Cell alignment.
 data Align = LeftAlign | RightAlign
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | A table column declaration. @colName@ doubles as the header label and the
 -- case-insensitive selector key for @--columns@.
@@ -185,7 +185,7 @@ data Column a = Column
 
 -- | Border style for table drawing.
 data BorderStyle = BordersUnicode | BordersAscii | BordersNone
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Presentation options threaded from CLI flags.
 data TableOpts = TableOpts
@@ -201,7 +201,7 @@ data TableOpts = TableOpts
   -- ^ Shrink columns to fit the terminal width. Only applies when @toTruncate@
   -- is also true — there's no point fitting if we're going to overflow anyway.
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Default options: Unicode borders, truncation, fit to terminal, all columns.
 defaultTableOpts :: TableOpts
@@ -329,13 +329,14 @@ fitToWidth available widths
 
     go :: Int -> [(Int, Int)] -> [(Int, Int)]
     go 0 xs = xs
-    go deficit xs =
-      let (widestIx, widest) = head (sortOn (Down . snd) xs)
-       in if widest <= minColWidth
-            then xs
-            else
-              let shrunk = map (\(i, w) -> if i == widestIx then (i, w - 1) else (i, w)) xs
-               in go (deficit - 1) shrunk
+    go deficit xs = case sortOn (Down . snd) xs of
+      [] -> []
+      (widestIx, widest) : _ ->
+        if widest <= minColWidth
+          then xs
+          else
+            let shrunk = map (\(i, w) -> if i == widestIx then (i, w - 1) else (i, w)) xs
+             in go (deficit - 1) shrunk
 
     restore :: [(Int, Int)] -> [Int]
     restore xs = map snd (sortOn fst xs)

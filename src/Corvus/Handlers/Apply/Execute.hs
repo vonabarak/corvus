@@ -36,6 +36,7 @@ instance Action ApplyAction where
   actionExecute ctx a = case validateConfig (aaConfig a) of
     Left err -> pure $ RespError err
     Right () -> handleApplyExecute ctx (aaConfig a) (aaSkipExisting a)
+handleApplyExecute :: ActionContext -> ApplyConfig -> Bool -> IO Response
 handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $ do
   logInfoN "Applying environment configuration..."
   let effective = if cliSkipExisting && acIfExists config == IfExistsError then IfExistsSkip else acIfExists config
@@ -44,6 +45,7 @@ handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $
     Left err -> logWarnN ("Apply failed: " <> err) >> pure (RespError err)
     Right applyResult -> logInfoN "Apply completed successfully" >> pure (RespApplyResult applyResult)
 
+executeApply :: ActionContext -> ApplyConfig -> IfExists -> IO (Either Text ApplyResult)
 executeApply ctx config ifExists = do
   keyResult <- phase "sshKeys" (acSshKeys config) Map.empty $ \k _ -> entity "sshKeys" "ssh-key-create" (askName k) (resolveByName state UniqueSshKeyName Map.empty $ askName k) (runActionAsSubtask ctx $ SshKeyCreate (askName k) (askPublicKey k)) $ \eid -> Overwrite (preflightSshKeyOverwrite state eid) (runActionAsSubtask ctx $ SshKeyDelete eid)
   case keyResult of

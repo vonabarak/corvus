@@ -2,4 +2,4 @@
 
 set -eu
 
-make lint
+make check

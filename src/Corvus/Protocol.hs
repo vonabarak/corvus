@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE NoFieldSelectors #-}
 {-# OPTIONS_GHC -Wno-ambiguous-fields #-}
 
 -- | Daemon-internal Response sum type plus the leaf info records.
@@ -68,8 +67,7 @@ import GHC.Generics (Generic)
 newtype Ref = Ref Text
   deriving stock (Eq, Show, Generic)
 
--- | Unwrap a 'Ref' to its underlying 'Text'. Defined explicitly because
--- 'NoFieldSelectors' in this module suppresses auto-generated selectors.
+-- | Unwrap a 'Ref' to its underlying 'Text'.
 unRef :: Ref -> Text
 unRef (Ref t) = t
 
@@ -101,7 +99,7 @@ data StatusInfo = StatusInfo
   , siDatabaseVersion :: !Text
   -- ^ Database engine/runtime version
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON StatusInfo where
   toJSON = genericToJSON innerOptions
@@ -112,112 +110,111 @@ instance ToJSON StatusInfo where
 
 -- | Daemon-internal response sum.
 --
--- Each constructor's record syntax exists for clarity at construction
--- sites — fields are not serialised. The Cap'n Proto cap layer
+-- Constructor arguments are not serialised. The Cap'n Proto cap layer
 -- (@Corvus.Rpc.*@) pattern-matches on these to decide which struct
 -- field to populate or which exception to throw.
 data Response
   = RespPong
-  | RespStatus {info :: !StatusInfo}
-  | RespShutdownAck {ack :: !Bool}
+  | RespStatus !StatusInfo
+  | RespShutdownAck !Bool
   | RespBalloonDeviceNotEnabled
   | RespBalloonDriverNotReady
   | RespInvalidBalloonTarget
   | RespBalloonError !Text
-  | RespError {message :: !Text}
+  | RespError !Text
   | -- | A textual entity reference matched more than one row and the
     -- operator must disambiguate with a numeric id.
-    RespAmbiguousRef {message :: !Text}
-  | RespVmList {vms :: ![VmInfo]}
-  | RespVmDetails {details :: !VmDetails}
+    RespAmbiguousRef !Text
+  | RespVmList ![VmInfo]
+  | RespVmDetails !VmDetails
   | RespVmNotFound
   | -- | VM created successfully
-    RespVmCreated {id :: !Int64}
+    RespVmCreated !Int64
   | -- | VM deleted successfully
     RespVmDeleted
   | -- | New status after successful transition
-    RespVmStateChanged {status :: !VmStatus}
+    RespVmStateChanged !VmStatus
   | -- | Current status and reason for rejection
-    RespInvalidTransition {status :: !VmStatus, reason :: !Text}
+    RespInvalidTransition !VmStatus !Text
   | -- | List of disk images
-    RespDiskList {disks :: ![DiskImageInfo]}
+    RespDiskList ![DiskImageInfo]
   | -- | Single disk image info
-    RespDiskInfo {disk :: !DiskImageInfo}
+    RespDiskInfo !DiskImageInfo
   | -- | Disk created successfully
-    RespDiskCreated {id :: !Int64}
+    RespDiskCreated !Int64
   | -- | Disk image not found
     RespDiskNotFound
   | -- | Disk operation successful
     RespDiskOk
-  | RespDiskCleanup {report :: !DiskCleanupReport}
+  | RespDiskCleanup !DiskCleanupReport
   | -- | List of snapshots
-    RespSnapshotList {snapshots :: ![SnapshotInfo]}
+    RespSnapshotList ![SnapshotInfo]
   | -- | Snapshot created successfully
-    RespSnapshotCreated {id :: !Int64}
+    RespSnapshotCreated !Int64
   | -- | Snapshot not found
     RespSnapshotNotFound
   | -- | Snapshot operation successful
     RespSnapshotOk
   | -- | List of VM-scoped (full-machine) snapshots
-    RespVmSnapshotList {vmSnapshots :: ![VmSnapshotInfo]}
+    RespVmSnapshotList ![VmSnapshotInfo]
   | -- | VM-scoped snapshot created
-    RespVmSnapshotCreated {vmSnapshot :: !VmSnapshotInfo}
+    RespVmSnapshotCreated !VmSnapshotInfo
   | -- | Drive attached successfully
-    RespDiskAttached {id :: !Int64}
+    RespDiskAttached !Int64
   | -- | Drive not found
     RespDriveNotFound
   | -- | Operation not supported for this format
-    RespFormatNotSupported {message :: !Text}
+    RespFormatNotSupported !Text
   | -- | VM must be stopped for this operation
     RespVmMustBeStopped
   | -- | Disk is still attached to VMs
-    RespDiskInUse {attachedVms :: ![NamedRef]}
+    RespDiskInUse ![NamedRef]
   | -- | Disk is used as backing image for overlays
-    RespDiskHasOverlays {overlays :: ![NamedRef]}
+    RespDiskHasOverlays ![NamedRef]
   | -- | List of shared directories
-    RespSharedDirList {sharedDirs :: ![SharedDirInfo]}
+    RespSharedDirList ![SharedDirInfo]
   | -- | Shared directory added
-    RespSharedDirAdded {id :: !Int64}
+    RespSharedDirAdded !Int64
   | -- | Shared directory operation successful
     RespSharedDirOk
   | -- | Shared directory not found
     RespSharedDirNotFound
-  | RespAudioDeviceList {audioDevices :: ![AudioDeviceInfo]}
-  | RespAudioDeviceAdded {id :: !Int64}
+  | RespAudioDeviceList ![AudioDeviceInfo]
+  | RespAudioDeviceAdded !Int64
   | RespAudioDeviceOk
   | RespAudioDeviceNotFound
   | -- | List of network interfaces
-    RespNetIfList {netIfs :: ![NetIfInfo]}
+    RespNetIfList ![NetIfInfo]
   | -- | Network interface added
-    RespNetIfAdded {id :: !Int64}
+    RespNetIfAdded !Int64
   | -- | Network interface not found
     RespNetIfNotFound
   | -- | List of SSH keys
-    RespSshKeyList {sshKeys :: ![SshKeyInfo]}
+    RespSshKeyList ![SshKeyInfo]
   | -- | SSH key created
-    RespSshKeyCreated {id :: !Int64}
+    RespSshKeyCreated !Int64
   | -- | SSH key operation successful
     RespSshKeyOk
   | -- | SSH key not found
     RespSshKeyNotFound
   | -- | SSH key is in use by VMs
-    RespSshKeyInUse {usedByVms :: ![(Int64, Text)]}
+    RespSshKeyInUse ![(Int64, Text)]
   | -- | List of templates
-    RespTemplateList {templates :: ![TemplateVmInfo]}
+    RespTemplateList ![TemplateVmInfo]
   | -- | Single template info
-    RespTemplateInfo {template :: !TemplateDetails}
+    RespTemplateInfo !TemplateDetails
   | -- | Template created successfully
-    RespTemplateCreated {id :: !Int64}
+    RespTemplateCreated !Int64
   | -- | Template not found
     RespTemplateNotFound
   | -- | Template deleted successfully
     RespTemplateDeleted
   | -- | Template instantiated successfully (new VM id)
-    RespTemplateInstantiated {id :: !Int64}
+    RespTemplateInstantiated !Int64
   | -- | VM edited successfully
     RespVmEdited
   | -- | Network created successfully
-    RespNetworkCreated {id :: !Int64}
+    RespNetworkCreated !Int64
   | -- | Network deleted successfully
     RespNetworkDeleted
   | -- | Network started successfully
@@ -225,9 +222,9 @@ data Response
   | -- | Network stopped successfully
     RespNetworkStopped
   | -- | List of networks
-    RespNetworkList {networks :: ![NetworkInfo]}
+    RespNetworkList ![NetworkInfo]
   | -- | Single network info
-    RespNetworkDetails {network :: !NetworkInfo}
+    RespNetworkDetails !NetworkInfo
   | -- | Network not found
     RespNetworkNotFound
   | -- | Network is already running
@@ -243,29 +240,28 @@ data Response
   | -- | A peer node was detached from a multi-node network
     RespNetworkPeerDetached
   | -- | Network error
-    RespNetworkError {message :: !Text}
+    RespNetworkError !Text
   | -- | Guest command execution result
     RespGuestExecResult
-      { exitCode :: !Int
-      , stdout :: !Text
-      , stderr :: !Text
-      }
+      !Int
+      !Text
+      !Text
   | -- | Guest agent not enabled on this VM
     RespGuestAgentNotEnabled
   | -- | Guest agent communication error
-    RespGuestAgentError {message :: !Text}
+    RespGuestAgentError !Text
   | -- | Apply config result with summary of created resources
-    RespApplyResult {result :: !ApplyResult}
+    RespApplyResult !ApplyResult
   | -- | Apply started asynchronously (parent task id)
-    RespApplyStarted {taskId :: !Int64}
+    RespApplyStarted !Int64
   | -- | Task history list
-    RespTaskList {tasks :: ![TaskInfo]}
+    RespTaskList ![TaskInfo]
   | -- | Single task info
-    RespTaskInfo {task :: !TaskInfo}
+    RespTaskInfo !TaskInfo
   | -- | Task not found
     RespTaskNotFound
   | -- | Cloud-init config (Nothing = using defaults)
-    RespCloudInitConfig {config :: !(Maybe CloudInitInfo)}
+    RespCloudInitConfig !(Maybe CloudInitInfo)
   | -- | Cloud-init config operation successful
     RespCloudInitOk
   | -- | Serial console attached (post-upgrade)
@@ -279,19 +275,18 @@ data Response
   | -- | Generic success for internal operations
     RespOk
   | -- | Disk import started asynchronously
-    RespDiskImportStarted {taskId :: !Int64}
+    RespDiskImportStarted !Int64
   | -- | Disk copy / move kicked off asynchronously; @taskId@
     -- references the long-running task row.
-    RespDiskTransferStarted {taskId :: !Int64}
+    RespDiskTransferStarted !Int64
   | -- | Template updated successfully
-    RespTemplateUpdated {id :: !Int64}
+    RespTemplateUpdated !Int64
   | -- | SPICE connection parameters with an ephemeral password.
     RespVmViewGrant
-      { host :: !Text
-      , port :: !Int
-      , password :: !Text
-      , ttlSeconds :: !Int
-      }
+      !Text
+      !Int
+      !Text
+      !Int
   | -- | VM is not in a state where SPICE is available (e.g. stopped).
     RespVmNotRunning
   | -- | VM has no SPICE console (headless configuration).
@@ -301,15 +296,15 @@ data Response
   | -- | HMP monitor buffer flushed.
     RespHmpMonitorFlushed
   | -- | Build pipeline result (one entry per build in the request).
-    RespBuildResult {buildResult :: !BuildResult}
+    RespBuildResult !BuildResult
   | -- | Build started asynchronously (parent task id, mirrors RespApplyStarted).
-    RespBuildStarted {taskId :: !Int64}
+    RespBuildStarted !Int64
   | -- | List of nodes
-    RespNodeList {nodes :: ![NodeInfo]}
+    RespNodeList ![NodeInfo]
   | -- | Single node details
-    RespNodeDetails {node :: !NodeDetails}
+    RespNodeDetails !NodeDetails
   | -- | Node created successfully
-    RespNodeCreated {id :: !Int64}
+    RespNodeCreated !Int64
   | -- | Node deleted successfully
     RespNodeDeleted
   | -- | Node edited successfully
@@ -317,5 +312,5 @@ data Response
   | -- | Node not found
     RespNodeNotFound
   | -- | Node is still referenced by VMs / networks / disks
-    RespNodeInUse {message :: !Text}
-  deriving (Eq, Show, Generic)
+    RespNodeInUse !Text
+  deriving stock (Eq, Show, Generic)

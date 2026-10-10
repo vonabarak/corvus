@@ -96,7 +96,7 @@ data ImageResult
   | ImageError !Text
   | ImageNotFound
   | ImageFormatNotSupported !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Information about a disk image
 data ImageInfo = ImageInfo
@@ -105,7 +105,7 @@ data ImageInfo = ImageInfo
   , iiActualSize :: !(Maybe Int64)
   , iiSnapshots :: ![SnapshotData]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Snapshot data from qemu-img info
 data SnapshotData = SnapshotData
@@ -113,7 +113,7 @@ data SnapshotData = SnapshotData
   , sdName :: !Text
   , sdSize :: !(Maybe Int64)
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 --------------------------------------------------------------------------------
 -- Configuration
@@ -138,6 +138,7 @@ createImage
   -> IO ImageResult
 createImage path format size = withNewImagePath path $ \temporary -> createImageRaw temporary format size
 
+createImageRaw :: FilePath -> DriveFormat -> Int64 -> IO ImageResult
 createImageRaw path format size = do
   createDirectoryIfMissing True (takeDirectory path)
   exists <- doesFileExist path
@@ -163,6 +164,7 @@ createOverlay
   -> IO ImageResult
 createOverlay overlayPath backingPath backingFormat = withNewImagePath overlayPath $ \temporary -> createOverlayRaw temporary backingPath backingFormat
 
+createOverlayRaw :: FilePath -> FilePath -> DriveFormat -> IO ImageResult
 createOverlayRaw overlayPath backingPath backingFormat = do
   createDirectoryIfMissing True (takeDirectory overlayPath)
   exists <- doesFileExist overlayPath
@@ -419,6 +421,7 @@ rollbackSnapshot path name = do
 cloneImage :: FilePath -> FilePath -> Text -> IO ImageResult
 cloneImage src dest destFormat = withNewImagePath dest $ \temporary -> cloneImageRaw src temporary destFormat
 
+cloneImageRaw :: FilePath -> FilePath -> Text -> IO ImageResult
 cloneImageRaw src dest destFormat = do
   createDirectoryIfMissing True (takeDirectory dest)
   exists <- doesFileExist src
@@ -464,6 +467,7 @@ downloadImage
   -> IO ImageResult
 downloadImage destPath url onProgress = withNewImagePath destPath $ \temporary -> downloadImageRaw temporary url onProgress
 
+downloadImageRaw :: FilePath -> Text -> (Int64 -> Int64 -> IO ()) -> IO ImageResult
 downloadImageRaw destPath url onProgress = do
   createDirectoryIfMissing True (takeDirectory destPath)
   exists <- doesFileExist destPath

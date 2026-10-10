@@ -18,14 +18,14 @@ spec :: Spec
 spec = sequential $ withTestDb $ do
   describe "whenGuestExec" $ do
     testCase "returns VmNotFound for an unknown VM" $ do
-      when_ $ whenGuestExec 999 "true"
+      _ <- when_ $ whenGuestExec 999 "true"
       then_ responseIsVmNotFound
 
     testCase "refuses against a stopped VM" $ do
       given $ do
         _ <- insertVm "stopped" VmStopped
         pure ()
-      when_ $ whenGuestExec 1 "true"
+      _ <- when_ $ whenGuestExec 1 "true"
       then_ $ responseIs $ \case
         RespInvalidTransition VmStopped _ -> True
         _ -> False
@@ -36,7 +36,7 @@ spec = sequential $ withTestDb $ do
         -- short-circuit on that even after the status check passes.
         _ <- insertVm "no-ga" VmRunning
         pure ()
-      when_ $ whenGuestExec 1 "true"
+      _ <- when_ $ whenGuestExec 1 "true"
       then_ $ responseIs $ \case
         RespGuestAgentNotEnabled -> True
         _ -> False
@@ -48,7 +48,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertRunningVmWithGuestAgent "running-ga"
         pure ()
-      when_ $ whenGuestExec 1 "true"
+      _ <- when_ $ whenGuestExec 1 "true"
       then_ $ responseIs $ \case
         RespGuestAgentError _ -> True
         _ -> False

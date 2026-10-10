@@ -12,6 +12,7 @@ import qualified Capnp.Gen.Vm as CGVm
 import qualified Corvus.Protocol.SharedDir as P
 import Corvus.Wire.Enums (fromCapnpSharedDirCache, toCapnpSharedDirCache)
 import Corvus.Wire.Errors (WireError)
+import Prelude hiding (id)
 
 toCapnpSharedDirInfo :: P.SharedDirInfo -> C.Parsed CGVm.SharedDirInfo
 toCapnpSharedDirInfo P.SharedDirInfo {..} =

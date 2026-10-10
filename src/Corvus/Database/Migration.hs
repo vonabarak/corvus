@@ -18,7 +18,7 @@ import qualified Data.Text as T
 import Database.Persist.Sql (SqlPersistT)
 
 data DatabaseEngine = DatabasePostgresql | DatabaseSqlite
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data Migration = Migration
   { migrationVersion :: !Int
@@ -27,12 +27,12 @@ data Migration = Migration
   }
 
 data SchemaMigrationError
-  = SchemaVersionTooNew {sveStoredVersion :: !Int, sveCurrentVersion :: !Int}
-  | SchemaMigrationMissing {sveStoredVersion :: !Int, sveCurrentVersion :: !Int, sveMissingVersion :: !Int}
+  = SchemaVersionTooNew !Int !Int
+  | SchemaMigrationMissing !Int !Int !Int
   | SchemaVersionInvalid !Text
   | SchemaMigrationRegistryInvalid !Text
   | SchemaMigrationFailed !Int !Text !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance Exception SchemaMigrationError
 

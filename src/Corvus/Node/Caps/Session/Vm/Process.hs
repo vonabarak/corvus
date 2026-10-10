@@ -70,6 +70,7 @@ sanitiseVmName n
 -- | Create the runtime directory and derive every per-VM socket/state path
 -- before starting any child process. This keeps path setup separate from the
 -- later rollback-sensitive helper and QEMU spawning stages.
+prepareVmRuntime :: QemuConfig -> VS.VmSpec -> IO (FilePath, FilePath, FilePath, FilePath, FilePath, FilePath)
 prepareVmRuntime cfg spec = do
   let vmId = VS.vsVmId spec
   _ <- NR.createVmRuntimeDir cfg vmId
@@ -83,6 +84,7 @@ prepareVmRuntime cfg spec = do
 
 -- | Start the auxiliary processes required by a VM. Each failure reaps every
 -- helper already started by this stage, before QEMU has been launched.
+spawnVmHelpers :: QemuConfig -> VS.VmSpec -> FilePath -> IO ([(Word32, ProcessHandle)], Maybe (Word32, ProcessHandle))
 spawnVmHelpers cfg spec vmRuntimeDir = do
   let vmId = VS.vsVmId spec
   virtiofsdResults <-

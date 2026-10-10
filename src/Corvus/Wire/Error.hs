@@ -69,7 +69,7 @@ data ErrorCode
   | BalloonDriverNotReady
   | InvalidBalloonTarget
   | BalloonError
-  deriving (Eq, Ord, Show, Enum, Bounded)
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | Every code in declaration order.
 allErrorCodes :: [ErrorCode]
@@ -121,7 +121,7 @@ data WireErrorInfo
     -- @ :: @ delimiter
     , wiMessage :: !Text
     }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Render the fixed @<code> :: <message>@ form.
 renderWireError :: WireErrorInfo -> Text

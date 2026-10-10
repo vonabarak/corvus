@@ -29,7 +29,7 @@ data WireError
   | -- | Generic protocol violation. Carries a free-form message used
     -- when the structured cases above don't fit.
     WireMalformed !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 showWireError :: WireError -> Text
 showWireError = \case

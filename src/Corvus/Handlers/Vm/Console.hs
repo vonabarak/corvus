@@ -170,12 +170,7 @@ handleVmViewGrant state vmId = do
                       pure $ RespError $ "vmSetSpiceTicket: " <> T.pack (show e)
                     Right () ->
                       pure $
-                        RespVmViewGrant
-                          { host = qcSpiceBindAddress cfg
-                          , port = spicePort
-                          , password = pw
-                          , ttlSeconds = ttl
-                          }
+                        RespVmViewGrant (qcSpiceBindAddress cfg) spicePort pw ttl
 
 -- | Read 18 bytes from @/dev/urandom@ and encode as URL-safe base64
 -- (24 printable characters, no padding issues in SPICE tickets).

@@ -14,9 +14,6 @@ module Test.Database
     -- * Test environment
   , TestEnv (..)
 
-    -- * Database operations
-  , runDb
-
     -- * Configuration
   , TestDbConfig (..)
   , getTestDbConfig
@@ -24,7 +21,7 @@ module Test.Database
 where
 
 import Control.Monad (unless)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (liftIO)
 import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), createDatabasePool, renderSchemaMigrationError, runDatabaseMigrations)
 import qualified Corvus.Model as M
 import Corvus.Protocol (Response)
@@ -64,15 +61,7 @@ data TestEnv = TestEnv
   -- ^ Temporary directory for test files
   }
 
--- | Run a database action in the test environment
-runDb :: (MonadIO m) => TestEnv -> SqlPersistT IO a -> m a
-runDb env action = liftIO $ runSqlPool action (tePool env)
-
---------------------------------------------------------------------------------
--- Test Database Lifecycle
---------------------------------------------------------------------------------
-
--- | HSpec wrapper that sets up and tears down a test database
+-- | HSpec wrapper that sets up and tears down a test database.
 withTestDb :: SpecWith TestEnv -> Spec
 withTestDb = beforeAll setupTestDb . afterAll teardownTestDb
 

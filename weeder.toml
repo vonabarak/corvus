@@ -1,0 +1,15 @@
+roots = ["^Main.main$", "^Paths_corvus(_tools)?\\.", "^Corvus.Node.QmpQQ.qmpQQ$", "^Corvus.Utils.Yaml.(yaml|yamlQQ)$"]
+type-class-roots = false
+unused-types = true
+# Quasiquoters run at compile time; HIE does not retain their call edges.
+# Bindings are generated from the complete RPC schemas, not hand-maintained.
+root-modules = ["^Capnp\\.Gen\\."]
+# These instances are selected by overloaded syntax, which HIE may not link.
+# Instance module patterns match source paths in Weeder 2.10.0.
+# Generated RPC and Persistent instances are selected by framework machinery.
+# Standard deriving/serialization instances describe the supported data APIs.
+root-instances = [
+  { module = '^src-generated/Capnp/Gen/' },
+  { module = '^src/Corvus/Model\.hs$' },
+  { class = '\.(Eq|Show|Read|Ord|Enum|Bounded|Generic|Exception|FromJSON|ToJSON|HumanJSON|IsString|IsList)$' },
+]

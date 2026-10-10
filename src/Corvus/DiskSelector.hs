@@ -21,7 +21,7 @@ import GHC.Generics (Generic)
 import Text.Read (readMaybe)
 
 data DiskSelector = ImageId Int64 | ImageTag Text Text
-  deriving (Eq, Ord, Show, Generic)
+  deriving stock (Eq, Ord, Show, Generic)
 
 asciiDigit :: Char -> Bool
 asciiDigit = isDigit

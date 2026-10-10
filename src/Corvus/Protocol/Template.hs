@@ -44,7 +44,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviBalloon :: !Bool
   , tviRng :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Template drive info for details view
 data TemplateDriveInfo = TemplateDriveInfo
@@ -66,7 +66,7 @@ data TemplateDriveInfo = TemplateDriveInfo
   -- during instantiation. 'Nothing' picks the strategy-driven default
   -- (True for clone/overlay/create, False for direct).
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Template network interface info
 data TemplateNetIfInfo = TemplateNetIfInfo
@@ -76,14 +76,14 @@ data TemplateNetIfInfo = TemplateNetIfInfo
   , tvniNetwork :: !(Maybe Text)
   -- ^ Managed-network name; 'Nothing' for non-managed types.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Template SSH key info
 data TemplateSshKeyInfo = TemplateSshKeyInfo
   { tvskiId :: !Int64
   , tvskiName :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Template shared directory info
 data TemplateSharedDirInfo = TemplateSharedDirInfo
@@ -93,7 +93,7 @@ data TemplateSharedDirInfo = TemplateSharedDirInfo
   , tvsdiCache :: !SharedDirCache
   , tvsdiReadOnly :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 data TemplateAudioDeviceInfo = TemplateAudioDeviceInfo
   { tvadiId :: !Int64
@@ -101,7 +101,7 @@ data TemplateAudioDeviceInfo = TemplateAudioDeviceInfo
   , tvadiModel :: !AudioDeviceModel
   , tvadiOptions :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Template VM full details
 data TemplateDetails = TemplateDetails
@@ -128,7 +128,7 @@ data TemplateDetails = TemplateDetails
   , tvdBalloon :: !Bool
   , tvdRng :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON TemplateVmInfo where
   toJSON = genericToJSON innerOptions

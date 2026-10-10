@@ -16,14 +16,14 @@ spec :: Spec
 spec = sequential $ withTestDb $ do
   describe "whenSharedDirList" $ do
     testCase "returns VmNotFound for an unknown VM" $ do
-      when_ $ whenSharedDirList 999
+      _ <- when_ $ whenSharedDirList 999
       then_ responseIsVmNotFound
 
     testCase "returns an empty list when no shares exist" $ do
       given $ do
         _ <- insertVm "bare" VmStopped
         pure ()
-      when_ $ whenSharedDirList 1
+      _ <- when_ $ whenSharedDirList 1
       then_ $ responseIs $ \case
         RespSharedDirList [] -> True
         _ -> False
@@ -34,14 +34,14 @@ spec = sequential $ withTestDb $ do
         _ <- insertSharedDir vmId "/host/a" "tag-a" CacheAuto False
         _ <- insertSharedDir vmId "/host/b" "tag-b" CacheAuto True
         pure ()
-      when_ $ whenSharedDirList 1
+      _ <- when_ $ whenSharedDirList 1
       then_ $ responseIs $ \case
         RespSharedDirList xs -> length xs == 2
         _ -> False
 
   describe "whenSharedDirAdd" $ do
     testCase "returns VmNotFound for an unknown VM" $ do
-      when_ $ whenSharedDirAdd 999 "/host" "tag" CacheAuto False
+      _ <- when_ $ whenSharedDirAdd 999 "/host" "tag" CacheAuto False
       then_ responseIsVmNotFound
 
     testCase "rejects an all-digit tag (ambiguous with numeric ids)" $ do
@@ -50,7 +50,7 @@ spec = sequential $ withTestDb $ do
         pure ()
       -- `validateName` (Corvus.Handlers.Resolve) refuses all-digit
       -- names because they collide with numeric `EntityRef`s.
-      when_ $ whenSharedDirAdd 1 "/host" "42" CacheAuto False
+      _ <- when_ $ whenSharedDirAdd 1 "/host" "42" CacheAuto False
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -59,7 +59,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         pure ()
-      when_ $ whenSharedDirAdd 1 "/host/data" "data" CacheAuto False
+      _ <- when_ $ whenSharedDirAdd 1 "/host/data" "data" CacheAuto False
       then_ $ responseIs $ \case
         RespSharedDirAdded _ -> True
         _ -> False
@@ -69,7 +69,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "v" VmStopped
         _ <- insertSharedDir vmId "/host/x" "shared" CacheAuto False
         pure ()
-      when_ $ whenSharedDirAdd 1 "/host/y" "shared" CacheAuto False
+      _ <- when_ $ whenSharedDirAdd 1 "/host/y" "shared" CacheAuto False
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -79,7 +79,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v" VmStopped
         pure ()
-      when_ $ whenSharedDirRemove 1 999
+      _ <- when_ $ whenSharedDirRemove 1 999
       then_ $ responseIs $ \case
         RespSharedDirNotFound -> True
         _ -> False
@@ -89,9 +89,9 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "v" VmStopped
         _ <- insertSharedDir vmId "/host/x" "tag" CacheAuto False
         pure ()
-      when_ $ whenSharedDirRemove 1 1
+      _ <- when_ $ whenSharedDirRemove 1 1
       then_ $ responseIs (== RespSharedDirOk)
-      when_ $ whenSharedDirList 1
+      _ <- when_ $ whenSharedDirList 1
       then_ $ responseIs $ \case
         RespSharedDirList [] -> True
         _ -> False

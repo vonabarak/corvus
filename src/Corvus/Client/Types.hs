@@ -26,7 +26,7 @@ import Data.Word (Word64)
 
 -- | Output format for CLI commands
 data OutputFormat = TextOutput | JsonOutput | YamlOutput
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | CLI-side mirror of the wire 'QuiesceMode' enum. Lives here to
 -- keep 'Corvus.Client.Types' independent of the generated Cap'n
@@ -36,7 +36,7 @@ data QuiesceModeFlag
   = QuiesceFlagAuto
   | QuiesceFlagRequire
   | QuiesceFlagSkip
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Options for blocking until an async operation completes.
 data WaitOptions = WaitOptions
@@ -44,13 +44,13 @@ data WaitOptions = WaitOptions
   , woTimeout :: !(Maybe Int)
   -- ^ VM-stop graceful-shutdown window in seconds; absent for other commands.
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data BuildClientOptions = BuildClientOptions
   { bcoVars :: ![(Text, Text)]
   , bcoVarFiles :: ![FilePath]
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Command line options.
 --
@@ -73,13 +73,13 @@ data Options = Options
   , optTlsCertDir :: !(Maybe FilePath)
   , optCommand :: Command
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- | Border style for table output. The client parser translates this into
 -- 'Corvus.Client.Output.BorderStyle'; we keep them separate to avoid pulling
 -- Output into Types (which is imported by the parser).
 data BorderStyleOpt = BordersUnicodeOpt | BordersAsciiOpt | BordersNoneOpt
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Available commands
 data Command
@@ -306,4 +306,4 @@ data Command
     TaskCancel !Int64
   | -- | Generate shell completion script (bash, zsh, fish)
     Completion !Text
-  deriving (Show)
+  deriving stock (Show)

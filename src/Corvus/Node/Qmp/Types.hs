@@ -13,7 +13,7 @@ data QmpResult
   = QmpSuccess
   | QmpError !Text
   | QmpConnectionFailed !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Status returned by QMP @query-migrate@.
 --
@@ -25,8 +25,8 @@ data QmpMigrationStatus
   | MigActive
   | MigCompleted
   | MigFailed !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Balloon failures distinguish driver readiness from QMP communication errors.
 data QmpBalloonFailure = QmpBalloonDriverNotReady | QmpBalloonError !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)

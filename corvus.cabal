@@ -340,7 +340,7 @@ library
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
   include-dirs:
       cbits
   c-sources:
@@ -368,7 +368,6 @@ library
     , haskell-src-meta
     , memory
     , monad-logger
-    , mtl
     , network
     , network-simple
     , optparse-applicative
@@ -423,125 +422,19 @@ executable corvus
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      aeson
-    , aeson-qq
-    , ansi-terminal
-    , asn1-types
-    , async
+      async
     , base >=4.7 && <5
-    , base64-bytestring
-    , bytestring
-    , capnp
     , containers
     , corvus
-    , crypton
-    , crypton-x509
-    , crypton-x509-store
-    , crypton-x509-validation
-    , data-default
     , directory
-    , exceptions
     , filepath
-    , gitrev
-    , haskell-src-meta
-    , memory
     , monad-logger
-    , mtl
-    , network
-    , network-simple
     , optparse-applicative
-    , persistent
-    , process
-    , random
-    , resource-pool
-    , scientific
     , stm
-    , supervisors
-    , template-haskell
-    , temporary
     , text
-    , time
-    , tls
-    , transformers
     , unix
-    , vector
-    , yaml
-  default-language: Haskell2010
-
-executable corvus-code-metrics
-  main-is: Main.hs
-  other-modules:
-      Corvus.CodeMetrics
-      Corvus.CodeMetrics.Settings
-      Paths_corvus
-  autogen-modules:
-      Paths_corvus
-  hs-source-dirs:
-      app/code-metrics-cli
-      app/code-metrics
-  default-extensions:
-      OverloadedStrings
-      DeriveGeneric
-      DeriveAnyClass
-      DerivingStrategies
-      GeneralizedNewtypeDeriving
-      StandaloneDeriving
-      TypeFamilies
-      GADTs
-      UndecidableInstances
-      DataKinds
-      FlexibleInstances
-      MultiParamTypeClasses
-      QuasiQuotes
-      TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints
-  build-depends:
-      Cabal
-    , aeson
-    , aeson-qq
-    , ansi-terminal
-    , asn1-types
-    , async
-    , base >=4.7 && <5
-    , base64-bytestring
-    , bytestring
-    , capnp
-    , containers
-    , crypton
-    , crypton-x509
-    , crypton-x509-store
-    , crypton-x509-validation
-    , data-default
-    , directory
-    , exceptions
-    , filepath
-    , ghc
-    , gitrev
-    , haskell-src-meta
-    , memory
-    , monad-logger
-    , mtl
-    , network
-    , network-simple
-    , optparse-applicative
-    , persistent
-    , process
-    , random
-    , resource-pool
-    , scientific
-    , stm
-    , supervisors
-    , template-haskell
-    , temporary
-    , text
-    , time
-    , tls
-    , transformers
-    , unix
-    , vector
-    , yaml
   default-language: Haskell2010
 
 executable corvus-netd
@@ -567,51 +460,15 @@ executable corvus-netd
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      aeson
-    , aeson-qq
-    , ansi-terminal
-    , asn1-types
-    , async
+      async
     , base >=4.7 && <5
-    , base64-bytestring
-    , bytestring
-    , capnp
-    , containers
     , corvus
-    , crypton
-    , crypton-x509
-    , crypton-x509-store
-    , crypton-x509-validation
-    , data-default
-    , directory
-    , exceptions
-    , filepath
-    , gitrev
-    , haskell-src-meta
-    , memory
     , monad-logger
-    , mtl
-    , network
-    , network-simple
     , optparse-applicative
-    , persistent
-    , process
-    , random
-    , resource-pool
-    , scientific
-    , stm
-    , supervisors
-    , template-haskell
-    , temporary
     , text
-    , time
-    , tls
-    , transformers
     , unix
-    , vector
-    , yaml
   default-language: Haskell2010
 
 executable corvus-nodeagent
@@ -637,51 +494,15 @@ executable corvus-nodeagent
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      aeson
-    , aeson-qq
-    , ansi-terminal
-    , asn1-types
-    , async
+      async
     , base >=4.7 && <5
-    , base64-bytestring
-    , bytestring
-    , capnp
-    , containers
     , corvus
-    , crypton
-    , crypton-x509
-    , crypton-x509-store
-    , crypton-x509-validation
-    , data-default
-    , directory
-    , exceptions
-    , filepath
-    , gitrev
-    , haskell-src-meta
-    , memory
     , monad-logger
-    , mtl
-    , network
-    , network-simple
     , optparse-applicative
-    , persistent
-    , process
-    , random
-    , resource-pool
-    , scientific
-    , stm
-    , supervisors
-    , template-haskell
-    , temporary
     , text
-    , time
-    , tls
-    , transformers
     , unix
-    , vector
-    , yaml
   default-language: Haskell2010
 
 executable crv
@@ -707,51 +528,12 @@ executable crv
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts
   build-depends:
-      aeson
-    , aeson-qq
-    , ansi-terminal
-    , asn1-types
-    , async
+      async
     , base >=4.7 && <5
-    , base64-bytestring
-    , bytestring
-    , capnp
-    , containers
     , corvus
-    , crypton
-    , crypton-x509
-    , crypton-x509-store
-    , crypton-x509-validation
-    , data-default
-    , directory
-    , exceptions
-    , filepath
-    , gitrev
-    , haskell-src-meta
-    , memory
-    , monad-logger
-    , mtl
-    , network
-    , network-simple
     , optparse-applicative
-    , persistent
-    , process
-    , random
-    , resource-pool
-    , scientific
-    , stm
-    , supervisors
-    , template-haskell
-    , temporary
-    , text
-    , time
-    , tls
-    , transformers
-    , unix
-    , vector
-    , yaml
   default-language: Haskell2010
 
 test-suite corvus-test
@@ -769,7 +551,6 @@ test-suite corvus-test
       Corvus.CapnpServerSpec
       Corvus.ClientOutputSpec
       Corvus.CloudInitSpec
-      Corvus.CodeMetricsSpec
       Corvus.CoreSpec
       Corvus.DatabaseMigrationSpec
       Corvus.DatabaseSpec
@@ -783,6 +564,7 @@ test-suite corvus-test
       Corvus.ImageSpec
       Corvus.ImageTagsSpec
       Corvus.IpamSpec
+      Corvus.NetAgentClientSpec
       Corvus.NetdLedgerSpec
       Corvus.NetIfSpec
       Corvus.NetworkSpec
@@ -824,14 +606,11 @@ test-suite corvus-test
       Test.DSL.When
       Test.Prelude
       Test.Settings
-      Corvus.CodeMetrics
-      Corvus.CodeMetrics.Settings
       Paths_corvus
   autogen-modules:
       Paths_corvus
   hs-source-dirs:
       test
-      app/code-metrics
   default-extensions:
       OverloadedStrings
       DeriveGeneric
@@ -847,57 +626,37 @@ test-suite corvus-test
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
-  ghc-options: -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Werror -Werror=incomplete-patterns -Werror=incomplete-uni-patterns -Werror=incomplete-record-updates -Werror=missing-fields -Werror=missing-methods -Wpartial-fields -Wmissing-deriving-strategies -Wmissing-export-lists -Wunused-packages -Werror=x-partial -Werror=unused-imports -Werror=unused-top-binds -Werror=unused-local-binds -Werror=unused-matches -Werror=unused-type-patterns -Werror=unused-foralls -Werror=unused-record-wildcards -Werror=redundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-tool-depends:
+      hspec-discover:hspec-discover
   build-depends:
-      Cabal
-    , QuickCheck
+      QuickCheck
     , aeson
     , aeson-qq
-    , ansi-terminal
-    , asn1-types
     , async
     , base >=4.7 && <5
-    , base64-bytestring
     , bytestring
     , capnp
     , containers
     , corvus
-    , crypton
-    , crypton-x509
-    , crypton-x509-store
-    , crypton-x509-validation
-    , data-default
     , directory
-    , exceptions
     , filepath
-    , ghc
-    , gitrev
-    , haskell-src-meta
     , hspec
-    , hspec-discover
     , hspec-expectations
-    , memory
     , monad-logger
     , mtl
     , network
-    , network-simple
     , optparse-applicative
     , persistent
     , process
-    , random
     , resource-pool
-    , scientific
     , silently
     , stm
     , supervisors
-    , template-haskell
     , temporary
     , text
     , time
-    , tls
-    , transformers
     , unix
     , uuid
-    , vector
     , yaml
   default-language: Haskell2010

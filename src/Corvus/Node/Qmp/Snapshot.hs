@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Live and full-machine snapshot QMP operations.
-module Corvus.Node.Qmp.Snapshot where
+module Corvus.Node.Qmp.Snapshot (qmpSnapshotSave, qmpSnapshotLoad, qmpSnapshotDelete, qmpBlockSnapshotCreate, qmpBlockSnapshotDelete, qmpFindBlockDeviceByPath) where
 
 import Corvus.Node.Qmp.Block (qmpFindBlockNodeByPath)
 import Corvus.Node.Qmp.Runtime (pollQmpJob)
@@ -186,7 +186,7 @@ data QueryBlockItem = QueryBlockItem
   { qbiDevice :: !Text
   , qbiFilename :: !Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 newtype QueryBlockReply = QueryBlockReply [QueryBlockItem]
 

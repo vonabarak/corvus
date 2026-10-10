@@ -38,7 +38,7 @@ data TestDbConfig = TestDbConfig
   , tdcUsePostgresql :: !Bool
   -- ^ Whether to use PostgreSQL instead of the default SQLite test database
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- | Get test database configuration from environment variables
 getTestDbConfig :: IO TestDbConfig

@@ -225,8 +225,7 @@ driveTransfers
   -> M.VmStatus
   -> LoggingT IO Response
 driveTransfers ctx vmId destNode plan origStatus = do
-  let state = acState ctx
-      srcNode = mpSrcNode plan
+  let srcNode = mpSrcNode plan
       ops = mpDriveOps plan
   -- Stage 1: per-drive byte transfers. We accumulate a list of
   -- "what we created on the destination" so we can roll back on

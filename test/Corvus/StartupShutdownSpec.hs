@@ -19,20 +19,21 @@ spec = sequential $ withTestDb $ do
       -- Insert a task that was "running" when the daemon crashed
       given $ do
         now <- liftIO getCurrentTime
-        runDb $
-          insert
-            Task
-              { taskParent = Nothing
-              , taskStartedAt = now
-              , taskFinishedAt = Nothing
-              , taskSubsystem = SubVm
-              , taskEntityId = Just 1
-              , taskEntityName = Just "stale-vm"
-              , taskCommand = "start"
-              , taskResult = TaskRunning
-              , taskMessage = Nothing
-              , taskClientName = "alice"
-              }
+        _ <-
+          runDb $
+            insert
+              Task
+                { taskParent = Nothing
+                , taskStartedAt = now
+                , taskFinishedAt = Nothing
+                , taskSubsystem = SubVm
+                , taskEntityId = Just 1
+                , taskEntityName = Just "stale-vm"
+                , taskCommand = "start"
+                , taskResult = TaskRunning
+                , taskMessage = Nothing
+                , taskClientName = "alice"
+                }
         pure ()
 
       -- Run startup
@@ -126,20 +127,21 @@ spec = sequential $ withTestDb $ do
       given $ do
         now <- liftIO getCurrentTime
         let oldTime = addUTCTime (-(100 * 86400)) now -- 100 days ago
-        runDb $
-          insert
-            Task
-              { taskParent = Nothing
-              , taskStartedAt = oldTime
-              , taskFinishedAt = Just oldTime
-              , taskSubsystem = SubVm
-              , taskEntityId = Nothing
-              , taskEntityName = Nothing
-              , taskCommand = "old-task"
-              , taskResult = TaskSuccess
-              , taskMessage = Nothing
-              , taskClientName = "system"
-              }
+        _ <-
+          runDb $
+            insert
+              Task
+                { taskParent = Nothing
+                , taskStartedAt = oldTime
+                , taskFinishedAt = Just oldTime
+                , taskSubsystem = SubVm
+                , taskEntityId = Nothing
+                , taskEntityName = Nothing
+                , taskCommand = "old-task"
+                , taskResult = TaskSuccess
+                , taskMessage = Nothing
+                , taskClientName = "system"
+                }
         pure ()
 
       pool <- getDbPool
@@ -154,20 +156,21 @@ spec = sequential $ withTestDb $ do
     testCase "marks running tasks as error" $ do
       given $ do
         now <- liftIO getCurrentTime
-        runDb $
-          insert
-            Task
-              { taskParent = Nothing
-              , taskStartedAt = now
-              , taskFinishedAt = Nothing
-              , taskSubsystem = SubDisk
-              , taskEntityId = Nothing
-              , taskEntityName = Nothing
-              , taskCommand = "import"
-              , taskResult = TaskRunning
-              , taskMessage = Nothing
-              , taskClientName = "alice"
-              }
+        _ <-
+          runDb $
+            insert
+              Task
+                { taskParent = Nothing
+                , taskStartedAt = now
+                , taskFinishedAt = Nothing
+                , taskSubsystem = SubDisk
+                , taskEntityId = Nothing
+                , taskEntityName = Nothing
+                , taskCommand = "import"
+                , taskResult = TaskRunning
+                , taskMessage = Nothing
+                , taskClientName = "alice"
+                }
         pure ()
 
       pool <- getDbPool

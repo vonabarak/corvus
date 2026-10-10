@@ -40,16 +40,16 @@ import GHC.Types.SrcLoc
   , srcSpanStartLine
   , unLoc
   )
-import Language.Haskell.Extension (Extension (DisableExtension, EnableExtension))
+import Language.Haskell.Extension (Extension (DisableExtension, EnableExtension, UnknownExtension))
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (makeRelative, normalise, takeExtension, (</>))
+import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.Process (readProcess)
 
 data ModuleMetric = ModuleMetric
   { modulePath :: FilePath
   , moduleLines :: Int
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data BindingMetric = BindingMetric
   { bindingPath :: FilePath
@@ -58,13 +58,13 @@ data BindingMetric = BindingMetric
   , bindingEndLine :: Int
   , bindingLines :: Int
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data Report = Report
   { reportModules :: [ModuleMetric]
   , reportBindings :: [BindingMetric]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data ComponentSettings = ComponentSettings
   { componentRoots :: [FilePath]
@@ -122,18 +122,22 @@ limitViolations Report {reportModules, reportBindings} = moduleViolations <> bin
 
 loadComponentSettings :: FilePath -> IO (Either String [ComponentSettings])
 loadComponentSettings projectRoot = do
-  let cabalFile = projectRoot </> "corvus.cabal"
+  results <- mapM loadPackageSettings [projectRoot </> "corvus.cabal", projectRoot </> "tools/corvus-tools.cabal"]
+  pure (concat <$> sequence results)
+
+loadPackageSettings :: FilePath -> IO (Either String [ComponentSettings])
+loadPackageSettings cabalFile = do
   cabalExists <- doesFileExist cabalFile
   if not cabalExists
-    then pure (Left "corvus.cabal not found; run make code-metrics from the repository root")
+    then pure (Left (cabalFile <> " not found; run make code-metrics from the repository root"))
     else do
       contents <- BS.readFile cabalFile
       case parseGenericPackageDescriptionMaybe contents of
-        Nothing -> pure (Left "could not parse corvus.cabal")
+        Nothing -> pure (Left ("could not parse " <> cabalFile))
         Just packageDescription ->
           case finalizePD mempty defaultComponentRequestedSpec (const True) buildPlatform (unknownCompilerInfo buildCompilerId NoAbiTag) [] packageDescription of
-            Left dependencies -> pure (Left ("could not finalize corvus.cabal: " <> show dependencies))
-            Right (finalizedPackage, _) -> pure . Right . map (toSettings projectRoot) $ allBuildInfo finalizedPackage
+            Left dependencies -> pure (Left ("could not finalize " <> cabalFile <> ": " <> show dependencies))
+            Right (finalizedPackage, _) -> pure . Right . map (toSettings (takeDirectory cabalFile)) $ allBuildInfo finalizedPackage
 
 toSettings :: FilePath -> BuildInfo -> ComponentSettings
 toSettings projectRoot buildInfo =
@@ -146,9 +150,10 @@ extensionFlag :: Extension -> String
 extensionFlag = \case
   EnableExtension extension -> "-X" <> show extension
   DisableExtension extension -> "-XNo" <> show extension
+  UnknownExtension extension -> "-X" <> extension
 
 authoredHaskellFiles :: FilePath -> IO [FilePath]
-authoredHaskellFiles projectRoot = concat <$> mapM (findHaskellFiles . (projectRoot </>)) ["src", "app"]
+authoredHaskellFiles projectRoot = concat <$> mapM (findHaskellFiles . (projectRoot </>)) ["src", "app", "tools/code-metrics", "tools/code-metrics-cli", "tools/coverage-check", "tools/coverage-check-cli"]
 
 findHaskellFiles :: FilePath -> IO [FilePath]
 findHaskellFiles directory = do
@@ -239,7 +244,7 @@ bindingNameOf = \case
 
 spanLines :: GHC.SrcSpan -> Maybe (Int, Int)
 spanLines = \case
-  RealSrcSpan span _ -> Just (srcSpanStartLine span, srcSpanEndLine span)
+  RealSrcSpan sourceSpan _ -> Just (srcSpanStartLine sourceSpan, srcSpanEndLine sourceSpan)
   _ -> Nothing
 
 sortModules :: [ModuleMetric] -> [ModuleMetric]

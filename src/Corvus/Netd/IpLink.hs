@@ -55,7 +55,7 @@ data IpLinkError = IpLinkError
   , ileExitCode :: !Int
   , ileStderr :: !T.Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception IpLinkError
 

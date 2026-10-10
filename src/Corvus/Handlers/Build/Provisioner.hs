@@ -152,7 +152,7 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
         (ssDbPool state)
   bodyResult <- liftIO $ try $ runProvisionerBody state vmId sd cEnv stepIdx sink p
   finishedAt <- liftIO getCurrentTime
-  let (orchResult, taskMsg, taskResult) = case bodyResult of
+  let (orchResult, taskMsg, resultStatus) = case bodyResult of
         Right (Right msg) -> (Right (), msg, TaskSuccess)
         Right (Left (shortErr, longMsg)) -> (Left shortErr, longMsg, TaskError)
         Left (e :: SomeException) ->
@@ -163,7 +163,7 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
       ( update
           taskKey
           [ TaskFinishedAt =. Just finishedAt
-          , TaskResult =. taskResult
+          , TaskResult =. resultStatus
           , TaskMessage =. taskMsg
           ]
       )

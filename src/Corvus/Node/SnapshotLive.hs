@@ -59,7 +59,7 @@ data QuiesceMode
   = QuiesceAuto
   | QuiesceRequire
   | QuiesceSkip
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Create a snapshot of a running VM's disk via QMP, bracketing
 -- the QMP call with QGA fsfreeze+thaw per the supplied

@@ -137,7 +137,7 @@ data ClientDefaults = ClientDefaults
   , cdHost :: !String
   , cdPort :: !Int
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- | Resolve env vars into 'ClientDefaults'.
 --

@@ -90,6 +90,7 @@ app/daemon/              # corvus executable
 app/client/              # crv executable
 app/nodeagent/           # corvus-nodeagent executable
 app/netd/                # corvus-netd executable
+tools/                   # Separate Haskell development checks and their tests
 schema/                  # Cap'n Proto schemas; run make capnp after edits
 src-generated/           # Generated Haskell Cap'n Proto modules
 python/corvus_client/    # Sync and async pycapnp client library

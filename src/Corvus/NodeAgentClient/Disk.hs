@@ -53,19 +53,19 @@ data DiskOpKind
   | DiskOpError !T.Text
   | DiskOpNotFound
   | DiskOpFormatUnsupported !T.Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 newtype DiskOpResult = DiskOpResult
   { dorKind :: DiskOpKind
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DiskSnapshotInfo = DiskSnapshotInfo
   { dsiId :: !T.Text
   , dsiName :: !T.Text
   , dsiSize :: !(Maybe Int64)
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data DiskInspectInfo = DiskInspectInfo
   { diiFormat :: !T.Text
@@ -73,7 +73,7 @@ data DiskInspectInfo = DiskInspectInfo
   , diiActualSize :: !(Maybe Int64)
   , diiSnapshots :: ![DiskSnapshotInfo]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 decodeDiskOpResult :: C.Parsed CGNA.DiskOpResult -> DiskOpResult
 decodeDiskOpResult CGNA.DiskOpResult {CGNA.kind = k, CGNA.message = m} =

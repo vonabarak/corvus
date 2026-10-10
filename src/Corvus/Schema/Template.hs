@@ -46,7 +46,7 @@ data TemplateYaml = TemplateYaml
   , tySharedDirs :: [TemplateSharedDirYaml]
   , tyAudioDevices :: [TemplateAudioDeviceYaml]
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON TemplateYaml where
   parseJSON = withObject "TemplateYaml" $ \o ->
@@ -77,7 +77,7 @@ data TemplateAudioDeviceYaml = TemplateAudioDeviceYaml
   , tadyModel :: AudioDeviceModel
   , tadyOptions :: Text
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON TemplateAudioDeviceYaml where
   parseJSON = withObject "TemplateAudioDeviceYaml" $ \o ->
@@ -100,7 +100,7 @@ data TemplateDriveYaml = TemplateDriveYaml
   -- (disks materialised during instantiation), False for direct
   -- (an existing image is attached as-is).
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON TemplateDriveYaml where
   parseJSON = withObject "TemplateDriveYaml" $ \o ->
@@ -125,7 +125,7 @@ data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
   -- ^ Name of the managed network to attach this NIC to.
   -- Required for @type: managed@; ignored otherwise.
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON TemplateNetworkInterfaceYaml where
   parseJSON = withObject "TemplateNetworkInterfaceYaml" $ \o -> do
@@ -151,7 +151,7 @@ instance FromJSON TemplateNetworkInterfaceYaml where
 newtype TemplateSshKeyYaml = TemplateSshKeyYaml
   { tkyName :: Text
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON TemplateSshKeyYaml where
   parseJSON = withObject "TemplateSshKeyYaml" $ \o ->
@@ -164,7 +164,7 @@ data TemplateSharedDirYaml = TemplateSharedDirYaml
   , tsdyCache :: SharedDirCache
   , tsdyReadOnly :: Bool
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance FromJSON TemplateSharedDirYaml where
   parseJSON = withObject "TemplateSharedDirYaml" $ \o ->

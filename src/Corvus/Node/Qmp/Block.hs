@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Block-device and hotplug QMP operations.
-module Corvus.Node.Qmp.Block where
+module Corvus.Node.Qmp.Block (qmpBlockdevAdd, qmpDeviceAddDrive, qmpDeviceDel, qmpBlockdevDel, qmpQueryBlock, qmpEject, qmpChangeMedium, qmpFindBlockNodeByPath, BlockEntry (..)) where
 
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), EnumText (..))
 import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpRaw)
@@ -133,11 +133,11 @@ data BlockEntry = BlockEntry
   , beTrayOpen :: !Bool
   , beInserted :: !(Maybe A.Value)
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance A.FromJSON BlockEntry where
   parseJSON = A.withObject "BlockEntry" $ \o -> do
-    rem <- o A..: "removable"
+    removable <- o A..: "removable"
     -- 'tray_open' is @allow-omitted@ in QEMU's BlockInfo: it is present
     -- only for removable cdrom block devices, absent on plain disks.
     openM <- o A..:? "tray_open"
@@ -146,7 +146,7 @@ instance A.FromJSON BlockEntry where
     pure
       BlockEntry
         { beDevice = deviceM
-        , beRemovable = rem
+        , beRemovable = removable
         , beTrayOpen = fromMaybe False openM
         , beInserted = fromMaybe Nothing insertedM
         }
@@ -276,7 +276,7 @@ data QueryNamedBlockNode = QueryNamedBlockNode
   { qnbnNodeName :: !Text
   , qnbnFile :: !Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 newtype QueryNamedBlockNodesReply = QueryNamedBlockNodesReply [QueryNamedBlockNode]
 

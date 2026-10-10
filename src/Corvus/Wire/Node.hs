@@ -19,6 +19,7 @@ import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, ut
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Prelude hiding (id)
 
 -- ---------------------------------------------------------------------
 -- NodeInfo

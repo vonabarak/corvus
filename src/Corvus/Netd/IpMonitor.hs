@@ -39,7 +39,7 @@ import System.Process
 -- when a consumer needs them.
 newtype LinkEvent
   = LinkDeleted T.Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Run @ip monitor link@ in a long-lived child process, parse
 -- each line into a 'LinkEvent', and call the consumer for each.

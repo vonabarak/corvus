@@ -30,7 +30,7 @@ data DiskCleanup = DiskCleanup
   , dcNode :: Maybe NodeId
   , dcIncludeTagged :: Bool
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance Action DiskCleanup where
   actionSubsystem _ = SubDisk

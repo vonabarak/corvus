@@ -19,9 +19,9 @@ env:
 
 jobs:
   # Drives the same Makefile targets a developer runs locally
-  # (`make build`, `make lint`, `make unit-tests`). Keeping CI on
-  # the Makefile means a green CI run ⇔ `make lint && make
-  # unit-tests` green on a developer's machine — no drift between
+  # (`make build`, `make check`). Keeping CI on
+  # the Makefile means a green CI run includes the same Haskell tests,
+  # Weeder analysis, and coverage gate as a developer's check — no drift between
   # the two surfaces.
   #
   # `make python-test` and `make integration-tests` are NOT run
@@ -56,9 +56,9 @@ jobs:
           stack-no-install-ghc: true
 
       # Node.js for the frontend lint/typecheck/format pass
-      # (`web-lint` invoked from `make lint`). The Makefile
+      # (`web-lint` invoked from `make check`). The Makefile
       # gate on `frontend/node_modules/` means we also need the
-      # explicit `npm ci` below — without it, `make lint` would
+      # explicit `npm ci` below — without it, `make check` would
       # silently skip the frontend checks even with Node on
       # PATH. Matches the version pinned in release.yml.
       - uses: actions/setup-node@v4
@@ -76,16 +76,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.stack
-          key: stack-global-v2-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          key: stack-global-v2-${{ runner.os }}-${{ hashFiles('stack.yaml.lock', 'tools/stack.yaml.lock') }}
           restore-keys: stack-global-v2-${{ runner.os }}-
 
       - name: Cache Stack work
         uses: actions/cache@v4
         with:
-          path: .stack-work
-          key: stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-${{ github.sha }}
+          path: |
+            .stack-work
+            tools/.stack-work
+          key: stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml', 'tools/package.yaml', 'tools/stack.yaml') }}-${{ github.sha }}
           restore-keys: |
-            stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-
+            stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml', 'tools/package.yaml', 'tools/stack.yaml') }}-
             stack-work-v2-${{ runner.os }}-
 
       # Make stack's defaults match the dev tree's: use the GHC
@@ -144,7 +146,7 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -e '.[harness,dev]'
 
-      # Install the frontend toolchain so `make lint`'s gated
+      # Install the frontend toolchain so `make check`'s gated
       # `web-lint` step (Makefile checks for
       # frontend/node_modules/) actually fires here. Reproducible
       # via the committed lockfile.
@@ -164,7 +166,7 @@ jobs:
           ghc --version
           cat ~/.stack/config.yaml
 
-      # ----- Build / lint / test ----------------------------------------
+      # ----- Build / check / test ----------------------------------------
 
       # `make build` is a thin wrapper around `stack build` today
       # but keeps CI and dev surface in lockstep for future
@@ -172,17 +174,8 @@ jobs:
       - name: Build
         run: make build
 
-      # `make lint` runs hlint + fourmolu --mode check + ruff
-      # check + ruff format --check + mypy. Read-only — same as
-      # the developer's pre-push gate.
-      - name: Lint
-        run: make lint
-
-      # `make unit-tests` auto-scales `--jobs` to nproc. With no
-      # TEST_DB_* override, the Haskell harness uses SQLite, which
-      # matches the daemon's default database choice in a both-backend
-      # build. The Haskell test/ tree is unit-only post-refactor; the
-      # older `--skip Integration` flag the previous CI carried is
-      # stale (no spec is tagged that way in the current tree).
-      - name: Unit tests
-        run: make unit-tests
+      # `make check` runs hlint + fourmolu --mode check + ruff
+      # check + ruff format --check + mypy, then a strict Haskell
+      # build, Weeder, unit tests, and the expression coverage gate.
+      - name: Check
+        run: make check

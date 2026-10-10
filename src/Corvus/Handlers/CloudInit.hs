@@ -75,22 +75,23 @@ handleCloudInitSet state clientName vmId mUserData mNetworkConfig injectKeys = r
           pure $ RespError "Cloud-init is not enabled on this VM"
       | otherwise -> do
           -- Upsert the cloud-init config
-          liftIO $
-            runSqlPool
-              ( upsertBy
-                  (UniqueCloudInitVm vmKey)
-                  CloudInit
-                    { cloudInitVmId = vmKey
-                    , cloudInitUserData = mUserData
-                    , cloudInitNetworkConfig = mNetworkConfig
-                    , cloudInitInjectSshKeys = injectKeys
-                    }
-                  [ CloudInitUserData =. mUserData
-                  , CloudInitNetworkConfig =. mNetworkConfig
-                  , CloudInitInjectSshKeys =. injectKeys
-                  ]
-              )
-              pool
+          _ <-
+            liftIO $
+              runSqlPool
+                ( upsertBy
+                    (UniqueCloudInitVm vmKey)
+                    CloudInit
+                      { cloudInitVmId = vmKey
+                      , cloudInitUserData = mUserData
+                      , cloudInitNetworkConfig = mNetworkConfig
+                      , cloudInitInjectSshKeys = injectKeys
+                      }
+                    [ CloudInitUserData =. mUserData
+                    , CloudInitNetworkConfig =. mNetworkConfig
+                    , CloudInitInjectSshKeys =. injectKeys
+                    ]
+                )
+                pool
           -- Regenerate ISO with new config
           ciResp <- liftIO $ runAction state clientName (RegenerateCloudInit vmId (vmName vm))
           case ciResp of
@@ -194,7 +195,7 @@ instance Action RegenerateCloudInit where
 -- registered as a disk and attached to the VM. Fails if the
 -- node agent is unreachable.
 regenerateCloudInitIsoForVm :: ServerState -> Int64 -> Text -> IO (Either Text ())
-regenerateCloudInitIsoForVm state vmId vmName = do
+regenerateCloudInitIsoForVm state vmId guestName = do
   let qemuConfig = ssQemuConfig state
       pool = ssDbPool state
       logLevel = ssLogLevel state
@@ -211,7 +212,7 @@ regenerateCloudInitIsoForVm state vmId vmName = do
   -- Check for custom cloud-init config
   mCustomConfig <- runSqlPool (getBy (UniqueCloudInitVm vmKey)) pool
 
-  vmDir <- getCloudInitDir qemuConfig vmName
+  vmDir <- getCloudInitDir qemuConfig guestName
   -- Auto-generate a NoCloud network-config v2 stanza for every
   -- managed NIC the daemon's IPAM assigned an IP to. Only used
   -- when the operator didn't supply a custom networkConfig of
@@ -220,7 +221,7 @@ regenerateCloudInitIsoForVm state vmId vmName = do
   let config = case mCustomConfig of
         Just (Entity _ ci) ->
           defaultCloudInitConfig
-            { ciHostname = vmName
+            { ciHostname = guestName
             , ciInstanceId = "corvus-" <> T.pack (show vmId)
             , ciCustomUserData = cloudInitUserData ci
             , ciNetworkConfig = cloudInitNetworkConfig ci <|> autoNet
@@ -228,7 +229,7 @@ regenerateCloudInitIsoForVm state vmId vmName = do
             }
         Nothing ->
           defaultCloudInitConfig
-            { ciHostname = vmName
+            { ciHostname = guestName
             , ciInstanceId = "corvus-" <> T.pack (show vmId)
             , ciNetworkConfig = autoNet
             }
@@ -247,7 +248,7 @@ regenerateCloudInitIsoForVm state vmId vmName = do
     Right result -> case result of
       Left e -> pure $ Left (T.pack (show e))
       Right isoPath -> do
-        ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel
+        ensureCloudInitDiskRegistered pool qemuConfig vmId guestName isoPath logLevel
         pure $ Right ()
 
 -- | Read every managed NIC attached to the VM that has a daemon
@@ -298,9 +299,9 @@ resolveNic pool (Entity _ nic) =
 -- inside the guest sees no metadata source and no SSH keys
 -- ever get injected.
 ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text -> Text -> LogLevel -> IO ()
-ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
+ensureCloudInitDiskRegistered pool qemuConfig vmId guestName isoPath logLevel = runFilteredLogging logLevel $ do
   let vmKey = toSqlKey vmId :: VmId
-  let diskName = "vm-" <> T.pack (show vmId) <> "-" <> vmName <> "-cloud-init"
+  let diskName = "vm-" <> T.pack (show vmId) <> "-" <> guestName <> "-cloud-init"
   basePath <- liftIO $ getEffectiveBasePath qemuConfig
   let storedPath = makeRelativeToBase basePath (T.unpack isoPath)
   -- Pull the VM's node id so the placement row points at the

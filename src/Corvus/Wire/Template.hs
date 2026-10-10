@@ -53,6 +53,7 @@ import Corvus.Wire.Enums
 import Corvus.Wire.Errors (WireError (..))
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
 import Data.Maybe (fromMaybe, isJust)
+import Prelude hiding (id)
 
 toCapnpTemplateAudioDeviceInfo :: P.TemplateAudioDeviceInfo -> C.Parsed CGT.TemplateAudioDeviceInfo
 toCapnpTemplateAudioDeviceInfo P.TemplateAudioDeviceInfo {..} =

@@ -111,13 +111,13 @@ spec = do
             ] }
             |]
       case parseGuestInterfaces (Just response) of
-        Nothing -> expectationFailure "parser returned Nothing on a well-formed FreeBSD response"
-        Just ifs -> do
+        Just ifs@(firstInterface : _) -> do
           length ifs `shouldBe` 2
-          gniHardwareAddress (head ifs) `shouldBe` "52:54:00:e1:8a:ff"
-          let vtIps = gniIpAddresses (head ifs)
+          gniHardwareAddress firstInterface `shouldBe` "52:54:00:e1:8a:ff"
+          let vtIps = gniIpAddresses firstInterface
           length vtIps `shouldBe` 2
           map giaAddress vtIps `shouldContain` ["192.168.89.216"]
+        _ -> expectationFailure "parser returned no interfaces on a well-formed FreeBSD response"
 
   describe "parseGuestInterfaces (lenient)" $ do
     it "parses a normal response" $ do
@@ -182,11 +182,11 @@ spec = do
             |]
               )
       case parsed of
-        Just ifs -> do
+        Just ifs@(firstInterface : _) -> do
           length ifs `shouldBe` 2
-          gniHardwareAddress (head ifs) `shouldBe` "52:54:00:aa:bb:cc"
-          length (gniIpAddresses (head ifs)) `shouldBe` 1
-        Nothing -> expectationFailure "parser failed entirely instead of dropping bad entry"
+          gniHardwareAddress firstInterface `shouldBe` "52:54:00:aa:bb:cc"
+          length (gniIpAddresses firstInterface) `shouldBe` 1
+        _ -> expectationFailure "parser failed entirely instead of dropping bad entry"
 
     it "skips interfaces without hardware-address (Windows loopback)" $ do
       parseGuestInterfaces (Just [aesonQQ| { "return": [{ "name": "Loopback" }, { "hardware-address": "52:54:00:12:34:56", "ip-addresses": [] }] } |])

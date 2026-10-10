@@ -59,7 +59,7 @@ data VmInfo = VmInfo
   -- @schema/vm.capnp::VmInfo.cpuModel@ for migration-safety
   -- trade-off.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Drive info for details view
 data DriveInfo = DriveInfo
@@ -74,7 +74,7 @@ data DriveInfo = DriveInfo
   , diCacheType :: !CacheType
   , diDiscard :: !Bool
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Network interface info for details view
 data NetIfInfo = NetIfInfo
@@ -88,7 +88,7 @@ data NetIfInfo = NetIfInfo
   , niGuestIpAddresses :: !(Maybe Text)
   , niIpAddress :: !(Maybe Text)
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 data AudioDeviceInfo = AudioDeviceInfo
   { adiId :: !Int64
@@ -96,7 +96,7 @@ data AudioDeviceInfo = AudioDeviceInfo
   , adiModel :: !AudioDeviceModel
   , adiOptions :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON AudioDeviceInfo where
   toJSON = genericToJSON innerOptions
@@ -162,7 +162,7 @@ data VmDetails = VmDetails
   -- when the VM is stopped or the daemon hasn't yet received its
   -- first sample.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | One resource-consumption sample. Cumulative counters +
 -- instant gauges; consumers compute rates as
@@ -191,7 +191,7 @@ data VmStats = VmStats
   , vstDrives :: ![DriveIo]
   , vstNets :: ![NetIo]
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Per-drive cumulative I/O counters.
 data DriveIo = DriveIo
@@ -202,7 +202,7 @@ data DriveIo = DriveIo
   , dioReadOpsTotal :: !Word64
   , dioWriteOpsTotal :: !Word64
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Per-TAP cumulative throughput counters.
 data NetIo = NetIo
@@ -210,7 +210,7 @@ data NetIo = NetIo
   , nioRxBytesTotal :: !Word64
   , nioTxBytesTotal :: !Word64
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | VM-scoped full-machine snapshot summary. Backed by N rows in
 -- the @snapshot@ table that share the same @name@ across the VM's
@@ -225,7 +225,7 @@ data VmSnapshotInfo = VmSnapshotInfo
   , vsiDiskCount :: !Int
   , vsiTotalSize :: !Int64
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Empty-sample sentinel. Used by the daemon when a VM has no
 -- cached sample yet (e.g. newly created, just before the first

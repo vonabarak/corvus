@@ -76,7 +76,7 @@ data DnsmasqStartParams = DnsmasqStartParams
   -- @--dhcp-option=option:dns-server,IP1,IP2,...@ flag; an empty
   -- list emits no flag (no DNS supplied to leases).
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- | Failures observed during startup. Either we couldn't spawn
 -- the binary, or it crashed within the readiness window. The
@@ -86,7 +86,7 @@ data DnsmasqStartParams = DnsmasqStartParams
 data DnsmasqError
   = DnsmasqSpawnError !T.Text
   | DnsmasqDiedDuringStartup !Int !T.Text
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception DnsmasqError
 

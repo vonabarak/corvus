@@ -11,6 +11,7 @@ import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Network as CGNet
 import qualified Corvus.Protocol.Network as P
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
+import Prelude hiding (id)
 
 toCapnpNetworkInfo :: P.NetworkInfo -> C.Parsed CGNet.NetworkInfo
 toCapnpNetworkInfo P.NetworkInfo {..} =

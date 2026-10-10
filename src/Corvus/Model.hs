@@ -122,7 +122,7 @@ data VmStatus
   | VmSaving
   | VmLoading
   | VmMigrating
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText VmStatus where
   enumTypeName = "VmStatus"
@@ -164,7 +164,7 @@ data DriveInterface
   | InterfaceNvme
   | InterfacePflash
   | InterfaceFloppy
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText DriveInterface where
   enumTypeName = "DriveInterface"
@@ -202,7 +202,7 @@ data DriveFormat
   | FormatVdi
   | FormatVpc
   | FormatVhdx
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText DriveFormat where
   enumTypeName = "DriveFormat"
@@ -238,7 +238,7 @@ data CacheType
   | CacheWritethrough
   | CacheDirectsync
   | CacheUnsafe
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText CacheType where
   enumTypeName = "CacheType"
@@ -270,7 +270,7 @@ instance PersistFieldSql CacheType where
 data DriveMedia
   = MediaDisk
   | MediaCdrom
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText DriveMedia where
   enumTypeName = "DriveMedia"
@@ -303,7 +303,7 @@ data NetInterfaceType
   | NetMacvtap
   | NetVde
   | NetManaged
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText NetInterfaceType where
   enumTypeName = "NetInterfaceType"
@@ -337,7 +337,7 @@ data SharedDirCache
   = CacheAlways
   | CacheAuto
   | CacheNever
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText SharedDirCache where
   enumTypeName = "SharedDirCache"
@@ -361,7 +361,7 @@ instance PersistFieldSql SharedDirCache where
   sqlType _ = SqlString
 
 data AudioBackend = AudioPulse | AudioPipewire | AudioSpice
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText AudioBackend where
   enumTypeName = "AudioBackend"
@@ -385,7 +385,7 @@ instance PersistFieldSql AudioBackend where
   sqlType _ = SqlString
 
 data AudioDeviceModel = AudioVirtioSound | AudioIntelHda | AudioIch9IntelHda | AudioAc97
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText AudioDeviceModel where
   enumTypeName = "AudioDeviceModel"
@@ -402,7 +402,7 @@ instance PersistFieldSql AudioDeviceModel where
   sqlType _ = SqlString
 
 data NetworkDeviceModel = NetworkVirtioNetPci | NetworkVirtioNetPciNonTransitional | NetworkVirtioNetPciTransitional | NetworkE1000
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText NetworkDeviceModel where
   enumTypeName = "NetworkDeviceModel"
@@ -425,7 +425,7 @@ data GraphicsAdapter
   | GraphicsVirtioGpuPci
   | GraphicsVirtioVgaGl
   | GraphicsVirtioGpuGlPci
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText GraphicsAdapter where
   enumTypeName = "GraphicsAdapter"
@@ -458,7 +458,7 @@ data TemplateCloneStrategy
   | StrategyOverlay
   | StrategyDirect
   | StrategyCreate
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText TemplateCloneStrategy where
   enumTypeName = "TemplateCloneStrategy"
@@ -497,7 +497,7 @@ data TaskSubsystem
   | SubBuild
   | SubNode
   | SubMigration
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText TaskSubsystem where
   enumTypeName = "TaskSubsystem"
@@ -537,7 +537,7 @@ data TaskResult
   | TaskError
   | TaskNotStarted
   | TaskCancelled
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText TaskResult where
   enumTypeName = "TaskResult"
@@ -577,7 +577,7 @@ data NodeAdminState
   = NodeOnline
   | NodeDraining
   | NodeMaintenance
-  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText NodeAdminState where
   enumTypeName = "NodeAdminState"

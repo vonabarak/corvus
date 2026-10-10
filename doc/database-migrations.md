@@ -123,7 +123,7 @@ TEST_DB_BACKEND=sqlite make unit-tests MATCH=Database
 TEST_DB_BACKEND=postgresql make unit-tests MATCH=Database
 make integration-tests MATCH=database_migrations
 make format
-make lint
+make check
 make test  # required before committing
 ```
 

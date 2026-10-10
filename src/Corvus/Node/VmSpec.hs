@@ -25,12 +25,6 @@ module Corvus.Node.VmSpec
   , VmAgentState (..)
   , VmGuestExecReq (..)
   , VmGuestExecInfo (..)
-
-    -- * Status push types (slice C)
-  , VmStatusSnapshot (..)
-  , VmStatusEntry (..)
-  , GuestNetIf (..)
-  , GuestIpAddress (..)
   )
 where
 
@@ -94,7 +88,7 @@ data VmSpec = VmSpec
   -- @"host"@ in the agent's argv builder so older daemons
   -- without this field on the wire keep working.
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmDriveSpec = VmDriveSpec
   { vdsDriveId :: !Int64
@@ -109,7 +103,7 @@ data VmDriveSpec = VmDriveSpec
   , vdsCache :: !T.Text
   , vdsDiscard :: !Bool
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmNetIfSpec = VmNetIfSpec
   { vnsIfType :: !T.Text
@@ -117,7 +111,7 @@ data VmNetIfSpec = VmNetIfSpec
   , vnsHostDevice :: !T.Text
   , vnsMacAddress :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmSharedDirSpec = VmSharedDirSpec
   { vssHostPath :: !T.Text
@@ -125,7 +119,7 @@ data VmSharedDirSpec = VmSharedDirSpec
   , vssCache :: !T.Text
   , vssReadOnly :: !Bool
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmAudioDeviceSpec = VmAudioDeviceSpec
   { vasAudioDeviceId :: !Int64
@@ -133,7 +127,7 @@ data VmAudioDeviceSpec = VmAudioDeviceSpec
   , vasModel :: !T.Text
   , vasOptions :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmRuntimeInfo = VmRuntimeInfo
   { vriQemuPid :: !Int32
@@ -143,34 +137,34 @@ data VmRuntimeInfo = VmRuntimeInfo
   , vriLifecycleRevision :: !Int64
   , vriRuntimeGeneration :: !Int64
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmStopKind
   = VmStopStopped
   | VmStopAlreadyStopped
   | VmStopTimeout
   | VmStopFailed
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmStopResult = VmStopResult
   { vsrKind :: !VmStopKind
   , vsrMessage :: !T.Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmAgentState
   = VmAgentRunning
   | VmAgentStopped
   | VmAgentErrored
   | VmAgentUnknown
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmAgentStatus = VmAgentStatus
   { vasState :: !VmAgentState
   , vasQemuPid :: !Int32
   , vasLastExitCode :: !Int32
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmGuestExecReq = VmGuestExecReq
   { vgeVmId :: !Int64
@@ -180,7 +174,7 @@ data VmGuestExecReq = VmGuestExecReq
   , vgeInputData :: !BS.ByteString
   , vgeTimeoutSec :: !Word32
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data VmGuestExecInfo = VmGuestExecInfo
   { vgiExitCode :: !Int32
@@ -189,43 +183,4 @@ data VmGuestExecInfo = VmGuestExecInfo
   , vgiStdout :: !BS.ByteString
   , vgiStderr :: !BS.ByteString
   }
-  deriving (Eq, Show)
-
--- ---------------------------------------------------------------------------
--- Status push types (slice C)
-
--- | Consolidated status snapshot the agent pushes once per
--- tick (~10 s) to every subscriber. Empty 'vssEntries' when no
--- VMs are in the ledger.
-data VmStatusSnapshot = VmStatusSnapshot
-  { vssSnapshotAtMillis :: !Int64
-  , vssEntries :: ![VmStatusEntry]
-  }
-  deriving (Eq, Show)
-
-data VmStatusEntry = VmStatusEntry
-  { vseVmId :: !Int64
-  , vseLifecycleRevision :: !Int64
-  , vseRuntimeGeneration :: !Int64
-  , vseState :: !VmAgentState
-  , vseQemuPid :: !Int32
-  , vseLastExitCode :: !Int32
-  , vseGuestAgentOk :: !Bool
-  , vseLastPingMillis :: !Int64
-  , vseNetIfs :: ![GuestNetIf]
-  }
-  deriving (Eq, Show)
-
-data GuestNetIf = GuestNetIf
-  { gniName :: !T.Text
-  , gniHwAddress :: !T.Text
-  , gniIpAddresses :: ![GuestIpAddress]
-  }
-  deriving (Eq, Show)
-
-data GuestIpAddress = GuestIpAddress
-  { giaIpAddress :: !T.Text
-  , giaPrefix :: !Int32
-  , giaIpAddrType :: !T.Text -- "ipv4" / "ipv6"
-  }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)

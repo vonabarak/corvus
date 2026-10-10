@@ -12,7 +12,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertDiskImage "test-disk" FormatQcow2
         pure ()
-      when_ $ snapshotList 1
+      _ <- when_ $ snapshotList 1
       then_ $ responseIs $ \case
         RespSnapshotList [] -> True
         _ -> False
@@ -23,74 +23,74 @@ spec = sequential $ withTestDb $ do
         _ <- insertSnapshot diskId "snap1"
         _ <- insertSnapshot diskId "snap2"
         pure ()
-      when_ $ snapshotList 1
+      _ <- when_ $ snapshotList 1
       then_ $ responseIs $ \case
         RespSnapshotList snaps -> length snaps == 2
         _ -> False
 
     testCase "fails for non-existent disk" $ do
-      when_ $ snapshotList 999
+      _ <- when_ $ snapshotList 999
       then_ responseIsDiskNotFound
 
   describe "snapshot delete" $ do
     testCase "fails for non-existent disk" $ do
-      when_ $ snapshotDelete 999 1
+      _ <- when_ $ snapshotDelete 999 1
       then_ responseIsDiskNotFound
 
     testCase "fails for non-existent snapshot" $ do
       given $ do
         _ <- insertDiskImage "test-disk" FormatQcow2
         pure ()
-      when_ $ snapshotDelete 1 999
+      _ <- when_ $ snapshotDelete 1 999
       then_ responseIsSnapshotNotFound
 
     testCase "fails for raw format disk" $ do
       given $ do
         _ <- insertDiskImage "raw-disk" FormatRaw
         pure ()
-      when_ $ snapshotDelete 1 1
+      _ <- when_ $ snapshotDelete 1 1
       then_ $ responseIs $ \case
         RespFormatNotSupported _ -> True
         _ -> False
 
   describe "snapshot rollback" $ do
     testCase "fails for non-existent disk" $ do
-      when_ $ snapshotRollback 999 1
+      _ <- when_ $ snapshotRollback 999 1
       then_ responseIsDiskNotFound
 
     testCase "fails for non-existent snapshot" $ do
       given $ do
         _ <- insertDiskImage "test-disk" FormatQcow2
         pure ()
-      when_ $ snapshotRollback 1 999
+      _ <- when_ $ snapshotRollback 1 999
       then_ responseIsSnapshotNotFound
 
     testCase "fails for raw format disk" $ do
       given $ do
         _ <- insertDiskImage "raw-disk" FormatRaw
         pure ()
-      when_ $ snapshotRollback 1 1
+      _ <- when_ $ snapshotRollback 1 1
       then_ $ responseIs $ \case
         RespFormatNotSupported _ -> True
         _ -> False
 
   describe "snapshot merge" $ do
     testCase "fails for non-existent disk" $ do
-      when_ $ snapshotMerge 999 1
+      _ <- when_ $ snapshotMerge 999 1
       then_ responseIsDiskNotFound
 
     testCase "fails for non-existent snapshot" $ do
       given $ do
         _ <- insertDiskImage "test-disk" FormatQcow2
         pure ()
-      when_ $ snapshotMerge 1 999
+      _ <- when_ $ snapshotMerge 1 999
       then_ responseIsSnapshotNotFound
 
     testCase "fails for raw format disk" $ do
       given $ do
         _ <- insertDiskImage "raw-disk" FormatRaw
         pure ()
-      when_ $ snapshotMerge 1 1
+      _ <- when_ $ snapshotMerge 1 1
       then_ $ responseIs $ \case
         RespFormatNotSupported _ -> True
         _ -> False

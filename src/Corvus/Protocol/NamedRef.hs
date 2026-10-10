@@ -32,7 +32,7 @@ data NamedRef = NamedRef
   { nrId :: !Int64
   , nrName :: !Text
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON NamedRef where
   toJSON = genericToJSON innerOptions

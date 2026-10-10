@@ -22,7 +22,7 @@ spec = sequential $ withTestDb $ do
 
   describe "diskList" $ do
     testCase "returns empty when no images are registered" $ do
-      when_ diskList
+      _ <- when_ diskList
       then_ $ responseIs $ \case
         RespDiskList [] -> True
         _ -> False
@@ -32,7 +32,7 @@ spec = sequential $ withTestDb $ do
         _ <- insertDiskImage "a" FormatQcow2
         _ <- insertDiskImage "b" FormatQcow2
         pure ()
-      when_ diskList
+      _ <- when_ diskList
       then_ $ responseIs $ \case
         RespDiskList xs -> length xs == 2
         _ -> False
@@ -42,13 +42,13 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertDiskImage "show-me" FormatQcow2
         pure ()
-      when_ $ diskShow 1
+      _ <- when_ $ diskShow 1
       then_ $ responseIs $ \case
         RespDiskInfo _ -> True
         _ -> False
 
     testCase "returns DiskNotFound for unknown id" $ do
-      when_ $ diskShow 999
+      _ <- when_ $ diskShow 999
       then_ responseIsDiskNotFound
 
   ------------------------------------------------------------------
@@ -61,7 +61,7 @@ spec = sequential $ withTestDb $ do
       -- as RespError. This is the same error path the daemon
       -- exposes to the CLI in production when a node has been
       -- registered but its supervisor hasn't dialled yet.
-      when_ $ diskCreate "freshly-created" FormatQcow2 1024
+      _ <- when_ $ diskCreate "freshly-created" FormatQcow2 1024
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -74,7 +74,7 @@ spec = sequential $ withTestDb $ do
 
   describe "diskRegister" $ do
     testCase "does not publish when inspection is unavailable" $ do
-      when_ $ diskRegister "imported" "/baseimages/imported.qcow2" FormatQcow2
+      _ <- when_ $ diskRegister "imported" "/baseimages/imported.qcow2" FormatQcow2
       then_ $ do
         responseIs $ \case
           RespError _ -> True
@@ -85,7 +85,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertDiskImage "existing" FormatQcow2
         pure ()
-      when_ $ diskRegister "existing" "/baseimages/existing.qcow2" FormatQcow2
+      _ <- when_ $ diskRegister "existing" "/baseimages/existing.qcow2" FormatQcow2
       then_ $ do
         responseIs $ \case
           RespError _ -> True
@@ -98,14 +98,14 @@ spec = sequential $ withTestDb $ do
 
   describe "diskDelete" $ do
     testCase "returns DiskNotFound for unknown id" $ do
-      when_ $ diskDelete 999
+      _ <- when_ $ diskDelete 999
       then_ responseIsDiskNotFound
 
     testCase "deletes a disk image that has no overlays + no drives" $ do
       given $ do
         _ <- insertDiskImage "doomed" FormatQcow2
         pure ()
-      when_ $ diskDelete 1
+      _ <- when_ $ diskDelete 1
       then_ $ do
         responseIs (== RespDiskOk)
         diskImageNotExists 1
@@ -115,7 +115,7 @@ spec = sequential $ withTestDb $ do
         baseId <- insertDiskImage "base" FormatQcow2
         _ <- insertDiskImageWithBacking "ov" FormatQcow2 Nothing (Just baseId)
         pure ()
-      when_ $ diskDelete 1
+      _ <- when_ $ diskDelete 1
       then_ $ do
         responseIsDiskHasOverlays
         diskImageExists 1
@@ -126,7 +126,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "claimer" VmStopped
         _ <- attachDrive vmId diskId InterfaceVirtio
         pure ()
-      when_ $ diskDelete 1
+      _ <- when_ $ diskDelete 1
       then_ $ do
         responseIsDiskInUse
         diskImageExists 1
@@ -139,14 +139,14 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "v1" VmStopped
         pure ()
-      when_ $ diskAttach 1 999 InterfaceVirtio (Just MediaDisk)
+      _ <- when_ $ diskAttach 1 999 InterfaceVirtio (Just MediaDisk)
       then_ responseIsDiskNotFound
 
     testCase "returns VmNotFound for unknown VM" $ do
       given $ do
         _ <- insertDiskImageOnTestNode "lonely" "/lonely.qcow2" FormatQcow2
         pure ()
-      when_ $ diskAttach 999 1 InterfaceVirtio (Just MediaDisk)
+      _ <- when_ $ diskAttach 999 1 InterfaceVirtio (Just MediaDisk)
       then_ responseIsVmNotFound
 
     testCase "refuses when the disk has no DiskImageNode for the VM's node" $ do
@@ -156,18 +156,18 @@ spec = sequential $ withTestDb $ do
         _ <- insertDiskImage "orphan" FormatQcow2
         _ <- insertVm "homeless" VmStopped
         pure ()
-      when_ $ diskAttach 1 1 InterfaceVirtio (Just MediaDisk)
+      _ <- when_ $ diskAttach 1 1 InterfaceVirtio (Just MediaDisk)
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
 
     testCase "happy path: attaches a stopped VM's drive in the DB" $ do
-      given $ do
+      _ <- given $ do
         diskId <- insertDiskImageOnTestNode "ok" "/ok.qcow2" FormatQcow2
         vmId <- insertVm "owner" VmStopped
         -- nothing else: handleDiskAttach should write a drive row
         pure (vmId, diskId)
-      when_ $ diskAttach 1 1 InterfaceVirtio (Just MediaDisk)
+      _ <- when_ $ diskAttach 1 1 InterfaceVirtio (Just MediaDisk)
       then_ $ do
         responseIs $ \case
           RespDiskAttached _ -> True
@@ -181,7 +181,7 @@ spec = sequential $ withTestDb $ do
         _ <- insertDiskImage "free" FormatQcow2
         _ <- insertVm "free-vm" VmStopped
         pure ()
-      when_ $ diskDetach 1 1
+      _ <- when_ $ diskDetach 1 1
       then_ $ responseIs $ \case
         RespDriveNotFound -> True
         RespError _ -> True -- the handler also returns RespError for some paths
@@ -193,7 +193,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "tied-vm" VmStopped
         _ <- attachDrive vmId diskId InterfaceVirtio
         pure ()
-      when_ $ diskDetach 1 1
+      _ <- when_ $ diskDetach 1 1
       then_ $ do
         responseIs (== RespDiskOk)
         driveCountForVm 1 0
@@ -208,7 +208,7 @@ spec = sequential $ withTestDb $ do
 
   describe "mediaEject" $ do
     testCase "returns DriveNotFound for unknown drive" $ do
-      when_ $ mediaEject 999
+      _ <- when_ $ mediaEject 999
       then_ $ responseIs (== RespDriveNotFound)
 
     testCase "refuses a non-CD-ROM drive" $ do
@@ -218,7 +218,7 @@ spec = sequential $ withTestDb $ do
         -- media = disk, so eject must be refused regardless of state.
         _ <- attachDriveFull vmId diskId InterfaceVirtio (Just MediaDisk) False CacheWriteback False
         pure ()
-      when_ $ mediaEject 1
+      _ <- when_ $ mediaEject 1
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -229,7 +229,7 @@ spec = sequential $ withTestDb $ do
         -- tray already empty (driveDiskImageId = Nothing).
         _ <- attachCdromDrive vmId Nothing
         pure ()
-      when_ $ mediaEject 1
+      _ <- when_ $ mediaEject 1
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -240,7 +240,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmStopped
         _ <- attachCdromDrive vmId (Just diskId)
         pure ()
-      when_ $ mediaEject 1
+      _ <- when_ $ mediaEject 1
       then_ $ do
         responseIs (== RespDiskOk)
         driveMediaIs 1 Nothing
@@ -251,7 +251,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmRunning
         _ <- attachCdromDrive vmId (Just diskId)
         pure ()
-      when_ $ mediaEject 1
+      _ <- when_ $ mediaEject 1
       then_ $ do
         -- No real nodeagent in the fixture → the QMP round-trip fails;
         -- the drive row must still reference the original media.
@@ -262,7 +262,7 @@ spec = sequential $ withTestDb $ do
 
   describe "mediaChange" $ do
     testCase "returns DriveNotFound for unknown drive" $ do
-      when_ $ mediaChange 999 1
+      _ <- when_ $ mediaChange 999 1
       then_ $ responseIs (== RespDriveNotFound)
 
     testCase "refuses a non-CD-ROM drive" $ do
@@ -271,7 +271,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmStopped
         _ <- attachDriveFull vmId diskId InterfaceVirtio (Just MediaDisk) False CacheWriteback False
         pure ()
-      when_ $ mediaChange 1 1
+      _ <- when_ $ mediaChange 1 1
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -282,7 +282,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmStopped
         _ <- attachCdromDrive vmId (Just diskId)
         pure ()
-      when_ $ mediaChange 1 999
+      _ <- when_ $ mediaChange 1 999
       then_ responseIsDiskNotFound
 
     testCase "refuses when the new disk has no placement on the VM's node" $ do
@@ -294,7 +294,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmStopped
         _ <- attachCdromDrive vmId (Just diskId)
         pure ()
-      when_ $ mediaChange 1 2
+      _ <- when_ $ mediaChange 1 2
       then_ $ responseIs $ \case
         RespError _ -> True
         _ -> False
@@ -308,7 +308,7 @@ spec = sequential $ withTestDb $ do
         _ <- attachCdromDrive vmId (Just diskA)
         _ <- attachDriveFull vmId diskB InterfaceVirtio (Just MediaDisk) False CacheWriteback False
         pure ()
-      when_ $ mediaChange 1 2
+      _ <- when_ $ mediaChange 1 2
       then_ $ do
         responseIs $ \case
           RespError _ -> True
@@ -323,7 +323,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmStopped
         _ <- attachCdromDrive vmId (Just diskA)
         pure ()
-      when_ $ mediaChange 1 2
+      _ <- when_ $ mediaChange 1 2
       then_ $ do
         responseIs (== RespDiskOk)
         driveMediaIs 1 (Just 2)
@@ -335,7 +335,7 @@ spec = sequential $ withTestDb $ do
         vmId <- insertVm "cd" VmRunning
         _ <- attachCdromDrive vmId (Just diskA)
         pure ()
-      when_ $ mediaChange 1 2
+      _ <- when_ $ mediaChange 1 2
       then_ $ do
         responseIs $ \case
           RespError _ -> True

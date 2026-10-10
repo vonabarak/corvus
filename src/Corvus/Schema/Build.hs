@@ -58,7 +58,7 @@ import qualified Data.Yaml as Yaml
 newtype PipelineConfig = PipelineConfig
   { pcSteps :: [PipelineStep]
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON PipelineConfig where
   parseJSON = withObject "PipelineConfig" $ \o ->
@@ -70,7 +70,7 @@ data PipelineStep
   = PipelineBuild Build
   | PipelineApply ApplyConfig
   | PipelineUpload Upload
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON PipelineStep where
   parseJSON = withObject "pipeline step" $ \o -> do
@@ -96,7 +96,7 @@ data Upload = Upload
   , uploadNode :: Text
   , uploadIfExists :: UploadIfExists
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON Upload where
   parseJSON = withObject "Upload" $ \o ->
@@ -128,7 +128,7 @@ data Build = Build
   , buildIdentity :: Maybe BuildIdentity
   -- ^ Captured before baking; published atomically with the artifact.
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON Build where
   parseJSON = withObject "Build" $ \o -> do
@@ -161,7 +161,7 @@ data ShellDefaults = ShellDefaults
   { sdPreamble :: Maybe Text
   , sdEnv :: [(Text, Text)]
   }
-  deriving (Show)
+  deriving stock (Show)
 
 emptyShellDefaults :: ShellDefaults
 emptyShellDefaults = ShellDefaults Nothing []
@@ -213,7 +213,7 @@ data BuildTarget = BuildTarget
   , btPath :: Maybe Text
   , btIfExists :: BuildIfExists
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON BuildTarget where
   parseJSON = withObject "BuildTarget" $ \o ->
@@ -226,7 +226,7 @@ instance FromJSON BuildTarget where
 
 -- | Build-only policy. Apply and upload retain their own collision rules.
 data BuildIfExists = BuildIfExistsPolicy IfExists | BuildIfExistsUpdate
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON BuildIfExists where
   parseJSON (String "update") = pure BuildIfExistsUpdate
@@ -238,13 +238,13 @@ data BuildIdentity = BuildIdentity
   { biFingerprint :: Text
   , biInputs :: Text
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data BuildStrategy
   = BuildStrategyOverlay
   | BuildStrategyFromScratch
   | BuildStrategyInstaller
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON BuildStrategy where
   parseJSON = withText "BuildStrategy" $ \case
@@ -257,7 +257,7 @@ data BuildVm = BuildVm
   { bvmCpuCount :: Int
   , bvmRam :: Int64
   }
-  deriving (Show)
+  deriving stock (Show)
 
 defaultBuildVm :: BuildVm
 defaultBuildVm = BuildVm 4 4294967296
@@ -274,7 +274,7 @@ data Provisioner
   | ProvFile FileProv
   | ProvWaitFor WaitFor
   | ProvReboot Reboot
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON Provisioner where
   parseJSON v = case v of
@@ -306,7 +306,7 @@ data Shell = Shell
   , shellEnv :: [(Text, Text)]
   , shellTimeoutSec :: Maybe Int
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON Shell where
   parseJSON v = case v of
@@ -354,7 +354,7 @@ data FileProv = FileProv
   , fileTo :: Text
   , fileMode :: Maybe Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON FileProv where
   parseJSON = withObject "FileProv" $ \o ->
@@ -365,10 +365,10 @@ instance FromJSON FileProv where
       <*> o .:? "mode"
 
 data WaitFor
-  = WaitForPing {wfTimeoutSec :: Int}
-  | WaitForFile {wfPath :: Text, wfTimeoutSec :: Int}
-  | WaitForPort {wfPort :: Int, wfTimeoutSec :: Int}
-  deriving (Show)
+  = WaitForPing Int
+  | WaitForFile Text Int
+  | WaitForPort Int Int
+  deriving stock (Show)
 
 instance FromJSON WaitFor where
   parseJSON = withObject "WaitFor" $ \o -> do
@@ -384,14 +384,14 @@ instance FromJSON WaitFor where
       _ -> fail "wait-for: specify exactly one of ping, file, port"
 
 newtype Reboot = Reboot {rebootTimeoutSec :: Int}
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON Reboot where
   parseJSON = withObject "Reboot" $ \o ->
     Reboot <$> o .:? "timeoutSec" .!= 300
 
 data CleanupMode = CleanupAlways | CleanupOnSuccess | CleanupNever
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON CleanupMode where
   parseJSON = withText "CleanupMode" $ \case
@@ -415,7 +415,7 @@ data BootKey = BootKey
   , bkRepeat :: Int
   , bkIntervalSec :: Int
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON BootKey where
   parseJSON = withObject "BootKey" $ \o ->

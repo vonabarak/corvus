@@ -69,7 +69,7 @@ data CapnpConnection = CapnpConnection
 data CapnpConnectionError
   = CapnpConnectFailed !Text
   | CapnpRpcError !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance Exception CapnpConnectionError
 

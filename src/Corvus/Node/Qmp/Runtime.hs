@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Runtime QMP operations.
-module Corvus.Node.Qmp.Runtime where
+module Corvus.Node.Qmp.Runtime (qmpShutdown, qmpContinue, qmpSetBalloon, qmpStop, qmpQuit, qmpMigrate, qmpQueryMigrate, qmpSetSpicePassword, qmpExpireSpicePassword, qmpSendCtrlAltDel, qmpSendKey, qmpQueryBlockstats, qmpQueryBalloon, qmpQueryCommands, pollQmpJob, waitForQmpReady, BlockstatsRow (..)) where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpRaw)
@@ -247,7 +247,7 @@ data BlockstatsRow = BlockstatsRow
   , bsrRdOps :: !Word64
   , bsrWrOps :: !Word64
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Issue @query-blockstats@ and decode the per-device counters.
 -- Used by the agent's StatusPoller to populate @VmStats.drives@.
@@ -391,7 +391,7 @@ data QmpJob = QmpJob
   , jobStatus :: !Text
   , jobError :: !(Maybe Text)
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 newtype QueryJobsReply = QueryJobsReply [QmpJob]
 

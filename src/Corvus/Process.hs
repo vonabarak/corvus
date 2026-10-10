@@ -127,7 +127,7 @@ data StopResult
     NotRunning
   | -- | Signalling failed for a reason other than "no such process".
     StopFailed !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Stop a process in three escalating stages:
 --

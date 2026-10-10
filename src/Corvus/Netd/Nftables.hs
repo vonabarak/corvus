@@ -35,14 +35,14 @@ data NftError = NftError
   , neExitCode :: !Int
   , neStderr :: !T.Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception NftError
 
 -- | Kernel handle for one nftables rule. Opaque to callers; the
 -- only operation that consumes it is 'deleteRule'.
 newtype RuleHandle = RuleHandle Int
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Create the @inet corvus_fw@ table + @postrouting@ chain, both
 -- idempotently. Phase 2 first cut: just the postrouting chain for

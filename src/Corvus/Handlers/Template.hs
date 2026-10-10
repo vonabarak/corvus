@@ -106,7 +106,7 @@ handleTemplateUpdate state oldTidLong yamlContent = runServerLogging state $ do
           logInfoN $ "Updating template #" <> T.pack (show oldTidLong) <> " -> " <> tyName ty
           now <- liftIO getCurrentTime
           let oldTid = toSqlKey oldTidLong :: TemplateVmId
-          let replace = do
+          let replaceTemplate = do
                 deleteTemplate oldTid
                 insertTemplateYaml ty now
               runReplace = do
@@ -120,8 +120,8 @@ handleTemplateUpdate state oldTidLong yamlContent = runServerLogging state $ do
                             mExisting <- getBy (UniqueTemplateVmName newName)
                             case mExisting of
                               Just _ -> pure $ Left $ "Template with name '" <> newName <> "' already exists"
-                              Nothing -> replace
-                          else replace
+                              Nothing -> replaceTemplate
+                          else replaceTemplate
           result <- liftIO $ runSqlPool runReplace (ssDbPool state)
           case result of
             Left err -> do
@@ -596,12 +596,12 @@ finishInstantiation ctx vmId newVmName details = runServerLogging (acState ctx) 
 --------------------------------------------------------------------------------
 
 instantiateDriveIO :: ActionContext -> VmId -> Text -> TemplateDriveInfo -> IO (Either Text ())
-instantiateDriveIO ctx vmId vmName td = do
+instantiateDriveIO ctx vmId guestName td = do
   let state = acState ctx
       vmIdLong = fromSqlKey vmId
       nameSuffix = fromMaybe (maybe "disk" nrName (tvdiDiskImage td)) (tvdiDiskName td)
-      imagePrefix = if T.null vmName || not (isDigit (T.head vmName)) then vmName else "vm-" <> vmName
-      vmDir = Just (vmName <> "/")
+      imagePrefix = if T.null guestName || not (isDigit (T.head guestName)) then guestName else "vm-" <> guestName
+      vmDir = Just (guestName <> "/")
       attachDisk newDiskId = runActionAsSubtask ctx (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td))
       -- Disks materialised during template instantiation are scoped to
       -- this VM by default — clone/overlay/create branches all produce

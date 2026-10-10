@@ -1,12 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Main (main) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, poll)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logErrorN, logInfoN)
 import Corvus.Database
@@ -67,7 +67,7 @@ data Options = Options
   , optNoTls :: Bool
   , optTlsCertDir :: Maybe FilePath
   }
-  deriving (Show)
+  deriving stock (Show)
 
 optionsParser :: Parser Options
 optionsParser =
@@ -214,8 +214,8 @@ main = do
     liftIO $ handleStartup state' 30
 
     let shutdownHandler = atomically $ writeTVar (ssShutdownFlag state') True
-    liftIO $ installHandler sigTERM (Catch shutdownHandler) Nothing
-    liftIO $ installHandler sigINT (Catch shutdownHandler) Nothing
+    _ <- liftIO $ installHandler sigTERM (Catch shutdownHandler) Nothing
+    _ <- liftIO $ installHandler sigINT (Catch shutdownHandler) Nothing
 
     listenAddrs <- liftIO $ getListenAddrs opts
     when (null listenAddrs) $
@@ -313,17 +313,8 @@ getListenAddrs opts = do
           else Just (TcpAddress (optHost opts) (optPort opts))
   pure $ catMaybes [unix, tcp]
 
-waitForShutdown :: ServerState -> IO ()
-waitForShutdown state = do
-  shouldShutdown <- readTVarIO (ssShutdownFlag state)
-  unless shouldShutdown $ do
-    threadDelay 100000
-    waitForShutdown state
-
--- | Like 'waitForShutdown', but also returns if ANY of the
--- supplied listener 'Async's exits for any reason. The exit code
--- path in 'main' polls the asyncs after this returns to decide
--- between clean exit and a non-zero failure.
+-- | Wait for shutdown or any listener to exit. The caller polls the
+-- listeners afterward to distinguish a clean shutdown from a failure.
 waitForShutdownOrListenerDeath :: ServerState -> [Async a] -> IO ()
 waitForShutdownOrListenerDeath state listeners = go
   where

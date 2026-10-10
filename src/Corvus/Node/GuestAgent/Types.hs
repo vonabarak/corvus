@@ -13,19 +13,19 @@ data GuestExecResult
   = GuestExecSuccess !Int !Text !Text
   | GuestExecError !Text
   | GuestExecConnectionFailed !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data GuestIpAddress = GuestIpAddress
   { giaType :: !Text
   , giaAddress :: !Text
   , giaPrefix :: !Int
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data GuestNetIf = GuestNetIf
   { gniHardwareAddress :: !Text
   , gniIpAddresses :: ![GuestIpAddress]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 type ChunkSink = BS.ByteString -> IO ()

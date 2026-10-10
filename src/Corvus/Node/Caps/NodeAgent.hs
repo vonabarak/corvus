@@ -24,7 +24,7 @@ import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (TVar)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
-import Corvus.Node.Caps.Session (newSessionCap)
+import Corvus.Node.Caps.Session (SessionServer (..), newSessionCap)
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
@@ -120,7 +120,7 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
           (nacTransferTokens nac)
           (nacTlsConfig nac)
           (nacVsockLaunchLock nac)
-      client <- export @CGNA.Session (nacSup nac) impl
+      client <- export @CGNA.Session (nacSup nac) (SessionServer impl)
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
 
   nodeAgent'defaultBasePath _ = handleParsed $ \_ -> do

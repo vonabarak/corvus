@@ -149,7 +149,6 @@ stageBackingChain
   -- ^ destination node (where placements get added)
   -> IO (Either Text [(M.DiskImageId, Text)])
 stageBackingChain state primaryDisk srcNode destNode = do
-  let pool = ssDbPool state
   chainNearestFirst <-
     runSqlPool (DDb.getBackingChainIds (M.fromSqlKey primaryDisk)) pool
   -- Root-first ordering: the immediate-parent first ordering from

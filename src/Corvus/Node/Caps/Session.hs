@@ -22,7 +22,8 @@
 -- (@applyVm@, @deleteVm@, …), console-stream openers, and
 -- status push.
 module Corvus.Node.Caps.Session
-  ( SessionCap (..)
+  ( SessionServer (..)
+  , SessionCap (..)
   , newSessionCap
   )
 where
@@ -64,9 +65,11 @@ import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
 import System.FilePath (takeDirectory)
 
-instance SomeServer SessionCap
+newtype SessionServer = SessionServer SessionCap
 
-instance CGNA.Session'server_ SessionCap where
+instance SomeServer SessionServer
+
+instance CGNA.Session'server_ SessionServer where
   session'ping _ =
     handleParsed $ \_ -> pure CGNA.Session'ping'results
 
@@ -203,7 +206,7 @@ instance CGNA.Session'server_ SessionCap where
               { CGNA.result = encodeDiskOpResult result
               }
 
-  session'snapshotCreateLive sc =
+  session'snapshotCreateLive (SessionServer sc) =
     -- Async dispatch (see 'session'vmGuestExec'): a live snapshot
     -- can fsfreeze the guest and copy qcow2 metadata for many
     -- seconds; it must not stall every other RPC on the session.
@@ -249,7 +252,7 @@ instance CGNA.Session'server_ SessionCap where
               { CGNA.result = encodeDiskOpResult result
               }
 
-  session'snapshotCreateWithVmstate sc =
+  session'snapshotCreateWithVmstate (SessionServer sc) =
     -- Same async/op-lock pattern as 'session'snapshotCreateLive'.
     -- vmstate save can take several seconds for large RAM; the
     -- VM op lock keeps a parallel `applyVm` or `vmStop` from
@@ -274,7 +277,7 @@ instance CGNA.Session'server_ SessionCap where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'snapshotLoadWithVmstate sc =
+  session'snapshotLoadWithVmstate (SessionServer sc) =
     -- Async + op-lock; the caller has already issued QMP `stop`
     -- per the contract documented in 'NSL.loadSnapshotWithVmstate'.
     handleParsedAsync $
@@ -297,7 +300,7 @@ instance CGNA.Session'server_ SessionCap where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'snapshotDeleteWithVmstate sc =
+  session'snapshotDeleteWithVmstate (SessionServer sc) =
     handleParsedAsync $
       \CGNA.Session'snapshotDeleteWithVmstate'params
         { CGNA.devicePaths = ps
@@ -316,7 +319,7 @@ instance CGNA.Session'server_ SessionCap where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'guestSetTime sc =
+  session'guestSetTime (SessionServer sc) =
     -- Single QGA round-trip; uses the persistent QGA connection
     -- pool just like the other guest-agent calls. No VM op lock —
     -- this is a guest-only operation that doesn't touch QEMU
@@ -377,7 +380,7 @@ instance CGNA.Session'server_ SessionCap where
 
   -- ---- VM lifecycle --------------------------------------------------------
 
-  session'vmStart sc =
+  session'vmStart (SessionServer sc) =
     -- Async dispatch (see 'session'vmGuestExec'): a cold boot can
     -- block for hundreds of ms spawning virtiofsd + QEMU and
     -- waiting on sockets; under the per-VM op lock so two starts
@@ -386,7 +389,7 @@ instance CGNA.Session'server_ SessionCap where
       spec <- either (throwFailed . showWireError) pure (decodeVmSpec wireSpec)
       withVmOpLock sc (VS.vsVmId spec) (handleVmStart sc spec)
 
-  session'vmStopGraceful sc =
+  session'vmStopGraceful (SessionServer sc) =
     -- Async dispatch is the headline fix for the per-node wedge:
     -- this handler polls for QEMU exit for up to @timeoutSec@
     -- (default 300 s). Running it inline on the serial 'runServer'
@@ -403,7 +406,7 @@ instance CGNA.Session'server_ SessionCap where
         } ->
           withVmOpLock sc vid (handleVmStopGraceful sc vid tmo)
 
-  session'vmStopHard sc =
+  session'vmStopHard (SessionServer sc) =
     handleParsed $
       \CGNA.Session'vmStopHard'params
         { CGNA.vmId = vid
@@ -412,46 +415,46 @@ instance CGNA.Session'server_ SessionCap where
         } ->
           handleVmStopHard sc vid (if hasFence then Just revision else Nothing)
 
-  session'vmPause sc =
+  session'vmPause (SessionServer sc) =
     handleParsed $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->
       handleVmPause sc vid
 
-  session'vmSetBalloon sc =
+  session'vmSetBalloon (SessionServer sc) =
     handleParsedAsync $ \CGNA.Session'vmSetBalloon'params {CGNA.vmId = vid, CGNA.targetBytes = target} ->
       withVmOpLock sc vid (handleVmSetBalloon sc vid target)
 
-  session'vmResume sc =
+  session'vmResume (SessionServer sc) =
     handleParsed $ \CGNA.Session'vmResume'params {CGNA.vmId = vid} ->
       handleVmResume sc vid
 
-  session'vmSave sc =
+  session'vmSave (SessionServer sc) =
     -- Async dispatch (see 'session'vmStopGraceful'): vmSave polls
     -- the outgoing QMP migration for up to 300 s. Under the per-VM
     -- op lock so it serialises against start/stop on the same VM.
     handleParsedAsync $ \CGNA.Session'vmSave'params {CGNA.vmId = vid} ->
       withVmOpLock sc vid (handleVmSave sc vid)
 
-  session'deleteSavedState sc =
+  session'deleteSavedState (SessionServer sc) =
     handleParsed $ \CGNA.Session'deleteSavedState'params {CGNA.vmName = name} ->
       handleDeleteSavedState sc name
 
-  session'deleteTpmState sc =
+  session'deleteTpmState (SessionServer sc) =
     handleParsed $ \CGNA.Session'deleteTpmState'params {CGNA.vmName = name} ->
       handleDeleteTpmState sc name
 
-  session'prepareTpmMigration sc =
+  session'prepareTpmMigration (SessionServer sc) =
     handleParsed $ \CGNA.Session'prepareTpmMigration'params {CGNA.vmName = name} ->
       handlePrepareTpmMigration sc name
 
-  session'restoreTpmMigration sc =
+  session'restoreTpmMigration (SessionServer sc) =
     handleParsed $ \CGNA.Session'restoreTpmMigration'params {CGNA.vmName = name} ->
       handleRestoreTpmMigration sc name
 
-  session'cleanupTpmMigrationArchive sc =
+  session'cleanupTpmMigrationArchive (SessionServer sc) =
     handleParsed $ \CGNA.Session'cleanupTpmMigrationArchive'params {CGNA.vmName = name} ->
       handleCleanupTpmMigrationArchive sc name
 
-  session'vmGuestExec sc =
+  session'vmGuestExec (SessionServer sc) =
     -- Async dispatch: a single guest-exec can run for many
     -- minutes (build provisioners are the worst offender), and
     -- 'runServer' on the agent's session cap is a serial loop
@@ -465,7 +468,7 @@ instance CGNA.Session'server_ SessionCap where
     handleParsedAsync $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
       handleVmGuestExec sc (decodeVmGuestExecReq wireReq)
 
-  session'vmGuestExecStream sc =
+  session'vmGuestExecStream (SessionServer sc) =
     -- Same async rationale as 'vmGuestExec' — streaming execs
     -- (build provisioners) run even longer than the aggregating
     -- variant, so they MUST NOT block the session dispatcher.
@@ -481,11 +484,11 @@ instance CGNA.Session'server_ SessionCap where
             stdoutCli
             stderrCli
 
-  session'vmStatus sc =
+  session'vmStatus (SessionServer sc) =
     handleParsed $ \CGNA.Session'vmStatus'params {CGNA.vmId = vid} ->
       handleVmStatus sc vid
 
-  session'vmSetSpiceTicket sc =
+  session'vmSetSpiceTicket (SessionServer sc) =
     handleParsed $
       \CGNA.Session'vmSetSpiceTicket'params
         { CGNA.vmId = vid
@@ -494,31 +497,31 @@ instance CGNA.Session'server_ SessionCap where
         } ->
           handleVmSetSpiceTicket sc vid pw ttl
 
-  session'subscribeVmStatus sc =
+  session'subscribeVmStatus (SessionServer sc) =
     handleParsed $ \CGNA.Session'subscribeVmStatus'params {CGNA.sink = sink} -> do
       SP.addSubscriber (scSubs sc) sink
       pure CGNA.Session'subscribeVmStatus'results
 
   -- ---- Chardev streaming ---------------------------------------------------
 
-  session'openSerialConsole sc =
+  session'openSerialConsole (SessionServer sc) =
     handleParsed $
       \CGNA.Session'openSerialConsole'params {CGNA.vmId = vid, CGNA.sink = sink} -> do
         inputCap <- openChardev (scSerialBuffers sc) sc vid sink
         pure CGNA.Session'openSerialConsole'results {CGNA.input = inputCap}
 
-  session'openHmpMonitor sc =
+  session'openHmpMonitor (SessionServer sc) =
     handleParsed $
       \CGNA.Session'openHmpMonitor'params {CGNA.vmId = vid, CGNA.sink = sink} -> do
         inputCap <- openChardev (scMonitorBuffers sc) sc vid sink
         pure CGNA.Session'openHmpMonitor'results {CGNA.input = inputCap}
 
-  session'flushSerialConsole sc =
+  session'flushSerialConsole (SessionServer sc) =
     handleParsed $ \CGNA.Session'flushSerialConsole'params {CGNA.vmId = vid} -> do
       flushBufferForVm (scSerialBuffers sc) vid
       pure CGNA.Session'flushSerialConsole'results
 
-  session'flushHmpMonitor sc =
+  session'flushHmpMonitor (SessionServer sc) =
     handleParsed $ \CGNA.Session'flushHmpMonitor'params {CGNA.vmId = vid} -> do
       flushBufferForVm (scMonitorBuffers sc) vid
       pure CGNA.Session'flushHmpMonitor'results
@@ -671,7 +674,7 @@ instance CGNA.Session'server_ SessionCap where
 
   -- ---- Inter-agent disk transfer -------------------------------------------
 
-  session'diskOpenRead sc =
+  session'diskOpenRead (SessionServer sc) =
     handleParsed $
       \CGNA.Session'diskOpenRead'params {CGNA.path = pTxt} -> do
         let path = T.unpack pTxt
@@ -708,7 +711,7 @@ instance CGNA.Session'server_ SessionCap where
             , CGNA.md5 = md5
             }
 
-  session'attachReader sc =
+  session'attachReader (SessionServer sc) =
     handleParsed $
       \CGNA.Session'attachReader'params {CGNA.token = token} -> do
         mReader <- NTr.redeemReader (scTransferTokens sc) token
@@ -723,7 +726,7 @@ instance CGNA.Session'server_ SessionCap where
             readerClient <- C.export @CGNA.DiskReader (scSup sc) reader
             pure CGNA.Session'attachReader'results {CGNA.reader = readerClient}
 
-  session'diskImportFromPeer sc =
+  session'diskImportFromPeer (SessionServer sc) =
     handleParsed $
       \CGNA.Session'diskImportFromPeer'params
         { CGNA.destPath = destPathTxt
@@ -790,7 +793,7 @@ instance CGNA.Session'server_ SessionCap where
                     Right () -> pure ()
           pure CGNA.Session'diskImportFromPeer'results
 
-  session'diskOpenWrite sc =
+  session'diskOpenWrite (SessionServer sc) =
     handleParsed $ \CGNA.Session'diskOpenWrite'params {CGNA.destPath = destPathTxt} -> do
       -- The daemon resolves and validates this path before asking the node to
       -- open it.  The sink itself writes to a sibling .upload.part and only

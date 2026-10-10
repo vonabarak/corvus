@@ -49,7 +49,7 @@ data EntityRef
     RefById !Int64
   | -- | Symbolic name (the entity's unique 'name' column).
     RefByName !Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 toCapnpEntityRef :: EntityRef -> C.Parsed CGCommon.EntityRef
 toCapnpEntityRef = \case
@@ -140,7 +140,7 @@ data ViewGrant = ViewGrant
   , vgPassword :: !Text
   , vgTtlSeconds :: !Int
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 toCapnpViewGrant :: ViewGrant -> C.Parsed CGCommon.ViewGrant
 toCapnpViewGrant ViewGrant {..} =

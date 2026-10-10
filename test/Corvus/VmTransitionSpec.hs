@@ -182,28 +182,17 @@ spec = do
     --    operator can't recover a wedged VM.
 
     it "every transition returns either a Right newStatus or a Left with a non-empty message" $
-      property $ \status action -> case validateTransition status action of
+      forAll arbitraryBoundedEnum $ \status -> forAll arbitraryBoundedEnum $ \action -> case validateTransition status action of
         Right _ -> True
         Left msg -> not (T.null msg)
 
     it "ActionReset is always allowed and always lands in VmStopped" $
-      property $ \status ->
+      forAll arbitraryBoundedEnum $ \status ->
         validateTransition status ActionReset === Right VmStopped
 
     it "validateTransition is total: no pair produces an exception" $
-      property $ \status action ->
+      forAll arbitraryBoundedEnum $ \status -> forAll arbitraryBoundedEnum $ \action ->
         validateTransition status action `seq` True
-
--- Arbitrary instances for exhaustive coverage of the
--- (VmStatus, VmAction) space. Both derive Enum+Bounded so we use
--- arbitraryBoundedEnum to enumerate every constructor.
-instance Arbitrary VmStatus where
-  arbitrary = arbitraryBoundedEnum
-  shrink _ = []
-
-instance Arbitrary VmAction where
-  arbitrary = arbitraryBoundedEnum
-  shrink _ = []
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True

@@ -21,7 +21,7 @@ where
 -- | IP family selector. Mirrors the schema's @NetFamily@ enum so
 -- the cap impl can pass it through without an extra conversion.
 data NetFamily = V4 | V6
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Toggle IPv4 or IPv6 forwarding. Writes directly to
 -- @/proc/sys/net/(ipv4|ipv6/conf/all)/(ip_)?forward@ — equivalent

@@ -85,13 +85,13 @@ import Database.Persist.Sql (SqlPersistT, runSqlPool)
 -- the live path; on the offline path it is ignored.
 handleSnapshotCreate
   :: ServerState -> Int64 -> Text -> NOA.QuiesceMode -> Bool -> IO Response
-handleSnapshotCreate state diskId snapshotName _quiesce True =
-  handleSnapshotCreateWithVmstate state diskId snapshotName
-handleSnapshotCreate state diskId snapshotName quiesce False =
-  case validateName "Snapshot" snapshotName of
+handleSnapshotCreate state diskId requestedName _quiesce True =
+  handleSnapshotCreateWithVmstate state diskId requestedName
+handleSnapshotCreate state diskId requestedName quiesce False =
+  case validateName "Snapshot" requestedName of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
-      logInfoN $ "Creating snapshot '" <> snapshotName <> "' for disk " <> T.pack (show diskId)
+      logInfoN $ "Creating snapshot '" <> requestedName <> "' for disk " <> T.pack (show diskId)
 
       mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
       case mDisk of
@@ -117,7 +117,7 @@ handleSnapshotCreate state diskId snapshotName quiesce False =
                   (result, isLive, quiesced) <- case runningVms of
                     [] -> do
                       logInfoN "Snapshot path: offline (no running attached VM)"
-                      r <- liftIO $ createSnapshotViaAgent state nid filePath snapshotName
+                      r <- liftIO $ createSnapshotViaAgent state nid filePath requestedName
                       pure (r, False, False)
                     (vmId : _) -> do
                       logInfoN $
@@ -132,7 +132,7 @@ handleSnapshotCreate state diskId snapshotName quiesce False =
                             state
                             nid
                             filePath
-                            snapshotName
+                            requestedName
                             vmId
                             quiesce
                       pure (r, True, q)
@@ -145,7 +145,7 @@ handleSnapshotCreate state diskId snapshotName quiesce False =
                             ( insert
                                 Snapshot
                                   { snapshotDiskImageId = toSqlKey diskId
-                                  , snapshotName = snapshotName
+                                  , snapshotName = requestedName
                                   , snapshotCreatedAt = now
                                   , snapshotSize = Nothing
                                   , snapshotLive = isLive
@@ -279,12 +279,9 @@ handleSnapshotCreateWithVmstate state diskId snapshotName' =
                                                         }
                                                 )
                                                 diskIds
-                                            pure $
-                                              head
-                                                [ k
-                                                | (d, k) <- zip diskIds keys
-                                                , d == toSqlKey diskId
-                                                ]
+                                            case [k | (d, k) <- zip diskIds keys, d == toSqlKey diskId] of
+                                              carrier : _ -> pure carrier
+                                              [] -> fail "snapshot carrier missing from disk inventory"
                                         )
                                         (ssDbPool state)
                                   logInfoN $

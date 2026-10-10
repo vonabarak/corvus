@@ -47,7 +47,7 @@ data IfExists
   = IfExistsError
   | IfExistsSkip
   | IfExistsOverwrite
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON IfExists where
   parseJSON = withText "ifExists" $ \case
@@ -69,7 +69,7 @@ data ApplyConfig = ApplyConfig
   , acIfExists :: IfExists
   -- ^ Default policy. CLI --skip-existing changes error to skip.
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplyConfig where
   parseJSON = withObject "ApplyConfig" $ \o ->
@@ -85,7 +85,7 @@ data ApplySshKey = ApplySshKey
   { askName :: Text
   , askPublicKey :: Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplySshKey where
   parseJSON = withObject "ApplySshKey" $ \o ->
@@ -99,7 +99,7 @@ data ChecksumAlgorithm
   | ChecksumSha256
   | ChecksumSha512
   | ChecksumBlake2b
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON ChecksumAlgorithm where
   parseJSON = withText "ChecksumAlgorithm" $ \t -> case T.toLower t of
@@ -117,7 +117,7 @@ instance FromJSON ChecksumAlgorithm where
 data ChecksumTarget
   = ChecksumDownload
   | ChecksumFinal
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON ChecksumTarget where
   parseJSON = withText "ChecksumTarget" $ \t -> case T.toLower t of
@@ -134,7 +134,7 @@ data ChecksumSpec = ChecksumSpec
   , csValue :: Text
   , csTarget :: ChecksumTarget
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON ChecksumSpec where
   parseJSON = withObject "ChecksumSpec" $ \o ->
@@ -145,7 +145,7 @@ instance FromJSON ChecksumSpec where
 
 -- | Update is restricted to checksummed HTTP(S) disk imports.
 data DiskIfExists = DiskIfExistsPolicy IfExists | DiskIfExistsUpdate
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON DiskIfExists where
   parseJSON = withText "disk ifExists" $ \case
@@ -188,7 +188,7 @@ data ApplyDisk = ApplyDisk
   , adEphemeral :: Bool
   , adNode :: Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplyDisk where
   parseJSON = withObject "ApplyDisk" $ \o ->
@@ -218,7 +218,7 @@ data ApplyNetwork = ApplyNetwork
   , anDomain :: Text
   , anHostDns :: Bool
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplyNetwork where
   parseJSON = withObject "ApplyNetwork" $ \o ->
@@ -261,7 +261,7 @@ data ApplyVm = ApplyVm
   -- stable model (e.g. @"qemu64"@) per VM for migratable
   -- workloads.
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplyVm where
   parseJSON = withObject "ApplyVm" $ \o ->
@@ -297,7 +297,7 @@ data ApplyDrive = ApplyDrive
   , adrCacheType :: CacheType
   , adrDiscard :: Bool
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplyDrive where
   parseJSON = withObject "ApplyDrive" $ \o ->
@@ -316,7 +316,7 @@ data ApplyNetIf = ApplyNetIf
   , aniNetwork :: Maybe Text
   , aniMac :: Maybe Text
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplyNetIf where
   parseJSON = withObject "ApplyNetIf" $ \o -> do
@@ -340,7 +340,7 @@ data ApplySharedDir = ApplySharedDir
   , asdCache :: SharedDirCache
   , asdReadOnly :: Bool
   }
-  deriving (Show)
+  deriving stock (Show)
 
 instance FromJSON ApplySharedDir where
   parseJSON = withObject "ApplySharedDir" $ \o ->

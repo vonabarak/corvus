@@ -12,7 +12,7 @@ newtype ClientConfig = ClientConfig
   { ccRemoteViewer :: FilePath
   -- ^ Path to remote-viewer executable
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Default client configuration
 defaultClientConfig :: ClientConfig

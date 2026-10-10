@@ -16,7 +16,9 @@ spec = do
         Right Report {reportModules, reportBindings} -> do
           let paths = map modulePath reportModules
           paths `shouldContain` ["src/Corvus/Database.hs"]
+          paths `shouldContain` ["tools/code-metrics/Corvus/CodeMetrics.hs"]
           paths `shouldNotContain` ["test/Spec.hs"]
+          paths `shouldNotContain` ["tools/test/Spec.hs"]
           map bindingName reportBindings `shouldContain` ["runDatabaseMigrations"]
 
     it "sorts rendered entries by descending size and then path" $ do

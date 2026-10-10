@@ -11,9 +11,7 @@ module Corvus.NodeAgentClient.Core
   ( NodeAgentClient (..)
   , NodeAgentError (..)
   , withNodeAgentClient
-  , ping
   , sessionPing
-  , agentVersion
   , agentDefaultBasePath
   , remote
   , remoteWithin
@@ -59,7 +57,7 @@ data NodeAgentError
   = NodeAgentConnectFailed !T.Text
   | NodeAgentRemoteError !T.Text
   | NodeAgentTimeout !T.Text
-  deriving (Show)
+  deriving stock (Show)
 
 instance E.Exception NodeAgentError
 
@@ -175,30 +173,12 @@ buildTransport (Just cfg) sock = do
 -- ---------------------------------------------------------------------------
 -- Liveness
 
-ping :: NodeAgentClient -> IO (Either NodeAgentError ())
-ping nac = remote $ do
-  _ :: C.Parsed CGNA.NodeAgent'ping'results <-
-    callOn #ping CGNA.NodeAgent'ping'params (nacAgent nac)
-  pure ()
-
 sessionPing :: NodeAgentClient -> IO (Either NodeAgentError ())
 sessionPing nac = remote $ do
   _ :: C.Parsed CGNA.Session'ping'results <-
     callOn #ping CGNA.Session'ping'params (nacSession nac)
   pure ()
 
-agentVersion :: NodeAgentClient -> IO (Either NodeAgentError (T.Text, [T.Text]))
-agentVersion nac = remote $ do
-  CGNA.NodeAgent'version'results {CGNA.info = info_} <-
-    callOn #version CGNA.NodeAgent'version'params (nacAgent nac)
-  let CGNA.AgentInfo {CGNA.semver = sv, CGNA.capabilities = caps} = info_
-  pure (sv, caps)
-
--- | Ask the remote nodeagent for its preferred @basePath@. The
--- agent resolves @$HOME/VMs@ against its own process environment,
--- so a heterogeneous cluster (different users running the agent
--- on each node) gets per-node-correct defaults without the
--- operator needing to know each user's home.
 agentDefaultBasePath :: NodeAgentClient -> IO (Either NodeAgentError T.Text)
 agentDefaultBasePath nac = remote $ do
   CGNA.NodeAgent'defaultBasePath'results {CGNA.path = p} <-

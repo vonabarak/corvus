@@ -23,7 +23,7 @@ data SshKeyInfo = SshKeyInfo
   , skiAttachedVms :: ![NamedRef]
   -- ^ VMs this key is attached to.
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 instance ToJSON SshKeyInfo where
   toJSON = genericToJSON innerOptions

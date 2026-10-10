@@ -41,7 +41,7 @@ data PeerRole
     RoleOwner
   | -- | Listed in NetworkPeer — L2-only bridge + VXLAN VTEP, no IP.
     RolePeer
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Build the spec the netd on @forNode@ should reconcile to. The
 -- @members@ argument is every node that participates in the network

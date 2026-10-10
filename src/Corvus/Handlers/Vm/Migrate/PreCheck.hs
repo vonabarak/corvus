@@ -41,7 +41,7 @@ data MigrationDriveOp
   | -- | Read-write drive image: move (copy bytes, then delete
     -- source-side placement + file).
     OpMove !M.DiskImageId
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Result of a successful pre-check. The orchestrator consumes
 -- this to drive the actual transfers.
@@ -59,7 +59,7 @@ data MigrationPlan = MigrationPlan
   -- source on commit. The destination ends up with
   -- @status = VmSaved@ — same row state the source had.
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Safety margin on top of the bytes a migration is about to
 -- write to the target node's storage. 1 GiB.
@@ -237,7 +237,7 @@ buildPlanFromDrives state vmId vm destNode destRow = do
           pure $
             Left $
               "destination node has insufficient free storage ("
-                <> T.pack (show (fromIntegral bytesFree))
+                <> T.pack (show bytesFree)
                 <> " bytes available, need "
                 <> T.pack (show neededSize)
                 <> " bytes with safety margin)"

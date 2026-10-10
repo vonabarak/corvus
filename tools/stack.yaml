@@ -1,0 +1,12 @@
+# Keep development tools outside the application dependency graph.
+resolver: lts-23.28
+compiler: ghc-9.8.4
+packages:
+  - .
+extra-deps:
+  - weeder-2.10.0
+system-ghc: false
+install-ghc: false
+
+# HIE generation is part of make check and must trigger a rebuild when enabled.
+rebuild-ghc-options: true

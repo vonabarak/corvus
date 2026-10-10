@@ -7,6 +7,8 @@ conventions. See [architecture](architecture.md) to locate components and
 ## Build System
 
 Stack + Hpack (`package.yaml` -> `corvus.cabal`), LTS-23.28 resolver.
+Development executables and their dependencies use `tools/package.yaml` and
+`tools/stack.yaml`; normal application builds do not build that package.
 
 ### Make Targets
 
@@ -16,7 +18,7 @@ Stack + Hpack (`package.yaml` -> `corvus.cabal`), LTS-23.28 resolver.
 | `make capnp` | Regenerate `src-generated/Capnp/Gen/*.hs` from `schema/*.capnp` |
 | `make install` | Install Haskell binaries, shell completions, Python tooling, and web assets when available |
 | `make format` | Ruff + Fourmolu formatting; also frontend formatting when `frontend/node_modules/` exists |
-| `make lint` | HLint, Fourmolu check, Ruff check/format check, mypy; also frontend checks when `frontend/node_modules/` exists |
+| `make check` | Formatting/static checks, strict Haskell build, code metrics, Weeder, and full Haskell tests with a coverage gate; also frontend checks when `frontend/node_modules/` exists |
 | `make desktop-typecheck` | Strict mypy check for the desktop package and its tests; requires the `desktop` extra |
 | `make code-metrics` | Report and enforce size limits for authored Haskell modules and top-level value definitions using the GHC parser |
 | `make unit-tests` | Haskell unit tests; accepts `MATCH=<hspec pattern>` |
@@ -44,7 +46,7 @@ Enable the repository-managed hooks after cloning:
 make install-git-hooks
 ```
 
-The pre-commit hook runs `make lint` and blocks a commit when it fails.
+The pre-commit hook runs `make check` and blocks a commit when it fails.
 
 ### Build Dependencies
 
@@ -74,13 +76,14 @@ test/
 ```
 
 Integration tests live in `integration_tests/` (pytest). Python package tests
-live in `python/tests/`. Haskell `test/` is unit-test focused and uses the custom
+live in `python/tests/`. Development-tool tests live in `tools/test/` and run alongside application
+tests in `make unit-tests`. Haskell `test/` is unit-test focused and uses the custom
 BDD DSL (`Test.DSL.*`) with `testCase`, `given`, `when_`, `then_`.
 
 `make venv` creates the shared `.venv` with access to system Python packages
 (including a host-installed PySide6) and installs the package with the `harness`,
 `desktop`, and `dev` extras. `make python-test` and `make integration-tests` run it
-automatically. Run `make venv` before `make lint` or `make typecheck-core`; those
+automatically. Run `make venv` before `make check` or `make typecheck-core`; those
 targets use the venv's Ruff and mypy rather than tools from the system PATH.
 
 See the [integration harness guide](../integration_tests/README.md) for nested
@@ -126,16 +129,48 @@ role-based field naming, and the documented exceptions.
 
 ### After Code Changes
 
-Haskell builds treat unused imports, top-level and local bindings, matches,
-type patterns, quantified variables, record wildcards, and redundant constraints
-as errors. These shared options live in `package.yaml` and apply to the library,
-executables, and tests. Exported definitions still need caller checks: GHC treats
-exports as used. Keep conditional imports valid for both database backends.
+Haskell builds enable `-Wall` and treat every enabled warning as an error.
+Additional checks cover incomplete matches and record updates, missing fields and
+methods, partial record selectors, deriving strategies, module export lists,
+unused packages, and partial list operations. The shared options in
+`package.yaml` apply to the library, executables, and tests; the tools package
+enables the same checks. Generated Cap'n Proto
+modules retain narrow warning exceptions emitted by the vendored generator.
+Tagged internal responses and errors use positional constructor arguments to
+avoid partial record selectors.
 
-Run `make format` and `make lint` after modifying Haskell or Python source
-files. `make format` edits files in place. `make lint` is read-only and covers
-static analysis plus formatter check passes, so run `make format` first and fix
-all lint warnings before committing.
+Run `make format` and `make check` after modifying Haskell or Python source.
+Formatting edits files; checks do not modify tracked files. Fix all diagnostics
+before committing. `make check` replaces the former `lint` target and includes:
+
+- Existing HLint, formatter, Ruff, mypy, and optional frontend checks.
+- A separate Haskell build in `.stack-work/quality`, with both database backends,
+  HPC instrumentation, and HIE files. Normal builds remain uninstrumented.
+- Code metrics, coverage checking, and their unit tests live in the separate
+  `tools/package.yaml` package. `tools/stack.yaml` pins Weeder 2.10.0 and
+  GHC 9.8.4, matching the application compiler. The main package builds only
+  production executables.
+  `weeder.toml` roots executable entry points, generated schema modules, and
+  compile-time quasiquoters, generated RPC/Persistent instances, and standard
+  deriving, serialization, exception, and overloaded-syntax instances. These
+  instances retain the data types’ supported behavior even where current call
+  sites use only some of it. Other instances remain subject to analysis. Add
+  roots only with a documented reason; remove genuinely unused code.
+- The complete Haskell suite using SQLite, one worker, and seed `20261010`,
+  followed by an aggregate expression coverage gate. `MATCH` is rejected here;
+  use `make unit-tests MATCH=...` for focused work.
+
+Coverage includes every compiled authored library module under `src/`, including
+modules absent from the runtime trace (counted as uncovered). Generated code,
+vendor code, executables, and tests are excluded. The initial baseline in
+`coverage-baseline.json` is **28110 / 98335 expressions (28.585956%)**, the lowest
+of three full runs on revision `fb55a82`. The gate compares exact integer ratios,
+so display rounding cannot hide a decrease. Missing, malformed, stale, or
+incompatible artifacts fail the check. HTML reports are written to
+`.stack-work/quality/authored-coverage/hpc_index.html`, including module details.
+Review baseline increases explicitly; never lower it automatically to make a
+change pass. Coverage changes should be addressed with useful tests or removal
+of unreachable code.
 
 When `frontend/node_modules/` exists, both targets also cover frontend
 formatting/linting. If it does not exist and the change touched frontend code,
@@ -143,7 +178,7 @@ run the frontend-specific setup/checks needed for that work.
 
 ```
 make format
-make lint
+make check
 ```
 
 Desktop changes additionally require a desktop-enabled environment and:

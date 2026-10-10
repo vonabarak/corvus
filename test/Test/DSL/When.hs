@@ -11,17 +11,12 @@ module Test.DSL.When
   , vmShow
   , vmStart
   , vmStop
-  , vmPause
   , vmSetBalloon
 
     -- * Disk commands
   , diskCreate
-  , diskCreateOverlay
   , diskRegister
-  , diskClone
-  , diskRebase
   , diskDelete
-  , diskResize
   , diskList
   , diskShow
   , diskAttach
@@ -30,7 +25,6 @@ module Test.DSL.When
   , mediaChange
 
     -- * Snapshot commands
-  , snapshotCreate
   , snapshotDelete
   , snapshotRollback
   , snapshotMerge
@@ -109,7 +103,6 @@ import Control.Monad.IO.Class (liftIO)
 import Corvus.Action (runAction)
 import Corvus.Database (unknownDatabaseRuntimeInfo)
 import Corvus.Handlers
-import Corvus.Handlers.Build ()
 import Corvus.Handlers.Disk.Media (MediaChange (..), MediaEject (..))
 import Corvus.Handlers.Node (NodeEdit (..))
 import qualified Corvus.Handlers.Vm as VmHandlers
@@ -118,7 +111,6 @@ import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..)
 import Corvus.ImageOperationGuard (newImageOperationGuard)
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, NetworkDeviceModel (..), SharedDirCache)
 import qualified Corvus.Model as M
-import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Types (NodeConns (..), ServerState (..), newAutostartFlags, registerNodeConns)
@@ -240,9 +232,6 @@ vmStart vmId = withState (\st -> runAction st "alice" (VmStart vmId))
 vmStop :: Int64 -> TestM Response
 vmStop vmId = withState (\st -> runAction st "alice" (VmStop vmId 300))
 
-vmPause :: Int64 -> TestM Response
-vmPause vmId = withState (\st -> runAction st "alice" (VmPause vmId))
-
 vmSetBalloon :: Int64 -> Word64 -> TestM Response
 vmSetBalloon vmId target = withState (\st -> runAction st "alice" (VmSetBalloon vmId target))
 
@@ -254,28 +243,12 @@ diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
 diskCreate name format size =
   withState (\st -> runAction st "alice" (DiskCreate name format size Nothing False ""))
 
-diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM Response
-diskCreateOverlay name baseDiskId mPath =
-  withState (\st -> runAction st "alice" (DiskCreateOverlay name baseDiskId Nothing mPath False))
-
 diskRegister :: Text -> Text -> DriveFormat -> TestM Response
 diskRegister name filePath format =
   withState (\st -> runAction st "alice" (DiskRegister name filePath (Just format) Nothing False ""))
 
-diskClone :: Text -> Int64 -> Maybe Text -> TestM Response
-diskClone name baseDiskId mPath =
-  withState (\st -> runAction st "alice" (DiskClone name baseDiskId Nothing mPath False))
-
-diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM Response
-diskRebase diskId mNewBackingId unsafe =
-  withState (\st -> runAction st "alice" (DiskRebase diskId mNewBackingId unsafe))
-
 diskDelete :: Int64 -> TestM Response
 diskDelete diskId = withState (\st -> runAction st "alice" (DiskDelete diskId))
-
-diskResize :: Int64 -> Int64 -> TestM Response
-diskResize diskId newSize =
-  withState (\st -> runAction st "alice" (DiskResize diskId newSize))
 
 diskList :: TestM Response
 diskList = withState handleDiskList
@@ -301,16 +274,6 @@ mediaChange driveId newDiskId =
 --------------------------------------------------------------------------------
 -- Snapshot Commands
 --------------------------------------------------------------------------------
-
-snapshotCreate :: Int64 -> Text -> TestM Response
-snapshotCreate diskId name =
-  withState
-    ( \st ->
-        runAction
-          st
-          "alice"
-          (SnapshotCreate diskId name NOA.QuiesceAuto False)
-    )
 
 snapshotDelete :: Int64 -> Int64 -> TestM Response
 snapshotDelete diskId snapshotId =

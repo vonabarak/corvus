@@ -248,7 +248,7 @@ handleVmMigrate fmt conn vmRef toNodeRef = do
 -- all. HMP monitor sessions hide the key entirely because "send
 -- Ctrl+Alt+Del" has no meaning at the monitor layer.
 data RawSessionKind = SerialSession | MonitorSession
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Run an interactive raw-terminal session against a pair of
 -- 'writeInput' / 'endInput' closures returned by

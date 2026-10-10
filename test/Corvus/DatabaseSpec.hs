@@ -122,10 +122,7 @@ spec = do
 
         result
           `shouldBe` Left
-            SchemaVersionTooNew
-              { sveStoredVersion = currentSchemaVersion + 1
-              , sveCurrentVersion = currentSchemaVersion
-              }
+            (SchemaVersionTooNew (currentSchemaVersion + 1) currentSchemaVersion)
         nodeTableExists `shouldBe` False
 
   describe "readSqliteHeaderVersion" $ do
@@ -191,10 +188,7 @@ spec = do
 
         result
           `shouldBe` Left
-            SchemaVersionTooNew
-              { sveStoredVersion = currentSchemaVersion + 1
-              , sveCurrentVersion = currentSchemaVersion
-              }
+            (SchemaVersionTooNew (currentSchemaVersion + 1) currentSchemaVersion)
 
 withEnv :: String -> String -> IO a -> IO a
 withEnv name value =

@@ -139,7 +139,7 @@ make web-lint     # eslint + prettier --check + tsc --noEmit
 make web-format   # prettier --write
 ```
 
-`make lint` and `make format` invoke the web variants automatically when `frontend/node_modules/` is present.
+`make check` and `make format` invoke the web variants automatically when `frontend/node_modules/` is present.
 
 ## Packaging
 

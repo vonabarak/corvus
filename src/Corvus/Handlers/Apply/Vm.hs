@@ -33,11 +33,13 @@ instance Action ApplyVmCreate where
     result <- createOneVm ctx (avcKeyMap a) (avcDiskMap a) (avcNwMap a) (avcVm a)
     pure $ either RespError RespVmCreated result
 
+createOneVm :: ActionContext -> Map.Map Text Int64 -> Map.Map Text Int64 -> Map.Map Text Int64 -> ApplyVm -> IO (Either Text Int64)
 createOneVm ctx keyMap diskMap nwMap v = do
   vmResult <- executeCreate ctx (VmCreate (avName v) (avNode v) (avCpuCount v) (avRam v) (avDescription v) (avHeadless v) (avGuestAgent v) (avTpm v) (effectiveCloudInit v) (avAutostart v) (avRebootQuirk v) (avCpuModel v) [(tadyBackend audioDevice, tadyModel audioDevice, tadyOptions audioDevice) | audioDevice <- avAudioDevices v] (avGraphicsAdapter v) (avVsock v) (avBalloon v) (avRng v)) (toSqlKey 0)
   case vmResult of
     Left err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
     Right vmId -> createOneVmAttachments ctx keyMap diskMap nwMap v (toSqlKey vmId)
+createOneVmAttachments :: ActionContext -> Map.Map Text Int64 -> Map.Map Text Int64 -> Map.Map Text Int64 -> ApplyVm -> VmId -> IO (Either Text Int64)
 createOneVmAttachments ctx keyMap diskMap nwMap v vmId = do
   let state = acState ctx
   driveResult <- attachDrives state diskMap vmId (avDrives v) (avName v)
@@ -58,40 +60,43 @@ createOneVmAttachments ctx keyMap diskMap nwMap v vmId = do
                 _ <- runAction state (acClientName ctx) (RegenerateCloudInit (fromSqlKey vmId) (avName v))
                 pure ()
               pure $ Right $ fromSqlKey vmId
-attachDrives state diskMap vmId drives vmName = go drives
+attachDrives :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyDrive] -> Text -> IO (Either Text ())
+attachDrives state diskMap vmId drives guestName = go drives
   where
     go [] = pure $ Right ()
     go (d : ds) = do
       mDiskId <- resolveDiskName state diskMap (adrDisk d)
       case mDiskId of
-        Nothing -> pure $ Left $ "VM '" <> vmName <> "': disk '" <> adrDisk d <> "' not found"
+        Nothing -> pure $ Left $ "VM '" <> guestName <> "': disk '" <> adrDisk d <> "' not found"
         Just diskId -> runSqlPool (insert_ Drive {driveVmId = vmId, driveDiskImageId = Just $ toSqlKey diskId, driveInterface = adrInterface d, driveMedia = adrMedia d, driveReadOnly = adrReadOnly d, driveCacheType = adrCacheType d, driveDiscard = adrDiscard d}) (ssDbPool state) >> go ds
-createNetIfs state nwMap vmId netIfs vmName vmNodeRef = go netIfs
+createNetIfs :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyNetIf] -> Text -> Text -> IO (Either Text ())
+createNetIfs state nwMap vmId netIfs guestName vmNodeRef = go netIfs
   where
     go [] = pure $ Right ()
     go (ni : nis) = case aniType ni of
-      NetBridge | maybe True T.null (aniHostDevice ni) -> pure $ Left $ "VM '" <> vmName <> "': bridge interface requires hostDevice (the host bridge name)"
+      NetBridge | maybe True T.null (aniHostDevice ni) -> pure $ Left $ "VM '" <> guestName <> "': bridge interface requires hostDevice (the host bridge name)"
       _ -> do
         mGate <- runSqlPool (NetIfH.checkVmNodeAllowsNicType vmId $ aniType ni) (ssDbPool state)
         case mGate of
-          Just err -> pure $ Left $ "VM '" <> vmName <> "': " <> err
+          Just err -> pure $ Left $ "VM '" <> guestName <> "': " <> err
           Nothing -> do
             case aniNetwork ni of
               Nothing -> doInsert ni nis Nothing
               Just nwName -> do
                 mNetworkId <- resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) nwMap nwName vmNodeRef
                 case mNetworkId of
-                  Nothing -> pure $ Left $ "VM '" <> vmName <> "': network '" <> nwName <> "' not found"
+                  Nothing -> pure $ Left $ "VM '" <> guestName <> "': network '" <> nwName <> "' not found"
                   Just nid -> doInsert ni nis (Just nid)
     doInsert ni nis networkId = do
       mac <- maybe generateMacAddress pure (aniMac ni)
       runSqlPool (insert_ NetworkInterface {networkInterfaceVmId = vmId, networkInterfaceInterfaceType = aniType ni, networkInterfaceModel = aniModel ni, networkInterfaceHostDevice = fromMaybe "" (aniHostDevice ni), networkInterfaceMacAddress = mac, networkInterfaceNetworkId = fmap toSqlKey networkId, networkInterfaceGuestIpAddresses = Nothing, networkInterfaceIpAddress = Nothing}) (ssDbPool state)
       go nis
-attachSshKeys state keyMap vmId keyNames vmName = go keyNames
+attachSshKeys :: ServerState -> Map.Map Text Int64 -> VmId -> [Text] -> Text -> IO (Either Text ())
+attachSshKeys state keyMap vmId keyNames guestName = go keyNames
   where
     go [] = pure $ Right ()
     go (kn : kns) = do
       mKeyId <- resolveByName state UniqueSshKeyName keyMap kn
       case mKeyId of
-        Nothing -> pure $ Left $ "VM '" <> vmName <> "': SSH key '" <> kn <> "' not found"
+        Nothing -> pure $ Left $ "VM '" <> guestName <> "': SSH key '" <> kn <> "' not found"
         Just keyId -> runSqlPool (insert_ $ VmSshKey vmId (toSqlKey keyId)) (ssDbPool state) >> go kns
