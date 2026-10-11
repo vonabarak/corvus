@@ -1,6 +1,7 @@
 DISKS := corvus-monitor
 TEMPLATES :=
 PIPELINE := corvus-monitor.yml
+CORVUS_WEB_TARGET ?= 192.168.72.1:8080
 BUILD_ARGS = $(if $(CORVUS_WEB_TARGET),--var corvus_web_target="$(CORVUS_WEB_TARGET)")
 
 IMAGE_POLICY ?= update

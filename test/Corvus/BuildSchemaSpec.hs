@@ -139,6 +139,7 @@ spec = describe "Schema.Build" $ do
           buildTemplate b `shouldBe` "tpl"
           btFormat (buildTarget b) `shouldBe` FormatQcow2
           btCompact (buildTarget b) `shouldBe` True
+          btEphemeral (buildTarget b) `shouldBe` False
           btIfExists (buildTarget b) `shouldBe` BuildIfExistsPolicy IfExistsError
           buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
@@ -246,6 +247,14 @@ spec = describe "Schema.Build" $ do
       decodePipeline (wrapTarget "maybe") `shouldSatisfy` \case
         Left _ -> True
         _ -> False
+
+  describe "BuildTarget ephemeral" $ do
+    let parseTarget value = Yaml.decodeEither' (BS8.pack ("ephemeral: " <> value)) :: Either Yaml.ParseException BuildTarget
+    it "accepts true and false" $ do
+      either (Left . show) (Right . btEphemeral) (parseTarget "true") `shouldBe` Right True
+      either (Left . show) (Right . btEphemeral) (parseTarget "false") `shouldBe` Right False
+    it "rejects non-boolean values" $ do
+      mapM_ (\value -> parseTarget value `shouldSatisfy` \case Left _ -> True; Right _ -> False) ["'true'", "1", "[]", "{}"]
 
   describe "Provisioner: shell" $ do
     it "accepts shell as a bare string (sets inline)" $ do

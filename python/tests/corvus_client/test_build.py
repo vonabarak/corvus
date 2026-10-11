@@ -27,6 +27,7 @@ def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
                 "pipeline": [
                     {
                         "build": {
+                            "target": {"ephemeral": True},
                             "provisioners": [
                                 {"shell": {"script": "init.sh"}},
                                 {"file": {"from": "payload.bin", "dest": "/x"}},
@@ -41,6 +42,7 @@ def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
     out = yaml.safe_load(out_yaml)
 
     build = out["pipeline"][0]["build"]
+    assert build["target"] == {"ephemeral": True}
     shell = build["provisioners"][0]["shell"]
     file_ = build["provisioners"][1]["file"]
 

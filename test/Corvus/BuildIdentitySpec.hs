@@ -149,7 +149,7 @@ spec = describe "build input identity" $ do
             , buildNode = "other-node"
             , buildCleanup = CleanupNever
             , buildWaitForShutdownSec = 99
-            , buildTarget = (buildTarget build) {btPath = Just "/another/path", btIfExists = BuildIfExistsUpdate}
+            , buildTarget = (buildTarget build) {btPath = Just "/another/path", btIfExists = BuildIfExistsUpdate, btEphemeral = True}
             }
     fingerprint changed `shouldBe` fingerprint build
   it "normalizes env order and filters runtime variables" $ do

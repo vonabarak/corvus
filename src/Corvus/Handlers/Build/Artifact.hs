@@ -5,7 +5,7 @@
 -- | Artifact publication for the build pipeline.
 --
 -- Publishes the bake VM's artifact by cloning it (via qemu-img)
--- into a fresh non-ephemeral DiskImage, handling overwrite policies
+-- into a fresh published DiskImage, handling overwrite policies
 -- and disk compaction.
 module Corvus.Handlers.Build.Artifact
   ( publishArtifact
@@ -45,7 +45,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory)
 
 -- | Publish the bake VM's artifact by CLONING it (via
--- @qemu-img convert@) into a fresh non-ephemeral 'DiskImage'. The
+-- @qemu-img convert@) into a fresh published 'DiskImage'. The
 -- bake VM's original artifact disk stays attached and ephemeral so
 -- cleanup can remove it after publication.
 -- @qemu-img convert@ copies only the source qcow2's active
@@ -132,7 +132,7 @@ publishArtifactByClone state srcDiskId name target identity = do
                           , diskImageSize = mSize
                           , diskImageCreatedAt = now
                           , diskImageBackingImageId = Nothing
-                          , diskImageEphemeral = False
+                          , diskImageEphemeral = btEphemeral target
                           }
                     insert_ $ DiskImageBuildIdentity key (biFingerprint identity) (biInputs identity)
                     recordDiskImageNode key nid storedPath
@@ -169,8 +169,8 @@ checkIfExistsPreBake state name target = do
 
 -- | Reuse only the selected version's matching provenance. Missing metadata
 -- rebuilds once; a failed bake never alters the previous version or tags.
-checkBuildUpdate :: ServerState -> BuildSink -> Text -> BuildIdentity -> LoggingT IO (Maybe Int64)
-checkBuildUpdate state sink name identity = do
+checkBuildUpdate :: ServerState -> BuildSink -> Text -> BuildTarget -> BuildIdentity -> LoggingT IO (Maybe Int64)
+checkBuildUpdate state sink name target identity = do
   let note message = logInfoN message >> liftIO (sink (BuildLogLine message))
   existing <-
     liftIO $
@@ -179,19 +179,21 @@ checkBuildUpdate state sink name identity = do
             image <- imageByName name
             case image of
               Nothing -> pure Nothing
-              Just (Entity key _) -> do
+              Just (Entity key disk) -> do
                 recorded <- getBy (UniqueDiskImageBuildIdentity key)
-                pure (Just (key, fmap (diskImageBuildIdentityFingerprint . entityVal) recorded))
+                pure (Just (key, diskImageEphemeral disk, fmap (diskImageBuildIdentityFingerprint . entityVal) recorded))
         )
         (ssDbPool state)
   case existing of
-    Just (key, Just fingerprint) | fingerprint == biFingerprint identity -> do
-      note $ "target '" <> name <> "' inputs unchanged; skipping bake (ifExists: update)"
-      pure (Just (fromSqlKey key))
+    Just (key, ephemeral, Just fingerprint)
+      | fingerprint == biFingerprint identity && ephemeral == btEphemeral target -> do
+          note $ "target '" <> name <> "' inputs unchanged; skipping bake (ifExists: update)"
+          pure (Just (fromSqlKey key))
     _ -> do
       let reason = case existing of
             Nothing -> "target missing"
-            Just (_, Nothing) -> "build identity missing"
+            Just (_, _, Nothing) -> "build identity missing"
+            Just (_, _, Just fingerprint) | fingerprint == biFingerprint identity -> "target ephemeral flag changed"
             _ -> "build inputs changed"
       note $ "target '" <> name <> "': " <> reason <> "; baking (ifExists: update)"
       pure Nothing

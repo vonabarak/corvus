@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shlex
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -101,6 +102,98 @@ class TestBuildUpdate(SingleNodeCase):
             )
             == count
         )
+
+    def test_target_ephemeral_publication_update_and_vm_cleanup(self) -> None:
+        """Real publication honors the flag, update versions it, and VM deletion reaps it."""
+        base = self.register_base_images()["corvus-test-vm"]
+        with self._resources() as prefix:
+            name, template = f"{prefix}-image", f"{prefix}-template"
+            recipe = _build(name, template)
+            artifacts, _ = self._run(
+                [
+                    {"apply": {"templates": [_template(template, base)]}},
+                    {"build": recipe},
+                ]
+            )
+            persistent_id = artifacts[name]
+            assert self.client.disks.get(persistent_id).show().ephemeral is False
+
+            recipe["target"] = {
+                "ifExists": "update",
+                "format": "qcow2",
+                "size": "2G",
+                "ephemeral": True,
+            }
+            artifacts, events = self._run([{"build": recipe}])
+            ephemeral_id = artifacts[name]
+            assert ephemeral_id != persistent_id
+            disk = self.client.disks.get(ephemeral_id)
+            assert disk.show().ephemeral is True
+            assert self.client.disks.get(persistent_id).show().ephemeral is False
+            assert any(
+                isinstance(event, BuildLogLine)
+                and "ephemeral flag changed" in event.line
+                for event in events
+            )
+            paths = [placement.file_path for placement in disk.show().placements]
+            assert paths
+            for path in paths:
+                self.node.run(f"test -f {shlex.quote(path)}")
+
+            artifacts, events = self._run([{"build": recipe}])
+            assert artifacts[name] == ephemeral_id
+            self._assert_skipped(events, 1)
+
+            recipe["target"] = {
+                "ifExists": "skip",
+                "format": "qcow2",
+                "size": "2G",
+                "ephemeral": False,
+            }
+            artifacts, _ = self._run([{"build": recipe}])
+            assert artifacts[name] == ephemeral_id
+            assert disk.show().ephemeral is True
+
+            recipe["target"] = {
+                "ifExists": "update",
+                "format": "qcow2",
+                "size": "2G",
+                "ephemeral": False,
+            }
+            failed_recipe = {**recipe, "provisioners": [{"shell": "exit 7"}]}
+            failed_events = list(
+                self.client.build_stream_text(
+                    yaml.safe_dump({"pipeline": [{"build": failed_recipe}]})
+                )
+            )
+            failed_end = next(
+                event for event in failed_events if isinstance(event, BuildPipelineEnd)
+            )
+            assert any(build.error_message for build in failed_end.builds)
+            assert self.client.disks.get(name).show().id == ephemeral_id
+            assert disk.show().ephemeral is True
+            artifacts, _ = self._run([{"build": recipe}])
+            assert artifacts[name] not in (persistent_id, ephemeral_id)
+            assert self.client.disks.get(artifacts[name]).show().ephemeral is False
+            assert disk.show().ephemeral is True
+
+            vm = self.client.vms.create(f"{prefix}-consumer", headless=True)
+            try:
+                vm.attach_disk(ephemeral_id, interface="virtio")
+                vm.delete(keep_disks=True)
+                assert disk.show().ephemeral is True
+                vm = self.client.vms.create(f"{prefix}-consumer", headless=True)
+                vm.attach_disk(ephemeral_id, interface="virtio")
+                vm.delete()
+                assert ephemeral_id not in {
+                    image.id for image in self.client.disks.list()
+                }
+                for path in paths:
+                    self.node.run(f"test ! -e {shlex.quote(path)}")
+            finally:
+                for remaining in self.client.vms.list():
+                    if remaining.name == f"{prefix}-consumer":
+                        self.client.vms.get(remaining.id).delete()
 
     def test_chain_tracks_independent_import_recipe_changes_and_retry_after_restart(
         self,

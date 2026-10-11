@@ -93,9 +93,11 @@ envelopeValue b =
 -- completes:
 --
 --   * @path@      — where on disk to publish the cloned artifact
---   * @compact@   — whether to @qemu-img -c@ the published clone
+--   * @ephemeral@ — publication lifetime, checked separately for update
 --   * @ifExists@  — what to do when an artifact with the same name
---                   already exists (error / skip / overwrite)
+--                   already exists (error / skip / overwrite / update)
+--
+-- Compaction is recorded separately at the manifest top level.
 targetValue :: BuildTarget -> Value
 targetValue t =
   obj

@@ -15,8 +15,8 @@ A `build:` step:
 4. Runs each provisioner inside the running VM (via `qemu-guest-agent`).
 5. Stops the VM gracefully.
 6. Publishes the artifact: `qemu-img convert`-clones the bake VM's
-   chosen drive into a fresh non-ephemeral `DiskImage` (named by the
-   build's `name:` field, optionally compacted). The clone is flat by
+   chosen drive into a fresh `DiskImage`, persistent by default and named by
+   the build's `name:` field (optionally compacted). The clone is flat by
    construction — `qemu-img convert` does NOT carry over the source's
    internal qcow2 snapshot table, so the published image is
    guaranteed to have zero snapshots.
@@ -147,6 +147,7 @@ pipeline:
       target:
         format: qcow2                      # default: qcow2
         size: 10G                          # only used by from-scratch strategy
+        ephemeral: false                   # true: delete with a directly attached VM
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
         ifExists: error                    # error (default) | skip | overwrite | update — see below
@@ -218,7 +219,7 @@ created, so a wrong policy never wastes a bake.
 | `error` (default) | Fail immediately with `target '<name>' already exists; use ifExists: skip, overwrite or update to allow`. No bake VM is created. |
 | `skip` | Return success without baking. The existing disk is treated as the artifact and its id is reported in the build result. Lets a re-run of a partially-failed pipeline walk past already-completed builds. |
 | `overwrite` | Bake and publish a new version, moving the requested tag and `latest` after success. Existing versions and users remain intact. |
-| `update` | Reuse the selected artifact when its recorded inputs match. Otherwise bake and publish a new version. Artifacts without build metadata rebuild once. |
+| `update` | Reuse the selected artifact when its recorded inputs and ephemeral flag match. Otherwise bake and publish a new version. Artifacts without build metadata rebuild once. |
 
 ```yaml
 name: debian-12-nginx
@@ -268,7 +269,7 @@ identifiers and execution policies that should not force a rebuild:
 | Template SSH keys | Use sorted public key material instead of key database IDs. |
 | Provisioners | Keep script text, file contents and destination/mode, shell environment/workdir/timeouts, wait conditions, and reboot settings. Preserve execution order. |
 | Environment variables | Sort by variable name and exclude daemon-injected bake VM and task identifiers, which change between executions. |
-| Output and execution policies | Exclude the build name/description, node selection, output path, `ifExists`, cleanup and shutdown-wait policies. Keep target format, size, and compaction. |
+| Output and execution policies | Exclude the build name/description, node selection, output path, `ephemeral` (checked separately), `ifExists`, cleanup and shutdown-wait policies. Keep target format, size, and compaction. |
 
 The daemon encodes the manifest as canonical UTF-8 JSON, recursively sorting
 object keys while preserving array order, then computes its SHA-256 fingerprint.
@@ -307,9 +308,10 @@ metadata by that selected image version's ID:
 | No target image exists | Build and publish the first version. |
 | The target exists but has no build metadata | Build and publish a version with metadata. This includes imported images and outputs created before metadata was recorded. |
 | The stored fingerprint differs from the current fingerprint | Build and publish a new version. |
-| The fingerprints match | Skip the build and return the existing output image ID. |
+| The fingerprints match but the ephemeral flags differ | Build and publish a new version, preserving existing users. |
+| The fingerprints and ephemeral flags match | Skip the build and return the existing output image ID. |
 
-Equality is a comparison of the two fingerprints. The daemon does not compare
+Reuse compares the two fingerprints and the requested and stored ephemeral flags. The daemon does not compare
 the saved `inputs` JSON field by field, download source images, or ask a node
 agent to hash disk contents for this check. A match returns before bake VM
 creation and does not create a new metadata row. Otherwise, the build runs
@@ -347,6 +349,41 @@ acts as the YAML equivalent of `crv apply --skip-existing`. Apply
 accepts `error`, `skip`, and `overwrite`. Disk overwrite publishes a new version. This means
 a pipeline `apply:` step inside `crv build` (which has no
 `--skip-existing` flag) can opt into skip-existing via the YAML.
+
+### `target.ephemeral`
+
+`ephemeral` is a boolean, defaulting to `false`. It controls the published disk
+for every build strategy. For example:
+
+```yaml
+pipeline:
+  - build:
+      name: single-vm-image
+      template: debian12
+      target:
+        ephemeral: true
+      provisioners:
+        - shell: "true"
+  - apply:
+      vms:
+        - name: single-vm
+          cpuCount: 2
+          ram: 1G
+          headless: true
+          drives:
+            - disk: single-vm-image
+              interface: virtio
+```
+
+Attach this image directly to the intended VM to delete it when that VM is
+deleted. Existing protections for other VM users, template references and
+`--keep-disks` still apply. An unattached image is not automatically deleted.
+An overlay's backing image is not deleted recursively when the overlay is
+removed. Bake VM cleanup never deletes the independently published artifact.
+
+The flag is excluded from the content fingerprint. `ifExists: update` checks
+it separately and publishes a new version when it changes; `ifExists: skip`
+returns the existing image without changing its flag.
 
 ### `target.path`
 
@@ -605,7 +642,7 @@ in reverse order.
 | `never`       | leaves resources | leaves resources |
 
 After a successful build the published artifact is a **clone** of the
-bake VM's artifact disk (created via `qemu-img convert`, non-ephemeral,
+bake VM's artifact disk (created via `qemu-img convert`, with the target ephemeral flag,
 named by the build's `name:` field). The bake VM's original artifact
 disk stays attached and ephemeral, so the standard cleanup pass reaps
 it together with the bake VM when the cleanup policy calls for teardown.

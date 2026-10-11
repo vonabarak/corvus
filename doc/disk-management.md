@@ -161,6 +161,8 @@ artifacts that have no value outside the VM's lifetime.
 * Disks materialised by `crv template instantiate` via the
   `create`, `clone`, or `overlay` strategy are ephemeral by default;
   the template YAML can override per-drive with `ephemeral: false`.
+* Build outputs are persistent by default. Set [target.ephemeral](image-builds.md#targetephemeral)
+  to `true` for a per-VM image.
 * Disks created from the apply schema, the CLI, or the Python client
   default to **non-ephemeral**. Add `--ephemeral` / `ephemeral: true`
   to opt in.

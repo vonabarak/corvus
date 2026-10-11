@@ -95,13 +95,13 @@ spec = sequential $ describe "CLI files, editors and event streams" $ do
     let path = dir </> "build.yml"
     writeFile (dir </> "script.sh") "echo hello\n"
     BS.writeFile (dir </> "binary") (BS.pack ['\0', '\255'])
-    writeFile path "pipeline:\n- apply: {}\n- build:\n    provisioners:\n    - shell: {script: script.sh}\n    - file: {from: binary}\n    - shell: {inline: existing}\n    - file: {content: existing}\n    - wait-for: {}\n"
+    writeFile path "pipeline:\n- apply: {}\n- build:\n    target: {ephemeral: true}\n    provisioners:\n    - shell: {script: script.sh}\n    - file: {from: binary}\n    - shell: {inline: existing}\n    - file: {content: existing}\n    - wait-for: {}\n"
     withMock $ \f -> do
       expectCalls f ["Daemon.build"]
       _ <- checkCli f JsonOutput (Build path noVars noWait) ExitSuccess
       [GCorvus.Daemon'build'params yaml _] <- requests f "Daemon.build"
       parsed <- either (fail . show) pure (Yaml.decodeEither' (TE.encodeUtf8 yaml) :: Either Yaml.ParseException Value)
-      parsed `shouldBe` object ["pipeline" .= [object ["apply" .= object []], object ["build" .= object ["provisioners" .= [object ["shell" .= object ["inline" .= ("echo hello\n" :: T.Text)]], object ["file" .= object ["content" .= ("AP8=" :: T.Text)]], object ["shell" .= object ["inline" .= ("existing" :: T.Text)]], object ["file" .= object ["content" .= ("existing" :: T.Text)]], object ["wait-for" .= object []]]]]]]
+      parsed `shouldBe` object ["pipeline" .= [object ["apply" .= object []], object ["build" .= object ["target" .= object ["ephemeral" .= True], "provisioners" .= [object ["shell" .= object ["inline" .= ("echo hello\n" :: T.Text)]], object ["file" .= object ["content" .= ("AP8=" :: T.Text)]], object ["shell" .= object ["inline" .= ("existing" :: T.Text)]], object ["file" .= object ["content" .= ("existing" :: T.Text)]], object ["wait-for" .= object []]]]]]]
   describe "build uploads and variables" $ do
     forM_ [False, True] $ \failRpc -> it ("uploads local media before submitting only daemon steps: " ++ show failRpc) $ withSystemTempDirectory "cli-build-upload" $ \dir -> withMock $ \f -> do
       let path = dir </> "build.yml"

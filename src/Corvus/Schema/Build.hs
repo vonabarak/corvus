@@ -210,6 +210,7 @@ data BuildTarget = BuildTarget
   { btFormat :: DriveFormat
   , btSize :: Int64
   , btCompact :: Bool
+  , btEphemeral :: Bool
   , btPath :: Maybe Text
   , btIfExists :: BuildIfExists
   }
@@ -221,6 +222,7 @@ instance FromJSON BuildTarget where
       <$> o .:? "format" .!= FormatQcow2
       <*> defaultSizeField o "size" 10737418240
       <*> o .:? "compact" .!= True
+      <*> o .:? "ephemeral" .!= False
       <*> o .:? "path"
       <*> o .:? "ifExists" .!= BuildIfExistsPolicy IfExistsError
 

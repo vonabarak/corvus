@@ -320,7 +320,7 @@ runOneBuildBody state parentTaskId sink stack b = do
                 Right _ -> do
                   existing <-
                     if btIfExists target == BuildIfExistsUpdate
-                      then checkBuildUpdate state sink (buildName b) identity
+                      then checkBuildUpdate state sink (buildName b) target identity
                       else pure Nothing
                   case existing of
                     Just key -> pure (Right key)

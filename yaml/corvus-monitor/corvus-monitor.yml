@@ -31,6 +31,7 @@ pipeline:
       target:
         ifExists: "{{ image_if_exists }}"
         compact: true
+        ephemeral: true
 
       strategy: overlay
 
@@ -173,13 +174,6 @@ pipeline:
   - apply:
       ifExists: skip
       disks:
-        # Writable overlay so each (re)instantiation gets its own
-        # state without dirtying the base. Ephemeral = auto-deleted
-        # when the VM is deleted.
-        - name: corvus-monitor-overlay
-          overlay: corvus-monitor
-          ephemeral: true
-
         # Per-VM OVMF NVRAM (writable; boot vars).
         - name: corvus-monitor-ovmf-vars
           clone: ovmf-vars
@@ -196,7 +190,7 @@ pipeline:
           # Start on daemon boot — monitoring should be up by default.
           autostart: true
           drives:
-            - disk: corvus-monitor-overlay
+            - disk: corvus-monitor
               interface: virtio
               media: disk
               cacheType: writeback

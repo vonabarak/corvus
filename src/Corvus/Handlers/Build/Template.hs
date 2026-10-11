@@ -117,7 +117,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
     createAndAttachTarget = do
       let size = btSize target
       -- ephemeral=True for the bake-VM-attached disk; publish
-      -- produces a CLONE (non-ephemeral) so the bake disk stays
+      -- produces a separate CLONE with the target flag, so the bake disk stays
       -- ephemeral whether the build succeeds or fails.
       diskResp <-
         liftIO $
