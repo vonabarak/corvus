@@ -1,6 +1,17 @@
 vars:
   image_if_exists: update
 
+_wait_for_network: &wait_for_network
+  shell:
+    inline: |
+      for i in $(seq 1 60); do
+        getent hosts distfiles.gentoo.org >/dev/null && break
+        sleep 2
+      done
+      getent hosts distfiles.gentoo.org >/dev/null \
+        || { echo "network never came up after 120s" >&2; exit 1; }
+    timeoutSec: 130
+
 pipeline:
   - build:
       name: corvus-test-node
@@ -23,15 +34,7 @@ pipeline:
         preamble: "set -eux"
 
       provisioners:
-        - shell:
-            inline: |
-              for i in $(seq 1 60); do
-                getent hosts distfiles.gentoo.org >/dev/null && break
-                sleep 2
-              done
-              getent hosts distfiles.gentoo.org >/dev/null \
-                || { echo "network never came up after 120s" >&2; exit 1; }
-            timeoutSec: 130
+        - *wait_for_network
 
         - shell:
             inline: |
@@ -107,7 +110,7 @@ pipeline:
               dev-haskell/zenhack-prelude **
               EOF
 
-              emerge --noreplace --usepkg \
+              emerge --noreplace --usepkg --quiet-build \
                 net-misc/socat \
                 app-emulation/qemu \
                 media-video/pipewire \
@@ -146,7 +149,7 @@ pipeline:
               # the removed ABI. Rebuild just pycapnp from source against
               # the installed library; all of its build dependencies may
               # still come from the shared binary package cache.
-              emerge --usepkg \
+              emerge --usepkg --quiet-build \
                 --usepkg-exclude=dev-python/pycapnp \
                 --buildpkg \
                 --reinstall-atoms=dev-python/pycapnp \

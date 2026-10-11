@@ -165,13 +165,13 @@ class TestApply(SingleNodeCase):
         token = secrets.token_hex(4)
         images = self.register_base_images()
         # Gentoo-headless-cloudinit image: ships both cloud-init AND
-        # QGA. The plain gentoo-base-headless variant strips
+        # QGA. The plain gentoo-headless variant strips
         # cloud-init out (it's the bake host for non-cloud-init
         # VMs like corvus-test-node), so key injection would
         # silently no-op there. The Alpine cloud image has
         # cloud-init but no QGA → daemon `vm.start(wait=True)`
         # hangs.
-        base_disk = images["gentoo-base-headless-cloudinit"]
+        base_disk = images["gentoo-headless-cloudinit"]
         key_name = f"corvus-it-apply-key-{token}"
         vm_name = f"corvus-it-apply-vm-{token}"
         root_name = f"corvus-it-apply-root-{token}"
@@ -241,9 +241,9 @@ class TestApply(SingleNodeCase):
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        # gentoo-base-headless-cloudinit — see
+        # gentoo-headless-cloudinit — see
         # test_deploys_ssh_key_via_cloud_init for the variant rationale.
-        base_disk = images["gentoo-base-headless-cloudinit"]
+        base_disk = images["gentoo-headless-cloudinit"]
         key_name = f"corvus-it-apply-key-{token}"
         vm_name = f"corvus-it-apply-vm-{token}"
         root_name = f"corvus-it-apply-root-{token}"

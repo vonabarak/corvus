@@ -7,6 +7,8 @@ upstream resolution, and policy forwarding. These tests need no test-node VM.
 from __future__ import annotations
 
 import base64
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -24,6 +26,108 @@ def recipes(tmp_path: Path) -> RecipeRunner:
 
 
 class TestGentooRecipes:
+    def test_shared_provisioners_and_script_expansion(
+        self, recipes: RecipeRunner
+    ) -> None:
+        directory = recipes.root / "yaml/gentoo-headless"
+        builds = {}
+        for filename in ("gentoo-headless.yml", "gentoo-headless-standalone.yml"):
+            source = directory / filename
+            original = yaml.safe_load(source.read_text())
+            expanded = yaml.safe_load(preprocess_build_yaml(str(source)))
+            for step, resolved in zip(
+                original["pipeline"], expanded["pipeline"], strict=True
+            ):
+                if "build" not in step:
+                    continue
+                build = step["build"]
+                builds[build["name"]] = build
+                for provisioner, inline in zip(
+                    build["provisioners"],
+                    resolved["build"]["provisioners"],
+                    strict=True,
+                ):
+                    if "shell" in provisioner:
+                        script = directory / provisioner["shell"]["script"]
+                        assert "script" not in inline["shell"]
+                        assert inline["shell"]["inline"] == script.read_text()
+        assert set(builds) == {
+            "gentoo-builder",
+            "gentoo-headless",
+            "gentoo-headless-cloudinit",
+            "gentoo-headless-cloudinit:standalone",
+        }
+        shared = [
+            "partition-disk",
+            "bootstrap-system",
+            "build-kernel",
+            "install-runtime",
+            "install-grub",
+            "configure-system",
+        ]
+        for name in ("gentoo-headless", "gentoo-headless-cloudinit:standalone"):
+            scripts = [
+                Path(item["shell"]["script"]).stem
+                for item in builds[name]["provisioners"]
+                if "shell" in item
+            ]
+            assert [script for script in scripts if script in shared] == shared
+        cloud_scripts = [
+            item["shell"]
+            for item in builds["gentoo-headless-cloudinit"]["provisioners"]
+            if "shell" in item
+            and item["shell"]["script"].endswith("install-cloud-init.sh")
+        ]
+        assert cloud_scripts[0]["env"]["IMAGE_ROOT"] == "/"
+
+    @pytest.mark.parametrize("fail_install", [False, True])
+    def test_cloud_init_configuration(
+        self, recipes: RecipeRunner, fail_install: bool
+    ) -> None:
+        """Exercise the shared installer without package installation or a VM."""
+        root = recipes.root / "target"
+        log = recipes.root / "package-call"
+        emerge = recipes.bin / "emerge"
+        emerge.write_text(
+            '#!/bin/sh\n[ -z "${SYSROOT+x}" ] || exit 99\n'
+            'printf "%s\\n" "$@" > "$PACKAGE_LOG"\n'
+            f"exit {7 if fail_install else 0}\n"
+        )
+        emerge.chmod(0o755)
+        systemctl = recipes.bin / "systemctl"
+        systemctl.write_text('#!/bin/sh\n[ "$1" = "--root=$IMAGE_ROOT" ]\n')
+        systemctl.chmod(0o755)
+        result = subprocess.run(
+            [
+                "sh",
+                "-eu",
+                str(
+                    recipes.root / "yaml/gentoo-headless/scripts/install-cloud-init.sh"
+                ),
+            ],
+            env={
+                **os.environ,
+                "PATH": f"{recipes.bin}:{os.environ['PATH']}",
+                "IMAGE_ROOT": str(root),
+                "SYSROOT": "/invalid",
+                "PACKAGE_LOG": str(log),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        config = root / "etc/cloud/cloud.cfg.d/90_corvus_nocloud.cfg"
+        if fail_install:
+            assert result.returncode == 7
+            assert not config.exists()
+        else:
+            assert result.returncode == 0, result.stderr
+            assert yaml.safe_load(config.read_text()) == {
+                "datasource_list": ["NoCloud", "None"],
+                "locale": False,
+            }
+        assert f"--root={root}" in log.read_text().splitlines()
+
     @pytest.mark.parametrize(
         "recipe,target,variables,pipelines,policy",
         [
@@ -158,7 +262,7 @@ class TestGentooRecipes:
             (
                 "gentoo-headless",
                 "ensure-headless",
-                "disk:gentoo-base-headless",
+                "disk:gentoo-headless",
                 "gentoo-headless.yml",
                 0,
             ),

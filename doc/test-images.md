@@ -46,7 +46,7 @@ removes reusable download caches where declared. Published resources, runtime
 VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 
 The Gentoo base recipes live in `yaml/gentoo-headless/`, together with their
-shared kernel configuration. `yaml/gentoo-test/` owns the Corvus development
+shared kernel configuration and `scripts/` provisioners. `yaml/gentoo-test/` owns the Corvus development
 image built from the `gentoo-headless-cloudinit` template. Manage the stages
 with:
 
@@ -77,6 +77,24 @@ to `gentoo-cloud.yml`; both headless pipelines consume the registered
 in Gentoo's upstream filename. Standalone is opt-in and is not required by the
 default Gentoo build or its presence checks. Aggregate image builds run the
 development-image chain, which includes the regular headless images, once.
+
+Both headless recipes use the same scripts for the system bootstrap, kernel,
+runtime packages (including `net-fs/nfs-utils`), GRUB, and system configuration.
+The regular recipe adds Cloud-init in a separate overlay; standalone installs it
+into its new root before publication. Both generate `en_US.UTF-8` with
+`localedef` and set Cloud-init's `locale: false`. Published systems use the same
+Portage profile, package policy, and official binhost configuration; build-time
+repositories and caches can still produce different package versions.
+
+Standalone publishes `gentoo-headless-cloudinit:standalone` and advances that
+image family's `latest` tag. The unchanged `gentoo-headless-cloudinit` runtime
+template and downstream recipes follow `latest`, so they can use either flavor.
+The non-Cloud-init `gentoo-headless` image remains the node-image dependency.
+Script paths resolve relative to the recipe and their expanded contents are
+included in build metadata, so editing a shared script invalidates its consumers.
+The regular recipe's `nfs_binpkgs` variable controls the NFS server and export
+used by all bake stages. Change its default in `gentoo-headless.yml` or override
+it with `crv build yaml/gentoo-headless/gentoo-headless.yml --var nfs_binpkgs=192.168.72.1:/new/export --wait`.
 
 `ensure-cloud` and `ensure-headless` in `yaml/gentoo-headless/`, and `ensure` in
 `yaml/gentoo-test/`, fill missing outputs with `skip`. When all outputs exist,
@@ -156,7 +174,7 @@ artifacts above.
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
 | `key` | `integration_tests/keys/` | The SSH keypair embedded in the node and inner-VM images, used by the harness tunnel. |
-| `gentoo-headless` | `yaml/gentoo-headless/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-base-headless`, and `gentoo-base-headless-cloudinit`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. An opt-in target builds `gentoo-base-headless-standalone`. |
+| `gentoo-headless` | `yaml/gentoo-headless/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-headless`, and `gentoo-headless-cloudinit`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. An opt-in target builds `gentoo-headless-cloudinit:standalone`. |
 | `gentoo` | `yaml/gentoo-test/` | `gentoo-corvus-test`, the Corvus development image. Builds or ensures the regular headless chain first. |
 | `windows-11` | [yaml/windows-11/](../yaml/windows-11/README.md) | `BaseImages/Windows11/<id>-windows-11-pro-base.qcow2`, a generalized, decrypted Windows 11 Pro overlay base. The runtime template gives each VM its own TPM. Requires registered `windows-11-iso` media; missing VirtIO-Win media is downloaded automatically. |
 | `debian-nginx` | `yaml/debian-nginx/` | `debian-12-nginx`, an example Debian 12 nginx derivative built from the multi-OS Debian base. |

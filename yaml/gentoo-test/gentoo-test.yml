@@ -78,7 +78,7 @@ pipeline:
               EOF
 
               # /etc/portage/repos.conf is a DIRECTORY in the
-              # gentoo-base-headless image (stage 2 of
+              # gentoo-headless image (stage 2 of
               # gentoo-headless.yml lays it out that way to match
               # the modern Gentoo convention of dropping one .conf
               # per overlay). Write our extra overlays into

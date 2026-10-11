@@ -21,7 +21,7 @@ Each VM-booting test:
 daemon's set/get/delete round-trip.
 
 `test_multiple_ssh_keys` and `test_custom_user_data_with_ssh_injection`
-exercise the same machinery with the Gentoo `gentoo-base-headless`
+exercise the same machinery with the Gentoo `gentoo-headless`
 image: the first attaches a second keypair on top of the primary;
 the second supplies fully-custom user-data that creates a
 `testadmin` user with sudo and an explicit `ssh_authorized_keys`.
@@ -174,12 +174,12 @@ class TestCloudInit(SingleNodeCase):
             self._verify_login_freebsd(vm)
 
     def test_gentoo(self) -> None:
-        # gentoo-base-headless has cloud-init STRIPPED OUT (it's the
+        # gentoo-headless has cloud-init STRIPPED OUT (it's the
         # bake host for corvus-test-node which doesn't want cloud-init
         # at apply time). Use the cloudinit variant so cloud-init's
         # key-injection module actually runs on first boot.
         class _GentooCI(_CIBase):
-            base_image_key = "gentoo-base-headless-cloudinit"
+            base_image_key = "gentoo-headless-cloudinit"
 
         with _GentooCI(self) as vm:
             self._verify_login_linux(vm)
@@ -193,7 +193,7 @@ class TestCloudInit(SingleNodeCase):
 
         class _GentooMulti(_CIBase):
             # cloudinit variant — see test_gentoo for the rationale.
-            base_image_key = "gentoo-base-headless-cloudinit"
+            base_image_key = "gentoo-headless-cloudinit"
 
         key2_dir = Path(tempfile.mkdtemp(prefix="corvus-ci-key2-"))
         key2_priv = key2_dir / "id_ed25519"
@@ -310,7 +310,7 @@ class TestCloudInit(SingleNodeCase):
         # the daemon's `inject_ssh_keys` path.
         class _CustomCI(_CIBase):
             # cloudinit variant — see test_gentoo for the rationale.
-            base_image_key = "gentoo-base-headless-cloudinit"
+            base_image_key = "gentoo-headless-cloudinit"
             ssh_user = "testadmin"
 
             def _cloud_init_config(_self) -> _CloudInitOptions:

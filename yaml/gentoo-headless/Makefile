@@ -1,4 +1,4 @@
-DISKS := gentoo-cloud gentoo-builder gentoo-base-headless gentoo-base-headless-cloudinit
+DISKS := gentoo-cloud gentoo-builder gentoo-headless gentoo-headless-cloudinit
 TEMPLATES := gentoo-cloud gentoo-builder-bake gentoo-headless-bake gentoo-headless gentoo-headless-cloudinit
 IMAGE_POLICY ?= update
 BUILD_DEPENDENCIES := build-cloud
