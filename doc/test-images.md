@@ -72,8 +72,9 @@ intermediate causes dependent builds to rebuild. See
 The standalone target runs the same `build-cloud` prerequisite as the regular
 headless target, then builds its derivative using official mirrors without the
 regular recipe's host-side mounts. The download URL and checksum belong only
-to `gentoo-base-cloud.yml`; both headless pipelines consume the registered
-`gentoo-base-cloud` image. Standalone is opt-in and is not required by the
+to `gentoo-cloud.yml`; both headless pipelines consume the registered
+`gentoo-cloud:latest` image. The imported version tag comes from the timestamp
+in Gentoo's upstream filename. Standalone is opt-in and is not required by the
 default Gentoo build or its presence checks. Aggregate image builds run the
 development-image chain, which includes the regular headless images, once.
 
@@ -155,7 +156,7 @@ artifacts above.
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
 | `key` | `integration_tests/keys/` | The SSH keypair embedded in the node and inner-VM images, used by the harness tunnel. |
-| `gentoo-headless` | `yaml/gentoo-headless/` | `gentoo-base-cloud`, `gentoo-builder`, `gentoo-base-headless`, and `gentoo-base-headless-cloudinit`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. An opt-in target builds `gentoo-base-headless-standalone`. |
+| `gentoo-headless` | `yaml/gentoo-headless/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-base-headless`, and `gentoo-base-headless-cloudinit`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. An opt-in target builds `gentoo-base-headless-standalone`. |
 | `gentoo` | `yaml/gentoo-test/` | `gentoo-corvus-test`, the Corvus development image. Builds or ensures the regular headless chain first. |
 | `windows-11` | [yaml/windows-11/](../yaml/windows-11/README.md) | `BaseImages/Windows11/<id>-windows-11-pro-base.qcow2`, a generalized, decrypted Windows 11 Pro overlay base. The runtime template gives each VM its own TPM. Requires registered `windows-11-iso` media; missing VirtIO-Win media is downloaded automatically. |
 | `debian-nginx` | `yaml/debian-nginx/` | `debian-12-nginx`, an example Debian 12 nginx derivative built from the multi-OS Debian base. |

@@ -50,7 +50,7 @@ class TestVmStartFailures(SingleNodeCase):
         vm_name = f"corvus-it-oversize-{token}"
         overlay_name = f"{vm_name}-overlay"
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
 
         self.client.disks.create_overlay(overlay_name, base_disk)
         vm = self.client.vms.create(

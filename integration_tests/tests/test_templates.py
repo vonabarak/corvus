@@ -46,7 +46,7 @@ class TestTemplates(SingleNodeCase):
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-tpl-{token}"
         vm_name = f"corvus-it-tpl-vm-{token}"
         body = textwrap.dedent(f"""
@@ -284,7 +284,7 @@ class TestTemplates(SingleNodeCase):
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         for strategy in ("clone", "overlay", "direct", "create"):
             tpl_name = f"corvus-it-strat-{strategy}-{token}"
             vm_name = f"corvus-it-strat-vm-{strategy}-{token}"
@@ -374,7 +374,7 @@ class TestTemplates(SingleNodeCase):
         the harness doesn't necessarily have."""
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-tpl-sd-{token}"
         vm_name = f"corvus-it-tpl-sd-vm-{token}"
         host_path = f"/tmp/tpl-share-{token}"

@@ -1,4 +1,4 @@
-DISKS := gentoo-base-cloud gentoo-builder gentoo-base-headless gentoo-base-headless-cloudinit
+DISKS := gentoo-cloud gentoo-builder gentoo-base-headless gentoo-base-headless-cloudinit
 TEMPLATES := gentoo-cloud gentoo-builder-bake gentoo-headless-bake gentoo-headless gentoo-headless-cloudinit
 IMAGE_POLICY ?= update
 BUILD_DEPENDENCIES := build-cloud
@@ -29,7 +29,7 @@ build-cloud:
 	+$(MAKE) --no-print-directory publish-cloud IMAGE_POLICY=$(IMAGE_POLICY)
 
 ensure-cloud:
-	$(call ensure-images,disk:gentoo-base-cloud,publish-cloud)
+	$(call ensure-images,disk:gentoo-cloud,publish-cloud)
 
 build-headless: build
 
@@ -51,14 +51,20 @@ publish-cloud:
 	  exit 1; \
 	fi; \
 	url="$(GENTOO_AUTOBUILDS)/$(GENTOO_BRANCH)/$$file"; \
+	tag=$$(printf '%s\n' "$$file" | sed -n 's/^di-amd64-cloudinit-\([0-9][0-9]*T[0-9][0-9]*Z\)\.qcow2$$/\1/p'); \
+	if [ -z "$$tag" ]; then \
+	  echo "ERROR: failed to parse release tag from $$file" >&2; \
+	  exit 1; \
+	fi; \
 	sha256=$$( $(LATEST_SHA256_SH) ); \
 	if [ -z "$$sha256" ]; then \
 	  echo "ERROR: failed to parse SHA256 for $$file" >&2; \
 	  exit 1; \
 	fi; \
 	echo "Latest Gentoo cloud-init URL: $$url"; \
+	echo "Latest Gentoo cloud-init tag: $$tag"; \
 	echo "Latest Gentoo cloud-init SHA256: $$sha256"; \
-	"$(CRV)" build gentoo-base-cloud.yml --var image_if_exists=$(IMAGE_POLICY) --var gentoo_base_cloud_url="$$url" --var gentoo_base_cloud_sha256="$$sha256" --wait
+	"$(CRV)" build gentoo-cloud.yml --var image_if_exists=$(IMAGE_POLICY) --var gentoo_cloud_url="$$url" --var gentoo_cloud_tag="$$tag" --var gentoo_cloud_sha256="$$sha256" --wait
 
 # Resolve current Gentoo import variables for direct CLI use.
 latest-url:

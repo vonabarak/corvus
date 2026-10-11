@@ -123,7 +123,7 @@ class Vm:
 
     # ---- overrideable defaults ---------------------------------------------
 
-    base_image_key: str = "alpine"
+    base_image_key: str = "corvus-test-vm"
     cpu_count: int = 2
     ram: int = 1073741824  # 1Gb
     headless: bool = True
@@ -560,7 +560,7 @@ class VmCloudInit(VmSsh):
     Subclasses MUST set:
 
       * `base_image_key` — which disk in `register_base_images()` to
-        overlay (e.g. `"alpine-3-21-base"`, `"gentoo-base-headless"`).
+        overlay (e.g. `"alpine"`, `"gentoo-base-headless"`).
 
     Subclasses MAY override:
 

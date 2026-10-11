@@ -19,7 +19,7 @@ from .fixtures.image_recipe_command import ALPINE_FILE, SHA256, SHA512
 from .fixtures.image_recipes import RecipeCall, RecipeRunner
 
 RECIPES = {
-    "multi-os": "debian-12-generic-base",
+    "multi-os": "debian-generic:12",
     "corvus-test-node": "corvus-test-node",
     "corvus-test-vm": "corvus-test-vm",
     "debian-nginx": "debian-12-nginx",
@@ -70,7 +70,7 @@ class TestImageRecipes:
         assert result.returncode == 0, result.stdout + result.stderr
         expected = ["multi-os.yml"]
         if recipe == "corvus-test-node":
-            expected = ["gentoo-base-cloud.yml", "gentoo-headless.yml"]
+            expected = ["gentoo-cloud.yml", "gentoo-headless.yml"]
         if recipe != "multi-os":
             expected.append(f"{recipe}.yml")
         builds = publications(recipes)
@@ -123,7 +123,7 @@ class TestImageRecipes:
         result = recipes.run(
             "debian-nginx",
             "ensure",
-            env={"MISSING_OUTPUTS": "disk:debian-12-generic-base,disk:debian-12-nginx"},
+            env={"MISSING_OUTPUTS": "disk:debian-generic:12,disk:debian-12-nginx"},
         )
         assert result.returncode == 0, result.stdout + result.stderr
         builds = publications(recipes)
@@ -165,7 +165,7 @@ class TestImageRecipes:
     @pytest.mark.parametrize(
         "recipe,failed",
         [
-            ("corvus-test-node", "gentoo-base-cloud.yml"),
+            ("corvus-test-node", "gentoo-cloud.yml"),
             ("corvus-test-node", "gentoo-headless.yml"),
             ("corvus-test-vm", "multi-os.yml"),
             ("debian-nginx", "multi-os.yml"),
@@ -209,7 +209,7 @@ class TestImageRecipes:
         builds = publications(recipes)
         pipelines = [call.args[1] for call in builds]
         expected = [
-            "gentoo-base-cloud.yml",
+            "gentoo-cloud.yml",
             "gentoo-headless.yml",
             "gentoo-test.yml",
             "multi-os.yml",
@@ -255,9 +255,14 @@ class TestImageRecipes:
                     assert disk["checksum"]["value"]
         assert len(imports) == (5 if recipe == "multi-os" else 0)
         if imports:
-            freebsd = next(
-                disk for disk in imports if disk["name"] == "freebsd-14-base"
-            )
+            assert [disk["name"] for disk in imports] == [
+                "debian-generic:12",
+                "ubuntu-server:26.04",
+                "almalinux:10",
+                "freebsd:14",
+                "alpine:3.21",
+            ]
+            freebsd = next(disk for disk in imports if disk["name"] == "freebsd:14")
             assert freebsd["checksum"]["target"] == "download"
 
     @pytest.mark.parametrize("recipe", ["windows-11", "windows-server-2025"])

@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-FILENAME = "gentoo-cloud-20261008.qcow2"
+FILENAME = "di-amd64-cloudinit-20261004T164559Z.qcow2"
 SHA256 = "a" * 64
 
 

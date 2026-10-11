@@ -18,7 +18,7 @@ that class cannot change its backing files.
 Tests then refer to the images by short name:
 
     def test_overlay_on_alpine(single_client, base_images):
-        disk = base_images["alpine"]
+        disk = base_images["corvus-test-vm"]
         single_client.disks.create_overlay("scratch-overlay", disk)
         vm = single_client.vms.create("scratch")
         vm.attach_disk("scratch-overlay", interface="virtio")
@@ -145,7 +145,10 @@ def discover(
 
 
 def _sanitize_name(raw: str) -> str:
-    """Lowercase + drop characters Corvus's disk-name validator rejects."""
+    """Return a stable harness alias for a disk name or directory."""
+    # Version tags identify image revisions, while harness aliases select
+    # the latest image family independent of its current tag.
+    raw = raw.split(":", 1)[0]
     # validateName rejects empty / all-digit / path-separator-bearing
     # names; here we collapse to lowercase alnum + dashes.
     cleaned = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")

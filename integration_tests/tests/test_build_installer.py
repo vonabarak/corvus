@@ -219,7 +219,7 @@ class TestBuildInstaller(SingleNodeCase):
         and read the first few sectors via guest-exec.
         """
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         overlay_name = f"corvus-it-installer-verify-overlay-{token}"
         self.client.disks.create_overlay(overlay_name, base_disk, ephemeral=True)
         verify_vm = self.client.vms.create(

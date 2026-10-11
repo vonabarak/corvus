@@ -343,10 +343,10 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             nw.start()
 
             images = self.register_base_images()
-            base_disk = images.get("alpine")
+            base_disk = images.get("corvus-test-vm")
             if base_disk is None:
                 pytest.skip(
-                    "Alpine base image is unavailable; run `make image IMAGE=vm`"
+                    "corvus-test-vm image is unavailable; run `make image IMAGE=vm`"
                 )
             self.stage_base_images_on(node_index=1)
 

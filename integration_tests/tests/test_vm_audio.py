@@ -69,7 +69,9 @@ class TestVmAudio(SingleNodeCase):
         with self._audio_server(backend):
             images = self.register_base_images()
             name = f"corvus-it-audio-{backend}-{model}-{secrets.token_hex(3)}"
-            self.client.disks.create_overlay(name, images["alpine"], ephemeral=True)
+            self.client.disks.create_overlay(
+                name, images["corvus-test-vm"], ephemeral=True
+            )
             vm: SyncVm | None = None
             try:
                 vm = self.client.vms.create(

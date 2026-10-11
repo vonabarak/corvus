@@ -1,4 +1,4 @@
-DISKS := debian-12-generic-base ubuntu-26.04-server-base almalinux-10-base freebsd-14-base alpine-3.21-base
+DISKS := debian-generic:12 ubuntu-server:26.04 almalinux:10 freebsd:14 alpine:3.21
 TEMPLATES := debian12 ubuntu26 almalinux10 freebsd14
 
 IMAGE_POLICY ?= update

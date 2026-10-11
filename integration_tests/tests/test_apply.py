@@ -67,7 +67,7 @@ class TestApply(SingleNodeCase):
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         net_name = f"corvus-it-apply-net-{token}"
         vm1_name = f"corvus-it-apply-vm1-{token}"
         vm2_name = f"corvus-it-apply-vm2-{token}"
@@ -334,7 +334,7 @@ class TestApply(SingleNodeCase):
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         root_name = f"corvus-it-apply-root-{token}"
         net_name = f"corvus-it-apply-net-{token}"
         vm_name = f"corvus-it-apply-vm-{token}"
@@ -612,7 +612,7 @@ class TestApply(SingleNodeCase):
         images = self.register_base_images()
         # `register_base_images` lands a few well-known disks already;
         # use one of those for a register-only apply (no qemu-img).
-        existing_disk_name = images["alpine"]
+        existing_disk_name = images["corvus-test-vm"]
         del existing_disk_name  # only the SSH key is created here
         key_name = f"corvus-it-stream-key-{token}"
         yaml_body = textwrap.dedent(f"""

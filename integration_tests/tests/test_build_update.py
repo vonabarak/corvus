@@ -110,7 +110,7 @@ class TestBuildUpdate(SingleNodeCase):
         A failed downstream build keeps its previous image and provenance; after
         restart, retry skips the completed upstream build and repairs downstream.
         """
-        base = self.register_base_images()["alpine"]
+        base = self.register_base_images()["corvus-test-vm"]
         path = self.client.disks.get(base).show().placements[0].file_path
         with self._resources() as prefix, SqliteDatabase(self.node) as database:
             source, first, second, branch = [
@@ -208,7 +208,7 @@ class TestBuildUpdate(SingleNodeCase):
         Changed bytes with unchanged size/mtime publish a new upload ID and
         rebuild both consumers; overwrite forces the same propagation.
         """
-        base = self.register_base_images()["alpine"]
+        base = self.register_base_images()["corvus-test-vm"]
         with self._resources() as prefix, SqliteDatabase(self.node) as database:
             media, first, second = [
                 f"{prefix}-{suffix}" for suffix in ("media", "a", "b")
@@ -297,7 +297,7 @@ class TestBuildUpdate(SingleNodeCase):
 
     def test_overwrite_and_failed_retry_run_every_provisioner(self) -> None:
         """Each bake starts with a fresh VM, including retries after a failed suffix."""
-        base = self.register_base_images()["alpine"]
+        base = self.register_base_images()["corvus-test-vm"]
         with self._resources() as prefix, SqliteDatabase(self.node) as database:
             artifact, template = prefix + "-image", prefix + "-tpl"
             self.client.templates.create(yaml.safe_dump(_template(template, base)))
@@ -358,7 +358,7 @@ class TestBuildUpdate(SingleNodeCase):
         latest. Fresh publications retain input identities. A vanished source must
         fail instead of silently reusing output.
         """
-        base = self.register_base_images()["alpine"]
+        base = self.register_base_images()["corvus-test-vm"]
         path = self.client.disks.get(base).show().placements[0].file_path
         with self._resources() as prefix, SqliteDatabase(self.node) as database:
             source, artifact, template = [

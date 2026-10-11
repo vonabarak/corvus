@@ -254,7 +254,7 @@ failing. Without `checksum`, existing-file behaviour stays as before
 
 ```yaml
 disks:
-  - name: debian-12-generic-base
+  - name: debian-generic:12
     import: "https://cloud.debian.org/.../debian-12-generic-amd64.qcow2"
     format: qcow2
     checksum:

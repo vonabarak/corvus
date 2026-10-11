@@ -1,4 +1,4 @@
-# `make build-headless` updates gentoo-base-cloud before evaluating this chain.
+# `make build-headless` updates gentoo-cloud before evaluating this chain.
 # For direct CLI use, run `make build-cloud` first.
 
 vars:
@@ -69,7 +69,7 @@ pipeline:
               tag: distfiles
               readOnly: true
           drives:
-            - diskImage: gentoo-base-cloud
+            - diskImage: gentoo-cloud:latest
               interface: virtio
               strategy: overlay
               cacheType: writeback
@@ -87,7 +87,7 @@ pipeline:
             - name: corvus
 
   # ─────────────────────────────────────────────────────────────────
-  # Stage 1: bake gentoo-builder — gentoo-base-cloud + builder tools.
+  # Stage 1: bake gentoo-builder — gentoo-cloud + builder tools.
   # ─────────────────────────────────────────────────────────────────
   # Overlay strategy: the bake VM root IS the artifact. Provisioners
   # install nfs-utils + qga (via the gentoo-cloud template's runcmd
@@ -102,12 +102,13 @@ pipeline:
       target:
         ifExists: "{{ image_if_exists }}"
         format: qcow2
-        # gentoo-base-cloud is ~3 GB virtual; +gentoo-sources +grub
+        # gentoo-cloud is ~3 GB virtual; +gentoo-sources +grub
         # +utils pushes the overlay well past that, so size up to
         # 12 GB. qcow2 stays sparse on disk.
         size: 12G
         path: BaseImages/Gentoo/
         compact: true
+        ephemeral: true
 
       strategy: overlay
 

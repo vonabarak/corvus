@@ -89,7 +89,7 @@ class TestBuildModes(SingleNodeCase):
         names ``ifExists: skip or overwrite`` as the remedy."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         artifact_name = f"corvus-it-build-mode-err-{token}"
         tpl_name = f"corvus-it-build-tpl-err-{token}"
 
@@ -143,7 +143,7 @@ class TestBuildModes(SingleNodeCase):
         """Publishing an artifact retains the old version attached to a VM."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         artifact_name = f"corvus-it-build-mode-ovw-att-{token}"
         tpl_name = f"corvus-it-build-tpl-ovw-att-{token}"
         vm_name = f"corvus-it-build-mode-attached-{token}"
@@ -219,7 +219,7 @@ class TestBuildModes(SingleNodeCase):
         """Overwrite publishes a fresh artifact while retaining the old version."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         artifact_name = f"corvus-it-build-mode-ovw-{token}"
         tpl_name = f"corvus-it-build-tpl-ovw-{token}"
 
@@ -276,7 +276,7 @@ class TestBuildModes(SingleNodeCase):
         exists and reaps it explicitly so the suite doesn't leak."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-onsuccess-{token}"
         artifact_name = f"corvus-it-should-not-exist-{token}"
 
@@ -327,7 +327,7 @@ class TestBuildModes(SingleNodeCase):
         too."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-never-{token}"
         artifact_name = f"corvus-it-should-not-exist-never-{token}"
 
@@ -378,7 +378,7 @@ class TestBuildModes(SingleNodeCase):
         matches the apply's disk."""
         token = secrets.token_hex(3)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-mix-{token}"
         artifact_name = f"corvus-it-build-mode-mix-{token}"
         key_name = f"corvus-it-build-mode-key-{token}"

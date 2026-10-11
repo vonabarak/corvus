@@ -136,35 +136,35 @@ class TestCloudInit(SingleNodeCase):
 
     def test_alpine(self) -> None:
         class _AlpineCI(_CIBase):
-            base_image_key = "alpine-3-21-base"
+            base_image_key = "alpine"
 
         with _AlpineCI(self) as vm:
             self._verify_login_linux(vm)
 
     def test_almalinux(self) -> None:
         class _AlmaLinuxCI(_CIBase):
-            base_image_key = "almalinux-10-base"
+            base_image_key = "almalinux"
 
         with _AlmaLinuxCI(self) as vm:
             self._verify_login_linux(vm)
 
     def test_ubuntu(self) -> None:
         class _UbuntuCI(_CIBase):
-            base_image_key = "ubuntu-26-04-server-base"
+            base_image_key = "ubuntu-server"
 
         with _UbuntuCI(self) as vm:
             self._verify_login_linux(vm)
 
     def test_debian(self) -> None:
         class _DebianCI(_CIBase):
-            base_image_key = "debian-12-generic-base"
+            base_image_key = "debian-generic"
 
         with _DebianCI(self) as vm:
             self._verify_login_linux(vm)
 
     def test_freebsd(self) -> None:
         class _FreeBsdCI(_CIBase):
-            base_image_key = "freebsd-14-base"
+            base_image_key = "freebsd"
             # Under full parallel load, FreeBSD's first-boot nuageinit and
             # sshd startup can take longer than the matrix-wide five-minute
             # budget. Keep this scoped to the slowest guest.

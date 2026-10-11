@@ -482,7 +482,7 @@ class TestDiskImport(SingleNodeCase):
         cause neither an HTTP GET nor a provisioner run; a new verified release
         publishes a new source version and rebuilds the artifact.
         """
-        base = self.register_base_images()["alpine"]
+        base = self.register_base_images()["corvus-test-vm"]
         original = _node_bytes(
             self.node, self.client.disks.get(base).show().placements[0].file_path
         )

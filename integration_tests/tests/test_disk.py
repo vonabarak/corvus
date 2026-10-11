@@ -70,24 +70,25 @@ class TestDisk(SingleNodeCase):
     ) -> None:
         directory = tmp_path / "Alpine"
         directory.mkdir()
-        # Sorts before the baked image, so alias selection must recognize its name.
-        (directory / "1-alpine-3.21-base.qcow2").touch()
+        # The upstream family name collides with the directory alias.
+        upstream = directory / "1-alpine:3.21.qcow2"
+        upstream.touch()
         baked = directory / filename
         baked.touch()
 
         images = discover(
             [
-                _catalogue_image(
-                    "alpine-3.21-base", directory / "1-alpine-3.21-base.qcow2", 1
-                ),
+                _catalogue_image("alpine", upstream, 1),
                 _catalogue_image("corvus-test-vm", baked),
             ],
             tmp_path,
         )
 
-        assert set(images) == {"alpine-3-21-base", "corvus-test-vm", "alpine"}
-        assert images["alpine"] == images["corvus-test-vm"]
-        image = images["alpine"]
+        assert set(images) == {"corvus-test-vm", "alpine"}
+        assert images["alpine"].name == "alpine"
+        assert images["alpine"].host_path == upstream
+        assert images["alpine"].outer_id == 1
+        image = images["corvus-test-vm"]
         assert disk_entity_ref(image.name).name == "corvus-test-vm"
         assert image.host_path == baked
         assert image.guest_path == GUEST_BASE_IMAGES_PATH / "Alpine" / filename

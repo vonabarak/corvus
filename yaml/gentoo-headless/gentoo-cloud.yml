@@ -1,18 +1,19 @@
 # `make build-cloud` checks the latest upstream checksum before importing.
 vars:
   image_if_exists: update
-  gentoo_base_cloud_url: ~
-  gentoo_base_cloud_sha256: ~
+  gentoo_cloud_url: ~
+  gentoo_cloud_tag: ~
+  gentoo_cloud_sha256: ~
 
 pipeline:
   - apply:
       ifExists: skip
       disks:
-        - name: gentoo-base-cloud
+        - name: gentoo-cloud:{{ gentoo_cloud_tag }}
           ifExists: "{{ image_if_exists }}"
-          import: "{{ gentoo_base_cloud_url }}"
+          import: "{{ gentoo_cloud_url }}"
           format: qcow2
           path: BaseImages/Gentoo/
           checksum:
             algorithm: sha256
-            value: "{{ gentoo_base_cloud_sha256 }}"
+            value: "{{ gentoo_cloud_sha256 }}"

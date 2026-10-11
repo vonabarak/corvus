@@ -170,7 +170,7 @@ is not specific to this build.
 
 **Why the `test_debian` integration test still passes:** that
 test (`integration_tests/tests/test_cloud_init.py::TestCloudInit::test_debian`)
-creates its VM directly from `debian-12-generic-base` *without*
+creates its VM directly from `debian-generic:12` *without*
 the `debian12` template — so the bake VM uses the daemon's
 default cloud-init user-data (no `packages:` list,
 `package_update: false`) and finishes in ~13 s. It also sets

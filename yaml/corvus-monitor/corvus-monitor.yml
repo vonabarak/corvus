@@ -2,7 +2,7 @@
 # preconfigured to scrape Corvus daemon metrics from corvus-web.
 #
 # Make refreshes yaml/multi-os/multi-os.yml so the `debian12`
-# template + its `debian-12-generic-base` disk exist.
+# template + its `debian-generic:12` disk exist.
 #
 #   make image IMAGE=monitor
 #
@@ -44,7 +44,7 @@ pipeline:
         #    official APT repo. Don't enable services yet — config
         #    arrives in the next steps.
         #
-        # The bake VM's overlay inherits the 3 GB `debian-12-generic-base`
+        # The bake VM's overlay inherits the 3 GB `debian-generic:12`
         # virtual size, so we aggressively free space between installs
         # (apt cache + cloud-init + docs + manpages all go) to fit
         # Grafana's ~1 GB unpacked footprint.

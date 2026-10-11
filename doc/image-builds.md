@@ -248,7 +248,7 @@ the current inputs:
 2. The daemon reads the template, its resolved source image versions, and its
    SSH public key material in one database transaction. Each source-backed
    drive contributes its immutable disk image ID, including firmware and
-   installation media. A floating selector such as `gentoo-base-cloud:latest`
+   installation media. A floating selector such as `gentoo-cloud:latest`
    is replaced by the version it selects at that moment. The same captured
    template and source versions are used if the build proceeds; moving a tag
    afterwards does not change the inputs of that bake.
@@ -319,7 +319,7 @@ publishes a fresh version.
 
 Combine disk-level `ifExists: update` and a verified import checksum with build
 `target.ifExists: update`: the dedicated
-[`gentoo-base-cloud.yml`](../yaml/gentoo-headless/gentoo-base-cloud.yml) recipe
+[`gentoo-cloud.yml`](../yaml/gentoo-headless/gentoo-cloud.yml) recipe
 owns the import, while
 [`gentoo-headless-standalone.yml`](../yaml/gentoo-headless/gentoo-headless-standalone.yml)
 consumes that registered image. `make -C yaml/gentoo-headless

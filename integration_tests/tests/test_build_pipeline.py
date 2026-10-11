@@ -242,7 +242,7 @@ else:
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
         verify_overlay = f"corvus-it-build-verify-{token}"
@@ -343,7 +343,7 @@ else:
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-should-not-exist-{token}"
 
@@ -404,12 +404,10 @@ else:
         qemu-guest-agent + vsock-sshd flow).
 
         We deliberately do *not* apply `yaml/multi-os/multi-os.yml`
-        here: that file registers cloud-image disks under names
-        like `ubuntu-26.04-server-base` (with dots) whose
-        `file_path` collides with the harness's pre-registered
-        same-file disks (`register_base_images` sanitises dots to
-        hyphens). Staging only what this build needs sidesteps the
-        name/path mismatch and keeps the test self-contained.
+        here: the harness already registers its local Debian image
+        under the untagged `debian-generic` name used by this test's
+        minimal template. Staging only what this build needs keeps
+        the test self-contained.
 
         We rewrite the build YAML to use a unique per-test artifact name.
         The harness pins the published `corvus-test-vm` version for sibling
@@ -443,7 +441,7 @@ else:
         build_path = REPO_ROOT / "yaml" / "corvus-test-vm" / "corvus-test-vm.yml"
 
         # Make sure the harness's BaseImages catalogue is registered
-        # (gives us `debian-12-generic-base` referenced by the
+        # (gives us `debian-generic` referenced by the
         # template below).
         self.register_base_images()
 
@@ -485,7 +483,7 @@ else:
                     runcmd:
                       - systemctl enable --now qemu-guest-agent
                 drives:
-                  - diskImage: debian-12-generic-base
+                  - diskImage: debian-generic
                     interface: virtio
                     strategy: overlay
                     cacheType: writeback
@@ -566,7 +564,7 @@ else:
 
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
 
@@ -702,7 +700,7 @@ else:
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
 
@@ -856,7 +854,7 @@ else:
         """
         token = secrets.token_hex(4)
         images = self.register_base_images()
-        base_disk = images["alpine"]
+        base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
 

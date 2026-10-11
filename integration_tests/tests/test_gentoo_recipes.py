@@ -27,75 +27,75 @@ class TestGentooRecipes:
     @pytest.mark.parametrize(
         "recipe,target,variables,pipelines,policy",
         [
-            ("gentoo-headless", "build-cloud", (), ["gentoo-base-cloud"], "update"),
+            ("gentoo-headless", "build-cloud", (), ["gentoo-cloud"], "update"),
             (
                 "gentoo-headless",
                 "build",
                 (),
-                ["gentoo-base-cloud", "gentoo-headless"],
+                ["gentoo-cloud", "gentoo-headless"],
                 "update",
             ),
             (
                 "gentoo-headless",
                 "build-headless",
                 (),
-                ["gentoo-base-cloud", "gentoo-headless"],
+                ["gentoo-cloud", "gentoo-headless"],
                 "update",
             ),
             (
                 "gentoo-test",
                 "build",
                 (),
-                ["gentoo-base-cloud", "gentoo-headless", "gentoo-test"],
+                ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
                 "update",
             ),
             (
                 "gentoo-test",
                 "build-test",
                 (),
-                ["gentoo-base-cloud", "gentoo-headless", "gentoo-test"],
+                ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
                 "update",
             ),
             (
                 "gentoo-headless",
                 "rebuild",
                 (),
-                ["gentoo-base-cloud", "gentoo-headless"],
+                ["gentoo-cloud", "gentoo-headless"],
                 "overwrite",
             ),
             (
                 "gentoo-test",
                 "rebuild",
                 ("IMAGE_POLICY=skip",),
-                ["gentoo-base-cloud", "gentoo-headless", "gentoo-test"],
+                ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
                 "overwrite",
             ),
             (
                 "gentoo-headless",
                 "build-headless-standalone",
                 (),
-                ["gentoo-base-cloud", "gentoo-headless-standalone"],
+                ["gentoo-cloud", "gentoo-headless-standalone"],
                 "update",
             ),
             (
                 "gentoo-headless",
                 "build-headless-standalone",
                 ("IMAGE_POLICY=overwrite",),
-                ["gentoo-base-cloud", "gentoo-headless-standalone"],
+                ["gentoo-cloud", "gentoo-headless-standalone"],
                 "overwrite",
             ),
             (
                 "",
                 "image",
                 ("IMAGE=gentoo-headless",),
-                ["gentoo-base-cloud", "gentoo-headless"],
+                ["gentoo-cloud", "gentoo-headless"],
                 "update",
             ),
             (
                 "",
                 "image",
                 ("IMAGE=gentoo",),
-                ["gentoo-base-cloud", "gentoo-headless", "gentoo-test"],
+                ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
                 "update",
             ),
         ],
@@ -125,10 +125,11 @@ class TestGentooRecipes:
         downloads = calls[:2]
         assert downloads[0].args[-1].endswith("latest-di-amd64-cloudinit.txt")
         assert downloads[1].args[-1].endswith(f"/{FILENAME}.sha256")
-        assert f"gentoo_base_cloud_sha256={SHA256}" in builds[0].args
+        assert "gentoo_cloud_tag=20261004T164559Z" in builds[0].args
+        assert f"gentoo_cloud_sha256={SHA256}" in builds[0].args
         assert any(arg.endswith(f"/{FILENAME}") for arg in builds[0].args)
         for build in builds[1:]:
-            assert not any(arg.startswith("gentoo_base_cloud_") for arg in build.args)
+            assert not any(arg.startswith("gentoo_cloud_") for arg in build.args)
         for build in builds:
             assert (build.cwd / build.args[1]).is_file()
 
@@ -150,8 +151,8 @@ class TestGentooRecipes:
             (
                 "gentoo-headless",
                 "ensure-cloud",
-                "disk:gentoo-base-cloud",
-                "gentoo-base-cloud.yml",
+                "disk:gentoo-cloud",
+                "gentoo-cloud.yml",
                 2,
             ),
             (
@@ -189,10 +190,10 @@ class TestGentooRecipes:
             ({"DOWNLOAD_ERROR": "checksum"}, []),
             ({"INVALID_DOWNLOAD": "manifest"}, []),
             ({"INVALID_DOWNLOAD": "checksum"}, []),
-            ({"FAIL_BUILD": "gentoo-base-cloud.yml"}, ["gentoo-base-cloud.yml"]),
+            ({"FAIL_BUILD": "gentoo-cloud.yml"}, ["gentoo-cloud.yml"]),
             (
                 {"FAIL_BUILD": "gentoo-headless.yml"},
-                ["gentoo-base-cloud.yml", "gentoo-headless.yml"],
+                ["gentoo-cloud.yml", "gentoo-headless.yml"],
             ),
         ],
     )
@@ -219,7 +220,7 @@ class TestGentooRecipes:
             ({"DOWNLOAD_ERROR": "checksum"}, []),
             ({"INVALID_DOWNLOAD": "manifest"}, []),
             ({"INVALID_DOWNLOAD": "checksum"}, []),
-            ({"FAIL_BUILD": "gentoo-base-cloud.yml"}, ["gentoo-base-cloud.yml"]),
+            ({"FAIL_BUILD": "gentoo-cloud.yml"}, ["gentoo-cloud.yml"]),
         ],
     )
     def test_standalone_import_failure_stops_build(
@@ -235,7 +236,7 @@ class TestGentooRecipes:
     @pytest.mark.parametrize(
         "recipe",
         [
-            "gentoo-headless/gentoo-base-cloud.yml",
+            "gentoo-headless/gentoo-cloud.yml",
             "gentoo-headless/gentoo-headless.yml",
             "gentoo-headless/gentoo-headless-standalone.yml",
             "gentoo-test/gentoo-test.yml",
@@ -248,24 +249,32 @@ class TestGentooRecipes:
         source = recipes.root / "yaml" / recipe
         doc = yaml.safe_load(source.read_text())
         assert doc["vars"]["image_if_exists"] == "update"
-        import_variables = {"gentoo_base_cloud_url", "gentoo_base_cloud_sha256"}
+        import_variables = {
+            "gentoo_cloud_url",
+            "gentoo_cloud_tag",
+            "gentoo_cloud_sha256",
+        }
         imports = [
             disk
             for step in doc["pipeline"]
             for disk in step.get("apply", {}).get("disks", [])
             if "import" in disk
         ]
-        if source.name == "gentoo-base-cloud.yml":
+        if source.name == "gentoo-cloud.yml":
             assert import_variables <= doc["vars"].keys()
-            assert [disk["name"] for disk in imports] == ["gentoo-base-cloud"]
+            assert [disk["name"] for disk in imports] == [
+                "gentoo-cloud:{{ gentoo_cloud_tag }}"
+            ]
         else:
             assert import_variables.isdisjoint(doc["vars"])
             assert not imports
         doc["vars"]["image_if_exists"] = policy
-        for key in ("gentoo_base_cloud_url", "gentoo_base_cloud_sha256"):
+        for key in ("gentoo_cloud_url", "gentoo_cloud_tag", "gentoo_cloud_sha256"):
             if key in doc["vars"]:
                 doc["vars"][key] = (
-                    SHA256
+                    "20261004T164559Z"
+                    if key.endswith("tag")
+                    else SHA256
                     if key.endswith("sha256")
                     else f"https://example.test/{FILENAME}"
                 )
@@ -279,6 +288,8 @@ class TestGentooRecipes:
                 for disk in apply.get("disks", []):
                     assert disk["ifExists"] == policy
                     assert disk["checksum"]["value"] == SHA256
+                    if disk.get("import"):
+                        assert disk["name"] == "gentoo-cloud:20261004T164559Z"
             if "build" in step:
                 build = step["build"]
                 assert build["target"]["ifExists"] == policy
