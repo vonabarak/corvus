@@ -9,6 +9,7 @@ export interface TemplateVmInfo {
   ram: bigint;
   headless: boolean;
   guest_agent: boolean;
+  startup_timeout_sec: number;
   tpm: boolean;
   autostart: boolean;
   description: string | null;
@@ -72,6 +73,7 @@ export interface TemplateDetails {
   headless: boolean;
   cloud_init: boolean;
   guest_agent: boolean;
+  startup_timeout_sec: number;
   tpm: boolean;
   autostart: boolean;
   created_at: string;

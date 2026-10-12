@@ -85,7 +85,7 @@ spec = do
       [K.SshKeyInfo 3 "key" "ssh-ed25519 AAA" timestamp [vm], K.SshKeyInfo 4 "empty" "" timestamp []]
   describe "Wire malformed nested records" $ do
     it "propagates unknown graphics adapters from template summaries" $
-      case toCapnpTemplateVmInfo (TP.TemplateVmInfo 1 "template" 1 1024 Nothing False False False False False GraphicsVga False False False) of
+      case toCapnpTemplateVmInfo (TP.TemplateVmInfo 1 "template" 1 1024 Nothing False False False False False GraphicsVga False False False 120) of
         T.TemplateVmInfo {T.id = wireId, ..} -> fromCapnpTemplateVmInfo T.TemplateVmInfo {T.id = wireId, T.graphicsAdapter = E.GraphicsAdapter'unknown' 99, ..} `shouldBe` Left (WireUnknownEnum "GraphicsAdapter" 99)
     it "propagates unknown audio backends" $
       case toCapnpAudioDeviceInfo vmAudio of
@@ -95,7 +95,7 @@ spec = do
     it "normalizes absent drive media to the wire default" $
       fromCapnpDriveInfo (toCapnpDriveInfo (vmDrive {V.diMedia = Nothing})) `shouldBe` Right (vmDrive {V.diMedia = Just minBound})
     it "stores VM node references as nested IDs and names" $ do
-      let GV.VmInfo {GV.node = Common.NamedRef {Common.id = ident, Common.name = name}, GV.cpuCount = cpus, GV.ram = ram} = toCapnpVmInfo (V.VmInfo 3 "web" node VmRunning 4 4096 True False True False Nothing True False "host" GraphicsVga True False True)
+      let GV.VmInfo {GV.node = Common.NamedRef {Common.id = ident, Common.name = name}, GV.cpuCount = cpus, GV.ram = ram} = toCapnpVmInfo (V.VmInfo 3 "web" node VmRunning 4 4096 True False True False Nothing True False "host" GraphicsVga True False True 120)
       (ident, name, cpus, ram) `shouldBe` (1, "node", 4, 4096)
     it "encodes build failure as failure with no artifact" $ do
       let S.BuildEvent {S.union' = variant} = toCapnpBuildEvent (B.BuildEnd (Left "failure"))
@@ -105,7 +105,7 @@ spec = do
   describe "Wire templates" $ do
     mapM_
       (\summary -> it (show summary) $ fromCapnpTemplateVmInfo (toCapnpTemplateVmInfo summary) `shouldBe` Right summary)
-      [TP.TemplateVmInfo 1 "template" 4 2048 (Just "description") True False True False True GraphicsQxlVga True False True, TP.TemplateVmInfo 2 "empty" 1 1024 Nothing False True False True False GraphicsVga False True False]
+      [TP.TemplateVmInfo 1 "template" 4 2048 (Just "description") True False True False True GraphicsQxlVga True False True 120, TP.TemplateVmInfo 2 "empty" 1 1024 Nothing False True False True False GraphicsVga False True False 120]
     mapM_
       (\drive -> it (show drive) $ fromCapnpTemplateDriveInfo (toCapnpTemplateDriveInfo drive) `shouldBe` Right drive)
       [templateDrive, templateDrive {TP.tvdiDiskImage = Nothing, TP.tvdiDiskSelector = Nothing, TP.tvdiDiskName = Nothing, TP.tvdiMedia = Nothing, TP.tvdiSize = Nothing, TP.tvdiFormat = Nothing, TP.tvdiEphemeral = Nothing}, templateDrive {TP.tvdiEphemeral = Just False}]
@@ -129,7 +129,7 @@ spec = do
   describe "Wire VM structures" $ do
     mapM_
       (\info -> it (show info) $ fromCapnpVmInfo (toCapnpVmInfo info) `shouldBe` Right info)
-      [V.VmInfo 3 "web" node VmRunning 4 4096 True False True False (Just timestamp) True False "host" GraphicsVga True False True, V.VmInfo 4 "empty" node VmStopped 1 1024 False True False True Nothing False True "qemu64" GraphicsVirtioVga False True False]
+      [V.VmInfo 3 "web" node VmRunning 4 4096 True False True False (Just timestamp) True False "host" GraphicsVga True False True 120, V.VmInfo 4 "empty" node VmStopped 1 1024 False True False True Nothing False True "qemu64" GraphicsVirtioVga False True False 120]
     mapM_
       (\drive -> it (show drive) $ fromCapnpDriveInfo (toCapnpDriveInfo drive) `shouldBe` Right drive)
       [vmDrive, vmDrive {V.diDiskImage = Nothing}]
@@ -170,7 +170,7 @@ templateDir = TP.TemplateSharedDirInfo 8 "/shared" "shared" minBound True
 templateAudio :: TP.TemplateAudioDeviceInfo
 templateAudio = TP.TemplateAudioDeviceInfo 9 AudioSpice AudioIntelHda "options"
 template :: TP.TemplateDetails
-template = TP.TemplateDetails 1 "template" 4 4096 (Just "description") True True False True False True (Just cloudInit) timestamp [templateDrive] [templateNic] [TP.TemplateSshKeyInfo 7 "key"] [templateDir] [templateAudio] GraphicsQxlVga True False True
+template = TP.TemplateDetails 1 "template" 4 4096 (Just "description") True True False True False True (Just cloudInit) timestamp [templateDrive] [templateNic] [TP.TemplateSshKeyInfo 7 "key"] [templateDir] [templateAudio] GraphicsQxlVga True False True 120
 vmDrive :: V.DriveInfo
 vmDrive = V.DriveInfo 2 (Just (NamedRef 4 "disk")) minBound "/disk" FormatQcow2 (Just minBound) True minBound True
 vmNic :: V.NetIfInfo
@@ -178,4 +178,4 @@ vmNic = V.NetIfInfo 3 minBound NetworkE1000 "bridge0" "aa:bb:cc:dd:ee:ff" (Just 
 vmAudio :: V.AudioDeviceInfo
 vmAudio = V.AudioDeviceInfo 4 AudioSpice AudioIntelHda "options"
 vmDetails :: V.VmDetails
-vmDetails = V.VmDetails 3 "web" node timestamp VmRunning 4 4096 (Just "description") [vmDrive] [vmNic] [vmAudio] True "/monitor" (Just 5900) (Just 7) True False True "/serial" "/guest" True False True (Just cloudInit) (Just timestamp) True (Just "failure") (Just timestamp) False "host" GraphicsQxlVga V.zeroVmStats
+vmDetails = V.VmDetails 3 "web" node timestamp VmRunning 4 4096 (Just "description") [vmDrive] [vmNic] [vmAudio] True "/monitor" (Just 5900) (Just 7) True False True "/serial" "/guest" True False True (Just cloudInit) (Just timestamp) True (Just "failure") (Just timestamp) False "host" GraphicsQxlVga V.zeroVmStats 120

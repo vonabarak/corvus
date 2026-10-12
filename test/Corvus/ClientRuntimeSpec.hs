@@ -133,6 +133,11 @@ spec = sequential $ describe "CLI runtime and transport" $ do
         setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
         out <- checkCli f fmt (VmView "fixture") ExitSuccess
         out `shouldSatisfy` isInfixOf "password"
+    it "requests a SPICE grant for an errored VM" $ withMock $ \f -> do
+      expectCalls f (vm "show" ++ vm "viewGrant")
+      setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, GVm.status = GEnums.VmStatus'error, ..})))
+      out <- checkCli f JsonOutput (VmView "fixture") ExitSuccess
+      out `shouldSatisfy` isInfixOf "password"
     it "rejects viewing a stopped VM" $ withMock $ \f -> do
       expectCalls f (vm "show")
       setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.status = GEnums.VmStatus'stopped, ..})))
@@ -181,6 +186,7 @@ spec = sequential $ describe "CLI runtime and transport" $ do
         sink <- mockClient f
         let send :: C.Client GStreams.ByteSink -> IO ()
             send output = void (C.callP #write (GStreams.ByteSink'write'params "remote output") output >>= C.waitPipeline)
+        setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.status = GEnums.VmStatus'error, ..})))
         if method == "serialConsole"
           then setReply f "Vm.serialConsole" $ \(GVm.Vm'serialConsole'params output) -> send output >> pure (GVm.Vm'serialConsole'results sink)
           else setReply f "Vm.hmpMonitor" $ \(GVm.Vm'hmpMonitor'params output) -> send output >> pure (GVm.Vm'hmpMonitor'results sink)

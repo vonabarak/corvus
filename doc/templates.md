@@ -62,6 +62,7 @@ A template is defined by a single YAML document. The same schema is accepted by 
 | `rng` | bool | no | `true` | Attach a VirtIO random number generator backed by `/dev/urandom`. |
 | `cloudInit` | bool | no | `false` | Enable cloud-init ISO generation for instantiated VMs. |
 | `guestAgent` | bool | no | `false` | Enable QEMU guest agent on instantiated VMs. |
+| `startupTimeoutSec` | integer | no | `120` | First guest-agent response deadline in seconds; copied to instantiated VMs. Range: 1–4294967. |
 | `tpm` | bool | no | `false` | Enable an emulated TPM 2.0 CRB device backed by persistent swtpm state. |
 | `autostart` | bool | no | `false` | Auto-start instantiated VMs when the daemon starts. |
 | `cloudInitConfig` | object | no | | Custom cloud-init settings (see below). |

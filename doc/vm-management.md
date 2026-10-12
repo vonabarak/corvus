@@ -452,3 +452,25 @@ crv vm show my-vm -o json
 ```
 
 All commands support `--output json` and `--output yaml` for machine-readable output.
+
+## Startup readiness
+
+VMs store a `startupTimeoutSec` budget in the database. New and upgraded VMs
+and templates default to **120 seconds**. The budget waits for the first
+response from an enabled guest agent after QEMU starts; it does not wait for
+all cloud-init commands to finish. VMs without a guest agent skip the check.
+
+```bash
+crv vm create slow-bootstrap --guest-agent --startup-timeout-sec 1200
+crv vm edit slow-bootstrap --startup-timeout-sec 600
+```
+
+Changes take effect on the next start, recovery, or snapshot restore. The same
+setting is available in apply/template YAML as `startupTimeoutSec` and in both
+Python clients as `startup_timeout_sec`. List/show responses expose
+`startup_timeout_sec`.
+
+A readiness timeout marks the VM `error` and keeps QEMU alive for diagnosis.
+`crv vm view <vm>` can open the serial console or SPICE viewer while that
+process is alive, including when the VM is in `error`. Reset the VM before
+starting it again. Viewing an errored VM whose QEMU process exited is rejected.

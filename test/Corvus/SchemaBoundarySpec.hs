@@ -4,10 +4,11 @@
 module Corvus.SchemaBoundarySpec (spec) where
 
 import Corvus.Model (NetInterfaceType (..))
-import Corvus.Schema.Apply (ApplyNetIf (..))
+import Corvus.Schema.Apply (ApplyNetIf (..), ApplyVm (..))
 import Corvus.Schema.Build
 import Corvus.Schema.CloudInit
 import Corvus.Schema.Template
+import Corvus.StartupTimeout (defaultStartupTimeoutSec, validateStartupTimeoutSec)
 import Data.Aeson (Value)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
@@ -18,6 +19,26 @@ import Test.Hspec
 
 spec :: Spec
 spec = do
+  describe "startup timeout boundaries" $ do
+    it "defaults VM and template readiness to 120 seconds and inherits build overrides" $ do
+      vm <- parse "{name: vm, cpuCount: 1, ram: 256M}"
+      template <- parse "{name: tpl, cpuCount: 1, ram: 256M, drives: []}"
+      bakeVm <- parse "{}"
+      (avStartupTimeoutSec vm, tyStartupTimeoutSec template) `shouldBe` (120, 120)
+      defaultStartupTimeoutSec `shouldBe` 120
+      bvmStartupTimeoutSec bakeVm `shouldBe` Nothing
+    it "accepts custom budgets on all YAML surfaces" $ do
+      vm <- parse "{name: vm, cpuCount: 1, ram: 256M, startupTimeoutSec: 1200}"
+      template <- parse "{name: tpl, cpuCount: 1, ram: 256M, drives: [], startupTimeoutSec: 1200}"
+      bakeVm <- parse "{startupTimeoutSec: 1200}"
+      (avStartupTimeoutSec vm, tyStartupTimeoutSec template, bvmStartupTimeoutSec bakeVm) `shouldBe` (1200, 1200, Just 1200)
+    it "accepts only positive budgets that fit the millisecond wire field" $ do
+      map validateStartupTimeoutSec [1, 4294967] `shouldBe` [Right (), Right ()]
+      map validateStartupTimeoutSec [0, -1, 4294968] `shouldSatisfy` all (either (const True) (const False))
+    rejects "zero VM timeout" "{name: vm, cpuCount: 1, ram: 256M, startupTimeoutSec: 0}" "startupTimeoutSec" (Proxy :: Proxy ApplyVm)
+    rejects "negative template timeout" "{name: tpl, cpuCount: 1, ram: 256M, drives: [], startupTimeoutSec: -1}" "startupTimeoutSec" (Proxy :: Proxy TemplateYaml)
+    rejects "overflowing build timeout" "{startupTimeoutSec: 4294968}" "startupTimeoutSec" (Proxy :: Proxy BuildVm)
+    rejects "fractional build timeout" "{startupTimeoutSec: 1.5}" "Int" (Proxy :: Proxy BuildVm)
   describe "schema rejection diagnostics" $ do
     rejects "empty pipeline step" ("{}" :: Text) "needs" (Proxy :: Proxy PipelineStep)
     rejects "ambiguous pipeline step" "{apply: {}, upload: {name: image, from: /a, format: raw}}" "exactly one" (Proxy :: Proxy PipelineStep)

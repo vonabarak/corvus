@@ -60,6 +60,8 @@ spec = do
     it "falls back for an invalid port" $ withEnvironment [("CORVUS_PORT", "bad")] $ do
       d <- readClientDefaults
       cdPort d `shouldBe` 9876
+  describe "startup timeout validation" $ do
+    mapM_ (\raw -> it ("rejects " ++ raw) $ rejected ["vm", "create", "vm", "--startup-timeout-sec", raw] "startupTimeoutSec") ["0", "-1", "4294968"]
   describe "CLI boolean spellings" $
     mapM_
       (\(raw, expected) -> commandCase (["network", "edit", "net", "--dhcp", raw], NetworkEdit "net" Nothing (Just expected) Nothing Nothing Nothing Nothing Nothing))
@@ -123,8 +125,8 @@ commands =
   , (["completion", "bash"], Completion "bash")
   , (["vm", "list"], VmList)
   , (["vm", "show", "web"], VmShow "web")
-  , (["vm", "create", "web"], VmCreate "web" "" 1 1073741824 Nothing False False False False False False "host" GraphicsVirtioVga True True True)
-  , (["vm", "create", "web", "--node", "host", "--cpus", "4", "--ram", "2G", "--description", "server", "--headless", "--guest-agent", "--tpm", "--cloud-init", "--autostart", "--reboot-quirk", "--cpu-model", "qemu64", "--graphics-adapter", "qxl-vga", "--no-vsock", "--no-balloon", "--no-rng"], VmCreate "web" "host" 4 2147483648 (Just "server") True True True True True True "qemu64" GraphicsQxlVga False False False)
+  , (["vm", "create", "web"], VmCreate "web" "" 1 1073741824 Nothing False False False False False False "host" GraphicsVirtioVga True True True 120)
+  , (["vm", "create", "web", "--startup-timeout-sec", "1200", "--node", "host", "--cpus", "4", "--ram", "2G", "--description", "server", "--headless", "--guest-agent", "--tpm", "--cloud-init", "--autostart", "--reboot-quirk", "--cpu-model", "qemu64", "--graphics-adapter", "qxl-vga", "--no-vsock", "--no-balloon", "--no-rng"], VmCreate "web" "host" 4 2147483648 (Just "server") True True True True True True "qemu64" GraphicsQxlVga False False False 1200)
   , (["vm", "delete", "web"], VmDelete "web" False False)
   , (["vm", "delete", "web", "--keep-disks", "--force"], VmDelete "web" True True)
   , (["vm", "start", "web"], VmStart "web" (WaitOptions False Nothing))
@@ -137,8 +139,8 @@ commands =
   , (["vm", "reset", "web"], VmReset "web")
   , (["vm", "save", "web"], VmSave "web" (WaitOptions False Nothing))
   , (["vm", "save", "web", "-w"], VmSave "web" (WaitOptions True Nothing))
-  , (["vm", "edit", "web"], VmEdit "web" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
-  , (["vm", "edit", "web", "--cpus", "2", "--ram", "512M", "--description", "new", "--headless", "true", "--guest-agent", "false", "--tpm", "yes", "--cloud-init", "no", "--autostart", "1", "--reboot-quirk", "0", "--cpu-model", "qemu64", "--graphics-adapter", "vga", "--vsock", "false", "--balloon", "true", "--rng", "false"], VmEdit "web" (Just 2) (Just 536870912) (Just "new") (Just True) (Just False) (Just True) (Just False) (Just True) (Just False) (Just "qemu64") (Just GraphicsVga) (Just False) (Just True) (Just False))
+  , (["vm", "edit", "web"], VmEdit "web" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
+  , (["vm", "edit", "web", "--startup-timeout-sec", "600", "--cpus", "2", "--ram", "512M", "--description", "new", "--headless", "true", "--guest-agent", "false", "--tpm", "yes", "--cloud-init", "no", "--autostart", "1", "--reboot-quirk", "0", "--cpu-model", "qemu64", "--graphics-adapter", "vga", "--vsock", "false", "--balloon", "true", "--rng", "false"], VmEdit "web" (Just 2) (Just 536870912) (Just "new") (Just True) (Just False) (Just True) (Just False) (Just True) (Just False) (Just "qemu64") (Just GraphicsVga) (Just False) (Just True) (Just False) (Just 600))
   , (["vm", "view", "web"], VmView "web")
   , (["vm", "monitor", "web"], VmMonitor "web")
   , (["vm", "exec", "web", "uname -a"], VmExec "web" "uname -a")

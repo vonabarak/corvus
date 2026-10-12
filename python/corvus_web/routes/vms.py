@@ -126,6 +126,7 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
     description: str | None = Field(None, max_length=1024)
     headless: bool = False
     guest_agent: bool = False
+    startup_timeout_sec: int = Field(120, ge=1, le=4294967, strict=True)
     tpm: bool = False
     cloud_init: bool = False
     autostart: bool = False
@@ -165,6 +166,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> JsonObject:
             description=body.description,
             headless=body.headless,
             guest_agent=body.guest_agent,
+            startup_timeout_sec=body.startup_timeout_sec,
             tpm=body.tpm,
             cloud_init=body.cloud_init,
             autostart=body.autostart,

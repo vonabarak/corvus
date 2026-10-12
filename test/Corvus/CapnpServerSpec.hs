@@ -136,16 +136,22 @@ spec = withTestDb $ sequential $ do
     it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do
         -- Empty node ref → daemon's scheduler picks the seeded test-node.
-        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True
+        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True 1200
         vms <- CR.rpcVmList conn
         length vms `shouldBe` 1
+        map P.viStartupTimeoutSec vms `shouldBe` [1200]
+        details <- CR.rpcVmShow conn (WC.RefById vid)
+        P.vdStartupTimeoutSec details `shouldBe` 1200
+        CR.rpcVmEdit conn (WC.RefById vid) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing (Just 600)
+        edited <- CR.rpcVmShow conn (WC.RefById vid)
+        P.vdStartupTimeoutSec edited `shouldBe` 600
         CR.rpcVmDelete conn (WC.RefById vid) False False
         vmsAfter <- CR.rpcVmList conn
         vmsAfter `shouldBe` []
 
     it "vm delete reports vm_must_be_stopped unless forced, and force resets first" $ \env -> do
       withCapnpDaemon env $ \conn -> do
-        vid <- CR.rpcVmCreate conn "running-delete" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True
+        vid <- CR.rpcVmCreate conn "running-delete" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True 120
         -- The in-process nodeagent has no QEMU for this VM, so reset's
         -- idempotent "already stopped" response is enough to exercise the
         -- force path without launching a guest.
@@ -177,7 +183,7 @@ spec = withTestDb $ sequential $ do
       -- via 'validateTransition'. Easier than spinning up an inner
       -- corvus-netd in the in-process daemon fixture.
       withCapnpDaemon env $ \conn -> do
-        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True
+        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True 120
         -- Pretend it's already running so the next start is invalid.
         runSqlPool
           (update (toSqlKey vid :: M.VmId) [M.VmStatus =. M.VmRunning])

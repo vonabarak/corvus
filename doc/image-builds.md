@@ -781,3 +781,25 @@ before starting a bake.
   Prior successful steps are not rolled back.
 - No `via: ssh` for `shell` (QGA only).
 - No `ansible:` provisioner kind (use `shell` for now).
+
+## Bake VM startup timeout
+
+Bake VMs inherit `startupTimeoutSec` from their template. An optional
+`build.vm.startupTimeoutSec` overrides it for that bake:
+
+```yaml
+pipeline:
+  - build:
+      name: slow-image
+      template: slow-bootstrap
+      vm:
+        startupTimeoutSec: 1200
+      target: {}
+```
+
+The timeout is a positive integer in seconds (maximum `4294967`), defaults to
+120 on templates, and applies only when the guest agent is enabled. It covers
+the first guest-agent response, independently of provisioner timeouts. Both
+template and override budgets participate in the build identity. Gentoo bake
+templates set 1200 seconds to allow their cloud-init bootstrap to install
+Portage and packages before the guest agent starts.

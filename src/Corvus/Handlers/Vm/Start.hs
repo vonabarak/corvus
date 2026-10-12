@@ -380,12 +380,8 @@ launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
             <> " has a managed or bridge NIC but netd is unavailable"
       pure $ if needsNetd then mNetAgent else Nothing
 
-    -- The nodeagent wait budget covers cold boot through the first QGA
-    -- response. All guest-agent-enabled starts get five minutes.
+    -- The spec assembler reads the persisted first-QGA-response budget.
     assembleStartSpec netAgentForSpec = do
-      let waitMs
-            | not (vmGuestAgent vm) = 0
-            | otherwise = 300000
       liftIO $
         NSpec.assembleVmSpec
           pool
@@ -394,7 +390,6 @@ launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
           vmId
           (vmLifecycleRevision vm)
           (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm))
-          waitMs
 
     retryWithFreshVsockCid = do
       mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) pool

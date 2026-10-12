@@ -299,10 +299,9 @@ rollbackFromStoppedClaimed state vmId vm carrierDiskId carrierSnap = do
       needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
       mNetAgent <- liftIO $ lookupNetAgentMaybe state nodeId
       let netAgentForSpec = if needsNetd then mNetAgent else Nothing
-          waitMs = if vmGuestAgent vm then 300000 else 0
       mSpec <-
         liftIO $
-          NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) waitMs
+          NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm))
       case mSpec of
         Left err -> do
           let msg = "vm-snapshot-rollback (stopped): assembleVmSpec: " <> err

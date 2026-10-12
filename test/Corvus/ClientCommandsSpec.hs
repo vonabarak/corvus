@@ -72,10 +72,17 @@ spec = sequential $ describe "CLI commands over typed fake RPC" $ do
       _ <- checkCli f JsonOutput (VmReset ref) ExitSuccess
       params <- requests @(C.Parsed GVm.VmManager'get'params) f "VmManager.get"
       params `shouldBe` [GVm.VmManager'get'params expected]
+  forM_ [Nothing, Just 1200] $ \timeout ->
+    it ("preserves optional VM startup timeout on the wire: " ++ show timeout) $ withMock $ \f -> do
+      expectCalls f (vm "edit")
+      _ <- checkCli f JsonOutput (VmEdit "fixture" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing timeout) ExitSuccess
+      [GVm.Vm'edit'params params@GVm.VmEditParams {GVm.startupTimeoutSec = timeoutSec}] <- requests @(C.Parsed GVm.Vm'edit'params) f "Vm.edit"
+      GVm.hasStartupTimeoutSec params `shouldBe` isJust timeout
+      timeoutSec `shouldBe` fromIntegral (fromMaybe 120 timeout)
   forM_ [Nothing, Just False, Just True] $ \flag -> do
     it ("preserves optional VM booleans on the wire: " ++ show flag) $ withMock $ \f -> do
       expectCalls f (vm "edit")
-      _ <- checkCli f JsonOutput (VmEdit "fixture" Nothing Nothing Nothing flag flag flag flag flag flag Nothing Nothing flag flag flag) ExitSuccess
+      _ <- checkCli f JsonOutput (VmEdit "fixture" Nothing Nothing Nothing flag flag flag flag flag flag Nothing Nothing flag flag flag Nothing) ExitSuccess
       [GVm.Vm'edit'params params@GVm.VmEditParams {GVm.headless = headless, GVm.guestAgent = guestAgent, GVm.vsock = vsock, GVm.balloon = balloon, GVm.rng = rng, GVm.cpuCount = cpuCount, GVm.ram = ram}] <- requests f "Vm.edit"
       let present = isJust flag
           value fallback = fromMaybe fallback flag
@@ -150,7 +157,7 @@ cases =
   , (Shutdown, ["Daemon.shutdown"], "acknowledged")
   , (VmList, ["Daemon.vms", "VmManager.list"], "fixture")
   , (VmShow "fixture", vm "show", "fixture")
-  , (VmCreate "new" "node" 2 1073741824 (Just "description") False True True True True False "host" GraphicsVirtioVga True True True, created "vms" "Vm" "create", "42")
+  , (VmCreate "new" "node" 2 1073741824 (Just "description") False True True True True False "host" GraphicsVirtioVga True True True 120, created "vms" "Vm" "create", "42")
   , (VmStop "fixture" (WaitOptions False Nothing), vm "stop", "stop")
   , (VmSave "fixture" (WaitOptions True Nothing), vm "save", "save")
   , (VmDelete "fixture" True True, vm "delete", "deleted")
@@ -160,7 +167,7 @@ cases =
   , (VmPause "fixture", vm "pause", "pause")
   , (VmReset "fixture", vm "reset", "reset")
   , (VmSetBalloon "fixture" 100, vm "setBalloon", "balloon")
-  , (VmEdit "fixture" (Just 4) (Just 1024) (Just "desc") (Just False) (Just True) (Just True) (Just False) (Just False) (Just True) (Just "host") (Just GraphicsVirtioVga) (Just True) (Just False) (Just True), vm "edit", "updated")
+  , (VmEdit "fixture" (Just 4) (Just 1024) (Just "desc") (Just False) (Just True) (Just True) (Just False) (Just False) (Just True) (Just "host") (Just GraphicsVirtioVga) (Just True) (Just False) (Just True) Nothing, vm "edit", "updated")
   , (VmMigrate "fixture" "node", vm "migrate", "42")
   , (DiskCreate "new" "qcow2" 1024 (Just "/disk") True "node", created "disks" "Disk" "create", "42")
   , (DiskRegisterCmd "new" "/disk" (Just "raw") (Just "base") True "node", created "disks" "Disk" "register", "42")

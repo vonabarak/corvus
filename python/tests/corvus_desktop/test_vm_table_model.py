@@ -33,6 +33,7 @@ def _vm(
         ram=ram,
         headless=headless,
         guest_agent=guest_agent,
+        startup_timeout_sec=120,
         tpm=tpm,
         cloud_init=cloud_init,
         autostart=autostart,

@@ -32,7 +32,7 @@ import Corvus.Handlers.Vm.Db
   , setVmStarted
   , setVmStopped
   )
-import Corvus.Model (Vm (vmGuestAgent, vmName, vmStatus), VmId, VmStatus (..))
+import Corvus.Model (Vm (vmName, vmStatus), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
@@ -291,9 +291,7 @@ reapplyVm state nac vmId vm = do
   mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
   needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
   let netAgentForSpec = if needsNetd then mNetAgent else Nothing
-      waitMs =
-        if vmGuestAgent vm then 300000 else 0
-  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm)) waitMs
+  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId (M.vmLifecycleRevision vm) (fromMaybe (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm))
   case mSpec of
     Left err
       | "disappeared from DB" `T.isInfixOf` err -> do

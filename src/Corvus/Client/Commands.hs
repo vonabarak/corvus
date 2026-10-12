@@ -156,8 +156,8 @@ runCommand opts = do
             emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
-      VmCreate name nodeRef cpuCount ram mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng ->
-        handleVmCreate fmt conn name nodeRef cpuCount ram mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng
+      VmCreate name nodeRef cpuCount ram mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng startupTimeoutSec ->
+        handleVmCreate fmt conn name nodeRef cpuCount ram mDesc headless ga tpm ci as rq cm graphicsAdapter vsock balloon rng startupTimeoutSec
       VmDelete vmRef keepDisks force -> handleVmDelete fmt conn vmRef keepDisks force
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
@@ -168,8 +168,8 @@ runCommand opts = do
       VmReset vmRef ->
         handleVmAction fmt "reset" vmRef (CR.rpcVmReset conn (entityRefFromText vmRef))
       VmSave vmRef waitOpts -> handleVmSave fmt conn vmRef waitOpts
-      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng ->
-        handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng
+      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec ->
+        handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
@@ -348,7 +348,7 @@ handleVmView opts fmt conn vmRef = do
       pure False
     Right details -> do
       let st = vdStatus details
-      if st `notElem` [VmRunning, VmStarting, VmStopping]
+      if st `notElem` [VmRunning, VmStarting, VmStopping, VmError]
         then do
           emitError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running") $ do
             putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."

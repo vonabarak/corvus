@@ -43,6 +43,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviVsock :: !Bool
   , tviBalloon :: !Bool
   , tviRng :: !Bool
+  , tviStartupTimeoutSec :: !Int
   }
   deriving stock (Eq, Show, Generic)
 
@@ -127,6 +128,7 @@ data TemplateDetails = TemplateDetails
   , tvdVsock :: !Bool
   , tvdBalloon :: !Bool
   , tvdRng :: !Bool
+  , tvdStartupTimeoutSec :: !Int
   }
   deriving stock (Eq, Show, Generic)
 

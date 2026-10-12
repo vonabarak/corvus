@@ -19,6 +19,7 @@ import qualified Corvus.Model as M
 import Corvus.Node.VsockCid (withAllocatedVsockCid)
 import Corvus.Protocol
 import Corvus.Size (validateRam)
+import Corvus.StartupTimeout (validateStartupTimeoutSec)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (isJust, mapMaybe)
@@ -51,9 +52,10 @@ handleVmCreate
   -> Bool
   -> Bool
   -> Bool
+  -> Int
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng =
-  case validateName "VM" name >> either (Left . T.pack) (const (Right ())) (validateRam ram) >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
+handleVmCreate state name nodeRefText cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng startupTimeoutSec =
+  case validateStartupTimeoutSec startupTimeoutSec >> validateName "VM" name >> either (Left . T.pack) (const (Right ())) (validateRam ram) >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
       let pool = ssDbPool state
@@ -71,19 +73,19 @@ handleVmCreate state name nodeRefText cpuCount ram description headless guestAge
             -- shortcut for that VM.
             eVmId <-
               if not vsock
-                then Right <$> runSqlPool (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng) pool
+                then Right <$> runSqlPool (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng startupTimeoutSec) pool
                 else do
                   r <-
                     withAllocatedVsockCid state nodeKey $ \cid ->
                       runSqlPool
-                        (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng)
+                        (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng startupTimeoutSec)
                         pool
                   case r of
                     Right vmId -> pure (Right vmId)
                     Left _ -> do
                       vmId <-
                         runSqlPool
-                          (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng)
+                          (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng startupTimeoutSec)
                           pool
                       pure (Right vmId)
             case eVmId of
@@ -143,9 +145,10 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Int
   -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng = case traverse validateRam mRam of
-  Left err -> pure (RespError (T.pack err))
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec = case either (Left . T.pack) (const (Right ())) (traverse validateRam mRam) >> traverse validateStartupTimeoutSec mStartupTimeoutSec of
+  Left err -> pure (RespError err)
   Right _ -> do
     result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
     case result of
@@ -204,6 +207,7 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit m
                               mVsock
                               mBalloon
                               mRng
+                              mStartupTimeoutSec
                           )
                           (ssDbPool state)
                         pure RespVmEdited
@@ -240,8 +244,9 @@ createVm
   -> Bool
   -> Bool
   -> Bool
+  -> Int
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng = do
+createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng startupTimeoutSec = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -256,6 +261,7 @@ createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit
           , vmDescription = description
           , vmHeadless = headless
           , vmGuestAgent = guestAgent
+          , vmStartupTimeoutSec = startupTimeoutSec
           , vmTpm = tpm
           , vmCloudInit = cloudInit
           , vmHealthcheck = Nothing
@@ -291,8 +297,9 @@ editVm
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Int
   -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng = do
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -309,6 +316,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mR
           ++ maybe [] (\enabled -> (M.VmVsock =. enabled) : [M.VmVsockCid =. Nothing | not enabled]) mVsock
           ++ maybe [] (\enabled -> [M.VmBalloon =. enabled]) mBalloon
           ++ maybe [] (\enabled -> [M.VmRng =. enabled]) mRng
+          ++ maybe [] (\seconds -> [M.VmStartupTimeoutSec =. seconds]) mStartupTimeoutSec
   case updates of
     [] -> pure ()
     us -> update key us
@@ -335,6 +343,7 @@ data VmCreate = VmCreate
   , vcrVsock :: Bool
   , vcrBalloon :: Bool
   , vcrRng :: Bool
+  , vcrStartupTimeoutSec :: Int
   -- ^ QEMU @-cpu@ model. Empty == use the daemon default
   -- ('host'); see the schema field comment on
   -- @schema/vm.capnp::VmInfo.cpuModel@ for the
@@ -365,6 +374,7 @@ instance Action VmCreate where
       (vcrVsock a)
       (vcrBalloon a)
       (vcrRng a)
+      (vcrStartupTimeoutSec a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64
@@ -382,6 +392,7 @@ data VmEdit = VmEdit
   , vedVsock :: Maybe Bool
   , vedBalloon :: Maybe Bool
   , vedRng :: Maybe Bool
+  , vedStartupTimeoutSec :: Maybe Int
   }
 
 instance Action VmEdit where
@@ -406,3 +417,4 @@ instance Action VmEdit where
       (vedVsock a)
       (vedBalloon a)
       (vedRng a)
+      (vedStartupTimeoutSec a)

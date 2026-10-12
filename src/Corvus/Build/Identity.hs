@@ -110,6 +110,7 @@ buildVmValue v =
   obj
     [ ("cpuCount", intValue (bvmCpuCount v))
     , ("ram", intValue (bvmRam v))
+    , ("startupTimeoutSec", maybe Null intValue (bvmStartupTimeoutSec v))
     ]
 
 shellDefaultsValue :: ShellDefaults -> Value

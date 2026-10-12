@@ -150,9 +150,11 @@ class DatabaseMigrationCase(SingleNodeCase):
         self._start()
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
-            assert client.vms.get("migration-vm").show().name == "migration-vm"
-        assert "migrated from version 2 to 12" in self._logs()
-        assert self._query("SELECT version FROM schema_version") == "12"
+            details = client.vms.get("migration-vm").show()
+            assert details.name == "migration-vm"
+            assert details.startup_timeout_sec == 120
+        assert "migrated from version 2 to 13" in self._logs()
+        assert self._query("SELECT version FROM schema_version") == "13"
         assert (
             self._query("SELECT graphics_adapter FROM vm WHERE id = 1") == "virtio-vga"
         )
@@ -162,6 +164,7 @@ class DatabaseMigrationCase(SingleNodeCase):
             )
             == "virtio-vga"
         )
+        assert self._query("SELECT startup_timeout_sec FROM template_vm") == "120"
         assert self._query("SELECT id, disk_image_id FROM drive") == "1|1"
         assert (
             self._query("SELECT tag FROM disk_image_tag WHERE disk_image_id = 1")
@@ -232,9 +235,9 @@ class DatabaseMigrationCase(SingleNodeCase):
             assert client.vms.list() == []
         assert self._query("SELECT COUNT(*) FROM disk_image_build_identity") == "0"
         assert self._query("SELECT COUNT(*) FROM disk_image_upload_identity") == "0"
-        assert "Created database schema at version 12" in self._logs()
+        assert "Created database schema at version 13" in self._logs()
         assert "migrated from version" not in self._logs()
-        assert self._query("SELECT version FROM schema_version") == "12"
+        assert self._query("SELECT version FROM schema_version") == "13"
 
     def test_03_retired_migration_refuses_startup(self) -> None:
         self._prepare(historical=True)

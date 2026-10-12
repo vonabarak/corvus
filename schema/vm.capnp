@@ -41,6 +41,7 @@ struct VmInfo {
   vsock           @15 :Bool = true;
   balloon         @16 :Bool = true;
   rng             @17 :Bool = true;
+  startupTimeoutSec @18 :UInt32 = 120;
 }
 
 struct VmDetails {
@@ -88,6 +89,7 @@ struct VmDetails {
   vsock               @30 :Bool = true;
   balloon             @31 :Bool = true;
   rng                 @32 :Bool = true;
+  startupTimeoutSec @33 :UInt32 = 120;
 }
 
 # Per-VM resource consumption sample. Cumulative counters + the
@@ -229,6 +231,7 @@ struct VmCreateParams {
   vsock           @14 :Bool = true;
   balloon         @15 :Bool = true;
   rng             @16 :Bool = true;
+  startupTimeoutSec @17 :UInt32 = 120;
 }
 
 struct VmEditParams {
@@ -264,6 +267,8 @@ struct VmEditParams {
   balloon            @27 :Bool = true;
   hasRng             @28 :Bool;
   rng                @29 :Bool = true;
+  hasStartupTimeoutSec @30 :Bool;
+  startupTimeoutSec @31 :UInt32 = 120;
 }
 
 struct DriveAttachParams {

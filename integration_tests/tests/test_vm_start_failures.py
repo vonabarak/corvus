@@ -3,7 +3,7 @@
 When a VM fails to start (e.g. QEMU OOMs because the requested RAM
 exceeds the host's), three things must hold:
 
-* the caller's `vm.start(...)` RPC fails fast — well under the five-minute
+* the caller's `vm.start(...)` RPC fails fast — well under the configured
   wait-for-first-QGA budget;
 * the failure reason ends up in `vm.show().error_message` so
   `crv vm show` shows the operator what happened without making
@@ -16,7 +16,7 @@ exceed the test-node's total memory. The kernel rejects the
 allocation, QEMU exits within ~1 s, and the nodeagent's
 `waitForFirstQgaPing` sees `vlsLastExitCode` populated and surfaces
 "QEMU exited with code N before first guest-agent ping" instead of
-the misleading five-minute "QGA ping timeout".
+the misleading configured "QGA ping timeout".
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class TestVmStartFailures(SingleNodeCase):
                 vm.start(wait=True)
             elapsed = time.monotonic() - start
 
-            # Fast-fail: must NOT eat the five-minute wait-for-first-ping
+            # Fast-fail: must NOT eat the configured wait-for-first-ping
             # budget. 30 s allows generous margin for QEMU init,
             # the reaper picking up the exit, and the RPC roundtrip
             # back through the daemon.
@@ -126,11 +126,15 @@ class TestVmStartFailures(SingleNodeCase):
             except Exception:
                 pass
 
-    @pytest.mark.timeout(420)
-    def test_guest_agent_timeout_preserves_qemu_and_returns_to_python(self) -> None:
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("startup_timeout_sec", [2, 5])
+    def test_guest_agent_timeout_preserves_qemu_and_returns_to_python(
+        self, startup_timeout_sec: int
+    ) -> None:
         """A live QEMU with no boot disk cannot answer a guest-agent ping."""
         vm = self.client.vms.create(
             f"corvus-it-no-qga-{secrets.token_hex(4)}",
+            startup_timeout_sec=startup_timeout_sec,
             cpu_count=1,
             ram=268435456,
             headless=False,
@@ -143,7 +147,9 @@ class TestVmStartFailures(SingleNodeCase):
             with pytest.raises(CorvusError) as exc_info:
                 vm.start(wait=True)
             elapsed = time.monotonic() - started
-            assert 290 <= elapsed < 330, f"unexpected startup wait: {elapsed:.1f}s"
+            assert startup_timeout_sec <= elapsed < startup_timeout_sec + 15, (
+                f"unexpected startup wait: {elapsed:.1f}s"
+            )
             assert "guest agent did not respond" in str(exc_info.value).lower()
 
             details = vm.show()

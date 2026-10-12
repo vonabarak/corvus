@@ -24,13 +24,29 @@ import Corvus.Handlers.Vm.Db
   , setVmStartedIfCurrent
   )
 import qualified Corvus.Model as M
+import qualified Corvus.Node.VmSpec as VS
+import Corvus.NodeAgentClient.Spec (assembleVmSpec)
+import Corvus.Qemu.Config (defaultQemuConfig)
 import Data.Maybe (fromMaybe)
 import Database.Persist (update, (=.))
 import Database.Persist.Sql (toSqlKey)
-import Test.DSL.Core (runDb)
+import Test.DSL.Core (getDbPool, runDb)
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "startup readiness budget" $ do
+    testCase "assembles the persisted timeout and disables waiting without a guest agent" $ do
+      vid <- insertVm "readiness" VmStopped
+      pool <- getDbPool
+      let budget expected = do
+            specResult <- liftIO $ assembleVmSpec pool defaultQemuConfig Nothing vid 1 1
+            liftIO $ fmap VS.vsWaitForGuestAgentMs specResult `shouldBe` Right expected
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmGuestAgent =. True]
+      budget 120000
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmStartupTimeoutSec =. 1200]
+      budget 1200000
+      runDb $ update (toSqlKey vid :: M.VmId) [M.VmGuestAgent =. False]
+      budget 0
   describe "manual balloon targets" $ do
     testCase "rejects a missing VM" $ do
       resp <- vmSetBalloon 999 1

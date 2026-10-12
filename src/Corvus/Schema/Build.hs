@@ -43,6 +43,7 @@ import Corvus.Protocol.Disk (UploadIfExists (..), parseUploadIfExists)
 import Corvus.Protocol.Template (TemplateDetails)
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
 import Corvus.Size (defaultSizeField)
+import Corvus.StartupTimeout (startupTimeoutField)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
@@ -258,17 +259,19 @@ instance FromJSON BuildStrategy where
 data BuildVm = BuildVm
   { bvmCpuCount :: Int
   , bvmRam :: Int64
+  , bvmStartupTimeoutSec :: Maybe Int
   }
   deriving stock (Show)
 
 defaultBuildVm :: BuildVm
-defaultBuildVm = BuildVm 4 4294967296
+defaultBuildVm = BuildVm 4 4294967296 Nothing
 
 instance FromJSON BuildVm where
   parseJSON = withObject "BuildVm" $ \o ->
     BuildVm
       <$> o .:? "cpuCount" .!= 4
       <*> defaultSizeField o "ram" 4294967296
+      <*> startupTimeoutField o
 
 -- | A single step inside a build.
 data Provisioner

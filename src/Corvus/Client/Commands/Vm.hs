@@ -115,9 +115,10 @@ handleVmCreate
   -> Bool
   -> Bool
   -> Bool
+  -> Int
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ram mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ram mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng)
+handleVmCreate fmt conn name nodeRef cpuCount ram mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng startupTimeoutSec = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ram mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsock balloon rng startupTimeoutSec)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -211,12 +212,13 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Int
   -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng =
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
-    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng)
+    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec)
 
 -- | Handle @crv vm migrate <VM> --to-node <NODE>@.
 handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool

@@ -28,7 +28,9 @@ import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
 import Corvus.Schema.Template (TemplateAudioDeviceYaml, TemplateYaml)
 import Corvus.Size (optionalSizeField, sizeField)
+import Corvus.StartupTimeout (defaultStartupTimeoutSec, startupTimeoutField)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
@@ -256,6 +258,7 @@ data ApplyVm = ApplyVm
   , avVsock :: Bool
   , avBalloon :: Bool
   , avRng :: Bool
+  , avStartupTimeoutSec :: Int
   -- ^ QEMU @-cpu@ model. Default @"host"@ exposes the host CPU
   -- (best perf, not safe for cross-host migration); set to a
   -- stable model (e.g. @"qemu64"@) per VM for migratable
@@ -288,6 +291,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "vsock" .!= True
       <*> o .:? "balloon" .!= True
       <*> o .:? "rng" .!= True
+      <*> (fromMaybe defaultStartupTimeoutSec <$> startupTimeoutField o)
 
 data ApplyDrive = ApplyDrive
   { adrDisk :: Text

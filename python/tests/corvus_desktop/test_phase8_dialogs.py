@@ -27,6 +27,7 @@ def vm_details() -> VmDetails:
         serial_socket="",
         guest_agent_socket="",
         guest_agent=True,
+        startup_timeout_sec=120,
         tpm=False,
         cloud_init=False,
         autostart=False,

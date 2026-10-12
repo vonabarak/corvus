@@ -45,6 +45,7 @@ templateDetailsToValue t =
     , "vsock" .= tvdVsock t
     , "balloon" .= tvdBalloon t
     , "rng" .= tvdRng t
+    , "startupTimeoutSec" .= tvdStartupTimeoutSec t
     , "cloudInit" .= tvdCloudInit t
     , "guestAgent" .= tvdGuestAgent t
     , "tpm" .= tvdTpm t

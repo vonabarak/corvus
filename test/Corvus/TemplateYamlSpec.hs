@@ -43,6 +43,7 @@ sampleDetails =
     , tvdGraphicsAdapter = GraphicsQxlVga
     , tvdCloudInit = True
     , tvdGuestAgent = True
+    , tvdStartupTimeoutSec = 1200
     , tvdTpm = True
     , tvdVsock = True
     , tvdBalloon = True
@@ -116,6 +117,7 @@ spec = do
           tyGraphicsAdapter ty `shouldBe` GraphicsQxlVga
           tyCloudInit ty `shouldBe` True
           tyGuestAgent ty `shouldBe` True
+          tyStartupTimeoutSec ty `shouldBe` 1200
           tyTpm ty `shouldBe` True
           tyVsock ty `shouldBe` True
           tyBalloon ty `shouldBe` True

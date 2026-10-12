@@ -27,6 +27,7 @@ sampleDetails =
     , tvdGraphicsAdapter = GraphicsQxlVga
     , tvdCloudInit = True
     , tvdGuestAgent = True
+    , tvdStartupTimeoutSec = 120
     , tvdTpm = True
     , tvdVsock = True
     , tvdBalloon = True
@@ -96,8 +97,11 @@ spec = describe "build input identity" $ do
       template t = build {buildResolvedTemplate = Just t}
   it "stores valid deterministic JSON and a SHA-256 fingerprint" $ do
     identity build `shouldBe` identity build
-    biFingerprint (identity build) `shouldBe` "81064a06a8c688fa3e80933083fbc0b7106adeb2e45acb23d471346570cc690e"
+    biFingerprint (identity build) `shouldBe` "60279049d302a92906c71e56e79a8a34a84aa1e33d1093e2d2bf9bc14bbeb7d3"
     (Aeson.eitherDecodeStrict' (TE.encodeUtf8 (biInputs (identity build))) :: Either String Aeson.Value) `shouldSatisfy` either (const False) (const True)
+  it "includes inherited and overridden startup timeout budgets" $ do
+    fingerprint build `shouldNotBe` fingerprint (template sampleDetails {tvdStartupTimeoutSec = 1200})
+    fingerprint build `shouldNotBe` fingerprint (build {buildVm = (buildVm build) {bvmStartupTimeoutSec = Just 1200}})
   it "ignores allocated template, shared directory, audio and SSH key IDs and labels" $ do
     let recreated =
           sampleDetails
@@ -126,7 +130,7 @@ spec = describe "build input identity" $ do
   it "includes VM, target, template and provisioner configuration and file bytes" $ do
     let target = buildTarget build
         changes =
-          [ build {buildVm = BuildVm 9 1234}
+          [ build {buildVm = BuildVm 9 1234 Nothing}
           , build {buildTarget = target {btFormat = FormatRaw}}
           , build {buildTarget = target {btSize = btSize target + 1}}
           , build {buildTarget = target {btCompact = not (btCompact target)}}

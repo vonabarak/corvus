@@ -343,7 +343,7 @@ runFreshBake state parentTaskId sink stack b = do
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do
-      vmR <- instantiateBakeVm state parentTaskId stack (buildResolvedTemplate b) templateId bakeVmName (buildNode b)
+      vmR <- instantiateBakeVm state parentTaskId stack (fmap (\details -> details {tvdStartupTimeoutSec = fromMaybe (tvdStartupTimeoutSec details) (bvmStartupTimeoutSec (buildVm b))}) (buildResolvedTemplate b)) templateId bakeVmName (buildNode b)
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do

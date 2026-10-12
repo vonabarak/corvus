@@ -48,6 +48,7 @@ import Corvus.Schema.Template
   , TemplateSshKeyYaml (..)
   , TemplateYaml (..)
   )
+import Corvus.StartupTimeout (validateStartupTimeoutSec)
 import Corvus.Types
 import Corvus.Utils.Network (generateMacAddress)
 import Data.Char (isDigit)
@@ -151,6 +152,7 @@ handleTemplateList state = do
         , tviDescription = templateVmDescription t
         , tviHeadless = templateVmHeadless t
         , tviGuestAgent = templateVmGuestAgent t
+        , tviStartupTimeoutSec = templateVmStartupTimeoutSec t
         , tviTpm = templateVmTpm t
         , tviAutostart = templateVmAutostart t
         , tviRebootQuirk = templateVmRebootQuirk t
@@ -218,6 +220,7 @@ handleTemplateInstantiateWith ctx tidLong newVmName nodeRef snapshot = runServer
                 (tvdVsock details)
                 (tvdBalloon details)
                 (tvdRng details)
+                (tvdStartupTimeoutSec details)
             )
       case vmResp of
         RespVmCreated vmIdLong -> do
@@ -257,7 +260,8 @@ insertTemplateYaml ty now = do
   -- into one error string so a YAML with multiple problems reports
   -- all of them at once).
   let earlyErrs =
-        concatMap validateDrive (tyDrives ty)
+        either (: []) (const []) (validateStartupTimeoutSec (tyStartupTimeoutSec ty))
+          ++ concatMap validateDrive (tyDrives ty)
           ++ concatMap validateNetIf (tyNetworkInterfaces ty)
           ++ validateSharedDirs (tySharedDirs ty)
           ++ [err | audioDevice <- tyAudioDevices ty, Left err <- [validateAudioOptions (tadyOptions audioDevice)]]
@@ -292,7 +296,7 @@ insertTemplateYaml ty now = do
         then pure $ Left "Template has SSH keys but cloud-init is not enabled"
         else case (sequence mDiskIds, sequence mKeyIds) of
           (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty)
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty) (tyStartupTimeoutSec ty)
             case mTid of
               Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
               Just tid -> do
@@ -489,6 +493,7 @@ getTemplateDetails tid = do
             , tvdHeadless = templateVmHeadless t
             , tvdCloudInit = templateVmCloudInit t
             , tvdGuestAgent = templateVmGuestAgent t
+            , tvdStartupTimeoutSec = templateVmStartupTimeoutSec t
             , tvdTpm = templateVmTpm t
             , tvdAutostart = templateVmAutostart t
             , tvdRebootQuirk = templateVmRebootQuirk t

@@ -221,3 +221,9 @@ Missing devices raise `BalloonDeviceNotEnabled`; inactive drivers raise
 and node/QMP failures raise `BalloonError`. The target cannot exceed
 its live RAM ceiling. The call returns on QEMU acceptance, before guest
 convergence. Configured RAM and scheduler reservations remain unchanged.
+
+VM creation accepts `startup_timeout_sec=120` in both sync and async clients;
+`vm.edit(startup_timeout_sec=1200)` updates the persisted readiness budget for
+the next start. The value is an integer from 1 to 4294967 seconds. VM and
+template list/show dataclasses expose `startup_timeout_sec`. This deadline
+waits for the first guest-agent response; VMs without a guest agent skip it.

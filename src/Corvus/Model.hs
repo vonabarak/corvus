@@ -667,6 +667,7 @@ Vm
     rebootQuirk Bool default=false
     cpuModel Text default='host'
     graphicsAdapter GraphicsAdapter default='virtio-vga'
+    startupTimeoutSec Int default=120
     UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 
@@ -865,6 +866,7 @@ TemplateVm
     vsock Bool default=true
     balloon Bool default=true
     rng Bool default=true
+    startupTimeoutSec Int default=120
     UniqueTemplateVmName name
     deriving Show Eq Generic
 

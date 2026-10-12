@@ -84,6 +84,7 @@ module Test.DSL.When
   , whenTemplateDelete
   , whenTemplateList
   , whenTemplateShow
+  , whenTemplateInstantiate
 
     -- * Guest exec commands
   , whenGuestExec
@@ -368,17 +369,17 @@ whenSshKeyListForVm vmId = withState (`handleSshKeyListForVm` vmId)
 
 whenVmEdit :: Int64 -> Maybe Int -> Maybe Int64 -> Maybe Text -> Maybe Bool -> TestM Response
 whenVmEdit vmId mCpus mRam mDesc mHeadless =
-  withState (\st -> runAction st "alice" (VmEdit vmId mCpus mRam mDesc mHeadless Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing))
+  withState (\st -> runAction st "alice" (VmEdit vmId mCpus mRam mDesc mHeadless Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing))
 
 whenVmSetTpm :: Int64 -> Bool -> TestM Response
 whenVmSetTpm vmId enabled =
-  withState (\st -> runAction st "alice" (VmEdit vmId Nothing Nothing Nothing Nothing Nothing (Just enabled) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing))
+  withState (\st -> runAction st "alice" (VmEdit vmId Nothing Nothing Nothing Nothing Nothing (Just enabled) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing))
 
 whenVmCreate :: Text -> Int -> Int64 -> Maybe Text -> TestM Response
 whenVmCreate name cpuCount ram description =
   -- Empty node ref triggers the scheduler, which picks the
   -- seeded 'test-node' (DB id 1).
-  withState (\st -> runAction st "alice" (VmHandlers.VmCreate name "" cpuCount ram description False False False False False False "" [] M.GraphicsVirtioVga True True True))
+  withState (\st -> runAction st "alice" (VmHandlers.VmCreate name "" cpuCount ram description False False False False False False "" [] M.GraphicsVirtioVga True True True 120))
 
 whenVmDelete :: Int64 -> TestM Response
 whenVmDelete vmId =
@@ -484,3 +485,6 @@ whenGuestExec vmId cmd = withState (\st -> runAction st "alice" (GuestExec vmId 
 --------------------------------------------------------------------------------
 -- Cloud-init Config Commands
 --------------------------------------------------------------------------------
+
+whenTemplateInstantiate :: Int64 -> Text -> TestM Response
+whenTemplateInstantiate tid name = withState (\st -> runAction st "alice" (TemplateInstantiate tid name ""))

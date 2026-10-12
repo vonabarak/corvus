@@ -44,7 +44,7 @@ type instance (R.ReprFor TemplateVmInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateVmInfo) where
     typeId  = 13502303933436327559
 instance (C.TypedStruct TemplateVmInfo) where
-    numStructWords  = 3
+    numStructWords  = 4
     numStructPtrs  = 2
 instance (C.Allocate TemplateVmInfo) where
     type AllocHint TemplateVmInfo = ()
@@ -69,7 +69,8 @@ data instance C.Parsed TemplateVmInfo
         ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
         ,vsock :: (RP.Parsed Std_.Bool)
         ,balloon :: (RP.Parsed Std_.Bool)
-        ,rng :: (RP.Parsed Std_.Bool)}
+        ,rng :: (RP.Parsed Std_.Bool)
+        ,startupTimeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateVmInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateVmInfo))
@@ -87,7 +88,8 @@ instance (C.Parse TemplateVmInfo (C.Parsed TemplateVmInfo)) where
                                  <*> (GH.parseField #graphicsAdapter raw_)
                                  <*> (GH.parseField #vsock raw_)
                                  <*> (GH.parseField #balloon raw_)
-                                 <*> (GH.parseField #rng raw_))
+                                 <*> (GH.parseField #rng raw_)
+                                 <*> (GH.parseField #startupTimeoutSec raw_))
 instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
     marshalInto raw_ TemplateVmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -104,6 +106,7 @@ instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
         (GH.encodeField #vsock vsock raw_)
         (GH.encodeField #balloon balloon raw_)
         (GH.encodeField #rng rng raw_)
+        (GH.encodeField #startupTimeoutSec startupTimeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateVmInfo Std_.Int64) where
@@ -134,6 +137,8 @@ instance (GH.HasField "balloon" GH.Slot TemplateVmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 38 1 1 1)
 instance (GH.HasField "rng" GH.Slot TemplateVmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 39 1 1 1)
+instance (GH.HasField "startupTimeoutSec" GH.Slot TemplateVmInfo Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 3 32 120)
 data TemplateDriveInfo 
 type instance (R.ReprFor TemplateDriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDriveInfo) where
@@ -414,7 +419,7 @@ type instance (R.ReprFor TemplateDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDetails) where
     typeId  = 15861980235634274923
 instance (C.TypedStruct TemplateDetails) where
-    numStructWords  = 4
+    numStructWords  = 5
     numStructPtrs  = 8
 instance (C.Allocate TemplateDetails) where
     type AllocHint TemplateDetails = ()
@@ -447,7 +452,8 @@ data instance C.Parsed TemplateDetails
         ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
         ,vsock :: (RP.Parsed Std_.Bool)
         ,balloon :: (RP.Parsed Std_.Bool)
-        ,rng :: (RP.Parsed Std_.Bool)}
+        ,rng :: (RP.Parsed Std_.Bool)
+        ,startupTimeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateDetails))
 deriving instance (Std_.Eq (C.Parsed TemplateDetails))
@@ -473,7 +479,8 @@ instance (C.Parse TemplateDetails (C.Parsed TemplateDetails)) where
                                   <*> (GH.parseField #graphicsAdapter raw_)
                                   <*> (GH.parseField #vsock raw_)
                                   <*> (GH.parseField #balloon raw_)
-                                  <*> (GH.parseField #rng raw_))
+                                  <*> (GH.parseField #rng raw_)
+                                  <*> (GH.parseField #startupTimeoutSec raw_))
 instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
     marshalInto raw_ TemplateDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -498,6 +505,7 @@ instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
         (GH.encodeField #vsock vsock raw_)
         (GH.encodeField #balloon balloon raw_)
         (GH.encodeField #rng rng raw_)
+        (GH.encodeField #startupTimeoutSec startupTimeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateDetails Std_.Int64) where
@@ -544,6 +552,8 @@ instance (GH.HasField "balloon" GH.Slot TemplateDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 39 1 1 1)
 instance (GH.HasField "rng" GH.Slot TemplateDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 40 1 1 1)
+instance (GH.HasField "startupTimeoutSec" GH.Slot TemplateDetails Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 4 32 120)
 data TemplateManager 
 type instance (R.ReprFor TemplateManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TemplateManager) where

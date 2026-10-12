@@ -119,6 +119,7 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
         "rng": t.rng,
         "cloudInit": t.cloud_init,
         "guestAgent": t.guest_agent,
+        "startupTimeoutSec": t.startup_timeout_sec,
         "autostart": t.autostart,
         "drives": [_drive_to_dict(d) for d in t.drives],
         "networkInterfaces": [_net_if_to_dict(n) for n in t.net_ifs],

@@ -88,6 +88,7 @@ class VmInfo:
     ram: int
     headless: bool
     guest_agent: bool
+    startup_timeout_sec: int
     tpm: bool
     cloud_init: bool
     autostart: bool
@@ -157,6 +158,7 @@ class VmDetails:
     serial_socket: str
     guest_agent_socket: str
     guest_agent: bool
+    startup_timeout_sec: int
     tpm: bool
     cloud_init: bool
     autostart: bool
@@ -460,6 +462,7 @@ class TemplateVmInfo:
     ram: int
     headless: bool
     guest_agent: bool
+    startup_timeout_sec: int
     tpm: bool
     autostart: bool
     description: str | None = None
@@ -523,6 +526,7 @@ class TemplateDetails:
     headless: bool
     cloud_init: bool
     guest_agent: bool
+    startup_timeout_sec: int
     tpm: bool
     autostart: bool
     created_at: datetime

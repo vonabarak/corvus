@@ -110,6 +110,9 @@ historical upgrade tests exercise all three tables. Schema version remains 11 fo
 this unreleased change; development databases created with an earlier revision
 of version 11 must be recreated.
 
+The version-12 startup fixtures freeze the VM and template columns needed by
+`V013`. They verify that existing rows receive a 120-second budget.
+
 The Haskell suite covers planning, missing transitions, fresh creation,
 metadata errors, real upgrades, and transaction rollback. The integration
 suite's `test_database_migrations.py` starts the newly built daemon against

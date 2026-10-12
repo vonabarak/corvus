@@ -27,6 +27,14 @@ if TYPE_CHECKING:
     from .streams import ByteStream, GuestAgentSubscription, VmStatsSubscription
 
 
+def _validate_startup_timeout(seconds: int) -> int:
+    if not isinstance(seconds, int) or isinstance(seconds, bool):
+        raise TypeError("startup_timeout_sec must be an integer second count")
+    if not 1 <= seconds <= 4294967:
+        raise ValueError("startup_timeout_sec must be between 1 and 4294967 seconds")
+    return seconds
+
+
 def _set_optional(
     builder: capnp.lib.capnp._DynamicStructBuilder,
     has_field: str,
@@ -72,6 +80,7 @@ class AsyncVmManager:
         description: str | None = None,
         headless: bool = False,
         guest_agent: bool = False,
+        startup_timeout_sec: int = 120,
         tpm: bool = False,
         cloud_init: bool = False,
         autostart: bool = False,
@@ -106,6 +115,7 @@ class AsyncVmManager:
             params.description = description
         params.headless = headless
         params.guestAgent = guest_agent
+        params.startupTimeoutSec = _validate_startup_timeout(startup_timeout_sec)
         params.tpm = tpm
         params.cloudInit = cloud_init
         params.autostart = autostart
@@ -187,6 +197,7 @@ class AsyncVm:
         description: str | None = None,
         headless: bool | None = None,
         guest_agent: bool | None = None,
+        startup_timeout_sec: int | None = None,
         tpm: bool | None = None,
         cloud_init: bool | None = None,
         autostart: bool | None = None,
@@ -209,6 +220,13 @@ class AsyncVm:
         _set_optional(params, "hasDescription", "description", description)
         _set_optional(params, "hasHeadless", "headless", headless)
         _set_optional(params, "hasGuestAgent", "guestAgent", guest_agent)
+        if startup_timeout_sec is not None:
+            _set_optional(
+                params,
+                "hasStartupTimeoutSec",
+                "startupTimeoutSec",
+                _validate_startup_timeout(startup_timeout_sec),
+            )
         _set_optional(params, "hasTpm", "tpm", tpm)
         _set_optional(params, "hasCloudInit", "cloudInit", cloud_init)
         _set_optional(params, "hasAutostart", "autostart", autostart)

@@ -126,6 +126,7 @@ library:
     - Corvus.Protocol.Task
     - Corvus.Types
     - Corvus.Size
+    - Corvus.StartupTimeout
     - Corvus.Client.Human
     - Corvus.Database
     - Corvus.Database.Migration

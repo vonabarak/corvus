@@ -847,3 +847,19 @@ grouped by topic:
 - **[yaml/test-images/test-images.yml](../yaml/test-images/test-images.yml)** — Uses locally built test images (Alpine Linux and Windows Server) as base disks. These are the same images used by integration tests. Build them with `make image IMAGE=vm` and `make image IMAGE=windows`. Demonstrates `register` for local files, Windows cloud-init via cloudbase-init (PowerShell user-data scripts, RDP setup), and UEFI firmware configuration.
 
 - **[yaml/example-apply/example-apply.yml](../yaml/example-apply/example-apply.yml)** — A self-contained example with UEFI boot, cloud image download, overlays, clones, virtual networking, and SSH key injection. Good starting point for new configurations.
+
+## VM startup timeout
+
+VM entries accept `startupTimeoutSec`, a positive integer in seconds (default
+`120`, maximum `4294967`). Templates use the same field and default.
+
+```yaml
+vms:
+  - name: slow-bootstrap
+    guestAgent: true
+    startupTimeoutSec: 1200
+```
+
+The deadline waits for the first guest-agent response after QEMU starts.
+It does not impose a deadline on the complete cloud-init run. VMs with
+`guestAgent: false` skip this readiness check.

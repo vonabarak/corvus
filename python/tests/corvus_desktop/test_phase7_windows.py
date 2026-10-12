@@ -150,6 +150,7 @@ def test_template_list_refresh_and_populate(
                 ram=1073741824,
                 headless=False,
                 guest_agent=True,
+                startup_timeout_sec=120,
                 tpm=False,
                 autostart=False,
             )

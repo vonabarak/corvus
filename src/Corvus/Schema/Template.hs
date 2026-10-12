@@ -19,7 +19,9 @@ import Corvus.DiskSelector (DiskSelector)
 import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
 import Corvus.Size (optionalSizeField, sizeField)
+import Corvus.StartupTimeout (defaultStartupTimeoutSec, startupTimeoutField)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Yaml (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import GHC.Generics (Generic)
@@ -34,6 +36,7 @@ data TemplateYaml = TemplateYaml
   , tyVsock :: Bool
   , tyBalloon :: Bool
   , tyRng :: Bool
+  , tyStartupTimeoutSec :: Int
   , tyCloudInit :: Bool
   , tyGuestAgent :: Bool
   , tyTpm :: Bool
@@ -60,6 +63,7 @@ instance FromJSON TemplateYaml where
       <*> o .:? "vsock" .!= True
       <*> o .:? "balloon" .!= True
       <*> o .:? "rng" .!= True
+      <*> (fromMaybe defaultStartupTimeoutSec <$> startupTimeoutField o)
       <*> o .:? "cloudInit" .!= False
       <*> o .:? "guestAgent" .!= False
       <*> o .:? "tpm" .!= False

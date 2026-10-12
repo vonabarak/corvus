@@ -74,7 +74,8 @@ data instance C.Parsed VmInfo
         ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
         ,vsock :: (RP.Parsed Std_.Bool)
         ,balloon :: (RP.Parsed Std_.Bool)
-        ,rng :: (RP.Parsed Std_.Bool)}
+        ,rng :: (RP.Parsed Std_.Bool)
+        ,startupTimeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmInfo))
 deriving instance (Std_.Eq (C.Parsed VmInfo))
@@ -96,7 +97,8 @@ instance (C.Parse VmInfo (C.Parsed VmInfo)) where
                          <*> (GH.parseField #graphicsAdapter raw_)
                          <*> (GH.parseField #vsock raw_)
                          <*> (GH.parseField #balloon raw_)
-                         <*> (GH.parseField #rng raw_))
+                         <*> (GH.parseField #rng raw_)
+                         <*> (GH.parseField #startupTimeoutSec raw_))
 instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
     marshalInto raw_ VmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -117,6 +119,7 @@ instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
         (GH.encodeField #vsock vsock raw_)
         (GH.encodeField #balloon balloon raw_)
         (GH.encodeField #rng rng raw_)
+        (GH.encodeField #startupTimeoutSec startupTimeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmInfo Std_.Int64) where
@@ -155,6 +158,8 @@ instance (GH.HasField "balloon" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 23 1 1 1)
 instance (GH.HasField "rng" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 24 1 1 1)
+instance (GH.HasField "startupTimeoutSec" GH.Slot VmInfo Std_.Word32) where
+    fieldByLabel  = (GH.dataField 32 4 32 120)
 data VmDetails 
 type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
@@ -204,7 +209,8 @@ data instance C.Parsed VmDetails
         ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
         ,vsock :: (RP.Parsed Std_.Bool)
         ,balloon :: (RP.Parsed Std_.Bool)
-        ,rng :: (RP.Parsed Std_.Bool)}
+        ,rng :: (RP.Parsed Std_.Bool)
+        ,startupTimeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDetails))
 deriving instance (Std_.Eq (C.Parsed VmDetails))
@@ -241,7 +247,8 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #graphicsAdapter raw_)
                             <*> (GH.parseField #vsock raw_)
                             <*> (GH.parseField #balloon raw_)
-                            <*> (GH.parseField #rng raw_))
+                            <*> (GH.parseField #rng raw_)
+                            <*> (GH.parseField #startupTimeoutSec raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
     marshalInto raw_ VmDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -277,6 +284,7 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #vsock vsock raw_)
         (GH.encodeField #balloon balloon raw_)
         (GH.encodeField #rng rng raw_)
+        (GH.encodeField #startupTimeoutSec startupTimeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmDetails Std_.Int64) where
@@ -345,6 +353,8 @@ instance (GH.HasField "balloon" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 23 2 1 1)
 instance (GH.HasField "rng" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 24 2 1 1)
+instance (GH.HasField "startupTimeoutSec" GH.Slot VmDetails Std_.Word32) where
+    fieldByLabel  = (GH.dataField 32 7 32 120)
 data VmStats 
 type instance (R.ReprFor VmStats) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStats) where
@@ -840,7 +850,7 @@ type instance (R.ReprFor VmCreateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmCreateParams) where
     typeId  = 12441806447859270163
 instance (C.TypedStruct VmCreateParams) where
-    numStructWords  = 2
+    numStructWords  = 3
     numStructPtrs  = 5
 instance (C.Allocate VmCreateParams) where
     type AllocHint VmCreateParams = ()
@@ -868,7 +878,8 @@ data instance C.Parsed VmCreateParams
         ,graphicsAdapter :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.GraphicsAdapter)
         ,vsock :: (RP.Parsed Std_.Bool)
         ,balloon :: (RP.Parsed Std_.Bool)
-        ,rng :: (RP.Parsed Std_.Bool)}
+        ,rng :: (RP.Parsed Std_.Bool)
+        ,startupTimeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmCreateParams))
 deriving instance (Std_.Eq (C.Parsed VmCreateParams))
@@ -889,7 +900,8 @@ instance (C.Parse VmCreateParams (C.Parsed VmCreateParams)) where
                                  <*> (GH.parseField #graphicsAdapter raw_)
                                  <*> (GH.parseField #vsock raw_)
                                  <*> (GH.parseField #balloon raw_)
-                                 <*> (GH.parseField #rng raw_))
+                                 <*> (GH.parseField #rng raw_)
+                                 <*> (GH.parseField #startupTimeoutSec raw_))
 instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
     marshalInto raw_ VmCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -909,6 +921,7 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
         (GH.encodeField #vsock vsock raw_)
         (GH.encodeField #balloon balloon raw_)
         (GH.encodeField #rng rng raw_)
+        (GH.encodeField #startupTimeoutSec startupTimeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
@@ -945,6 +958,8 @@ instance (GH.HasField "balloon" GH.Slot VmCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 39 0 1 1)
 instance (GH.HasField "rng" GH.Slot VmCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 40 0 1 1)
+instance (GH.HasField "startupTimeoutSec" GH.Slot VmCreateParams Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 2 32 120)
 data VmEditParams 
 type instance (R.ReprFor VmEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmEditParams) where
@@ -991,7 +1006,9 @@ data instance C.Parsed VmEditParams
         ,hasBalloon :: (RP.Parsed Std_.Bool)
         ,balloon :: (RP.Parsed Std_.Bool)
         ,hasRng :: (RP.Parsed Std_.Bool)
-        ,rng :: (RP.Parsed Std_.Bool)}
+        ,rng :: (RP.Parsed Std_.Bool)
+        ,hasStartupTimeoutSec :: (RP.Parsed Std_.Bool)
+        ,startupTimeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmEditParams))
 deriving instance (Std_.Eq (C.Parsed VmEditParams))
@@ -1025,7 +1042,9 @@ instance (C.Parse VmEditParams (C.Parsed VmEditParams)) where
                                <*> (GH.parseField #hasBalloon raw_)
                                <*> (GH.parseField #balloon raw_)
                                <*> (GH.parseField #hasRng raw_)
-                               <*> (GH.parseField #rng raw_))
+                               <*> (GH.parseField #rng raw_)
+                               <*> (GH.parseField #hasStartupTimeoutSec raw_)
+                               <*> (GH.parseField #startupTimeoutSec raw_))
 instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
     marshalInto raw_ VmEditParams{..} = (do
         (GH.encodeField #hasName hasName raw_)
@@ -1058,6 +1077,8 @@ instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
         (GH.encodeField #balloon balloon raw_)
         (GH.encodeField #hasRng hasRng raw_)
         (GH.encodeField #rng rng raw_)
+        (GH.encodeField #hasStartupTimeoutSec hasStartupTimeoutSec raw_)
+        (GH.encodeField #startupTimeoutSec startupTimeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "hasName" GH.Slot VmEditParams Std_.Bool) where
@@ -1120,6 +1141,10 @@ instance (GH.HasField "hasRng" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 22 0 1 0)
 instance (GH.HasField "rng" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 23 0 1 1)
+instance (GH.HasField "hasStartupTimeoutSec" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 24 0 1 0)
+instance (GH.HasField "startupTimeoutSec" GH.Slot VmEditParams Std_.Word32) where
+    fieldByLabel  = (GH.dataField 32 2 32 120)
 data DriveAttachParams 
 type instance (R.ReprFor DriveAttachParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DriveAttachParams) where

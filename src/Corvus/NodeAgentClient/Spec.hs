@@ -34,7 +34,6 @@ import Corvus.Qemu.Config (QemuConfig (..), getEffectiveBasePath)
 import Data.Int (Int32, Int64)
 import Data.Pool (Pool)
 import qualified Data.Text as T
-import Data.Word (Word32)
 import Database.Persist (Entity (..), SelectOpt (Asc), get, selectList, (==.))
 import qualified Database.Persist
 import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
@@ -51,9 +50,8 @@ import System.Posix.User (getEffectiveGroupID, getEffectiveUserID)
 -- 'vmStart' simply takes the resolved spec and feeds it to
 -- 'buildQemuCommandFromSpec'.
 --
--- @waitMs@ is the per-spec ping-after-start timeout the agent
--- will use when @vm.guestAgent@ is true (0 to skip; daemon
--- supplies the timeout independently of the node status poller cadence).
+-- The persisted startup timeout supplies the first guest-agent ping budget.
+-- VMs without a guest agent skip this readiness check.
 assembleVmSpec
   :: Pool SqlBackend
   -> QemuConfig
@@ -61,9 +59,8 @@ assembleVmSpec
   -> Int64
   -> Int64
   -> Int64
-  -> Word32
   -> IO (Either T.Text VS.VmSpec)
-assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration waitMs = do
+assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- runSqlPool (get vmKey) pool
   case mVm of
@@ -121,7 +118,7 @@ assembleVmSpec pool config mNetAgent vmId lifecycleRevision runtimeGeneration wa
                   , VS.vsSharedDirs = sharedDirSpecs
                   , VS.vsAudioDevices = map encodeAudioDeviceSpec audioDevices
                   , VS.vsWaitForGuestAgentMs =
-                      if vmGuestAgent vm then waitMs else 0
+                      if vmGuestAgent vm then fromIntegral (vmStartupTimeoutSec vm) * 1000 else 0
                   , VS.vsRebootQuirk = vmRebootQuirk vm
                   , VS.vsSpiceBindAddr = qcSpiceBindAddress config
                   , -- Whether the agent should QEMU with `-incoming` to

@@ -15,6 +15,7 @@ pipeline:
           ram: 8G
           cloudInit: true
           guestAgent: true
+          startupTimeoutSec: 1200
           description: "Gentoo cloud-init bake host (stage 1)"
           cloudInitConfig:
             userData:
@@ -104,6 +105,7 @@ pipeline:
           ram: 8G
           cloudInit: true
           guestAgent: true
+          startupTimeoutSec: 1200
           description: "Gentoo builder bake VM (stage 2's bake host)"
           cloudInitConfig:
             userData:
@@ -213,6 +215,7 @@ pipeline:
           ram: 8G
           cloudInit: false
           guestAgent: true
+          startupTimeoutSec: 1200
           headless: true
           description: "Gentoo headless bake VM (stage 3's bake host)"
           sharedDirs:

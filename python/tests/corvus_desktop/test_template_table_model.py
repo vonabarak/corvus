@@ -27,6 +27,7 @@ def _t(
         ram=ram,
         headless=headless,
         guest_agent=guest_agent,
+        startup_timeout_sec=120,
         tpm=tpm,
         autostart=autostart,
         description=description,

@@ -20,6 +20,7 @@ export interface VmInfo {
   ram: bigint;
   headless: boolean;
   guest_agent: boolean;
+  startup_timeout_sec: number;
   tpm: boolean;
   cloud_init: boolean;
   autostart: boolean;
@@ -151,6 +152,7 @@ export interface VmCreateBody {
   description?: string | null;
   headless?: boolean;
   guest_agent?: boolean;
+  startup_timeout_sec?: number;
   tpm?: boolean;
   cloud_init?: boolean;
   autostart?: boolean;

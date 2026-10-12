@@ -38,11 +38,19 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
         assert details.autostart is True
         assert details.description == "from python"
         assert details.graphics_adapter == "qxl-vga"
+        assert details.startup_timeout_sec == 120
 
         await vm.edit(
-            cpu_count=4, ram=1073741824, description=None, graphics_adapter="virtio-vga"
+            cpu_count=4,
+            ram=1073741824,
+            description=None,
+            graphics_adapter="virtio-vga",
+            startup_timeout_sec=1200,
         )
         details2 = await vm.show()
+        assert details2.startup_timeout_sec == 1200
+        await vm.edit(description="updated")
+        assert (await vm.show()).startup_timeout_sec == 1200
         assert details2.cpu_count == 4
         assert details2.ram == 1073741824
         assert details2.graphics_adapter == "virtio-vga"
@@ -51,6 +59,7 @@ def test_vm_create_show_edit_delete(daemon_socket: Path) -> None:
 
         listed = await c.vms.list()
         assert any(v.id == details.id for v in listed)
+        assert next(v for v in listed if v.id == details.id).startup_timeout_sec == 1200
         assert next(v for v in listed if v.id == details.id).tpm is False
         assert (
             next(v for v in listed if v.id == details.id).graphics_adapter
@@ -100,6 +109,26 @@ def test_balloon_validation(daemon_socket: Path) -> None:
             await vm.set_balloon(target_bytes=128 * 1024**2)
         assert (await vm.show()).ram == 268435456
         await c.ping()
+        await vm.delete()
+
+    with_client(daemon_socket)(go)
+
+
+def test_startup_timeout_validation(daemon_socket: Path) -> None:
+    async def go(c: AsyncClient) -> None:
+        vm = await c.vms.create(
+            "timeout-validation", headless=True, startup_timeout_sec=600
+        )
+        assert (await vm.show()).startup_timeout_sec == 600
+        for invalid in (0, -1, 4294968):
+            with pytest.raises(ValueError):
+                await c.vms.create("invalid-timeout", startup_timeout_sec=invalid)
+            with pytest.raises(ValueError):
+                await vm.edit(startup_timeout_sec=invalid)
+        for invalid_type in (True, 1.5, "120"):
+            with pytest.raises(TypeError):
+                await vm.edit(startup_timeout_sec=cast(int, invalid_type))
+        assert (await vm.show()).startup_timeout_sec == 600
         await vm.delete()
 
     with_client(daemon_socket)(go)

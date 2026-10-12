@@ -55,9 +55,8 @@ data VmInfo = VmInfo
   , viVsock :: !Bool
   , viBalloon :: !Bool
   , viRng :: !Bool
-  -- ^ QEMU @-cpu@ model. Default @"host"@ for back-compat; see
-  -- @schema/vm.capnp::VmInfo.cpuModel@ for migration-safety
-  -- trade-off.
+  , viStartupTimeoutSec :: !Int
+  -- ^ First guest-agent response deadline in seconds.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -157,6 +156,7 @@ data VmDetails = VmDetails
   , vdGraphicsAdapter :: !GraphicsAdapter
   -- ^ See @viCpuModel@.
   , vdStats :: !VmStats
+  , vdStartupTimeoutSec :: !Int
   -- ^ Most-recent resource-consumption sample from the agent's
   -- StatusPoller. 'zeroVmStats' (all zeros, sampledAtNanos == 0)
   -- when the VM is stopped or the daemon hasn't yet received its

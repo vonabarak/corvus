@@ -152,6 +152,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrDescription = if description == "" then Nothing else Just description
               , vcrHeadless = headless
               , vcrGuestAgent = guestAgent
+              , vcrStartupTimeoutSec = fromIntegral startupTimeoutSec
               , vcrTpm = tpm
               , vcrCloudInit = cloudInit
               , vcrAutostart = autostart
@@ -276,6 +277,7 @@ instance CGVm.Vm'server_ VmCap where
               , vedDesc = if hasDescription then Just description else Nothing
               , vedHeadless = if hasHeadless then Just headless else Nothing
               , vedGuestAgent = if hasGuestAgent then Just guestAgent else Nothing
+              , vedStartupTimeoutSec = if hasStartupTimeoutSec then Just (fromIntegral startupTimeoutSec) else Nothing
               , vedTpm = if hasTpm then Just tpm else Nothing
               , vedCloudInit = if hasCloudInit then Just cloudInit else Nothing
               , vedAutostart = if hasAutostart then Just autostart else Nothing

@@ -13,7 +13,7 @@
 module Corvus.TemplateSpec (spec) where
 
 import qualified Corvus.Model as M
-import Corvus.Protocol (CloudInitInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..))
+import Corvus.Protocol (CloudInitInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), VmDetails (..))
 import qualified Data.Text as T
 import Database.Persist (Filter, count)
 import Test.DSL.Core (runDb)
@@ -33,6 +33,18 @@ minimalYaml name =
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "startup timeout inheritance" $ do
+    testCase "persists a custom template budget and copies it to an instantiated VM" $ do
+      _ <- whenTemplateCreate (minimalYaml "timeout-template" <> "startupTimeoutSec: 1200\n")
+      _ <- whenTemplateShow 1
+      responseIs $ \case
+        RespTemplateInfo details -> tvdStartupTimeoutSec details == 1200
+        _ -> False
+      _ <- whenTemplateInstantiate 1 "timeout-vm"
+      _ <- vmShow 1
+      responseIs $ \case
+        RespVmDetails details -> vdStartupTimeoutSec details == 1200
+        _ -> False
   describe "whenTemplateList" $ do
     testCase "returns an empty list when no templates exist" $ do
       _ <- when_ whenTemplateList

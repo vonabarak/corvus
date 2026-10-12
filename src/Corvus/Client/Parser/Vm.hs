@@ -11,6 +11,7 @@ import Corvus.Client.Parser.Utility
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), GraphicsAdapter (..))
 import Corvus.Size (parseRam)
+import Corvus.StartupTimeout (defaultStartupTimeoutSec, validateStartupTimeoutSec)
 import qualified Data.Text as T
 import Options.Applicative
 
@@ -29,6 +30,17 @@ graphicsAdapterOption mods =
   option
     graphicsAdapterReader
     (mods <> completeWith (map (T.unpack . snd) (enumMapping :: [(GraphicsAdapter, T.Text)])))
+
+startupTimeoutOption :: Parser Int
+startupTimeoutOption =
+  option
+    ( eitherReader
+        ( \raw -> case reads raw of
+            [(seconds, "")] -> either (Left . T.unpack) (const (Right seconds)) (validateStartupTimeoutSec seconds)
+            _ -> Left "expected an integer number of seconds"
+        )
+    )
+    (long "startup-timeout-sec" <> metavar "SECONDS" <> help "First guest-agent response deadline; takes effect on next start")
 
 -- | Parser for vm list
 vmListCommand :: Parser Command
@@ -130,6 +142,7 @@ vmCreateCommand =
     <*> (not <$> switch (long "no-vsock" <> help "Do not attach a VirtIO vsock device"))
     <*> (not <$> switch (long "no-balloon" <> help "Do not attach a VirtIO memory balloon device"))
     <*> (not <$> switch (long "no-rng" <> help "Do not attach a VirtIO RNG device"))
+    <*> (startupTimeoutOption <|> pure defaultStartupTimeoutSec)
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -357,6 +370,7 @@ vmEditCommand =
     <*> optional (option readBool (long "vsock" <> metavar "BOOL" <> help "Enable/disable VirtIO vsock (true/false; requires stopped VM)" <> completeWith ["true", "false"]))
     <*> optional (option readBool (long "balloon" <> metavar "BOOL" <> help "Enable/disable VirtIO memory balloon (true/false; requires stopped VM)" <> completeWith ["true", "false"]))
     <*> optional (option readBool (long "rng" <> metavar "BOOL" <> help "Enable/disable VirtIO RNG (true/false; requires stopped VM)" <> completeWith ["true", "false"]))
+    <*> optional startupTimeoutOption
 
 -- | Parser for vm view
 vmViewCommand :: Parser Command

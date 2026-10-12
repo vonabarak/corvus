@@ -24,6 +24,7 @@ struct TemplateVmInfo {
   vsock           @11 :Bool = true;
   balloon         @12 :Bool = true;
   rng             @13 :Bool = true;
+  startupTimeoutSec @14 :UInt32 = 120;
 }
 
 struct TemplateDriveInfo {
@@ -102,6 +103,7 @@ struct TemplateDetails {
   vsock           @19 :Bool = true;
   balloon         @20 :Bool = true;
   rng             @21 :Bool = true;
+  startupTimeoutSec @22 :UInt32 = 120;
 }
 
 # ---------------------------------------------------------------------
