@@ -8,8 +8,6 @@
 dist-newstyle/
 dist/
 plans/*
-.test-cache/
-.test-images/
 # Python tool caches
 .venv/
 .ruff_cache/

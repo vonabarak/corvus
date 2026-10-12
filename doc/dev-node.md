@@ -111,7 +111,7 @@ bash /mnt/corvus/scripts/devnode/web.sh --daemon-host 127.0.0.1
 
 | You changed                    | Do this                                                                |
 |--------------------------------|------------------------------------------------------------------------|
-| Python under `python/corvus_web/` | Ctrl-C `web.sh` and re-run it. (`uvicorn --reload` is disabled — see [Makefile:434-438](../Makefile#L434-L438).) |
+| Python under `python/corvus_web/` | Ctrl-C `web.sh` and re-run it. (`uvicorn --reload` is disabled — see [the web workflow](../make/ui.mk).) |
 | Haskell daemon code            | `make build` on the host, then `systemctl --user restart corvus.service` in the VM. The `/opt/corvus/bin` mount means no copy is needed. |
 | Frontend (`frontend/`)         | `make web-build` on the host (writes to `frontend/dist/`); refresh the browser. For live HMR, run `make web-dev` on the host instead, pointed at the VM's `:8080`. |
 

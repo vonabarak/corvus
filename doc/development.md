@@ -13,6 +13,25 @@ HLint 3.8 and Fourmolu 0.15.0.0 are pinned in the tools Stack project.
 `make format` and `make check` build and invoke those versions automatically;
 no global HLint or Fourmolu installation is required.
 
+### Makefile organization
+
+The root `Makefile` sets the default build goal and shared environment, then
+includes six workflow files under `make/`. Each file owns its targets, phony
+declarations, workflow-specific settings, and recipe documentation:
+
+| File | Workflow |
+|---|---|
+| `make/build.mk` | Build, schema generation, Python environment, installation, and cleanup |
+| `make/tests.mk` | Haskell, Python, and integration test suites |
+| `make/quality.mk` | Formatting, static checks, type checks, metrics, and Git hook setup |
+| `make/ui.mk` | Web and desktop build/run workflows |
+| `make/vms.mk` | Image command forwarding and developer VM workflows |
+| `make/release.mk` | Release staging and version updates |
+
+Run targets through the root Makefile; fragment paths are relative to the
+repository root. Image recipes remain owned by their Makefiles under `yaml/`.
+`STACK_BUILD_FLAGS` applies to every Stack invocation in these workflows.
+
 ### Make Targets
 
 | Target | Description |
