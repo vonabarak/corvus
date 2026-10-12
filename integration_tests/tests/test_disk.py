@@ -152,6 +152,7 @@ class TestDisk(SingleNodeCase):
         client = Mock(spec=Client)
         client.disks = Mock()
         crv = Mock(spec=Crv)
+        crv.vm_exec.return_value = {"exitcode": 0}
         client.disks.get.return_value.show.return_value.placements = []
         stage_on_node(
             cast(Client, client),

@@ -272,7 +272,7 @@ class Crv:
     ) -> JsonObject:
         """Run a shell command inside the VM via the QEMU guest agent.
 
-        Returns the parsed envelope: `{exit_code, stdout, stderr}` (the
+        Returns the parsed envelope: `{exitcode, stdout, stderr}` (the
         daemon's GuestExecResult shape). Used by tests to drive in-guest
         one-shots (mounting virtiofs shares, probing systemd units) that
         the inner Corvus daemon itself doesn't expose.

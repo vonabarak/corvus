@@ -314,6 +314,7 @@ def run(
         runner,
         listen_ip=listen_ip,
         user_service=True,
+        database=database_value,
     )
     log(
         f"Deployed daemon cert (CN corvus-daemon:{daemon_plan.name}); "

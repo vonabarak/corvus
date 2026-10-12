@@ -169,7 +169,9 @@ def ensure_mounted(crv: Crv, node_name: str) -> None:
         "mountpoint -q /home/corvus/VMs/BaseImages || "
         f"mount -t virtiofs {BASE_IMAGES_TAG} /home/corvus/VMs/BaseImages"
     )
-    crv.vm_exec(node_name, script, timeout_sec=30.0)
+    result = crv.vm_exec(node_name, script, timeout_sec=30.0)
+    if result.get("exitcode") != 0:
+        raise RuntimeError(f"BaseImages mount failed on {node_name}: {result}")
 
 
 def register_all(
@@ -178,6 +180,7 @@ def register_all(
     node_name: str,
     *,
     host_dir: Path = HOST_BASE_IMAGES_DIR,
+    update_existing: bool = False,
 ) -> RegisteredImages:
     """Mount and register a fixed snapshot of the outer latest catalogue."""
     images = discover(crv.disk_list(), host_dir)
@@ -196,9 +199,14 @@ def register_all(
             )
         info = disk.show()
         if not any(p.file_path == str(image.guest_path) for p in info.placements):
-            raise ValueError(
-                f"Inner image {image.name} was registered from another file"
+            if not update_existing:
+                raise ValueError(
+                    f"Inner image {image.name} was registered from another file"
+                )
+            disk = client.disks.register(
+                image.name, str(image.guest_path), format=image.format
             )
+            info = disk.show()
         disk_ids[image.name] = info.id
     return RegisteredImages(images=images, disk_ids=disk_ids)
 

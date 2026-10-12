@@ -1,10 +1,15 @@
 #!/bin/bash
 # One-time idempotent setup for the corvus-web dev loop.
 #
-# RUN ME INSIDE the corvus-dev-node VM (boot it with `make dev-node-vm`
+# RUN ME INSIDE the corvus-dev-node VM (boot it with `make dev-node-vm-create`
 # on the host, SSH in with `make dev-node-vm-ssh`, then:
 #
 #   bash /mnt/corvus/scripts/devnode/setup.sh
+#
+# Or run `make dev-node-vm-setup` on the host to execute this over SSH.
+# Select the bundled PostgreSQL database with DEV_NODE_DATABASE=postgresql
+# on either host setup target, or --database postgresql when running manually.
+# SQLite is the default. Existing configurations must match the selection.
 #
 # What it does: bootstraps an admin CA inside the VM
 # (~/.config/corvus/admin/), then runs `corvus-admin quickstart
@@ -14,8 +19,7 @@
 #
 # Host-side prereqs (one-time per dev-node lifetime):
 #
-#   make dev-node-vm
-#   make dev-node-vm-ssh
+#   make dev-node-vm    # creates, sets up, registers images, and opens SSH
 #
 # The browser reaches corvus-web at the VM's managed-network IP; see
 # doc/dev-node.md.
@@ -23,6 +27,22 @@
 set -euo pipefail
 
 die() { echo "setup.sh: $*" >&2; exit 1; }
+
+database=sqlite
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --database)
+            [ "$#" -ge 2 ] || die "--database requires sqlite or postgresql"
+            database=$2
+            shift 2
+            ;;
+        *) die "unknown argument: $1 (usage: setup.sh [--database sqlite|postgresql])" ;;
+    esac
+done
+case "$database" in
+    sqlite|postgresql) ;;
+    *) die "--database must be sqlite or postgresql" ;;
+esac
 
 [ -d /mnt/corvus ]    || die "/mnt/corvus missing — run me inside corvus-dev-node"
 [ -d /opt/corvus/bin ] || die "/opt/corvus/bin missing — run me inside corvus-dev-node"
@@ -34,10 +54,29 @@ corvus_admin() {
 }
 
 if [ ! -d "$HOME/.config/corvus/admin" ]; then
-    echo "setup.sh: bootstrapping admin store with corvus-admin quickstart --skip-web"
-    corvus_admin quickstart --skip-web
+    quickstart_args=(--skip-web)
+    if [ "$database" = postgresql ]; then
+        psql postgresql:///corvus -v ON_ERROR_STOP=1 -c 'SELECT 1' \
+            || die "cannot access guest PostgreSQL database corvus; check 'sudo systemctl status postgresql-18.service' or start it with 'sudo systemctl start postgresql-18.service', then check the corvus role and database"
+        quickstart_args+=(--database postgresql:///corvus)
+    fi
+    echo "setup.sh: bootstrapping admin store with $database"
+    corvus_admin quickstart "${quickstart_args[@]}"
 else
-    echo "setup.sh: admin store already exists at $HOME/.config/corvus/admin — skipping quickstart"
+    exec_start=$(systemctl --user show corvus.service --property=ExecStart --value) \
+        || die "cannot inspect the configured daemon; configure it manually or recreate a disposable VM"
+    database_arg='--database[[:space:]]+([^[:space:];]+)'
+    [[ "$exec_start" =~ $database_arg ]] \
+        || die "cannot determine the configured database; configure it manually or recreate a disposable VM"
+    configured_database=${BASH_REMATCH[1]}
+    case "$configured_database" in
+        postgresql://*|postgres://*) configured_backend=postgresql ;;
+        *://*|--*) die "unrecognized configured database; inspect the daemon service manually" ;;
+        *) configured_backend=sqlite ;;
+    esac
+    [ "$configured_backend" = "$database" ] \
+        || die "configured backend is $configured_backend, requested $database; no data was migrated. Recreate a disposable VM with make dev-node-vm-clean (use DEV_NODE_VM for a custom name), or configure the backend manually"
+    echo "setup.sh: admin store already exists; reusing $configured_backend configuration"
 fi
 
 if systemctl --user is-active --quiet corvus.service; then

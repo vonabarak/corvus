@@ -28,6 +28,7 @@ class _FakeRunner:
         self.privesc = privesc.PrivEsc(tool="sudo", argv_prefix=("sudo",))
         self.calls: list[tuple[str, tuple[str, ...], dict[str, int | bool]]] = []
         self.copies: list[tuple[str, int]] = []
+        self.contents: dict[str, bytes] = {}
 
     def copy_bytes(
         self,
@@ -37,8 +38,9 @@ class _FakeRunner:
         mode: int,
         sudo: bool = True,
     ) -> None:
-        del data, sudo
+        del sudo
         self.copies.append((remote_path, mode))
+        self.contents[remote_path] = data
 
     def run(
         self,
@@ -109,13 +111,11 @@ def patched_quickstart(
 
     monkeypatch.setattr(register, "register_node", fake_register)
 
-    # Re-route both _drop_cert_trio and _install_and_restart to no-ops
-    # so cert minting still happens (real CA gets generated) but no
-    # systemctl is invoked.
+    # Certificate files stay in the fixture; unit installation and service
+    # commands go through the fake runner so their final contents are observable.
     from corvus_admin import deploy
 
     monkeypatch.setattr(deploy, "_drop_cert_trio", lambda *args, **kwargs: None)
-    monkeypatch.setattr(deploy, "_install_and_restart", lambda *args, **kwargs: None)
 
     return fake_runner
 
@@ -138,6 +138,20 @@ def test_quickstart_happy_path(tmp_path: Path, patched_quickstart: _FakeRunner) 
     # Three unit files installed (daemon, nodeagent, netd).
     assert len(result.units_installed) == 3
     assert any(".service" in u for u in result.units_installed)
+
+
+@pytest.mark.parametrize("database", ["postgresql:///corvus", "/tmp/custom-corvus.db"])
+def test_quickstart_preserves_database_during_deployment(
+    tmp_path: Path, patched_quickstart: _FakeRunner, database: str
+) -> None:
+    quickstart.run(
+        node_name="primary",
+        ca_dir=tmp_path / "admin",
+        database=database,
+        skip_web=True,
+    )
+    unit = patched_quickstart.contents["~/.config/systemd/user/corvus.service"].decode()
+    assert f"--database {database}" in unit
 
 
 def test_quickstart_skips_netd_when_no_privesc(
