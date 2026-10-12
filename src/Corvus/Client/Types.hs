@@ -4,6 +4,7 @@ module Corvus.Client.Types
     Options (..)
   , Command (..)
   , BorderStyleOpt (..)
+  , ColumnSelection (..)
 
     -- * Output format
   , OutputFormat (..)
@@ -21,6 +22,7 @@ where
 
 import Corvus.Model (GraphicsAdapter)
 import Data.Int (Int64)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Data.Word (Word64)
 
@@ -67,13 +69,17 @@ data Options = Options
   , optOutput :: OutputFormat
   , optBorders :: !BorderStyleOpt
   , optTruncate :: !Bool
-  , optColumns :: ![String]
+  , optColumns :: !ColumnSelection
   , optFitWidth :: !Bool
   , optNoTls :: !Bool
   , optTlsCertDir :: !(Maybe FilePath)
   , optCommand :: Command
   }
   deriving stock (Show)
+
+-- | Explicit selection distinguishes an omitted flag from all available columns.
+data ColumnSelection = DefaultColumns | AllColumns | NamedColumns !(NonEmpty String)
+  deriving stock (Show, Eq)
 
 -- | Border style for table output. The client parser translates this into
 -- 'Corvus.Client.Output.BorderStyle'; we keep them separate to avoid pulling

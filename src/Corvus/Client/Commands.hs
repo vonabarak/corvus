@@ -47,6 +47,7 @@ import Corvus.Client.Commands.Template
 import Corvus.Client.Commands.Vm
 import Corvus.Client.Config (defaultClientConfig)
 import Corvus.Client.Output
+import Corvus.Client.Output.Selection (validateColumnSelection)
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..))
@@ -88,6 +89,9 @@ runCommand :: Options -> IO ()
 runCommand opts = do
   let fmt = optOutput opts
       tableOpts = tableOptsFromOptions opts
+  case validateColumnSelection opts of
+    Left err -> hPutStrLn stderr ("Error: " ++ err) >> exitFailure
+    Right () -> pure ()
   case optCommand opts of
     Completion shell -> handleCompletion shell
     _ -> pure ()
@@ -135,13 +139,8 @@ runCommand opts = do
         r <- try @SomeException (CR.rpcVmList conn)
         case r of
           Right vms -> do
-            emitResult fmt vms $
-              if null vms
-                then putStrLn "No VMs found."
-                else do
-                  now <- getCurrentTime
-                  printTable tableOpts (vmColumns now) vms
-            pure True
+            now <- getCurrentTime
+            emitListResult fmt tableOpts (vmColumns now) "No VMs found." vms
           Left e -> do
             emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)

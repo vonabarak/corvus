@@ -18,10 +18,10 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
+import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitRpcError)
+import Corvus.Client.Output.Columns (netIfColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NetInterfaceType, NetworkDeviceModel)
-import Corvus.Protocol (NetIfInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
@@ -80,23 +80,10 @@ handleNetIfList fmt tableOpts conn vmRef = do
   r <- try @SomeException (CR.rpcNetIfList conn (entityRefFromText vmRef))
   case r of
     Right netIfs -> do
-      emitResult fmt netIfs $
-        if null netIfs
-          then putStrLn "No network interfaces found for this VM."
-          else printTable tableOpts netIfColumns netIfs
-      pure True
+      emitListResult fmt tableOpts netIfColumns "No network interfaces found for this VM." netIfs
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Column definitions for the @net-if list@ table.
-netIfColumns :: [Column NetIfInfo]
-netIfColumns =
-  [ Column "ID" RightAlign (show . niId)
-  , Column "MODEL" LeftAlign (T.unpack . enumToText . niModel)
-  , Column "TYPE" LeftAlign (T.unpack . enumToText . niType)
-  , Column "DEVICE" LeftAlign (T.unpack . niHostDevice)
-  , Column "MAC" LeftAlign (T.unpack . niMacAddress)
-  , Column "GUEST_IPS" LeftAlign (maybe "" T.unpack . niGuestIpAddresses)
-  ]

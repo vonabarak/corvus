@@ -104,6 +104,8 @@ library
       Corvus.Client
       Corvus.Client.Config
       Corvus.Client.Output
+      Corvus.Client.Output.Columns
+      Corvus.Client.Output.Selection
       Corvus.Client.Types
       Corvus.Client.Parser
       Corvus.Client.Parser.Utility

@@ -16,7 +16,8 @@ import Control.Exception (SomeException, try)
 import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, emitRpcError, isStructured, printTable)
+import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitResult, emitRpcError, isStructured)
+import Corvus.Client.Output.Columns (durationLabel, durationOf, entityLabel, formatDuration, formatTimestamp, isTaskPending, taskColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
 import Corvus.Protocol (NamedRef (..), TaskInfo (..))
@@ -24,7 +25,7 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
+import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import System.IO (hFlush, hPutStr, stderr, stdout)
 import Text.Printf (printf)
 
@@ -37,13 +38,8 @@ handleTaskList fmt tableOpts conn limit mSubText mResultText includeSubtasks =
       r <- try @SomeException (CR.rpcTaskList conn limit mSub mResult includeSubtasks)
       case r of
         Right tasks -> do
-          emitResult fmt tasks $
-            if null tasks
-              then putStrLn "No tasks found."
-              else do
-                now <- getCurrentTime
-                printTable tableOpts (taskColumns now) tasks
-          pure True
+          now <- getCurrentTime
+          emitListResult fmt tableOpts (taskColumns now) "No tasks found." tasks
         Left e -> do
           emitRpcError fmt e $
             putStrLn ("Error: " ++ show e)
@@ -130,10 +126,6 @@ handleTaskCancel fmt conn taskId = do
       pure True
 
 -- | A task is still pending if it's running or not yet started
-isTaskPending :: TaskResult -> Bool
-isTaskPending TaskRunning = True
-isTaskPending TaskNotStarted = True
-isTaskPending _ = False
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -200,20 +192,6 @@ printCompletionMessage taskId info =
       ++ maybe "" (\e -> " " ++ T.unpack (nrName e)) (tiEntity info)
       ++ maybe "" (\m -> ": " ++ T.unpack m) (tiMessage info)
 
--- | Column definitions for the @task list@ table.
-taskColumns :: UTCTime -> [Column TaskInfo]
-taskColumns now =
-  [ Column "ID" RightAlign (show . tiId)
-  , Column "SUBSYSTEM" LeftAlign (T.unpack . enumToText . tiSubsystem)
-  , Column "COMMAND" LeftAlign (T.unpack . tiCommand)
-  , Column "ENTITY" LeftAlign entityLabel
-  , Column "CLIENT" LeftAlign (T.unpack . tiClientName)
-  , Column "RESULT" LeftAlign (T.unpack . enumToText . tiResult)
-  , Column "STARTED" LeftAlign (formatTimestamp . tiStartedAt)
-  , Column "DURATION" RightAlign (durationLabel now)
-  , Column "MESSAGE" LeftAlign (T.unpack . fromMaybe "-" . tiMessage)
-  ]
-
 printSubtaskRow :: UTCTime -> TaskInfo -> IO ()
 printSubtaskRow now info =
   putStrLn $
@@ -242,33 +220,3 @@ printTaskDetail info = do
   putStrLn $ "Finished:   " ++ maybe "-" formatTimestamp (tiFinishedAt info)
   putStrLn $ "Duration:   " ++ maybe "-" formatDuration (durationOf info)
   putStrLn $ "Message:    " ++ T.unpack (fromMaybe "-" (tiMessage info))
-
-entityLabel :: TaskInfo -> String
-entityLabel info = case tiEntity info of
-  Just e -> T.unpack (nrName e) ++ " (" ++ show (nrId e) ++ ")"
-  Nothing -> "-"
-
-formatTimestamp :: UTCTime -> String
-formatTimestamp = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S"
-
-durationOf :: TaskInfo -> Maybe Double
-durationOf info = do
-  finish <- tiFinishedAt info
-  pure $ realToFrac $ diffUTCTime finish (tiStartedAt info)
-
-durationLabel :: UTCTime -> TaskInfo -> String
-durationLabel now info = case tiFinishedAt info of
-  Just finish -> formatDuration (realToFrac $ diffUTCTime finish (tiStartedAt info))
-  Nothing ->
-    if isTaskPending (tiResult info)
-      then formatDuration (realToFrac $ diffUTCTime now (tiStartedAt info)) ++ "..."
-      else "-"
-
-formatDuration :: Double -> String
-formatDuration d
-  | d < 1.0 = printf "%.0fms" (d * 1000)
-  | d < 60.0 = printf "%.1fs" d
-  | d < 3600.0 = printf "%.0fm%.0fs" (d / 60 :: Double) (mod' d 60)
-  | otherwise = printf "%.0fh%.0fm" (d / 3600 :: Double) (mod' (d / 60) 60)
-  where
-    mod' a b = a - b * fromIntegral (floor (a / b) :: Int)

@@ -11,10 +11,10 @@ module Corvus.Client.Commands.AudioDevice
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
+import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitRpcError)
+import Corvus.Client.Output.Columns (audioDeviceColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (AudioBackend, AudioDeviceModel, EnumText (..))
-import Corvus.Protocol.Vm (AudioDeviceInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
@@ -69,14 +69,5 @@ handleAudioDeviceList fmt tableOpts conn vmRef = do
   result <- try @SomeException (CR.rpcAudioDeviceList conn (entityRefFromText vmRef))
   case result of
     Right devices -> do
-      emitResult fmt devices $ if null devices then putStrLn "No audio devices found for this VM." else printTable tableOpts columns devices
-      pure True
+      emitListResult fmt tableOpts audioDeviceColumns "No audio devices found for this VM." devices
     Left err -> emitRpcError fmt err (print err) >> pure False
-  where
-    columns :: [Column AudioDeviceInfo]
-    columns =
-      [ Column "ID" RightAlign (show . adiId)
-      , Column "MODEL" LeftAlign (T.unpack . enumToText . adiModel)
-      , Column "BACKEND" LeftAlign (T.unpack . enumToText . adiBackend)
-      , Column "OPTIONS" LeftAlign (T.unpack . adiOptions)
-      ]

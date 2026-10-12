@@ -6,6 +6,8 @@
 
 ## Command References
 
+- [List Output Columns](list-output.md) -- Selectable text columns and shell completion for every list command
+
 - [VM Management](vm-management.md) -- Create, start, stop, edit, monitor VMs; serial console
 - [Disk Management](disk-management.md) -- Create, register, import, overlay, clone, rebase, attach/detach
 - [Snapshots](snapshots.md) -- Create, rollback, merge, delete qcow2 snapshots

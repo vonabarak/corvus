@@ -180,6 +180,18 @@ crv vm list -o json
 crv disk show my-root -o yaml
 ```
 
+Text list output supports choosing columns with `-O` / `--columns`:
+
+```bash
+crv vm list -O ID,NAME,STATUS
+crv vm list -O all
+```
+
+Selectors match descriptive headers and have shell autocompletion. The default
+column set stays the same. Column selection is only valid for text list output;
+`-O` with `-o json` or `-o yaml` is an error. See [List Output Columns](list-output.md)
+for the full catalog and selection rules.
+
 ### Shell Completion
 
 ```bash

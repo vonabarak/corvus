@@ -17,10 +17,10 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
+import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitRpcError)
+import Corvus.Client.Output.Columns (sharedDirColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), SharedDirCache)
-import Corvus.Protocol (SharedDirInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
@@ -71,11 +71,7 @@ handleSharedDirList fmt tableOpts conn vmRef = do
   r <- try @SomeException (CR.rpcSharedDirList conn (entityRefFromText vmRef))
   case r of
     Right dirs -> do
-      emitResult fmt dirs $
-        if null dirs
-          then putStrLn "No shared directories found for this VM."
-          else printTable tableOpts sharedDirColumns dirs
-      pure True
+      emitListResult fmt tableOpts sharedDirColumns "No shared directories found for this VM." dirs
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -87,12 +83,3 @@ readMaybeInt64 s = case reads s of
   _ -> Nothing
 
 -- | Column definitions for the @shared-dir list@ table.
-sharedDirColumns :: [Column SharedDirInfo]
-sharedDirColumns =
-  [ Column "ID" RightAlign (show . sdiId)
-  , Column "PATH" LeftAlign (T.unpack . sdiPath)
-  , Column "TAG" LeftAlign (T.unpack . sdiTag)
-  , Column "CACHE" LeftAlign (T.unpack . enumToText . sdiCache)
-  , Column "READ_ONLY" LeftAlign (show . sdiReadOnly)
-  , Column "PID" RightAlign (maybe "-" show . sdiPid)
-  ]

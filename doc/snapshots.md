@@ -63,8 +63,8 @@ crv disk snapshot create db pre-migration --quiesce require  # error out if no Q
 crv disk snapshot create db raw-snap --quiesce skip          # explicit unquiesced
 ```
 
-The `Q` column in `crv disk snapshot list` shows whether the snapshot
-was actually frozen (`+`) or not (`-`).
+The `QUIESCED` column in `crv disk snapshot list` shows whether the snapshot
+was actually frozen (`yes`) or not (`no`).
 
 **Safety:** the daemon ALWAYS attempts the thaw, even when the
 snapshot itself errors. If both the snapshot and the thaw fail,
@@ -103,9 +103,9 @@ captures the whole machine atomically: the qcow2 active state
 # same tag.
 crv disk snapshot create my-vm-disk pre-experiment --with-ram
 
-# crv disk snapshot list shows the new `V` column on the carrier row:
-#   ID | NAME             | CREATED | SIZE | LIVE | Q | V
-#   -- | pre-experiment   | …       | …       | +    | - | +
+# crv disk snapshot list shows the new `HAS_VMSTATE` column on the carrier row:
+#   ID | NAME             | CREATED | SIZE | LIVE | QUIESCED | HAS_VMSTATE
+#   -- | pre-experiment   | …       | …       | yes  | no | yes
 crv disk snapshot list my-vm-disk
 
 # Rollback resumes the VM in the saved running state — no separate
@@ -120,9 +120,9 @@ The on-disk record adds two columns to `crv disk snapshot list`:
 
 | Column | Meaning |
 |---|---|
-| `L` (live) | `+` if the snapshot was stamped via QMP on a running VM (always `+` for vmstate snapshots), `-` for offline `qemu-img snapshot -c`. |
-| `Q` (quiesced) | `+` if QGA `guest-fsfreeze` was active. Never set for vmstate snapshots — vmstate captures the in-flight page cache directly, so freezing would be unnecessary (and, during a multi-second `snapshot-save`, actively harmful). |
-| `V` (vmstate) | `+` only on the **carrier** disk of a `--with-ram` snapshot. Sibling rows that share the same tag carry just the block snapshot; the carrier's qcow2 is where the RAM lives. |
+| `LIVE` (live) | `yes` if the snapshot was stamped via QMP on a running VM (always `yes` for vmstate snapshots), `no` for offline `qemu-img snapshot -c`. |
+| `QUIESCED` (quiesced) | `yes` if QGA `guest-fsfreeze` was active. Never set for vmstate snapshots — vmstate captures the in-flight page cache directly, so freezing would be unnecessary (and, during a multi-second `snapshot-save`, actively harmful). |
+| `HAS_VMSTATE` (vmstate) | `yes` only on the **carrier** disk of a `--with-ram` snapshot. Sibling rows that share the same tag carry just the block snapshot; the carrier's qcow2 is where the RAM lives. |
 
 **No QGA fsfreeze for vmstate snapshots.** They're inherently
 guest-consistent because the saved RAM includes the in-flight

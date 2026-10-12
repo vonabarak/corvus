@@ -11,20 +11,28 @@ import Corvus.Client.Output
   , computeWidths
   , defaultTableOpts
   , fitToWidth
+  , formatBool
   , renderCell
   , renderTable
+  , resolveColumns
   , selectColumns
   )
+import Corvus.Client.Output.Columns (diskColumns, sharedDirColumns, snapshotColumns, sshKeyVmColumns, vmColumns)
+import Corvus.Client.Output.Selection (columnCompleter, columnCompletionRequest, completeColumns, parseColumnSelection)
+import Corvus.Client.Types (ColumnSelection (..))
 import Corvus.Model
 import Corvus.Protocol
 import Data.Aeson (ToJSON (..), Value (..), encode, object, (.=))
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.List (isInfixOf)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (isJust)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Options.Applicative.Types (Completer (..))
+import System.Environment (withArgs)
 import Test.Hspec
 
 -- Fixed timestamp for deterministic tests
@@ -33,6 +41,84 @@ testTime = posixSecondsToUTCTime 1700000000
 
 spec :: Spec
 spec = sequential $ do
+  describe "CLI column selection and completion" $ do
+    it "normalizes case and whitespace while keeping duplicates" $
+      parseColumnSelection " ID, name ,ID " `shouldBe` Right (NamedColumns ("id" :| ["name", "id"]))
+    it "recognizes all case insensitively" $ parseColumnSelection " ALL " `shouldBe` Right AllColumns
+    mapM_ (\raw -> it ("rejects malformed selection " ++ show raw) $ parseColumnSelection raw `shouldSatisfy` either (const True) (const False)) ["", " ", ",ID", "ID,", "ID,,NAME", "all,ID", "ID,ALL"]
+    it "completes a partial comma segment with canonical names" $
+      completeColumns ["vm", "list", "-O"] "ID,na" `shouldBe` ["ID,NAME"]
+    it "omits already selected names" $ completeColumns ["vm", "list", "-O"] "ID,ID" `shouldBe` []
+    it "offers all only by itself" $ do
+      completeColumns ["vm", "list", "-O"] "al" `shouldBe` ["all"]
+      completeColumns ["vm", "list", "-O"] "NAME,al" `shouldBe` []
+      completeColumns ["vm", "list", "-O"] "ALL," `shouldBe` []
+    it "uses each nested list catalog" $ do
+      completeColumns ["disk", "snapshot", "list", "disk", "-O"] "HAS" `shouldBe` ["HAS_VMSTATE"]
+      completeColumns ["vm", "snapshot", "list", "disk", "-O"] "VM" `shouldBe` ["VM"]
+      completeColumns ["ssh-key", "list-vm", "disk", "-O"] "ATT" `shouldBe` ["ATTACHED_VMS"]
+    it "offers a deduplicated union before a command is known" $ do
+      let names = completeColumns [] ""
+      length (filter (== "NAME") names) `shouldBe` 1
+      names `shouldSatisfy` elem "BACKING_IMAGE"
+      completeColumns ["disk", "snapshot"] "HAS" `shouldBe` ["HAS_VMSTATE"]
+    it "does not complete structured output or non-list commands" $ do
+      mapM_ (\ws -> completeColumns ws "" `shouldBe` []) [["vm", "show", "list"], ["ping"], ["vm", "snapshot", "show"], ["-o", "json", "vm", "list"], ["vm", "list", "--output=yaml"], ["vm", "list", "-oJSON"]]
+    it "skips global option values and entity positional arguments" $ do
+      completeColumns ["--host", "disk", "vm", "list", "-O"] "CLOUD" `shouldBe` ["CLOUD_INIT"]
+      completeColumns ["--socket", "vm", "--port", "1234", "--borders", "none", "--tls-cert-dir", "list", "vm", "show", "disk", "list", "-O"] "" `shouldBe` []
+    it "reads the shared shell completion protocol locally" $
+      withArgs ["--bash-completion-index", "4", "--bash-completion-word", "crv", "--bash-completion-word", "vm", "--bash-completion-word", "list", "--bash-completion-word", "-O", "--bash-completion-word", "ID,NA"] $
+        runCompleter columnCompleter "ID,NA" >>= (`shouldBe` ["ID,NAME"])
+
+    it "handles attached values and Bash split equals tokens" $ do
+      let request index ws = ["--bash-completion-index", show (index :: Int)] ++ concatMap (\w -> ["--bash-completion-word", w]) ws
+      columnCompletionRequest (request 3 ["crv", "vm", "list", "--columns=ID,NA"]) `shouldBe` Just ["--columns=ID,NAME"]
+      columnCompletionRequest (request 3 ["crv", "vm", "list", "-OID,NA"]) `shouldBe` Just ["-OID,NAME"]
+      columnCompletionRequest (request 5 ["crv", "vm", "list", "--columns", "=", "ID,NA"]) `shouldBe` Just ["ID,NAME"]
+      columnCompletionRequest (request 4 ["crv", "vm", "list", "--columns", "=ID,NA"]) `shouldBe` Just ["=ID,NAME"]
+      columnCompletionRequest (request 1 ["crv", "--columns=ID,NA", "vm", "list"]) `shouldBe` Just ["--columns=ID,NAME"]
+      columnCompletionRequest (request 1 ["crv", "--columns=ID,NA", "vm", "list", "-o", "json"]) `shouldBe` Just []
+      columnCompletionRequest (request 4 ["crv", "vm", "list", "-O", "ID,NA"]) `shouldBe` Nothing
+      columnCompletionRequest (request 8 ["crv"]) `shouldBe` Nothing
+      columnCompletionRequest (request (-1) ["crv"]) `shouldBe` Nothing
+      columnCompletionRequest [] `shouldBe` Nothing
+  describe "CLI boolean output" $ do
+    mapM_
+      ( \flag -> it ("uses yes/no for boolean columns: " ++ show flag) $ do
+          let expected = if flag then "yes" else "no"
+              vm = VmInfo 1 "vm" (NamedRef 2 "node") VmRunning 2 1024 flag flag flag flag Nothing flag flag "host" GraphicsVirtioVga flag flag flag 90
+              disk = DiskImageInfo 1 [] "disk" [] FormatRaw Nothing testTime [] Nothing flag
+              snapshot = SnapshotInfo 1 "snapshot" testTime Nothing flag flag flag
+              dir = SharedDirInfo 1 "/share" "tag" CacheAuto flag Nothing
+              values names cols row = map (`colRender` row) (filter ((`elem` names) . colName) cols)
+          formatBool flag `shouldBe` expected
+          values ["TPM", "CLOUD_INIT", "AUTOSTART", "HEADLESS", "GUEST_AGENT", "REBOOT_QUIRK", "VSOCK", "BALLOON", "RNG"] (vmColumns testTime) vm `shouldBe` replicate 9 expected
+          values ["EPHEMERAL"] diskColumns disk `shouldBe` [expected]
+          values ["LIVE", "QUIESCED", "HAS_VMSTATE"] snapshotColumns snapshot `shouldBe` replicate 3 expected
+          values ["READ_ONLY"] sharedDirColumns dir `shouldBe` [expected]
+      )
+      [False, True]
+  describe "CLI additional column values" $ do
+    it "renders disk references, node placements, and missing fields" $ do
+      let ref = NamedRef 12 "base"
+          disk = DiskImageInfo 1 [] "disk" [DiskImagePlacement (NamedRef 3 "node") "/images/disk"] FormatQcow2 (Just 1024) testTime [] (Just ref) False
+          cells chosen row = case resolveColumns chosen diskColumns of
+            Left err -> error err
+            Right cols -> map (`colRender` row) cols
+          selection = NamedColumns ("BACKING_IMAGE" :| ["PLACEMENTS", "CREATED"])
+      cells selection disk `shouldBe` ["base (12)", "node (3): /images/disk", "2023-11-14 22:13:20"]
+      cells selection (disk {diiBackingImage = Nothing, diiPlacements = []}) `shouldBe` ["-", "-", "2023-11-14 22:13:20"]
+    it "keeps default VM columns while all includes extra values" $ do
+      let vm = VmInfo 1 "vm" (NamedRef 2 "node") VmRunning 2 1024 True True False True (Just testTime) True False "host" GraphicsVirtioVga True False True 90
+          cols = vmColumns testTime
+      fmap (map colName) (resolveColumns DefaultColumns cols) `shouldBe` Right ["ID", "NAME", "NODE", "STATUS", "CPUS", "RAM", "HEALTH", "GUEST_AGENT", "CLOUD_INIT", "HEADLESS"]
+      case resolveColumns (NamedColumns ("HEADLESS" :| ["GUEST_AGENT", "BALLOON", "STARTUP_TIMEOUT_SEC", "HEALTHCHECK"])) cols of
+        Left err -> expectationFailure err
+        Right selected -> map (`colRender` vm) selected `shouldBe` ["yes", "yes", "no", "90", "2023-11-14 22:13:20"]
+    it "makes VM key attachments optional rather than unavailable" $ do
+      fmap (map colName) (resolveColumns DefaultColumns sshKeyVmColumns) `shouldBe` Right ["ID", "NAME", "PUBLIC_KEY"]
+      fmap (map colName) (resolveColumns AllColumns sshKeyVmColumns) `shouldBe` Right ["ID", "NAME", "PUBLIC_KEY", "ATTACHED_VMS", "CREATED"]
   describe "human and machine size output" $ do
     it "keeps numeric bytes in JSON and exact suffixes in human YAML values" $ do
       let disk = DiskImageInfo 1 [] "tiny" [] FormatRaw (Just 512) testTime [] Nothing False
@@ -445,7 +531,7 @@ spec = sequential $ do
           Left err -> expectationFailure err
 
       it "--columns reorders output columns" $ do
-        let opts = defaultTableOpts {toColumns = ["NAME", "ID"], toBorders = BordersNone}
+        let opts = defaultTableOpts {toColumns = NamedColumns ("NAME" :| ["ID"]), toBorders = BordersNone}
         case renderTable opts Nothing sampleCols [("1", "a")] of
           Right txt -> do
             -- Header line: NAME should appear before ID.
@@ -456,7 +542,7 @@ spec = sequential $ do
           Left err -> expectationFailure err
 
       it "unknown column name returns Left" $ do
-        let opts = defaultTableOpts {toColumns = ["bogus"]}
+        let opts = defaultTableOpts {toColumns = NamedColumns ("bogus" :| [])}
         case renderTable opts Nothing sampleCols [] of
           Left msg -> msg `shouldContain` "unknown column"
           Right _ -> expectationFailure "expected Left"

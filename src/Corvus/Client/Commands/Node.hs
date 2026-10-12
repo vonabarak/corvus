@@ -17,9 +17,10 @@ import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output
+import Corvus.Client.Output.Columns (nodeColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NodeAdminState)
-import Corvus.Protocol (NodeDetails (..), NodeInfo (..))
+import Corvus.Protocol (NodeDetails (..))
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
@@ -78,11 +79,7 @@ handleNodeList fmt tableOpts conn = do
   r <- try @SomeException (CR.rpcNodeList conn)
   case r of
     Right nodes -> do
-      emitResult fmt nodes $
-        if null nodes
-          then putStrLn "No nodes registered."
-          else printTable tableOpts nodeColumns nodes
-      pure True
+      emitListResult fmt tableOpts nodeColumns "No nodes registered." nodes
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -127,11 +124,9 @@ handleNodeShow fmt conn nRef = do
         maybe "(never)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (nodLastNodeAgentPushAt d)
       printField "Netd last push" $
         maybe "(never)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (nodLastNetAgentPushAt d)
-      printField "Netd disabled" (if nodNetdDisabled d then "true" else "false")
+      printField "Netd disabled" (formatBool (nodNetdDisabled d))
       printField "Netd connected" $
-        if nodNetdDisabled d
-          then "(disabled)"
-          else if nodNetdConnected d then "yes" else "no"
+        formatBool (nodNetdConnected d)
 
     loadStr a b c = render a ++ " / " ++ render b ++ " / " ++ render c
     render = maybe "--" (formatRound . (\x -> x :: Double))
@@ -231,28 +226,3 @@ handleNodeDelete fmt conn nRef = do
 --------------------------------------------------------------------------------
 -- Table for `crv node list`
 --------------------------------------------------------------------------------
-
-nodeColumns :: [Column NodeInfo]
-nodeColumns =
-  [ Column "ID" RightAlign (show . noiId)
-  , Column "NAME" LeftAlign (T.unpack . noiName)
-  , Column "HOST" LeftAlign (T.unpack . noiHost)
-  , Column "STATE" LeftAlign (T.unpack . enumToText . noiAdminState)
-  , Column "NETD" LeftAlign netdState
-  , Column "CPUS" RightAlign (maybe "--" show . noiCpuCount)
-  , Column "RAM_FREE" RightAlign (maybe "--" formatSize . noiRamFree)
-  , Column "DISK_FREE" RightAlign $ \n ->
-      maybe
-        "--"
-        formatSize
-        (noiStorageBytesFree n)
-  , Column "LOAD1" RightAlign (maybe "--" (formatLoad . (\x -> x :: Double)) . noiLoadAvg1)
-  ]
-  where
-    formatLoad x =
-      let s = (round (x * 100) :: Int)
-       in show (fromIntegral s / (100 :: Double))
-    netdState n
-      | noiNetdDisabled n = "disabled"
-      | noiNetdConnected n = "online"
-      | otherwise = "offline"

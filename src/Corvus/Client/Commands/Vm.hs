@@ -47,10 +47,11 @@ import Control.Monad (unless, when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Config (ClientConfig (..))
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTable)
+import Corvus.Client.Output (TableOpts, emitListResult, emitOk, emitOkWith, emitResult, emitRpcError, formatBool, isStructured, printField)
+import Corvus.Client.Output.Columns (vmColumns, vmSnapshotColumns)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), GraphicsAdapter, VmStatus (..))
-import Corvus.Protocol (AudioDeviceInfo (..), DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
+import Corvus.Protocol (AudioDeviceInfo (..), DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmSnapshotInfo (..), VmStats (..))
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
@@ -60,7 +61,7 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
+import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Word (Word32)
 import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
@@ -472,21 +473,6 @@ doRawTerminalSession savedAttrs writeInput endSignal kind mCtrlAltDelAction mFlu
 -- Display
 -- ---------------------------------------------------------------------
 
--- | Column definitions for the @vm list@ table.
-vmColumns :: UTCTime -> [Column VmInfo]
-vmColumns now =
-  [ Column "ID" RightAlign (show . viId)
-  , Column "NAME" LeftAlign (T.unpack . viName)
-  , Column "NODE" LeftAlign (T.unpack . nrName . viNode)
-  , Column "STATUS" LeftAlign (T.unpack . enumToText . viStatus)
-  , Column "CPUS" RightAlign (show . viCpuCount)
-  , Column "RAM" RightAlign (formatSize . viRam)
-  , Column "HEALTH" LeftAlign (healthLabel now)
-  , Column "TPM" LeftAlign (\vm -> if viTpm vm then "+" else "-")
-  , Column "CI" LeftAlign (\vm -> if viCloudInit vm then "+" else "-")
-  , Column "AS" LeftAlign (\vm -> if viAutostart vm then "+" else "-")
-  ]
-
 -- | Print full VM details
 printVmDetails :: VmDetails -> IO ()
 printVmDetails vm = do
@@ -516,19 +502,19 @@ printVmDetails vm = do
   printField "CPU Model" (T.unpack (vdCpuModel vm))
   printField "RAM" (formatSize (vdRam vm))
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
-  printField "Headless" (show (vdHeadless vm))
+  printField "Headless" (formatBool (vdHeadless vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
   unless (vdHeadless vm) $
     putStrLn $
       "Graphics adapter: " ++ T.unpack (enumToText (vdGraphicsAdapter vm))
-  printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
-  printField "Vsock" (if vdVsock vm then "enabled" else "disabled")
-  printField "Memory balloon" (if vdBalloon vm then "enabled" else "disabled")
-  printField "VirtIO RNG" (if vdRng vm then "enabled" else "disabled")
-  printField "TPM 2.0" (if vdTpm vm then "enabled" else "disabled")
-  printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
-  printField "Autostart" (if vdAutostart vm then "enabled" else "disabled")
-  printField "Reboot quirk" (if vdRebootQuirk vm then "enabled" else "disabled")
+  printField "Guest Agent" (formatBool (vdGuestAgent vm))
+  printField "Vsock" (formatBool (vdVsock vm))
+  printField "Memory balloon" (formatBool (vdBalloon vm))
+  printField "VirtIO RNG" (formatBool (vdRng vm))
+  printField "TPM 2.0" (formatBool (vdTpm vm))
+  printField "Cloud-init" (formatBool (vdCloudInit vm))
+  printField "Autostart" (formatBool (vdAutostart vm))
+  printField "Reboot quirk" (formatBool (vdRebootQuirk vm))
   case vdCloudInitConfig vm of
     Just _ -> printField "Cloud-init Config" "custom"
     Nothing -> pure ()
@@ -582,9 +568,9 @@ printVmDetails vm = do
       putStrLn $ "    Interface: " ++ T.unpack (enumToText $ diInterface d)
       putStrLn $ "    Path: " ++ T.unpack (diFilePath d)
       putStrLn $ "    Format: " ++ T.unpack (enumToText $ diFormat d)
-      putStrLn $ "    Read-only: " ++ show (diReadOnly d)
+      putStrLn $ "    Read-only: " ++ formatBool (diReadOnly d)
       putStrLn $ "    Cache: " ++ T.unpack (enumToText $ diCacheType d)
-      putStrLn $ "    Discard: " ++ show (diDiscard d)
+      putStrLn $ "    Discard: " ++ formatBool (diDiscard d)
 
     printNetIf n = do
       putStrLn $ "  - ID: " ++ show (niId n)
@@ -603,15 +589,6 @@ printVmDetails vm = do
       unless (T.null (adiOptions a)) $
         putStrLn $
           "    Options: " ++ T.unpack (adiOptions a)
-
--- | Compute health label for VM list display
-healthLabel :: UTCTime -> VmInfo -> String
-healthLabel now vm
-  | not (viGuestAgent vm) = "--"
-  | viStatus vm /= VmRunning = "--"
-  | otherwise = case viHealthcheck vm of
-      Nothing -> "DOWN"
-      Just t -> if diffUTCTime now t < 30 then "OK" else "DOWN"
 
 -- | Format uptime in human-readable format
 formatUptime :: Int -> String
@@ -736,11 +713,7 @@ handleVmSnapshotList fmt tableOpts conn vmRef = do
   r <- try @SomeException (CR.rpcVmSnapshotList conn (entityRefFromText vmRef))
   case r of
     Right snaps -> do
-      emitResult fmt snaps $
-        if null snaps
-          then putStrLn "No VM-scoped snapshots found."
-          else printTable tableOpts vmSnapshotColumns snaps
-      pure True
+      emitListResult fmt tableOpts vmSnapshotColumns "No VM-scoped snapshots found." snaps
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -775,12 +748,3 @@ handleVmSnapshotDelete fmt conn vmRef name = do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
-
-vmSnapshotColumns :: [Column VmSnapshotInfo]
-vmSnapshotColumns =
-  [ Column "NAME" LeftAlign (T.unpack . vsiName)
-  , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . vsiCreatedAt)
-  , Column "CARRIER" LeftAlign (T.unpack . nrName . vsiCarrierDisk)
-  , Column "DISKS" RightAlign (show . vsiDiskCount)
-  , Column "SIZE" RightAlign (formatSize . vsiTotalSize)
-  ]

@@ -1,5 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -15,12 +16,14 @@ import qualified Capnp.Gen.Task as GTask
 import qualified Capnp.Gen.Template as GTemplate
 import qualified Capnp.Gen.Vm as GVm
 import Control.Monad (forM_)
+import Corvus.Client.Output.Selection (listColumnNames)
 import Corvus.Client.Types
 import Corvus.Model (GraphicsAdapter (..))
 import Data.Aeson (Value, eitherDecodeStrict', object, toJSON, (.=))
 import qualified Data.ByteString.Char8 as BS
 import Data.Either (isRight)
 import Data.List (isInfixOf)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Yaml as Yaml
 import System.Exit (ExitCode (..))
@@ -47,6 +50,42 @@ spec = sequential $ describe "CLI commands over typed fake RPC" $ do
         case fmt of
           TextOutput -> pure ()
           _ -> decoded fmt out `shouldBe` Right (object ["status" .= ("error" :: String), "error" .= ("rpc_error" :: String), "message" .= ("scripted RPC failure" :: String)])
+  describe "boolean detail output" $ do
+    forM_ [False, True] $ \flag ->
+      it ("renders VM boolean fields consistently: " ++ show flag) $ withMock $ \f -> do
+        expectCalls f ["Daemon.vms", "VmManager.get", "Vm.show"]
+        let details = case sampleVmDetails of
+              GVm.VmDetails {GVm.id = vmId, ..} -> GVm.VmDetails {GVm.id = vmId, GVm.headless = flag, GVm.guestAgent = flag, GVm.tpm = flag, GVm.cloudInit = flag, GVm.autostart = flag, GVm.rebootQuirk = flag, GVm.vsock = flag, GVm.balloon = flag, GVm.rng = flag, ..}
+        setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results details))
+        out <- checkCli f TextOutput (VmShow "fixture") ExitSuccess
+        forM_ ["Headless", "Guest Agent", "Vsock", "Memory balloon", "VirtIO RNG", "TPM 2.0", "Cloud-init", "Autostart", "Reboot quirk"] $ \label ->
+          [last (words line) | line <- lines out, (label ++ ":") `isInfixOf` line, not ("fixture" `isInfixOf` line)] `shouldBe` [if flag then "yes" else "no"]
+  describe "selectable list columns" $ do
+    forM_ cases $ \(cmd, calls, _) -> case listColumnNames cmd of
+      Nothing -> pure ()
+      Just names@(firstName : _) -> do
+        it ("shows every available column for " ++ show cmd) $ withMock $ \f -> do
+          expectCalls f calls
+          (code, out, err) <- runCli ((cliOptions f TextOutput cmd) {optColumns = AllColumns})
+          code `shouldBe` ExitSuccess
+          err `shouldBe` ""
+          concatMap words (take 1 (lines out)) `shouldBe` names
+        it ("preserves selection order and duplicates for " ++ show cmd) $ withMock $ \f -> do
+          expectCalls f calls
+          let name = last names
+          (code, out, err) <- runCli ((cliOptions f TextOutput cmd) {optColumns = NamedColumns (name :| [firstName, name])})
+          code `shouldBe` ExitSuccess
+          err `shouldBe` ""
+          concatMap words (take 1 (lines out)) `shouldBe` [name, firstName, name]
+      Just [] -> it "has a nonempty list catalog" $ expectationFailure "empty column catalog"
+    forM_ [(VmList, JsonOutput, AllColumns, "requires -o text"), (DiskList, YamlOutput, AllColumns, "requires -o text"), (Ping, TextOutput, AllColumns, "only supported for list"), (VmList, TextOutput, NamedColumns ("CI" :| []), "available columns"), (VmList, TextOutput, NamedColumns ("NO_SUCH_COLUMN" :| []), "available columns")] $ \(cmd, fmt, selection, message) ->
+      it ("rejects selection before connection for " ++ show (cmd, fmt, selection)) $ withMock $ \f -> do
+        expectCalls f []
+        let opts = (cliOptions f fmt cmd) {optSocket = Just "/nonexistent/corvus.sock", optColumns = selection, optTlsCertDir = Just "/nonexistent/certs"}
+        (code, out, err) <- runCli opts
+        code `shouldBe` ExitFailure 1
+        out `shouldBe` ""
+        err `shouldSatisfy` isInfixOf message
   describe "local validation rejects invalid input without RPC" $
     forM_ invalid $ \(cmd, message) -> forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> it (show (cmd, fmt)) $ withMock $ \f -> do
       expectCalls f []

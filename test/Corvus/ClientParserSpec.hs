@@ -7,6 +7,7 @@ import Corvus.Client.Parser
 import Corvus.Client.Types
 import Corvus.Model (GraphicsAdapter (..))
 import Data.List (isInfixOf, nub)
+import Data.List.NonEmpty (NonEmpty (..))
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, prefs, renderFailure, showHelpOnError)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -18,15 +19,15 @@ spec = do
   describe "CLI global options" $ do
     it "uses the default connection and display settings" $ parsed defaults ["ping"] $ \o -> do
       (optSocket o, optUnix o, optHost o, optPort o) `shouldBe` (Nothing, False, "127.0.0.1", 9876)
-      (optOutput o, optBorders o, optTruncate o, optColumns o, optFitWidth o) `shouldBe` (TextOutput, BordersUnicodeOpt, True, [], True)
+      (optOutput o, optBorders o, optTruncate o, optColumns o, optFitWidth o) `shouldBe` (TextOutput, BordersUnicodeOpt, True, DefaultColumns, True)
       (optNoTls o, optTlsCertDir o) `shouldBe` (False, Nothing)
     it "overrides supplied defaults and parses display and TLS options"
       $ parsed
         (ClientDefaults (Just "/env.sock") "env-host" 1234)
-        ["--socket", "/cli.sock", "--unix", "-H", "cli-host", "-p", "4321", "-o", "JSON", "--borders", "ASCII", "--no-truncate", "--columns", ",id,,name,", "--no-fit", "--no-tls", "--tls-cert-dir", "/certs", "ping"]
+        ["--socket", "/cli.sock", "--unix", "-H", "cli-host", "-p", "4321", "-o", "JSON", "--borders", "ASCII", "--no-truncate", "--columns", "id,name", "--no-fit", "--no-tls", "--tls-cert-dir", "/certs", "ping"]
       $ \o -> do
         (optSocket o, optUnix o, optHost o, optPort o) `shouldBe` (Just "/cli.sock", True, "cli-host", 4321)
-        (optOutput o, optBorders o, optTruncate o, optColumns o, optFitWidth o) `shouldBe` (JsonOutput, BordersAsciiOpt, False, ["id", "name"], False)
+        (optOutput o, optBorders o, optTruncate o, optColumns o, optFitWidth o) `shouldBe` (JsonOutput, BordersAsciiOpt, False, NamedColumns ("id" :| ["name"]), False)
         (optNoTls o, optTlsCertDir o) `shouldBe` (True, Just "/certs")
     it "preserves supplied defaults when flags are absent" $ parsed (ClientDefaults (Just "/env.sock") "env-host" 1234) ["ping"] $ \o ->
       (optSocket o, optHost o, optPort o) `shouldBe` (Just "/env.sock", "env-host", 1234)
@@ -36,7 +37,11 @@ spec = do
     mapM_
       (\(args, expected) -> it ("parses borders " <> unwords args) $ parsed defaults (args <> ["ping"]) $ \o -> optBorders o `shouldBe` expected)
       [(["--borders", "unicode"], BordersUnicodeOpt), (["--borders", "none"], BordersNoneOpt), (["--no-borders"], BordersNoneOpt)]
-    it "accepts an empty columns selection" $ parsed defaults ["--columns", "", "ping"] $ \o -> optColumns o `shouldBe` []
+    mapM_
+      (\args -> it ("parses column flag " ++ unwords args) $ parsed defaults args $ \o -> optColumns o `shouldBe` NamedColumns ("id" :| ["name"]))
+      [["-O", "ID,NAME", "vm", "list"], ["vm", "list", "-O", "ID,NAME"], ["vm", "list", "--columns=ID,NAME"]]
+    it "parses all columns" $ parsed defaults ["vm", "list", "-O", "ALL"] $ \o -> optColumns o `shouldBe` AllColumns
+    it "rejects an empty columns selection" $ rejected ["--columns", "", "ping"] "nonempty"
   describe "CLI argument rejection" $ mapM_ (\(args, message) -> it ("rejects " <> unwords args) $ rejected args message) failures
   describe "CLI help" $
     mapM_

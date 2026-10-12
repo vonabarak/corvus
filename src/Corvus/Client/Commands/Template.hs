@@ -24,10 +24,11 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTable, tableFormat)
+import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitResult, emitRpcError, formatBool, printField, tableFormat)
+import Corvus.Client.Output.Columns (templateVmColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
-import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
+import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..))
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
@@ -124,11 +125,7 @@ handleTemplateList fmt tableOpts conn = do
   r <- try @SomeException (CR.rpcTemplateList conn)
   case r of
     Right templates -> do
-      emitResult fmt templates $
-        if null templates
-          then putStrLn "No templates found."
-          else printTable tableOpts templateVmColumns templates
-      pure True
+      emitListResult fmt tableOpts templateVmColumns "No templates found." templates
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -175,16 +172,6 @@ handleTemplateInstantiate fmt conn tid name nodeRef = do
 -- Printers
 --------------------------------------------------------------------------------
 
--- | Column definitions for the @template list@ table.
-templateVmColumns :: [Column TemplateVmInfo]
-templateVmColumns =
-  [ Column "ID" RightAlign (show . tviId)
-  , Column "NAME" LeftAlign (T.unpack . tviName)
-  , Column "CPUS" RightAlign (show . tviCpuCount)
-  , Column "RAM" RightAlign (formatSize . tviRam)
-  , Column "TPM" LeftAlign (\t -> if tviTpm t then "+" else "-")
-  ]
-
 -- | Print full template details
 printTemplateDetails :: TemplateDetails -> IO ()
 printTemplateDetails t = do
@@ -198,10 +185,10 @@ printTemplateDetails t = do
     Nothing -> pure ()
   printField "Console" (if tvdHeadless t then "serial (headless)" else "SPICE (graphics)")
   printField "Graphics adapter" (T.unpack (enumToText (tvdGraphicsAdapter t)))
-  printField "Guest Agent" (if tvdGuestAgent t then "enabled" else "disabled")
-  printField "TPM 2.0" (if tvdTpm t then "enabled" else "disabled")
-  printField "Cloud-init" (if tvdCloudInit t then "enabled" else "disabled")
-  printField "Autostart" (if tvdAutostart t then "enabled" else "disabled")
+  printField "Guest Agent" (formatBool (tvdGuestAgent t))
+  printField "TPM 2.0" (formatBool (tvdTpm t))
+  printField "Cloud-init" (formatBool (tvdCloudInit t))
+  printField "Autostart" (formatBool (tvdAutostart t))
   case tvdCloudInitConfig t of
     Just _ -> printField "Cloud-init Config" "custom"
     Nothing -> pure ()
@@ -220,7 +207,7 @@ printTemplateDetails t = do
           (maybe "-" (T.unpack . nrName) (tvdiDiskImage d))
           (T.unpack $ enumToText $ tvdiInterface d)
           (T.unpack $ enumToText $ tvdiCloneStrategy d)
-          (show $ tvdiReadOnly d)
+          (formatBool $ tvdiReadOnly d)
           (T.unpack $ enumToText $ tvdiCacheType d)
           (maybe "-" formatSize (tvdiSize d))
 
@@ -258,4 +245,4 @@ printTemplateDetails t = do
           (T.unpack $ tvsdiPath sd)
           (T.unpack $ tvsdiTag sd)
           (T.unpack $ enumToText $ tvsdiCache sd)
-          (show $ tvsdiReadOnly sd)
+          (formatBool $ tvsdiReadOnly sd)

@@ -11,6 +11,7 @@ module Corvus.Client.Output
   , emitOkWith
   , emitError
   , emitResult
+  , emitListResult
 
     -- * Table rendering
   , Align (..)
@@ -23,6 +24,7 @@ module Corvus.Client.Output
   , renderTable
 
     -- * Detail views
+  , formatBool
   , printField
 
     -- * Legacy sub-table helpers (used by detail views)
@@ -30,6 +32,8 @@ module Corvus.Client.Output
 
     -- * Internal (exposed for testing)
   , selectColumns
+  , resolveColumns
+  , isDefaultColumn
   , computeWidths
   , fitToWidth
   , renderCell
@@ -43,13 +47,14 @@ import qualified Capnp.Gen.Capnp.Rpc as CapnpRpc
 import Capnp.Rpc.Errors ()
 import Control.Exception (Exception, SomeException, fromException, toException)
 import Corvus.Client.Human (HumanJSON (..))
-import Corvus.Client.Types (BorderStyleOpt (..), Options (..), OutputFormat (..))
+import Corvus.Client.Types (BorderStyleOpt (..), ColumnSelection (..), Options (..), OutputFormat (..))
 import Corvus.Wire.Error (errorCodeText, parseWireError)
 import Data.Aeson (Key, Value, encode, object, toJSON, (.=))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Char (toLower)
 import Data.List (sortOn)
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
 import Data.Text (Text)
@@ -57,7 +62,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Yaml
 import System.Console.ANSI (getTerminalSize, hSupportsANSI)
-import System.IO (hIsTerminalDevice, stdout)
+import System.IO (hIsTerminalDevice, hPutStrLn, stderr, stdout)
 import Text.Printf (printf)
 
 -- | Whether the output format is structured (json/yaml) vs text
@@ -163,6 +168,17 @@ emitResult fmt val textAction
   | isStructured fmt = outputResult fmt val
   | otherwise = textAction
 
+-- | Shared list emitter validates selection even when the result is empty.
+emitListResult :: (HumanJSON a) => OutputFormat -> TableOpts -> [Column a] -> String -> [a] -> IO Bool
+emitListResult fmt opts cols emptyMessage rows
+  | isStructured fmt = outputResult fmt rows >> pure True
+  | otherwise = case resolveColumns (toColumns opts) cols of
+      Left err -> hPutStrLn stderr ("Error: " ++ err) >> pure False
+      Right selected ->
+        if null rows
+          then putStrLn emptyMessage >> pure True
+          else printTable (opts {toColumns = AllColumns}) selected rows
+
 --------------------------------------------------------------------------------
 -- Table rendering
 --------------------------------------------------------------------------------
@@ -177,11 +193,26 @@ data Align = LeftAlign | RightAlign
 -- Columns are sized to fit their widest rendered value by default. Shrinking
 -- only happens when the table would otherwise overflow the terminal width
 -- (see 'TableOpts'); callers do not cap individual columns.
-data Column a = Column
-  { colName :: !String
-  , colAlign :: !Align
-  , colRender :: a -> String
-  }
+data Column a
+  = Column
+      { colName :: !String
+      , colAlign :: !Align
+      , colRender :: a -> String
+      }
+  | ExtraColumn
+      { colName :: !String
+      , colAlign :: !Align
+      , colRender :: a -> String
+      }
+
+isDefaultColumn :: Column a -> Bool
+isDefaultColumn Column {} = True
+isDefaultColumn ExtraColumn {} = False
+
+resolveColumns :: ColumnSelection -> [Column a] -> Either String [Column a]
+resolveColumns DefaultColumns = Right . filter isDefaultColumn
+resolveColumns AllColumns = Right
+resolveColumns (NamedColumns names) = selectColumns (NE.toList names)
 
 -- | Border style for table drawing.
 data BorderStyle = BordersUnicode | BordersAscii | BordersNone
@@ -194,22 +225,21 @@ data TableOpts = TableOpts
   -- ^ True = ellipsis when a value exceeds the column width.
   -- False = print the full value (scripts reading column positions still work
   -- because alignment is preserved column-by-column).
-  , toColumns :: ![String]
-  -- ^ Column selector. Empty = all in declared order. Otherwise: filter and
-  -- reorder to match (case-insensitive). Unknown names produce an error.
+  , toColumns :: !ColumnSelection
+  -- ^ Defaults, all available columns, or an ordered case-insensitive selection.
   , toFitWidth :: !Bool
   -- ^ Shrink columns to fit the terminal width. Only applies when @toTruncate@
   -- is also true — there's no point fitting if we're going to overflow anyway.
   }
   deriving stock (Show, Eq)
 
--- | Default options: Unicode borders, truncation, fit to terminal, all columns.
+-- | Default options: Unicode borders, truncation, fit to terminal, default columns.
 defaultTableOpts :: TableOpts
 defaultTableOpts =
   TableOpts
     { toBorders = BordersUnicode
     , toTruncate = True
-    , toColumns = []
+    , toColumns = DefaultColumns
     , toFitWidth = True
     }
 
@@ -234,7 +264,7 @@ tableOptsFromOptions opts =
 -- escape sequence and reads the reply off 'stdin' — on a
 -- non-interactive @ssh@ session that read blocks forever and
 -- eventually fails with @hWaitForInput: end of file@.
-printTable :: TableOpts -> [Column a] -> [a] -> IO ()
+printTable :: TableOpts -> [Column a] -> [a] -> IO Bool
 printTable opts cols rows = do
   isTty <- hIsTerminalDevice stdout
   termWidth <-
@@ -253,8 +283,8 @@ printTable opts cols rows = do
           then opts {toBorders = BordersAscii}
           else opts
   case renderTable effectiveOpts termWidth cols rows of
-    Left err -> TIO.putStrLn $ "Error: " <> T.pack err
-    Right txt -> TIO.putStr txt
+    Left err -> hPutStrLn stderr ("Error: " ++ err) >> pure False
+    Right txt -> TIO.putStr txt >> pure True
 
 -- | Pure table rendering. Returns @Left err@ on column-selection errors.
 --
@@ -264,7 +294,7 @@ printTable opts cols rows = do
 -- exceed the available terminal width AND truncation is enabled.
 renderTable :: TableOpts -> Maybe Int -> [Column a] -> [a] -> Either String Text
 renderTable opts mTermWidth allCols rows = do
-  cols <- selectColumns (toColumns opts) allCols
+  cols <- resolveColumns (toColumns opts) allCols
   let natural = computeWidths cols rows
       chars = borderChars (toBorders opts)
       overhead = borderOverhead chars (length natural)
@@ -514,3 +544,8 @@ tableFormat cols =
       totalWidth = sum [abs w | (_, w) <- cols] + length cols - 1
       sep = replicate totalWidth '-'
    in (fmt, sep)
+
+-- | Canonical boolean representation for human-readable CLI output.
+formatBool :: Bool -> String
+formatBool True = "yes"
+formatBool False = "no"

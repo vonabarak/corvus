@@ -170,7 +170,7 @@ artifacts that have no value outside the VM's lifetime.
 `crv vm delete --keep-disks` overrides the auto-reap and keeps every
 attached disk, ephemeral or not. The ephemeral flag itself is visible
 in `crv disk show <name>` (the `Ephemeral` field) and in `crv disk
-list` (the `EPH` column).
+list` (the `EPHEMERAL` column).
 
 Non-ephemeral disks attached exclusively to a VM are **not**
 auto-deleted on `vm delete` — remove them with `crv disk delete` after

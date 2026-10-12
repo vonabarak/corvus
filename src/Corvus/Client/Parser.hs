@@ -16,6 +16,7 @@ module Corvus.Client.Parser
   )
 where
 
+import Corvus.Client.Output.Selection (columnCompleter, parseColumnSelection)
 import Corvus.Client.Parser.Apply (applyCommand)
 import Corvus.Client.Parser.AudioDevice (audioDeviceCommandParser)
 import Corvus.Client.Parser.Build (buildCommand)
@@ -230,27 +231,18 @@ readBorderStyle = eitherReader $ \s -> case map toLower s of
   "none" -> Right BordersNoneOpt
   _ -> Left $ "Unknown border style: " ++ s ++ " (use unicode, ascii, or none)"
 
--- | Parser for --columns flag.
-columnsParser :: Parser [String]
+-- | Select columns for text list output.
+columnsParser :: Parser ColumnSelection
 columnsParser =
   option
-    (splitOn ',' <$> str)
+    (eitherReader parseColumnSelection)
     ( long "columns"
+        <> short 'O'
         <> metavar "COLS"
-        <> value []
-        <> help "Comma-separated column names to show in list output (e.g. --columns id,name). Default: all columns."
+        <> value DefaultColumns
+        <> completer columnCompleter
+        <> help "Text list columns in display order (e.g. -O ID,NAME; all shows every available column)"
     )
-
--- | Split a string on a delimiter, filtering out empties.
-splitOn :: Char -> String -> [String]
-splitOn delim s = filter (not . null) (go s)
-  where
-    go [] = [""]
-    go (c : rest)
-      | c == delim = "" : go rest
-      | otherwise = case go rest of
-          (h : t) -> (c : h) : t
-          [] -> [[c]]
 
 -- | Parser for output format
 outputFormatParser :: Parser OutputFormat

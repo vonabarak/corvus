@@ -21,6 +21,7 @@ import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output
+import Corvus.Client.Output.Columns (networkColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Protocol (NetworkInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
@@ -108,11 +109,7 @@ handleNetworkList fmt tableOpts conn = do
   r <- try @SomeException (CR.rpcNetworkList conn)
   case r of
     Right networks -> do
-      emitResult fmt networks $
-        if null networks
-          then putStrLn "No networks found."
-          else printTable tableOpts networkColumns networks
-      pure True
+      emitListResult fmt tableOpts networkColumns "No networks found." networks
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -130,10 +127,10 @@ handleNetworkShow fmt conn nwRef = do
         let sub = nwiSubnet info
         unless (T.null sub) $
           printField "Subnet" (T.unpack sub)
-        printField "DHCP" (if nwiDhcp info then "enabled" else "disabled")
-        printField "NAT" (if nwiNat info then "enabled" else "disabled")
+        printField "DHCP" (formatBool (nwiDhcp info))
+        printField "NAT" (formatBool (nwiNat info))
         printField "Status" (if nwiRunning info then "running" else "stopped")
-        printField "Autostart" (if nwiAutostart info then "enabled" else "disabled")
+        printField "Autostart" (formatBool (nwiAutostart info))
         case nwiDnsmasqPid info of
           Just pid -> printField "DHCP PID" (show pid)
           Nothing -> pure ()
@@ -155,25 +152,12 @@ handleNetworkShow fmt conn nwRef = do
         let dom = nwiDomain info
         unless (T.null dom) $
           printField "Domain" (T.unpack dom)
-        printField "Host DNS" (if nwiHostDns info then "enabled" else "disabled")
+        printField "Host DNS" (formatBool (nwiHostDns info))
       pure True
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
-
--- | Column definitions for the @network list@ table.
-networkColumns :: [Column NetworkInfo]
-networkColumns =
-  [ Column "ID" RightAlign (show . nwiId)
-  , Column "NAME" LeftAlign (T.unpack . nwiName)
-  , Column "SUBNET" LeftAlign (\i -> let s = nwiSubnet i in if T.null s then "-" else T.unpack s)
-  , Column "DHCP" LeftAlign (\i -> if nwiDhcp i then "yes" else "no")
-  , Column "NAT" LeftAlign (\i -> if nwiNat i then "yes" else "no")
-  , Column "STATUS" LeftAlign (\i -> if nwiRunning i then "running" else "stopped")
-  , Column "PEERS" RightAlign (show . length . nwiPeerNodeIds)
-  , Column "AS" LeftAlign (\i -> if nwiAutostart i then "+" else "-")
-  ]
 
 -- | Handle network edit command
 handleNetworkEdit

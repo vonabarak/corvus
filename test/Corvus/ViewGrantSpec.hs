@@ -8,6 +8,7 @@ module Corvus.ViewGrantSpec (spec) where
 import Corvus.Client.Commands (grantToJson, resolveGrantHost)
 import Corvus.Client.Types
   ( BorderStyleOpt (..)
+  , ColumnSelection (..)
   , Command (..)
   , Options (..)
   , OutputFormat (..)
@@ -96,7 +97,7 @@ baseOpts =
     , optOutput = TextOutput
     , optBorders = BordersUnicodeOpt
     , optTruncate = True
-    , optColumns = []
+    , optColumns = DefaultColumns
     , optNoTls = True
     , optTlsCertDir = Nothing
     , optFitWidth = False

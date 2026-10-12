@@ -5,8 +5,11 @@ module Main (main) where
 import Control.Concurrent.Async (AsyncCancelled)
 import Control.Exception (fromException)
 import Corvus.Client (optsInfo, readClientDefaults, runCommand)
+import Corvus.Client.Output.Selection (columnCompletionRequest)
 import qualified GHC.Conc as Conc
 import Options.Applicative (execParser)
+import System.Environment (getArgs)
+import System.Exit (exitSuccess)
 import System.IO (hPrint, stderr)
 
 main :: IO ()
@@ -24,6 +27,10 @@ main = do
   Conc.setUncaughtExceptionHandler $ \e -> case fromException e of
     Just (_ :: AsyncCancelled) -> pure ()
     Nothing -> hPrint stderr e
+  args <- getArgs
+  case columnCompletionRequest args of
+    Just names -> mapM_ putStrLn names >> exitSuccess
+    Nothing -> pure ()
   defs <- readClientDefaults
   opts <- execParser (optsInfo defs)
   runCommand opts

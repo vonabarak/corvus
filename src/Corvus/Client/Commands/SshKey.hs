@@ -20,13 +20,12 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
+import Corvus.Client.Output (TableOpts, emitListResult, emitOk, emitOkWith, emitRpcError)
+import Corvus.Client.Output.Columns (sshKeyColumns, sshKeyVmColumns)
 import Corvus.Client.Types (OutputFormat)
-import Corvus.Protocol (NamedRef (..), SshKeyInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
-import qualified Data.Text as T
 
 -- | Handle ssh-key create command
 handleSshKeyCreate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
@@ -62,11 +61,7 @@ handleSshKeyList fmt tableOpts conn = do
   r <- try @SomeException (CR.rpcSshKeyList conn)
   case r of
     Right keys -> do
-      emitResult fmt keys $
-        if null keys
-          then putStrLn "No SSH keys found."
-          else printTable tableOpts sshKeyColumns keys
-      pure True
+      emitListResult fmt tableOpts sshKeyColumns "No SSH keys found." keys
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -104,11 +99,7 @@ handleSshKeyListForVm fmt tableOpts conn vmRef = do
   r <- try @SomeException (CR.rpcSshKeyListForVm conn (entityRefFromText vmRef))
   case r of
     Right keys -> do
-      emitResult fmt keys $
-        if null keys
-          then putStrLn "No SSH keys attached to this VM."
-          else printTable tableOpts (filter (\c -> colName c /= "ATTACHED_VMS") sshKeyColumns) keys
-      pure True
+      emitListResult fmt tableOpts sshKeyVmColumns "No SSH keys attached to this VM." keys
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -119,14 +110,3 @@ handleSshKeyListForVm fmt tableOpts conn vmRef = do
 --------------------------------------------------------------------------------
 
 -- | Column definitions for the @ssh-key list@ table.
-sshKeyColumns :: [Column SshKeyInfo]
-sshKeyColumns =
-  [ Column "ID" RightAlign (show . skiId)
-  , Column "NAME" LeftAlign (T.unpack . skiName)
-  , Column "PUBLIC_KEY" LeftAlign (T.unpack . skiPublicKey)
-  , Column "ATTACHED_VMS" LeftAlign formatAttached
-  ]
-  where
-    formatAttached k
-      | null (skiAttachedVms k) = "-"
-      | otherwise = T.unpack (T.intercalate ", " (map nrName (skiAttachedVms k)))

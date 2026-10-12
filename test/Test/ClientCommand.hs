@@ -11,7 +11,7 @@ import Test.ClientRpc (Fixture, assertCalls, mockSocket)
 import Test.Hspec
 
 cliOptions :: Fixture -> OutputFormat -> Command -> Options
-cliOptions f fmt = Options (Just (mockSocket f)) False "127.0.0.1" 9876 fmt BordersNoneOpt False [] False False Nothing
+cliOptions f fmt = Options (Just (mockSocket f)) False "127.0.0.1" 9876 fmt BordersNoneOpt False DefaultColumns False False Nothing
 
 runCli :: Options -> IO (ExitCode, String, String)
 runCli opts = do

@@ -51,10 +51,11 @@ import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Task (handleTaskWait)
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTable)
+import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitResult, emitRpcError, formatBool, printField)
+import Corvus.Client.Output.Columns (diskColumns, snapshotColumns)
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
-import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..), SnapshotInfo (..))
+import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..))
 import Corvus.Protocol.Disk (DiskCleanupPlacement (..), DiskCleanupReport (..), DiskCleanupVersion (..), parseUploadIfExists)
 import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
@@ -210,11 +211,7 @@ handleDiskList fmt tableOpts conn = do
   r <- try @SomeException (CR.rpcDiskList conn)
   case r of
     Right disks -> do
-      emitResult fmt disks $
-        if null disks
-          then putStrLn "No disk images found."
-          else printTable tableOpts diskColumns disks
-      pure True
+      emitListResult fmt tableOpts diskColumns "No disk images found." disks
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -460,11 +457,7 @@ handleSnapshotList fmt tableOpts conn diskRef = do
   r <- try @SomeException (CR.rpcSnapshotList conn (entityRefFromText diskRef))
   case r of
     Right snaps -> do
-      emitResult fmt snaps $
-        if null snaps
-          then putStrLn "No snapshots found."
-          else printTable tableOpts snapshotColumns snaps
-      pure True
+      emitListResult fmt tableOpts snapshotColumns "No snapshots found." snaps
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
@@ -473,22 +466,6 @@ handleSnapshotList fmt tableOpts conn diskRef = do
 --------------------------------------------------------------------------------
 -- Printers
 --------------------------------------------------------------------------------
-
--- | Column definitions for the @disk list@ table.
-diskColumns :: [Column DiskImageInfo]
-diskColumns =
-  [ Column "ID" RightAlign (show . diiId)
-  , Column "NAME" LeftAlign (T.unpack . diiName)
-  , Column "TAGS" LeftAlign (T.unpack . T.intercalate "," . diiTags)
-  , Column "FORMAT" LeftAlign (T.unpack . enumToText . diiFormat)
-  , Column "SIZE" RightAlign (maybe "-" formatSize . diiSize)
-  , Column "EPH" LeftAlign (\d -> if diiEphemeral d then "yes" else "-")
-  , Column "ATTACHED_TO" LeftAlign formatAttached
-  ]
-  where
-    formatAttached d
-      | null (diiAttachedTo d) = "-"
-      | otherwise = T.unpack (T.intercalate ", " (map nrName (diiAttachedTo d)))
 
 -- | Print disk image details
 printDiskDetails :: DiskImageInfo -> IO ()
@@ -512,42 +489,13 @@ printDiskDetails d = do
     )
   printField "Format" (T.unpack (enumToText $ diiFormat d))
   printField "Size" (maybe "(unknown)" formatSize (diiSize d))
-  printField "Ephemeral" (if diiEphemeral d then "true" else "false")
+  printField "Ephemeral" (formatBool (diiEphemeral d))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
   printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map nrName (diiAttachedTo d))))
   case diiBackingImage d of
     Nothing -> pure ()
     Just backing ->
       printField "Backing" (T.unpack (nrName backing) ++ " (ID: " ++ show (nrId backing) ++ ")")
-
--- | Column definitions for the @disk snapshot list@ table.
---
--- LIVE / Q / V are boolean badges:
---
---   * LIVE = "+" → snapshot was taken via QMP on a running VM.
---     LIVE = "-" → offline path (@qemu-img snapshot -c@).
---   * Q    = "+" → QGA @guest-fsfreeze-freeze@ was active when
---     the snapshot was stamped (filesystem-consistent).
---     Q = "-" → no quiesce (hard-reset-equivalent for unflushed
---     in-guest writes).
---   * V    = "+" → this row is the vmstate carrier of a
---     full-machine snapshot (RAM + device + CPU state lives in
---     this disk's qcow2 alongside the block snapshot).
---     V = "-" → block-only snapshot (or a sibling row of a
---     full-machine snapshot whose carrier is on another disk).
-snapshotColumns :: [Column SnapshotInfo]
-snapshotColumns =
-  [ Column "ID" RightAlign (show . sniId)
-  , Column "NAME" LeftAlign (T.unpack . sniName)
-  , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
-  , Column "SIZE" RightAlign (maybe "-" formatSize . sniSize)
-  , Column "LIVE" LeftAlign (boolBadge . sniLive)
-  , Column "Q" LeftAlign (boolBadge . sniQuiesced)
-  , Column "V" LeftAlign (boolBadge . sniHasVmstate)
-  ]
-  where
-    boolBadge True = "+"
-    boolBadge False = "-"
 
 --------------------------------------------------------------------------------
 -- Helpers
