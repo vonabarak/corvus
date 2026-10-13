@@ -1022,11 +1022,11 @@ instance (C.Parse ErrorCode ErrorCode) where
 instance (C.AllocateList ErrorCode) where
     type ListAllocHint ErrorCode = Std_.Int
 instance (C.EstimateListAlloc ErrorCode ErrorCode)
-data UploadIfExists
-    = UploadIfExists'overwrite
-    | UploadIfExists'error
-    | UploadIfExists'skip
-    | UploadIfExists'update
+data UploadIfExists 
+    = UploadIfExists'overwrite 
+    | UploadIfExists'error 
+    | UploadIfExists'skip 
+    | UploadIfExists'update 
     | UploadIfExists'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show

@@ -195,7 +195,8 @@ preprocessRoot baseDir = walkPipeline
 
     walkProv (Object o) = do
       o1 <- adjustField "shell" rewriteShell o
-      o2 <- adjustField "file" rewriteFile o1
+      oWait <- adjustField "wait-for" rewriteShell o1
+      o2 <- adjustField "file" rewriteFile oWait
       pure (Object o2)
     walkProv v = pure v
 

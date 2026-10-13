@@ -63,6 +63,7 @@ import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
 import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, tshow, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
+import Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot)
 import System.FilePath (takeDirectory)
 
 newtype SessionServer = SessionServer SessionCap
@@ -453,6 +454,20 @@ instance CGNA.Session'server_ SessionServer where
   session'cleanupTpmMigrationArchive (SessionServer sc) =
     handleParsed $ \CGNA.Session'cleanupTpmMigrationArchive'params {CGNA.vmName = name} ->
       handleCleanupTpmMigrationArchive sc name
+
+  session'vmGuestWriteFile (SessionServer sc) =
+    handleParsedAsync $ \CGNA.Session'vmGuestWriteFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.content = bytes} -> do
+      result <- NGA.guestWriteFile (scQgaConns sc) agentQemuConfig vid path bytes
+      either (throwFailed . tshow) pure result
+      pure CGNA.Session'vmGuestWriteFile'results
+
+  session'vmGuestPing (SessionServer sc) =
+    handleParsedAsync $ \CGNA.Session'vmGuestPing'params {CGNA.vmId = vid} ->
+      handleVmGuestPing sc vid
+
+  session'vmGuestReboot (SessionServer sc) =
+    handleParsedAsync $ \CGNA.Session'vmGuestReboot'params {CGNA.vmId = vid, CGNA.timeoutSec = seconds} ->
+      withVmOpLock sc vid (handleVmGuestReboot sc vid seconds)
 
   session'vmGuestExec (SessionServer sc) =
     -- Async dispatch: a single guest-exec can run for many

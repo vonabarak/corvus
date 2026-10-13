@@ -19,6 +19,9 @@ module Corvus.NodeAgentClient.Vm
   , restoreTpmMigration
   , cleanupTpmMigrationArchive
   , vmGuestExec
+  , vmGuestWriteFile
+  , vmGuestPing
+  , vmGuestReboot
   , vmGuestExecStream
   , vmStatus
   , vmSetSpiceTicket
@@ -55,6 +58,7 @@ import Corvus.Node.VmSpec
   )
 import Corvus.NodeAgentClient.Core
 import Corvus.Wire.Enums (toCapnpGraphicsAdapter)
+import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
@@ -615,3 +619,21 @@ probeVsockCid nac cid = remoteWithin 15 $ do
       CGNA.Session'probeVsockCid'params {CGNA.cid = fromIntegral cid}
       (nacSession nac)
   pure free
+
+vmGuestPing :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError Bool)
+vmGuestPing nac vmId = remote $ do
+  CGNA.Session'vmGuestPing'results alive <-
+    callOn #vmGuestPing CGNA.Session'vmGuestPing'params {CGNA.vmId = vmId} (nacSession nac)
+  pure alive
+
+vmGuestReboot :: NodeAgentClient -> Int64 -> Word32 -> IO (Either NodeAgentError (C.Parsed CGNA.DiskOpResult))
+vmGuestReboot nac vmId timeoutSec = remote $ do
+  CGNA.Session'vmGuestReboot'results result <-
+    callOn #vmGuestReboot CGNA.Session'vmGuestReboot'params {CGNA.vmId = vmId, CGNA.timeoutSec = timeoutSec} (nacSession nac)
+  pure result
+
+vmGuestWriteFile :: NodeAgentClient -> Int64 -> T.Text -> BS.ByteString -> IO (Either NodeAgentError ())
+vmGuestWriteFile nac vmId path bytes = remote $ do
+  _ :: C.Parsed CGNA.Session'vmGuestWriteFile'results <-
+    callOn #vmGuestWriteFile CGNA.Session'vmGuestWriteFile'params {CGNA.vmId = vmId, CGNA.path = path, CGNA.content = bytes} (nacSession nac)
+  pure ()

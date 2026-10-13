@@ -23,6 +23,7 @@ module Corvus.Handlers.Build
 
     -- * Shell command assembly (exported for tests)
   , buildShellCommand
+  , powerShellBootstrap
   )
 where
 
@@ -33,7 +34,7 @@ import qualified Corvus.Build.Identity as H
 import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Build.Artifact (checkBuildUpdate, checkIfExistsPreBake)
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, withCleanup)
-import Corvus.Handlers.Build.Provisioner (buildShellCommand)
+import Corvus.Handlers.Build.Provisioner (buildShellCommand, powerShellBootstrap)
 import Corvus.Handlers.Build.Run (runBakeAndPublish)
 import Corvus.Handlers.Build.Template (instantiateBakeVm, resolveTemplateAndValidate, sanitizeNameFragment, setupTargetDisk)
 import Corvus.Handlers.Resolve (validateName)
@@ -218,6 +219,7 @@ validateProvisioner buildLbl p = case p of
         Left $ "Build '" <> buildLbl <> "': shell may not have both inline and script"
       (Nothing, Nothing) ->
         Left $ "Build '" <> buildLbl <> "': shell needs either inline or script"
+  ProvWaitFor (WaitForScript sh _) -> validateProvisioner buildLbl (ProvShell sh)
   ProvFile fp ->
     case (fileFrom fp, fileContentBase64 fp) of
       (Nothing, Just _) -> Right ()

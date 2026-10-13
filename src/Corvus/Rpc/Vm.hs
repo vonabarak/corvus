@@ -237,7 +237,7 @@ instance CGVm.Vm'server_ VmCap where
     pure CGVm.Vm'start'results {CGVm.status = status}
 
   vm'stop (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'stop'params {wait = wait', timeoutSec = tmo} -> do
-    let action = VmStop eid tmo
+    let action = VmStop eid tmo True
     resp <-
       if wait'
         then runAction st cn action

@@ -103,19 +103,20 @@ def test_preprocess_passes_through_when_nothing_to_inline(tmp_path: Path) -> Non
     assert preprocess_build_yaml(body, str(tmp_path)) == body
 
 
-def test_preprocess_inlines_shell_script(tmp_path: Path) -> None:
+@pytest.mark.parametrize("kind", ["shell", "wait-for"])
+def test_preprocess_inlines_shell_script(tmp_path: Path, kind: str) -> None:
     script = tmp_path / "do.sh"
     script.write_text("echo hi\n")
     body = (
         "pipeline:\n"
         "  - build:\n"
         "      provisioners:\n"
-        "        - shell:\n"
+        f"        - {kind}:\n"
         "            script: do.sh\n"
     )
     result = preprocess_build_yaml(body, str(tmp_path))
     doc = yaml.safe_load(result)
-    shell = doc["pipeline"][0]["build"]["provisioners"][0]["shell"]
+    shell = doc["pipeline"][0]["build"]["provisioners"][0][kind]
     assert "script" not in shell
     assert shell["inline"] == "echo hi\n"
 
@@ -141,7 +142,10 @@ def test_preprocess_inlines_file_from_as_base64(tmp_path: Path) -> None:
     assert file_prov["path"] == "/root/.ssh/authorized_keys"
 
 
-def test_preprocess_resolves_relative_paths_from_base_dir(tmp_path: Path) -> None:
+@pytest.mark.parametrize("kind", ["shell", "wait-for"])
+def test_preprocess_resolves_relative_paths_from_base_dir(
+    tmp_path: Path, kind: str
+) -> None:
     nested = tmp_path / "sub"
     nested.mkdir()
     (nested / "a.sh").write_text("a\n")
@@ -149,11 +153,11 @@ def test_preprocess_resolves_relative_paths_from_base_dir(tmp_path: Path) -> Non
         "pipeline:\n"
         "  - build:\n"
         "      provisioners:\n"
-        "        - shell:\n"
+        f"        - {kind}:\n"
         "            script: sub/a.sh\n"
     )
     result = preprocess_build_yaml(body, str(tmp_path))
-    shell = yaml.safe_load(result)["pipeline"][0]["build"]["provisioners"][0]["shell"]
+    shell = yaml.safe_load(result)["pipeline"][0]["build"]["provisioners"][0][kind]
     assert shell["inline"] == "a\n"
 
 

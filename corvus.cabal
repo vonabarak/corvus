@@ -158,6 +158,7 @@ library
       Corvus.Node.GuestAgent.Transport
       Corvus.Node.GuestAgent.Connection
       Corvus.Node.GuestAgent.Network
+      Corvus.Node.GuestAgent.File
       Corvus.Node.GuestAgent.Control
       Corvus.Node.GuestAgent.Exec
       Corvus.Node.GuestAgent.Exec.Stream
@@ -302,10 +303,12 @@ library
       Corvus.Node.Caps.Session.Vm.Balloon
       Corvus.Node.Caps.Session.Vm.Lifecycle
       Corvus.Node.Caps.Session.Vm.Process
+      Corvus.Node.Caps.Session.Vm.Reboot
       Corvus.Node.Caps.Session.Vm.Start
       Corvus.Node.Caps.Session.Vm.Startup
       Corvus.Node.ProcStats
       Corvus.Node.Qmp.Block
+      Corvus.Node.Qmp.Reboot
       Corvus.Node.Qmp.Runtime
       Corvus.Node.Qmp.Snapshot
       Corvus.Node.QmpQQ
@@ -652,6 +655,7 @@ test-suite corvus-test
     , aeson-qq
     , async
     , base >=4.7 && <5
+    , base64-bytestring
     , bytestring
     , capnp
     , containers

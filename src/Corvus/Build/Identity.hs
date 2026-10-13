@@ -147,6 +147,7 @@ shellValue sh =
   -- the identity.
   obj
     [ ("inline", maybe Null String (shellInline sh))
+    , ("interpreter", String (case shellInterpreter sh of ShellSh -> "sh"; ShellPowerShell -> "powershell"))
     , ("workdir", maybe Null String (shellWorkdir sh))
     , ("env", envObject (stripInjectedEnvs (shellEnv sh)))
     , ("timeoutSec", maybe Null intValue (shellTimeoutSec sh))
@@ -177,6 +178,8 @@ waitForValue = \case
       , ("port", intValue p)
       , ("timeoutSec", intValue t)
       ]
+  WaitForScript sh t ->
+    obj [("kind", String "script"), ("script", shellValue sh), ("timeoutSec", intValue t)]
 
 rebootValue :: Reboot -> Value
 rebootValue r =

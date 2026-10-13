@@ -2,7 +2,7 @@
 
 The daemon rejects un-preprocessed build payloads — it expects:
 
-  - `shell.script: path` rewritten to `shell.inline: <file contents>`
+  - `shell.script` / `wait-for.script` rewritten to `inline: <file contents>`
   - `file.from: path`   rewritten to `file.content: <base64 of bytes>`
 Mirrors `Corvus.Client.Commands.Build.preprocessRoot` in the Haskell client.
 """
@@ -35,8 +35,8 @@ def _read_bytes(base_dir: Path, rel: str) -> bytes:
         return f.read()
 
 
-def _rewrite_shell(prov: dict[str, object], base_dir: Path) -> None:
-    sh = prov.get("shell")
+def _rewrite_shell(prov: dict[str, object], base_dir: Path, key: str = "shell") -> None:
+    sh = prov.get(key)
     if not isinstance(sh, dict):
         return
     script = sh.pop("script", None)
@@ -124,6 +124,7 @@ def preprocess_build_yaml(yaml_path: str) -> str:
                 for prov in provisioners:
                     if isinstance(prov, dict):
                         _rewrite_shell(prov, base_dir)
+                        _rewrite_shell(prov, base_dir, "wait-for")
                         _rewrite_file(prov, base_dir)
     return yaml.safe_dump(doc, sort_keys=False)
 

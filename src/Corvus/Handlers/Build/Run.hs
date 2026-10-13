@@ -90,7 +90,7 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId _t
     Right () -> do
       stopResp <-
         liftIO $
-          runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300)
+          runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300 False)
       case classifyStopResp stopResp of
         Left err -> pure $ Left $ "stop bake VM: " <> err
         Right () -> do

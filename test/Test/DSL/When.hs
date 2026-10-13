@@ -231,7 +231,7 @@ vmStart :: Int64 -> TestM Response
 vmStart vmId = withState (\st -> runAction st "alice" (VmStart vmId))
 
 vmStop :: Int64 -> TestM Response
-vmStop vmId = withState (\st -> runAction st "alice" (VmStop vmId 300))
+vmStop vmId = withState (\st -> runAction st "alice" (VmStop vmId 300 True))
 
 vmSetBalloon :: Int64 -> Word64 -> TestM Response
 vmSetBalloon vmId target = withState (\st -> runAction st "alice" (VmSetBalloon vmId target))

@@ -235,6 +235,7 @@ library:
     - Corvus.Node.GuestAgent.Transport
     - Corvus.Node.GuestAgent.Connection
     - Corvus.Node.GuestAgent.Network
+    - Corvus.Node.GuestAgent.File
     - Corvus.Node.GuestAgent.Control
     - Corvus.Node.GuestAgent.Exec
     - Corvus.Node.GuestAgent.Exec.Stream
@@ -439,6 +440,7 @@ tests:
       - stm
       - text
       - bytestring
+      - base64-bytestring
       - optparse-applicative
       - unix
       - directory

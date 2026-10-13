@@ -1,3 +1,4 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -5,27 +6,23 @@
 
 -- | Agent-routed QGA helpers for the build pipeline.
 --
--- All guest-exec / guest-ping calls during a bake-VM build go
--- through @nodeagent.vmGuestExec@ (the agent owns the QGA
--- socket). These helpers wrap the underlying RPC and preserve
+-- Guest execution, readiness and reboot during image builds use
+-- their respective nodeagent RPCs; the agent owns the QGA socket.
+-- These helpers wrap the underlying RPC and preserve
 -- the daemon-side 'GuestExecResult' shape so the bake-pipeline
 -- code reads the same.
---
--- Trade-off (Phase 4): @agentGuestExecWithTail@ no longer
--- streams stdout line-by-line as QGA chunks arrive — the agent's
--- vmGuestExec aggregates and returns the full output on exit.
--- Build provisioner output therefore appears at end-of-step
--- instead of live. A streaming RPC variant
--- (@vmGuestExecStream(req, sink)@) is the natural follow-up.
 module Corvus.Handlers.Build.Qga
   ( agentGuestExec
   , agentGuestExecWithStdin
+  , agentGuestWriteFile
   , agentGuestPing
+  , agentGuestReboot
   , agentGuestExecWithTail
   )
 where
 
 import qualified Capnp as C
+import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import Corvus.Node.GuestAgent (GuestExecResult (..))
 import qualified Corvus.Node.VmSpec as VS
@@ -56,14 +53,22 @@ agentGuestExecWithStdin
   -> IO GuestExecResult
 agentGuestExecWithStdin = agentGuestExecCore
 
--- | Trivial liveness probe — run @/bin/true@; success iff exit 0.
--- Drop-in replacement for the old QGA @guest-ping@.
+-- | Native QGA readiness probe; no guest shell or executable required.
 agentGuestPing :: ServerState -> Int64 -> IO Bool
 agentGuestPing state vmId = do
-  r <- agentGuestExecCore state vmId "true" BS.empty 5
-  pure $ case r of
-    GuestExecSuccess 0 _ _ -> True
+  result <- withVmNodeAgent state vmId $ \nac -> NOA.vmGuestPing nac vmId
+  pure $ case result of
+    Right (Right alive) -> alive
     _ -> False
+
+agentGuestReboot :: ServerState -> Int64 -> Word32 -> IO (Either Text ())
+agentGuestReboot state vmId timeoutSec = do
+  result <- withVmNodeAgent state vmId $ \nac -> NOA.vmGuestReboot nac vmId timeoutSec
+  pure $ case result of
+    Left err -> Left err
+    Right (Left err) -> Left (T.pack (show err))
+    Right (Right CGNA.DiskOpResult {CGNA.kind = CGNA.DiskOpKind'success}) -> Right ()
+    Right (Right CGNA.DiskOpResult {CGNA.message = message}) -> Left message
 
 -- | Guest exec whose stdout / stderr stream line-by-line through
 -- @onLine@ as the guest emits them. Drives the agent's
@@ -82,17 +87,18 @@ agentGuestExecWithTail
   :: ServerState
   -> Int64
   -> Text
+  -> BS.ByteString
   -> Word32
   -> (Text -> IO ())
   -> IO GuestExecResult
-agentGuestExecWithTail state vmId cmd timeoutSec onLine = do
+agentGuestExecWithTail state vmId cmd stdinPayload timeoutSec onLine = do
   let req =
         VS.VmGuestExecReq
           { VS.vgeVmId = vmId
           , VS.vgePath = cmd
           , VS.vgeArgs = []
           , VS.vgeCaptureOutput = True
-          , VS.vgeInputData = BS.empty
+          , VS.vgeInputData = stdinPayload
           , VS.vgeTimeoutSec = timeoutSec
           }
   outer <- withVmNodeAgent state vmId $ \nac -> do
@@ -173,3 +179,11 @@ agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
                       "guest-exec did not return an exit code"
                   | otherwise = stderrText
              in pure (GuestExecError msg)
+
+agentGuestWriteFile :: ServerState -> Int64 -> Text -> BS.ByteString -> IO (Either Text ())
+agentGuestWriteFile state vmId path bytes = do
+  result <- withVmNodeAgent state vmId $ \nac -> NOA.vmGuestWriteFile nac vmId path bytes
+  pure $ case result of
+    Left err -> Left err
+    Right (Left err) -> Left (T.pack (show err))
+    Right (Right ()) -> Right ()

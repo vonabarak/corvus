@@ -177,6 +177,7 @@ artifacts above.
 | `gentoo-headless` | `yaml/gentoo-headless/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-headless`, and `gentoo-headless-cloudinit`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. An opt-in target builds `gentoo-headless-cloudinit:standalone`. |
 | `gentoo` | `yaml/gentoo-test/` | `gentoo-corvus-test`, the Corvus development image. Builds or ensures the regular headless chain first. |
 | `windows-11` | [yaml/windows-11/](../yaml/windows-11/README.md) | `BaseImages/Windows11/<id>-windows-11-pro-base.qcow2`, a generalized, decrypted Windows 11 Pro overlay base. The runtime template gives each VM its own TPM. Requires registered `windows-11-iso` media; missing VirtIO-Win media is downloaded automatically. |
+| `windows-11-desktop` | [yaml/windows-11-desktop/](../yaml/windows-11-desktop/README.md) | Generalized Windows 11 desktop with Total Commander, Firefox, PDF-XChange Editor and Process Explorer; consumes the Windows 11 base and publishes `windows-11-desktop`. |
 | `debian-nginx` | `yaml/debian-nginx/` | `debian-12-nginx`, an example Debian 12 nginx derivative built from the multi-OS Debian base. |
 | `ubuntu-nginx` | `yaml/ubuntu-nginx/` | `ubuntu26-nginx`, an example Ubuntu 26.04 nginx derivative built from the multi-OS Ubuntu base. |
 | `monitor` | `yaml/corvus-monitor/` | `corvus-monitor`, a Debian 12 Prometheus and Grafana image. Set `CORVUS_WEB_TARGET=host:port` when building to bake a Corvus metrics endpoint into its dashboard configuration. |

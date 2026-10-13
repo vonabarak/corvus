@@ -11,11 +11,13 @@ module Corvus.GuestAgentSpec (spec) where
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar)
 import qualified Control.Concurrent.STM as STM
-import Control.Exception (try)
+import Control.Exception (bracket, try)
 import Control.Monad (unless)
 import Corvus.Node.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
 import qualified Corvus.Node.GuestAgent as GA
-import Corvus.Node.GuestAgent.Transport (parseQgaFrame)
+import Corvus.Node.GuestAgent.File (writeFileOnSocket)
+import Corvus.Node.GuestAgent.Transport (parseQgaFrame, recvJson, sendJson)
+import Corvus.Qemu.Config (defaultQemuConfig)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.QQ (aesonQQ)
@@ -75,6 +77,46 @@ spec = do
     it "handles Windows-style CRLF line endings" $ do
       parseQgaFrame (BL.toStrict (Aeson.encode [aesonQQ| { "return": {} } |]) <> "\r\n")
         `shouldBe` Just (Aeson.object ["return" Aeson..= Aeson.object []])
+
+  describe "guest file uploads" $ do
+    it "resends unwritten bytes and flushes before closing" $
+      bracket (socketPair AF_UNIX Stream defaultProtocol) (\(client, peer) -> close client >> close peer) $ \(client, peer) -> do
+        requests <- newEmptyMVar
+        _ <- forkIO $ do
+          captured <-
+            mapM
+              ( \reply -> do
+                  request <- recvJson peer
+                  sendJson peer reply
+                  pure request
+              )
+              [[aesonQQ| { "return": 42 } |], [aesonQQ| { "return": { "count": 2 } } |], [aesonQQ| { "return": { "count": 3 } } |], [aesonQQ| { "return": {} } |], [aesonQQ| { "return": {} } |]]
+          putMVar requests captured
+        writeFileOnSocket client "C:\\Temp\\script.ps1" "hello"
+        captured <- takeMVar requests
+        captured
+          `shouldBe` map
+            Just
+            [ [aesonQQ| { "execute": "guest-file-open", "arguments": { "path": "C:\\Temp\\script.ps1", "mode": "wb" } } |]
+            , [aesonQQ| { "execute": "guest-file-write", "arguments": { "handle": 42, "buf-b64": "aGVsbG8=" } } |]
+            , [aesonQQ| { "execute": "guest-file-write", "arguments": { "handle": 42, "buf-b64": "bGxv" } } |]
+            , [aesonQQ| { "execute": "guest-file-flush", "arguments": { "handle": 42 } } |]
+            , [aesonQQ| { "execute": "guest-file-close", "arguments": { "handle": 42 } } |]
+            ]
+
+    it "closes the handle and rejects a zero-byte write" $
+      bracket (socketPair AF_UNIX Stream defaultProtocol) (\(client, peer) -> close client >> close peer) $ \(client, peer) -> do
+        closed <- newEmptyMVar
+        _ <- forkIO $ do
+          _ <- recvJson peer
+          sendJson peer [aesonQQ| { "return": 42 } |]
+          _ <- recvJson peer
+          sendJson peer [aesonQQ| { "return": { "count": 0 } } |]
+          request <- recvJson peer
+          sendJson peer [aesonQQ| { "return": {} } |]
+          putMVar closed request
+        writeFileOnSocket client "script.ps1" "hello" `shouldThrow` isUserError
+        takeMVar closed `shouldReturn` Just [aesonQQ| { "execute": "guest-file-close", "arguments": { "handle": 42 } } |]
 
   describe "interface parsing" $ do
     it "parses interfaces with hardware-address" $ do
@@ -235,6 +277,49 @@ spec = do
         Right r ->
           expectationFailure
             ("expected pollStatus to throw on silent QGA; got: " <> show r)
+
+  describe "native guest control" $ do
+    it "checks readiness with guest-ping" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      observed <- newEmptyMVar
+      _ <- forkIO $ do
+        request <- recv peer 4096
+        putMVar observed (Aeson.eitherDecodeStrict' request :: Either String Aeson.Value)
+        sendJson peer (Aeson.object ["return" Aeson..= Aeson.object []])
+      GA.guestPing conns defaultQemuConfig 42 `shouldReturn` True
+      takeMVar observed `shouldReturn` Right (Aeson.object ["execute" Aeson..= ("guest-ping" :: String)])
+      GA.releaseConn conns 42
+      close peer
+    it "treats powerdown EOF as dispatch and keeps the serialization slot" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      observed <- newEmptyMVar
+      _ <- forkIO $ do
+        request <- recv peer 4096
+        putMVar observed (Aeson.eitherDecodeStrict' request :: Either String Aeson.Value)
+        close peer
+      GA.guestShutdown conns defaultQemuConfig 42 "powerdown" `shouldReturn` Right ()
+      takeMVar observed `shouldReturn` Right (Aeson.object ["execute" Aeson..= ("guest-shutdown" :: String), "arguments" Aeson..= Aeson.object ["mode" Aeson..= ("powerdown" :: String)]])
+      takeMVar slot `shouldReturn` Nothing
+      Map.member 42 <$> STM.readTVarIO conns `shouldReturn` True
+    it "dispatches reboot once and discards the cached connection on an explicit error" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      observed <- newEmptyMVar
+      _ <- forkIO $ do
+        request <- recv peer 4096
+        putMVar observed (Aeson.eitherDecodeStrict' request :: Either String Aeson.Value)
+        sendJson peer (Aeson.object ["error" Aeson..= Aeson.object ["desc" Aeson..= ("unsupported" :: String)]])
+      result <- GA.guestShutdown conns defaultQemuConfig 42 "reboot"
+      result `shouldSatisfy` either (const True) (const False)
+      takeMVar observed `shouldReturn` Right (Aeson.object ["execute" Aeson..= ("guest-shutdown" :: String), "arguments" Aeson..= Aeson.object ["mode" Aeson..= ("reboot" :: String)]])
+      takeMVar slot `shouldReturn` Nothing
+      recv peer 4096 `shouldReturn` BS.empty
+      close peer
 
   describe "sync ID range" $ do
     it "bounded sync IDs fit in 32-bit integers" $ do

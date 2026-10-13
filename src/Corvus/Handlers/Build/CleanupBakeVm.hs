@@ -27,6 +27,6 @@ import Data.Int (Int64)
 cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
-  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300)
+  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300 True)
   _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False False)
   pure ()

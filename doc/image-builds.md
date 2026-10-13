@@ -55,7 +55,8 @@ crv build path/to/build.yml --wait
 ```
 
 The client preprocesses the YAML before sending it to the daemon: any
-`shell.script: <path>` becomes `shell.inline: <text>` and any
+`shell.script: <path>` and `wait-for.script: <path>` become `inline: <text>`
+in their respective provisioners, and any
 `file.from: <path>` becomes `file.content: <base64>`. Leading `upload:`
 steps stream their `from:` file to the selected node and are removed before
 the daemon receives the remaining apply/build pipeline. Paths are relative to
@@ -243,7 +244,7 @@ Before checking whether an `update` build can be skipped, the daemon prepares
 the current inputs:
 
 1. The client substitutes build variables and reads local input files before
-   sending the recipe. A `shell.script` becomes inline script text, and a
+   sending the recipe. A `shell.script` or `wait-for.script` becomes inline script text, and a
    `file.from` becomes base64-encoded file contents. The manifest therefore
    reflects the submitted contents, rather than the local filenames.
 2. The daemon reads the template, its resolved source image versions, and its
@@ -571,8 +572,9 @@ like `chroot ... <<'EOF'` — those are separate shell instances.
 
 ### `shell`
 
-Runs a script inside the VM via QGA `guest-exec` against `/bin/sh -c`
-(Linux/BSD) or `cmd.exe /c` (Windows guests).
+Runs a script inside the VM via QGA `guest-exec`. With the default `sh`
+interpreter, the guest shell is `/bin/sh -c` (Linux/BSD) or `cmd.exe /c`
+(Windows). Select `powershell` explicitly for Windows PowerShell scripts.
 
 ```yaml
 - shell: |              # short form: inline string
@@ -584,9 +586,24 @@ Runs a script inside the VM via QGA `guest-exec` against `/bin/sh -c`
     env:
       DEBIAN_FRONTEND: noninteractive
     timeoutSec: 1800    # default: 600 s (10 min)
+    interpreter: sh    # default; use powershell for Windows
 ```
 
 Stdout and stderr go to the build task log; non-zero exit fails the build.
+
+For Windows, set `shell.interpreter: powershell`. The daemon stages the full UTF-8
+script in `C:\Windows\Temp` through QGA `guest-file-open/write/flush/close`, then
+executes a short noninteractive `-EncodedCommand` bootstrap. This avoids Windows
+stdin pipe stalls and command-line size limits. The bootstrap protects variables
+from outer-shell expansion, suppresses progress records for unattended execution,
+and deletes the staged script in a `finally` block.
+A failed upload never starts the script; a connection failure before execution
+may leave the temporary script in the preserved bake VM. Windows output uses QGA’s existing process output capture.
+Windows QGA file handles cannot be held open while the child writes the log.
+Environment variables and working directories
+use PowerShell quoting; preamble, Corvus environment, defaults environment, step
+environment, working directory and body retain that order. Terminating script
+errors fail the step. `shell` string shorthand retains the `sh` default.
 
 ### `file`
 
@@ -615,13 +632,32 @@ service still binding).
 - wait-for: { ping: true, timeoutSec: 300 }       # guest-agent ping
 - wait-for: { file: /var/lib/cloud/instance/boot-finished, timeoutSec: 600 }
 - wait-for: { port: 5432, timeoutSec: 120 }       # any local listener on tcp/5432
+- wait-for: { inline: "cloud-init status --wait", timeoutSec: 600 }
+- wait-for:
+    interpreter: powershell
+    script: ./wait-for-setup.ps1  # OR inline: readable script text
+    timeoutSec: 900
 ```
 
+`script:` resolves relative to the recipe file and is read as UTF-8 by the
+client, then sent as `inline:` text, just like `shell.script`. Script probes
+accept `interpreter` (`sh` by default, or `powershell`), `env` and `workdir`.
+PowerShell script text is encoded as UTF-16LE Base64 at runtime. Choose exactly
+one of `ping`, `file`, `port`, `script` or `inline`.
+
 `port:` uses `ss` (with a `netstat` fallback) inside the guest.
+`inline:` and `script:` repeatedly execute a short read-only probe through the
+selected interpreter
+until it exits zero. Nonzero exits and agent errors are retried within the total
+`timeoutSec`; each execution has a ten-second process timeout. Probes must be
+safe to repeat. Shell defaults and build environment variables are not applied.
+Use this for OS readiness beyond `guest-ping`, such as Windows OOBE completion;
+a ping only establishes that QGA is responding.
 
 ### `reboot`
 
-Issue a reboot from inside the guest, then poll until the guest agent
+Issue QGA `guest-shutdown` with mode `reboot`, confirm a guest QMP reset
+(or reboot-quirk process restart), then poll native `guest-ping` until the guest agent
 comes back. Use after kernel updates.
 
 ```yaml
@@ -803,3 +839,14 @@ the first guest-agent response, independently of provisioner timeouts. Both
 template and override budgets participate in the build identity. Gentoo bake
 templates set 1200 seconds to allow their cloud-init bootstrap to install
 Portage and packages before the guest agent starts.
+
+Readiness checks use native QGA `guest-ping`; file and port waits still use POSIX
+commands. Agent readiness alone does not imply Windows setup completion.
+Automatic final shutdown sends QGA `guest-shutdown` in `powerdown` mode with
+ACPI fallback. A build's 300-second graceful shutdown timeout fails capture and
+preserves the VM when `cleanup: onSuccess`; ordinary VM stops retain forced
+shutdown on timeout. Shell timeouts are measured in seconds, applied once.
+
+The [Windows desktop recipe](../yaml/windows-11-desktop/README.md) adds desktop
+applications to the Windows 11 base. See [Other QGA opportunities reviewed](../plans/qga-image-build-opportunities.md)
+for follow-up generalization ideas beyond native reboot and readiness.

@@ -299,6 +299,12 @@ interface Session {
 
   # Execute a command via QGA on the running VM. Agent locates
   # the QGA socket from the ledger entry for req.vmId.
+  # Write binary content via QGA guest-file-*; no guest shell required.
+  vmGuestWriteFile @53 (vmId :Int64, path :Text, content :Data) -> ();
+
+  vmGuestPing @51 (vmId :Int64) -> (alive :Bool);
+  vmGuestReboot @52 (vmId :Int64, timeoutSec :UInt32) -> (result :DiskOpResult);
+
   vmGuestExec @20 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
 
   # Streaming variant of vmGuestExec. The agent pushes incremental

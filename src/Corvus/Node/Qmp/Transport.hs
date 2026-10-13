@@ -7,12 +7,13 @@ module Corvus.Node.Qmp.Transport
   ( sendQmpCommand
   , sendQmpRaw
   , extractReplyLine
+  , withUnixSocket
   , classifyQmpResponse
   )
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (IOException, SomeException, bracket, catch, try)
+import Control.Exception (IOException, SomeException, bracket, catch, onException, try)
 import Corvus.Node.Qmp.Types (QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Node.Runtime (getQmpSocket)
@@ -97,8 +98,7 @@ withUnixSocket path = bracket (connectWithRetry 10) close
     connectWithRetry :: Int -> IO Socket
     connectWithRetry 0 = do
       sock <- socket AF_UNIX Stream defaultProtocol
-      connect sock (SockAddrUnix path)
-      pure sock
+      (connect sock (SockAddrUnix path) >> pure sock) `onException` close sock
     connectWithRetry n = do
       sock <- socket AF_UNIX Stream defaultProtocol
       (connect sock (SockAddrUnix path) >> pure sock)

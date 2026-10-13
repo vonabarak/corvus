@@ -3,6 +3,8 @@ module Corvus.Node.Qmp
   ( QmpResult (..)
   , QmpMigrationStatus (..)
   , BlockstatsRow (..)
+  , withRebootObserver
+  , isGuestRebootEvent
   , qmpShutdown
   , qmpContinue
   , qmpStop
@@ -40,6 +42,7 @@ module Corvus.Node.Qmp
   ) where
 
 import Corvus.Node.Qmp.Block
+import Corvus.Node.Qmp.Reboot (isGuestRebootEvent, withRebootObserver)
 import Corvus.Node.Qmp.Runtime
 import Corvus.Node.Qmp.Snapshot
 import Corvus.Node.Qmp.Transport (classifyQmpResponse, extractReplyLine)

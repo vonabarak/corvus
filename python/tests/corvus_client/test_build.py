@@ -30,6 +30,12 @@ def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
                             "target": {"ephemeral": True},
                             "provisioners": [
                                 {"shell": {"script": "init.sh"}},
+                                {
+                                    "wait-for": {
+                                        "script": "init.sh",
+                                        "interpreter": "sh",
+                                    }
+                                },
                                 {"file": {"from": "payload.bin", "dest": "/x"}},
                             ],
                         }
@@ -44,7 +50,9 @@ def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
     build = out["pipeline"][0]["build"]
     assert build["target"] == {"ephemeral": True}
     shell = build["provisioners"][0]["shell"]
-    file_ = build["provisioners"][1]["file"]
+    probe = build["provisioners"][1]["wait-for"]
+    assert probe == {"inline": "#!/bin/sh\necho hi\n", "interpreter": "sh"}
+    file_ = build["provisioners"][2]["file"]
 
     assert "script" not in shell
     assert shell["inline"] == "#!/bin/sh\necho hi\n"

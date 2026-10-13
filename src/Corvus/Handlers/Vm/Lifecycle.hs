@@ -44,8 +44,8 @@ handleVmStopValidate state vmId = do
 -- QEMU has actually exited (or the timeout elapses), so the
 -- daemon no longer needs to poll the DB. On graceful-timeout we
 -- escalate to 'vmStopHard'.
-handleVmStopExecute :: ActionContext -> Int64 -> Word32 -> IO Response
-handleVmStopExecute ctx vmId timeoutSec = do
+handleVmStopExecute :: ActionContext -> Int64 -> Word32 -> Bool -> IO Response
+handleVmStopExecute ctx vmId timeoutSec forceOnTimeout = do
   let state = acState ctx
   validated <- handleVmStopValidate state vmId
   case validated of
@@ -86,11 +86,7 @@ handleVmStopExecute ctx vmId timeoutSec = do
               (fromSqlKey (acTaskId ctx))
               ("graceful-shutdown wait, ETA " <> T.pack (show timeoutSec) <> "s")
               (0, 0)
-          -- 'vmStopGraceful' on the agent issues QMP @system_powerdown@
-          -- (ACPI) and blocks until QEMU exits. That's the canonical
-          -- guest shutdown path; the previous daemon-side QGA
-          -- @guest-shutdown@ pre-call was belt-and-suspenders and is
-          -- gone now that the agent owns QGA.
+          -- The nodeagent sends QGA powerdown and ACPI, then waits for exit.
           outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopGraceful nac vmId timeoutSec
           case outer of
             Left err -> do
@@ -104,6 +100,9 @@ handleVmStopExecute ctx vmId timeoutSec = do
               Right res -> case NOA.vsrKind res of
                 NOA.VmStopStopped -> markStopped
                 NOA.VmStopAlreadyStopped -> markStopped
+                NOA.VmStopTimeout
+                  | not forceOnTimeout ->
+                      pure $ RespError "Graceful shutdown timed out; VM preserved and image capture refused"
                 NOA.VmStopTimeout -> do
                   logWarnN $
                     "VM "
@@ -299,6 +298,7 @@ instance Action VmReset where
 data VmStop = VmStop
   { vstpVmId :: Int64
   , vstpTimeout :: Word32
+  , vstpForceOnTimeout :: Bool
   }
 
 instance Action VmStop where
@@ -310,7 +310,7 @@ instance Action VmStop where
     pure $ case result of
       Left errResp -> Just errResp
       Right _ -> Nothing
-  actionExecute ctx a = handleVmStopExecute ctx (vstpVmId a) (vstpTimeout a)
+  actionExecute ctx a = handleVmStopExecute ctx (vstpVmId a) (vstpTimeout a) (vstpForceOnTimeout a)
 
 -- (Phase 3 refactor: the @StartVirtiofsd@ and @LaunchQemu@
 -- subtask actions are gone — virtiofsd is implicit in 'VmSpec',

@@ -9,12 +9,15 @@
 -- are rejected.
 module Corvus.BuildSchemaSpec (spec) where
 
-import Corvus.Handlers.Build (buildShellCommand)
+import Corvus.Handlers.Build (buildShellCommand, powerShellBootstrap)
 import Corvus.Model (DriveFormat (..))
 import Corvus.Protocol.Disk (UploadIfExists (..))
 import Corvus.Schema.Apply (ApplyConfig (..))
 import Corvus.Schema.Build
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BS8
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Yaml as Yaml
 import Test.Hspec
 
@@ -257,6 +260,17 @@ spec = describe "Schema.Build" $ do
       mapM_ (\value -> parseTarget value `shouldSatisfy` \case Left _ -> True; Right _ -> False) ["'true'", "1", "[]", "{}"]
 
   describe "Provisioner: shell" $ do
+    it "defaults to sh and accepts PowerShell explicitly" $ do
+      case Yaml.decodeEither' "inline: echo hi" of
+        Right sh -> shellInterpreter sh `shouldBe` ShellSh
+        Left err -> expectationFailure (show err)
+      case Yaml.decodeEither' "inline: Write-Output hi\ninterpreter: powershell" of
+        Right sh -> shellInterpreter sh `shouldBe` ShellPowerShell
+        Left err -> expectationFailure (show err)
+    it "rejects unknown interpreters" $
+      (Yaml.decodeEither' "inline: hi\ninterpreter: invalid" :: Either Yaml.ParseException Shell)
+        `shouldSatisfy` either (const True) (const False)
+
     it "accepts shell as a bare string (sets inline)" $ do
       let yaml =
             BS8.unlines
@@ -330,6 +344,29 @@ spec = describe "Schema.Build" $ do
         Left e -> expectationFailure e
 
   describe "Provisioner: wait-for" $ do
+    it "parses script and inline probes with the selected interpreter" $ do
+      mapM_
+        ( \input -> case (Yaml.decodeEither' input :: Either Yaml.ParseException WaitFor) of
+            Right (WaitForScript sh seconds) -> do
+              shellInterpreter sh `shouldBe` ShellPowerShell
+              seconds `shouldBe` 900
+            other -> expectationFailure (show other)
+        )
+        ["script: ./ready.ps1\ninterpreter: powershell\ntimeoutSec: 900", "inline: 'exit 1'\ninterpreter: powershell\ntimeoutSec: 900"]
+
+    it "parses inline readiness probes with the default interpreter" $ do
+      case (Yaml.decodeEither' "inline: 'test -f /ready'\ntimeoutSec: 900" :: Either Yaml.ParseException WaitFor) of
+        Right (WaitForScript sh seconds) -> do
+          shellInline sh `shouldBe` Just "test -f /ready"
+          shellInterpreter sh `shouldBe` ShellSh
+          seconds `shouldBe` 900
+        other -> expectationFailure (show other)
+
+    it "rejects command fields and ambiguous script probes" $ do
+      mapM_
+        (\input -> (Yaml.decodeEither' input :: Either Yaml.ParseException WaitFor) `shouldSatisfy` either (const True) (const False))
+        ["command: ''", "command: 'true'\nping: true", "command: 'true'\nfile: /ready", "script: ready.ps1\ncommand: true", "script: ready.ps1\ninline: exit 0", "inline: exit 0\nping: true", "inline: exit 0\ncommand: exit 1"]
+
     it "parses wait-for: { ping }" $ do
       let yaml =
             BS8.unlines
@@ -544,6 +581,7 @@ spec = describe "Schema.Build" $ do
             , shellScript = Nothing
             , shellWorkdir = Nothing
             , shellEnv = []
+            , shellInterpreter = ShellSh
             , shellTimeoutSec = Nothing
             }
         -- Auto-injected env (Corvus + shellDefaults.env) is wrapped in
@@ -636,3 +674,26 @@ spec = describe "Schema.Build" $ do
           <> "export MSG='hello world'\n"
           <> xtraceOn
           <> "echo $MSG"
+
+    it "quotes PowerShell environment and paths without POSIX syntax" $ do
+      let sh = bareShell {shellInterpreter = ShellPowerShell, shellEnv = [("MSG", "Bob's text")], shellWorkdir = Just "C:\\Users\\Bob's folder"}
+      buildShellCommand emptyShellDefaults [] sh "Write-Output $env:MSG"
+        `shouldBe` "[Environment]::SetEnvironmentVariable('MSG', 'Bob''s text', 'Process')\nSet-Location -LiteralPath 'C:\\Users\\Bob''s folder'\nWrite-Output $env:MSG"
+
+    it "protects bootstrap variables from outer-shell expansion with UTF-16LE EncodedCommand" $ do
+      let prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
+      case T.stripPrefix prefix (powerShellBootstrap "C:\\Windows\\Temp\\Bob's é.ps1") of
+        Nothing -> expectationFailure "expected an encoded PowerShell bootstrap"
+        Just encoded -> do
+          encoded `shouldSatisfy` T.all (\c -> c `elem` ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" :: String))
+          case B64.decode (TE.encodeUtf8 encoded) of
+            Left err -> expectationFailure err
+            Right bytes -> do
+              let bootstrap = TE.decodeUtf16LE bytes
+              bootstrap `shouldSatisfy` T.isInfixOf "$ErrorActionPreference = 'Stop'"
+              bootstrap `shouldSatisfy` T.isInfixOf "$ProgressPreference = 'SilentlyContinue'"
+              bootstrap `shouldSatisfy` T.isInfixOf "[IO.File]::ReadAllText('C:\\Windows\\Temp\\Bob''s é.ps1', [Text.Encoding]::UTF8)"
+              bootstrap `shouldSatisfy` T.isInfixOf "finally { Remove-Item -LiteralPath"
+              bootstrap `shouldSatisfy` (not . T.isInfixOf "OpenStandardInput")
+              bootstrap `shouldSatisfy` T.isInfixOf "[ScriptBlock]::Create($script)"
+              bootstrap `shouldSatisfy` T.isInfixOf "[Console]::Error.WriteLine($_.ToString()); exit 1"

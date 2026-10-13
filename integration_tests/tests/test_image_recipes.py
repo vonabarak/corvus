@@ -202,7 +202,7 @@ class TestImageRecipes:
         # uploads. Their directory dispatch is covered by lifecycle tests.
         for recipe in ("windows-server-2025", "windows-11", "corvus-test-installer"):
             (recipes.root / "yaml" / recipe / "Makefile").write_text(
-                ".PHONY: build rebuild\nbuild rebuild:\n\t@:\n"
+                ".PHONY: build rebuild ensure\nbuild rebuild ensure:\n\t@:\n"
             )
         result = recipes.run("", target)
         assert result.returncode == 0, result.stdout + result.stderr
@@ -217,6 +217,7 @@ class TestImageRecipes:
             "corvus-test-vm.yml",
             "virtio-win.yml",
             "windows-server-media.yml",
+            "windows-11-desktop.yml",
             "debian-nginx.yml",
             "ubuntu-nginx.yml",
             "corvus-monitor.yml",
@@ -233,6 +234,21 @@ class TestImageRecipes:
         ):
             assert pipelines.index("multi-os.yml") < pipelines.index(consumer)
         assert all(f"image_if_exists={policy}" in call.args for call in builds)
+
+    def test_windows_desktop_readiness_avoids_shell_quoting(
+        self, recipes: RecipeRunner
+    ) -> None:
+        directory = recipes.root / "yaml/windows-11-desktop"
+        doc = yaml.safe_load((directory / "windows-11-desktop.yml").read_text())
+        provisioners = doc["pipeline"][1]["build"]["provisioners"]
+        assert provisioners[0]["shell"]["script"] == "./keep-awake.ps1"
+        assert "standby-timeout-ac" in (directory / "keep-awake.ps1").read_text()
+        installer = (directory / "install-desktop.ps1").read_text()
+        assert "C:\\Program Files\\PDF-XChange\\PDF Editor\\PXCEditor.exe" in installer
+        probe = provisioners[1]["wait-for"]
+        assert probe["script"] == "./wait-for-setup.ps1"
+        assert probe["interpreter"] == "powershell"
+        assert (directory / "wait-for-setup.ps1").is_file()
 
     @pytest.mark.parametrize("recipe", RECIPES)
     def test_yaml_policy_and_import_ownership(

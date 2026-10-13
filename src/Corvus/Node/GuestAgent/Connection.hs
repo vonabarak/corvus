@@ -5,6 +5,8 @@
 module Corvus.Node.GuestAgent.Connection
   ( GuestAgentConns
   , withPersistentConn
+  , withDiscardedConn
+  , invalidateConn
   , releaseConn
   , syncGuest
   )
@@ -49,7 +51,15 @@ getOrCreateConn connsVar vmId = do
 -- | Run an operation against the cached socket. The MVar both caches and
 -- serializes QGA traffic; QEMU's chardev listen backlog is only one deep.
 withPersistentConn :: GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (Socket -> IO a) -> IO (Either Text a)
-withPersistentConn connsVar config vmId retries timeoutMicros action = do
+withPersistentConn = withConnection False
+
+-- | Serialize once and discard the socket before releasing the lock. Used
+-- for shutdown, which has no success reply and invalidates the guest session.
+withDiscardedConn :: GuestAgentConns -> QemuConfig -> Int64 -> Int -> (Socket -> IO a) -> IO (Either Text a)
+withDiscardedConn conns config vmId = withConnection True conns config vmId 1
+
+withConnection :: Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (Socket -> IO a) -> IO (Either Text a)
+withConnection discard connsVar config vmId retries timeoutMicros action = do
   connVar <- getOrCreateConn connsVar vmId
   path <- getGuestAgentSocket config vmId
   go connVar path retries
@@ -70,7 +80,9 @@ withPersistentConn connsVar config vmId retries timeoutMicros action = do
           readIORef sockRef >>= closeMaybe
           putMVar connVar Nothing
       case result of
-        Right (sock, value) -> putMVar connVar (Just sock) >> pure (Right value)
+        Right (sock, value) -> do
+          if discard then closeSafe sock >> putMVar connVar Nothing else putMVar connVar (Just sock)
+          pure (Right value)
         Left err -> do
           readIORef sockRef >>= closeMaybe
           putMVar connVar Nothing
@@ -132,9 +144,17 @@ syncGuest sock = do
   waitForSync syncId 10
   where
     waitForSync :: Int -> Int -> IO ()
-    waitForSync _ 0 = pure ()
+    waitForSync _ 0 = ioError (userError "guest-sync: matching reply not received")
     waitForSync expected remaining = do
       response <- recvJson sock
       case response of
         Just (Object obj) | KM.lookup "return" obj == Just (Number (fromIntegral expected)) -> pure ()
         _ -> waitForSync expected (remaining - 1)
+
+-- | Close a stale session while retaining the per-VM serialization lock.
+invalidateConn :: GuestAgentConns -> Int64 -> IO ()
+invalidateConn conns vmId = mask_ $ do
+  slot <- getOrCreateConn conns vmId
+  cached <- takeMVar slot
+  closeMaybe cached
+  putMVar slot Nothing

@@ -9,15 +9,55 @@
 -- future tightening is a deliberate change, not a silent regression.
 module Corvus.QmpSpec (spec) where
 
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (bracket)
 import Corvus.Node.Qmp
-import Data.Aeson (eitherDecode')
+import Corvus.Node.Runtime (getQmpSocket)
+import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Data.Aeson (Value (..), eitherDecode', object, (.=))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
+import Network.Socket (Family (AF_UNIX), SockAddr (SockAddrUnix), SocketType (Stream), accept, bind, close, defaultProtocol, listen, socket)
+import Network.Socket.ByteString (recv, sendAll)
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (takeDirectory)
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 spec :: Spec
 spec = do
+  describe "guest reboot event confirmation" $ do
+    it "accepts a guest reset" $
+      isGuestRebootEvent (object ["event" .= String "RESET", "data" .= object ["guest" .= True]]) `shouldBe` Just False
+    it "ignores host resets" $
+      isGuestRebootEvent (object ["event" .= String "RESET", "data" .= object ["guest" .= False]]) `shouldBe` Nothing
+    it "recognizes rebootQuirk process restarts" $
+      isGuestRebootEvent (object ["event" .= String "SHUTDOWN", "data" .= object ["reason" .= String "guest-reset"]]) `shouldBe` Just True
+    it "ignores poweroff and malformed events" $ do
+      isGuestRebootEvent (object ["event" .= String "SHUTDOWN", "data" .= object ["reason" .= String "guest-shutdown"]]) `shouldBe` Nothing
+      isGuestRebootEvent Null `shouldBe` Nothing
+
+  describe "scoped reboot observer" $ do
+    it "keeps a RESET coalesced with negotiation reply and ignores interleaved events" $
+      withSystemTempDirectory "corvus-qmp" $ \dir -> do
+        let config = defaultQemuConfig {qcRuntimeDir = Just dir}
+        path <- getQmpSocket config 42
+        createDirectoryIfMissing True (takeDirectory path)
+        bracket (socket AF_UNIX Stream defaultProtocol) close $ \listener -> do
+          bind listener (SockAddrUnix path)
+          listen listener 1
+          done <- newEmptyMVar
+          _ <- forkIO $ do
+            bracket (fst <$> accept listener) close $ \peer -> do
+              sendAll peer "{\"QMP\":{}}\n"
+              _ <- recv peer 4096
+              sendAll peer "{\"event\":\"STOP\",\"data\":{}}\n{\"return\":{}}\n{\"event\":\"RESET\",\"data\":{\"guest\":true}}\n"
+            putMVar done ()
+          withRebootObserver config 42 id `shouldReturn` False
+          takeMVar done
+
   describe "BlockEntry decode" $ do
     it "decodes a removable drive with inserted media" $ do
       let json =

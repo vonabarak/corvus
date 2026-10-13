@@ -9,7 +9,8 @@ module Corvus.Node.GuestAgent.Control
   )
 where
 
-import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
+import Control.Monad (join)
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withDiscardedConn, withPersistentConn)
 import Corvus.Node.GuestAgent.Exec (pollRecvTimeoutMicros)
 import Corvus.Node.GuestAgent.Transport (recvJson, recvJsonWithin, sendJson)
 import Corvus.Qemu.Config (QemuConfig)
@@ -35,17 +36,18 @@ guestPing conns config vmId = do
       _ -> False
   pure $ fromRight False result
 
--- | Request a graceful in-guest powerdown. QGA normally closes before
--- replying, so no reply within the short window is accepted as success.
-guestShutdown :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
-guestShutdown conns config vmId = do
-  result <- withPersistentConn conns config vmId 3 15000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-shutdown" :: Text), "arguments" .= Aeson.object ["mode" .= ("powerdown" :: Text)]]
-    response <- timeout 3000000 (recvJson sock)
+-- | Send shutdown exactly once. QGA sends no success response. An explicit
+-- error is failure; a quiet socket or EOF means dispatched, not completed.
+-- The lifecycle caller must independently observe the requested transition.
+guestShutdown :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO (Either Text ())
+guestShutdown conns config vmId mode = do
+  result <- withDiscardedConn conns config vmId 15000000 $ \sock -> do
+    sendJson sock $ Aeson.object ["execute" .= ("guest-shutdown" :: Text), "arguments" .= Aeson.object ["mode" .= mode]]
+    response <- timeout 1000000 (recvJson sock)
     pure $ case response of
-      Just (Just (Object object)) -> not (KM.member "error" object)
-      _ -> True
-  pure $ fromRight True result
+      Just (Just (Object object)) | KM.member "error" object -> Left (qgaErrText object)
+      _ -> Right ()
+  pure $ join result
 
 -- | Freeze writable guest filesystems. Every caller must arrange a matching
 -- 'guestFsThaw' with bracket-style finalisation: leaving the guest frozen

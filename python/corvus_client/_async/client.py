@@ -248,7 +248,7 @@ class AsyncClient:
         """Stream `Daemon.build` events for a YAML pipeline file.
 
         Returns an async generator. The YAML is preprocessed client-side
-        (shell.script/file.from are inlined and leading upload media is
+        (shell.script/wait-for.script/file.from are inlined and leading upload media is
         streamed) before being
         sent. Yields BuildEvent dataclasses; the final item is a
         `('task_id', N)` tuple.

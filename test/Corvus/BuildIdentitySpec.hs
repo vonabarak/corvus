@@ -95,9 +95,16 @@ spec = describe "build input identity" $ do
   let identity b = buildInputIdentity b ["ssh-ed25519 key"]
       fingerprint = biFingerprint . identity
       template t = build {buildResolvedTemplate = Just t}
+  it "includes readiness script contents, interpreter and timeout in the fingerprint" $ do
+    let probe body interpreter seconds = case (Yaml.decodeEither' body :: Either Yaml.ParseException Shell) of
+          Right sh -> build {buildProvisioners = [ProvWaitFor (WaitForScript sh {shellInterpreter = interpreter} seconds)]}
+          Left err -> error (show err)
+    fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 1" ShellPowerShell 300)
+    fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 0" ShellSh 300)
+    fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 0" ShellPowerShell 900)
   it "stores valid deterministic JSON and a SHA-256 fingerprint" $ do
     identity build `shouldBe` identity build
-    biFingerprint (identity build) `shouldBe` "60279049d302a92906c71e56e79a8a34a84aa1e33d1093e2d2bf9bc14bbeb7d3"
+    biFingerprint (identity build) `shouldBe` "c14bccf6d1da66150cfc8a865c0a4a012055a6c88ba63a20ae32713aa23f7e77"
     (Aeson.eitherDecodeStrict' (TE.encodeUtf8 (biInputs (identity build))) :: Either String Aeson.Value) `shouldSatisfy` either (const False) (const True)
   it "includes inherited and overridden startup timeout budgets" $ do
     fingerprint build `shouldNotBe` fingerprint (template sampleDetails {tvdStartupTimeoutSec = 1200})
@@ -138,7 +145,8 @@ spec = describe "build input identity" $ do
           , build {buildBootKeys = [BootKey "ret" 1 1 1]}
           , build {buildShellDefaults = ShellDefaults (Just "set -e") [("A", "value")]}
           , build {buildProvisioners = reverse (buildProvisioners build)}
-          , build {buildProvisioners = [ProvShell (Shell (Just "echo changed") Nothing Nothing [] Nothing)]}
+          , build {buildProvisioners = [ProvShell (Shell (Just "echo changed") Nothing Nothing [] ShellSh Nothing)]}
+          , build {buildProvisioners = [ProvShell (Shell (Just "echo changed") Nothing Nothing [] ShellPowerShell Nothing)]}
           , build {buildProvisioners = [ProvFile (FileProv Nothing (Just "Yg==") "/tmp/file" Nothing)]}
           , template sampleDetails {tvdRng = not (tvdRng sampleDetails)}
           , template sampleDetails {tvdNetIfs = []}

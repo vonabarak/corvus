@@ -1,0 +1,119 @@
+# Consumes registered images owned by ../windows-11/windows-11.yml.
+# make image IMAGE=windows-11-desktop
+vars:
+  image_if_exists: update
+pipeline:
+- apply:
+    ifExists: overwrite
+    templates:
+    - name: windows-11-desktop-builder
+      description: Windows 11 desktop bake VM
+      cpuCount: 4
+      ram: 8G
+      headless: false
+      cloudInit: false
+      guestAgent: true
+      vsock: false
+      graphicsAdapter: qxl-vga
+      tpm: false
+      balloon: true
+      audioDevices:
+      - model: intel-hda
+        backend: spice
+      drives:
+      - diskImage: windows-11-pro-base
+        interface: virtio
+        media: disk
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+      - diskImage: ovmf-code-secboot
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars-secboot
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+- build:
+    name: windows-11-desktop
+    description: Windows 11 desktop with Total Commander, Firefox, PDF-XChange Editor
+      and Process Explorer
+    template: windows-11-desktop-builder
+    target:
+      ifExists: '{{ image_if_exists }}'
+      size: 80G
+      format: qcow2
+      compact: true
+      path: BaseImages/Windows11/
+    strategy: overlay
+    vm:
+      cpuCount: 4
+      ram: 8G
+      startupTimeoutSec: 900
+    shellDefaults:
+      preamble: '$ErrorActionPreference = ''Stop''
+
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12'
+    provisioners:
+    # QGA becomes available before specialize/OOBE finishes. Disable Windows'
+    # default idle sleep now, or the guest can suspend before wait-for completes.
+    - shell:
+        interpreter: powershell
+        script: ./keep-awake.ps1
+        timeoutSec: 60
+    # QGA and IMAGE_STATE_COMPLETE can precede the final specialize reboot.
+    # Require setup to finish and a stable boot before running mutating steps.
+    - wait-for:
+        interpreter: powershell
+        script: ./wait-for-setup.ps1
+        timeoutSec: 900
+    - shell:
+        interpreter: powershell
+        script: ./install-desktop.ps1
+        timeoutSec: 3600
+    - reboot:
+        timeoutSec: 900
+    # Remove the temporary corvus account/profile and run Sysprep with the runtime
+    # answer file to generalize Windows for OOBE on first boot. Verify the sealed
+    # state; Corvus then powers off the VM gracefully before capturing the image.
+    - shell:
+        interpreter: powershell
+        script: ./seal.ps1
+        timeoutSec: 1800
+    cleanup: onSuccess
+- apply:
+    ifExists: overwrite
+    templates:
+    - name: windows-11-desktop
+      description: Windows 11 desktop with Total Commander, Firefox, PDF-XChange Editor
+        and Process Explorer
+      cpuCount: 4
+      ram: 8G
+      headless: false
+      cloudInit: false
+      guestAgent: true
+      vsock: false
+      graphicsAdapter: qxl-vga
+      tpm: true
+      balloon: true
+      audioDevices:
+      - model: intel-hda
+        backend: spice
+      drives:
+      - diskImage: windows-11-desktop
+        interface: virtio
+        media: disk
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+      - diskImage: ovmf-code-secboot
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars-secboot
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus

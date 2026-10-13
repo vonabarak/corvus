@@ -147,7 +147,7 @@ instance (GH.HasField "node" GH.Slot DiskImagePlacement Capnp.Gen.ById.X9b1373e2
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "filePath" GH.Slot DiskImagePlacement Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data DiskCleanupParams
+data DiskCleanupParams 
 type instance (R.ReprFor DiskCleanupParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCleanupParams) where
     typeId  = 11213611917033643915
@@ -163,7 +163,7 @@ instance (C.AllocateList DiskCleanupParams) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskCleanupParams (C.Parsed DiskCleanupParams))
 data instance C.Parsed DiskCleanupParams
-    = DiskCleanupParams
+    = DiskCleanupParams 
         {name :: (RP.Parsed Basics.Text)
         ,allImages :: (RP.Parsed Std_.Bool)
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
@@ -197,7 +197,7 @@ instance (GH.HasField "includeTagged" GH.Slot DiskCleanupParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
 instance (GH.HasField "dryRun" GH.Slot DiskCleanupParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 2 0 1 0)
-data DiskCleanupPlacement
+data DiskCleanupPlacement 
 type instance (R.ReprFor DiskCleanupPlacement) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCleanupPlacement) where
     typeId  = 12884310433378730111
@@ -213,7 +213,7 @@ instance (C.AllocateList DiskCleanupPlacement) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskCleanupPlacement (C.Parsed DiskCleanupPlacement))
 data instance C.Parsed DiskCleanupPlacement
-    = DiskCleanupPlacement
+    = DiskCleanupPlacement 
         {node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,filePath :: (RP.Parsed Basics.Text)
         ,status :: (RP.Parsed Basics.Text)
@@ -242,7 +242,7 @@ instance (GH.HasField "status" GH.Slot DiskCleanupPlacement Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "reason" GH.Slot DiskCleanupPlacement Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
-data DiskCleanupVersion
+data DiskCleanupVersion 
 type instance (R.ReprFor DiskCleanupVersion) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCleanupVersion) where
     typeId  = 18286759194391451417
@@ -258,7 +258,7 @@ instance (C.AllocateList DiskCleanupVersion) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskCleanupVersion (C.Parsed DiskCleanupVersion))
 data instance C.Parsed DiskCleanupVersion
-    = DiskCleanupVersion
+    = DiskCleanupVersion 
         {diskImage :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,tags :: (RP.Parsed (R.List Basics.Text))
         ,status :: (RP.Parsed Basics.Text)
@@ -297,7 +297,7 @@ instance (GH.HasField "versionDeleted" GH.Slot DiskCleanupVersion Std_.Bool) whe
     fieldByLabel  = (GH.dataField 0 0 1 0)
 instance (GH.HasField "placements" GH.Slot DiskCleanupVersion (R.List DiskCleanupPlacement)) where
     fieldByLabel  = (GH.ptrField 4)
-data DiskCleanupReport
+data DiskCleanupReport 
 type instance (R.ReprFor DiskCleanupReport) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCleanupReport) where
     typeId  = 15861589927702292427
@@ -313,7 +313,7 @@ instance (C.AllocateList DiskCleanupReport) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskCleanupReport (C.Parsed DiskCleanupReport))
 data instance C.Parsed DiskCleanupReport
-    = DiskCleanupReport
+    = DiskCleanupReport 
         {dryRun :: (RP.Parsed Std_.Bool)
         ,versions :: (RP.Parsed (R.List DiskCleanupVersion))
         ,removedVersions :: (RP.Parsed Std_.Int64)
@@ -817,7 +817,7 @@ instance (GH.HasField "expectedSha256" GH.Slot DiskUploadParams Basics.Text) whe
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "sourcePath" GH.Slot DiskUploadParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
-data DiskUploadResult
+data DiskUploadResult 
 type instance (R.ReprFor DiskUploadResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskUploadResult) where
     typeId  = 10194143020525316912
@@ -833,7 +833,7 @@ instance (C.AllocateList DiskUploadResult) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskUploadResult (C.Parsed DiskUploadResult))
 data instance C.Parsed DiskUploadResult
-    = DiskUploadResult
+    = DiskUploadResult 
         {union' :: (C.Parsed (GH.Which DiskUploadResult))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskUploadResult))
@@ -1884,7 +1884,7 @@ instance (C.Parse DiskManager'mediaChange'results (C.Parsed DiskManager'mediaCha
     parse raw_ = (Std_.pure DiskManager'mediaChange'results)
 instance (C.Marshal DiskManager'mediaChange'results (C.Parsed DiskManager'mediaChange'results)) where
     marshalInto _raw (DiskManager'mediaChange'results) = (Std_.pure ())
-data DiskManager'cleanup'params
+data DiskManager'cleanup'params 
 type instance (R.ReprFor DiskManager'cleanup'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskManager'cleanup'params) where
     typeId  = 17396665496036833567
@@ -1900,7 +1900,7 @@ instance (C.AllocateList DiskManager'cleanup'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskManager'cleanup'params (C.Parsed DiskManager'cleanup'params))
 data instance C.Parsed DiskManager'cleanup'params
-    = DiskManager'cleanup'params
+    = DiskManager'cleanup'params 
         {params :: (RP.Parsed DiskCleanupParams)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskManager'cleanup'params))
@@ -1914,7 +1914,7 @@ instance (C.Marshal DiskManager'cleanup'params (C.Parsed DiskManager'cleanup'par
         )
 instance (GH.HasField "params" GH.Slot DiskManager'cleanup'params DiskCleanupParams) where
     fieldByLabel  = (GH.ptrField 0)
-data DiskManager'cleanup'results
+data DiskManager'cleanup'results 
 type instance (R.ReprFor DiskManager'cleanup'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskManager'cleanup'results) where
     typeId  = 15804293087185536362
@@ -1930,7 +1930,7 @@ instance (C.AllocateList DiskManager'cleanup'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskManager'cleanup'results (C.Parsed DiskManager'cleanup'results))
 data instance C.Parsed DiskManager'cleanup'results
-    = DiskManager'cleanup'results
+    = DiskManager'cleanup'results 
         {report :: (RP.Parsed DiskCleanupReport)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskManager'cleanup'results))

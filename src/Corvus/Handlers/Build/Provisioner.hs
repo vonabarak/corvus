@@ -14,6 +14,7 @@ module Corvus.Handlers.Build.Provisioner
   , runProvisionerBody
   , buildCorvusEnv
   , buildShellCommand
+  , powerShellBootstrap
   , provKind
   , provDesc
   , strategyName
@@ -22,25 +23,28 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN)
-import Corvus.Action (cancelRemainingSubtasks)
+import Corvus.Action (Action (..), ActionContext (..), cancelRemainingSubtasks, mkActionContext)
 import Corvus.Handlers.Build.Qga
   ( agentGuestExec
   , agentGuestExecWithStdin
   , agentGuestExecWithTail
   , agentGuestPing
+  , agentGuestReboot
+  , agentGuestWriteFile
   )
 import Corvus.Handlers.Vm.Query (getVmDetails)
 import Corvus.Model
 import Corvus.Node.GuestAgent (GuestExecResult (..))
+import Corvus.Protocol (Response (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildSink)
 import Corvus.Protocol.Vm (vdName, vdVsockCid)
 import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as LBS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
@@ -53,7 +57,9 @@ import Data.Time (getCurrentTime)
 import qualified Data.Version as Version
 import Database.Persist (insert, update)
 import Database.Persist.Sql (runSqlPool, (=.))
+import GHC.Clock (getMonotonicTimeNSec)
 import Paths_corvus (version)
+import System.Timeout (timeout)
 
 -- | Per-step output cap persisted to @task.message@. Streamed lines are
 -- forwarded to the client unbounded; only the snapshot we save to the DB
@@ -150,7 +156,15 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
               }
         )
         (ssDbPool state)
-  bodyResult <- liftIO $ try $ runProvisionerBody state vmId sd cEnv stepIdx sink p
+  bodyResult <- liftIO $ try $ case p of
+    ProvReboot rb -> do
+      sink (StepOutput stepIdx "rebooting via guest-shutdown")
+      result <- actionExecute (mkActionContext state taskKey "system") (BuildGuestReboot vmId (rebootTimeoutSec rb))
+      pure $ case result of
+        RespOk -> Right (Just "guest reboot confirmed; guest-ping ready")
+        RespError err -> Left (err, Just err)
+        other -> Left (T.pack (show other), Just (T.pack (show other)))
+    _ -> runProvisionerBody state vmId sd cEnv stepIdx sink p
   finishedAt <- liftIO getCurrentTime
   let (orchResult, taskMsg, resultStatus) = case bodyResult of
         Right (Right msg) -> (Right (), msg, TaskSuccess)
@@ -206,22 +220,23 @@ runProvisionerBody state vmId sd cEnv stepIdx sink p = case p of
           , Just "shell: missing inline body (client-side bug)"
           )
     Just body -> do
-      let maxPolls = case shellTimeoutSec sh of
-            Just s -> max 60 (s * 10)
-            Nothing -> 6000 -- 10 minutes default
-          fullCmd = buildShellCommand sd cEnv sh body
+      let timeoutSec = fromMaybe 600 (shellTimeoutSec sh)
+          script = buildShellCommand sd cEnv sh body
+          scriptPath = "C:\\Windows\\Temp\\corvus-build-" <> T.pack (show vmId) <> "-" <> T.pack (show stepIdx) <> ".ps1"
+          fullCmd = case shellInterpreter sh of
+            ShellSh -> script
+            ShellPowerShell -> powerShellBootstrap scriptPath
       bufRef <- newIORef BS.empty
       totalRef <- newIORef (0 :: Int)
       let onLine line = do
             sink (StepOutput stepIdx line)
             accumulateLine bufRef totalRef line
-      result <-
-        agentGuestExecWithTail
-          state
-          vmId
-          fullCmd
-          (fromIntegral maxPolls)
-          onLine
+      staged <- case shellInterpreter sh of
+        ShellSh -> pure (Right ())
+        ShellPowerShell -> agentGuestWriteFile state vmId scriptPath (TE.encodeUtf8 script)
+      result <- case staged of
+        Left err -> pure (GuestExecError ("script upload: " <> err))
+        Right () -> agentGuestExecWithTail state vmId fullCmd BS.empty (fromIntegral timeoutSec) onLine
       tail' <- finalizeStepBuf bufRef totalRef
       pure $ case result of
         GuestExecSuccess 0 _ _ -> Right tail'
@@ -265,7 +280,7 @@ runProvisionerBody state vmId sd cEnv stepIdx sink p = case p of
           600
       pure $ classifyAtomic "file" (fileTo fp) result
   ProvWaitFor wf -> waitForIO state stepIdx sink vmId wf
-  ProvReboot rb -> rebootGuestIO state stepIdx sink vmId (rebootTimeoutSec rb)
+  ProvReboot _ -> pure $ Left ("reboot requires an Action context", Nothing)
 
 -- | Append a streamed line to the per-step ring buffer, updating the
 -- byte-counter that lets 'finalizeStepBuf' know whether truncation
@@ -356,6 +371,7 @@ provDesc (ProvWaitFor wf) = case wf of
   WaitForPing _ -> "guest-agent ping"
   WaitForFile p _ -> "file " <> p
   WaitForPort port _ -> "port " <> T.pack (show port)
+  WaitForScript sh _ -> provDesc (ProvShell sh)
 provDesc (ProvReboot _) = "reboot"
 
 -- | Lightweight shell quoting: wrap in single quotes and escape any single
@@ -392,13 +408,21 @@ shellQuote t = "'" <> T.replace "'" "'\\''" t <> "'"
 -- @env:@ is left outside the wrapper — operators wrote those vars
 -- themselves, so seeing them traced is appropriate.
 buildShellCommand :: ShellDefaults -> [(Text, Text)] -> Shell -> Text -> Text
-buildShellCommand sd corvusEnv sh body =
-  preambleBlock
-    <> autoEnvBlock
-    <> stepEnvBlock
-    <> workdirBlock
-    <> body
+buildShellCommand sd corvusEnv sh body
+  | shellInterpreter sh == ShellPowerShell =
+      maybe "" (<> "\n") (sdPreamble sd)
+        <> T.concat (map psEnv (corvusEnv ++ sdEnv sd ++ shellEnv sh))
+        <> maybe "" (\d -> "Set-Location -LiteralPath " <> psQuote d <> "\n") (shellWorkdir sh)
+        <> body
+  | otherwise =
+      preambleBlock
+        <> autoEnvBlock
+        <> stepEnvBlock
+        <> workdirBlock
+        <> body
   where
+    psEnv (key, value) = "[Environment]::SetEnvironmentVariable(" <> psQuote key <> ", " <> psQuote value <> ", 'Process')\n"
+    psQuote value = "'" <> T.replace "'" "''" value <> "'"
     preambleBlock = case sdPreamble sd of
       Just p -> p <> "\n"
       Nothing -> ""
@@ -446,41 +470,68 @@ waitForIO state stepIdx sink vmId w = case w of
       pure $ case r of
         GuestExecSuccess 0 _ _ -> True
         _ -> False
+  WaitForScript sh timeoutSec -> case shellInline sh of
+    Nothing -> pure $ Left ("wait-for: missing inline body", Nothing)
+    Just body -> do
+      let script = buildShellCommand emptyShellDefaults [] sh body
+          cmd = case shellInterpreter sh of
+            ShellSh -> script
+            ShellPowerShell ->
+              "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
+                <> TE.decodeUtf8 (B64.encode (TE.encodeUtf16LE script))
+      loopUntil timeoutSec "script" $ do
+        r <- agentGuestExec state vmId cmd 10
+        pure $ case r of
+          GuestExecSuccess 0 _ _ -> True
+          _ -> False
   where
-    loopUntil totalSec lbl probe = go 0
+    loopUntil totalSec lbl probe = do
+      started <- getMonotonicTimeNSec
+      let deadline = started + fromIntegral totalSec * 1000000000
+      result <- timeout (totalSec * 1000000) (go deadline)
+      pure $ fromMaybe (Left (err, Just err)) result
       where
-        go elapsed
-          | elapsed >= totalSec =
-              let err = "wait-for " <> lbl <> ": timed out after " <> T.pack (show totalSec) <> "s"
-               in pure $ Left (err, Just err)
-          | otherwise = do
+        err = "wait-for " <> lbl <> ": timed out after " <> T.pack (show totalSec) <> "s"
+        -- RPC error wrappers can turn a timeout exception into a failed probe.
+        -- Check the monotonic deadline too, so such failures cannot restart it.
+        go deadline = do
+          now <- getMonotonicTimeNSec
+          if now >= deadline
+            then pure $ Left (err, Just err)
+            else do
               ok <- probe
-              if ok
-                then pure $ Right (Just (lbl <> " ok after " <> T.pack (show elapsed) <> "s"))
-                else do
-                  when (elapsed `mod` 10 == 0) $
-                    sink (StepOutput stepIdx ("waiting for " <> lbl <> " (" <> T.pack (show elapsed) <> "s)"))
-                  threadDelay 2000000
-                  go (elapsed + 2)
+              finished <- getMonotonicTimeNSec
+              if finished >= deadline
+                then pure $ Left (err, Just err)
+                else
+                  if ok
+                    then pure $ Right (Just (lbl <> " ok"))
+                    else do
+                      sink (StepOutput stepIdx ("waiting for " <> lbl))
+                      threadDelay 2000000
+                      go deadline
 
-rebootGuestIO
-  :: ServerState
-  -> Int
-  -> BuildSink
-  -> Int64
-  -> Int
-  -> IO (Either (Text, Maybe Text) (Maybe Text))
-rebootGuestIO state stepIdx sink vmId timeoutSec = do
-  sink (StepOutput stepIdx "rebooting via guest-exec")
-  result <-
-    agentGuestExec
-      state
-      vmId
-      "(sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot) >/dev/null 2>&1 &"
-      30
-  case result of
-    GuestExecConnectionFailed msg ->
-      pure $ Left ("reboot dispatch: " <> msg, Just msg)
-    _ -> do
-      threadDelay 5000000 -- 5s grace
-      waitForIO state stepIdx sink vmId (WaitForPing timeoutSec)
+-- Execute the UTF-8 script staged through QGA file operations, avoiding both
+-- Windows command-line quoting and payload limits. Delete it on completion.
+powerShellBootstrap :: Text -> Text
+powerShellBootstrap path =
+  "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
+    <> TE.decodeUtf8 (B64.encode (TE.encodeUtf16LE bootstrap))
+  where
+    literal = "'" <> T.replace "'" "''" path <> "'"
+    bootstrap =
+      "try { $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; $script = [IO.File]::ReadAllText("
+        <> literal
+        <> ", [Text.Encoding]::UTF8); & ([ScriptBlock]::Create($script)); exit 0 } catch { [Console]::Error.WriteLine($_.ToString()); exit 1 } finally { Remove-Item -LiteralPath "
+        <> literal
+        <> " -Force -ErrorAction SilentlyContinue }"
+
+data BuildGuestReboot = BuildGuestReboot Int64 Int
+
+instance Action BuildGuestReboot where
+  actionSubsystem _ = SubBuild
+  actionCommand _ = "reboot"
+  actionEntityId (BuildGuestReboot vmId _) = Just (fromIntegral vmId)
+  actionExecute ctx (BuildGuestReboot vmId seconds) = do
+    result <- agentGuestReboot (acState ctx) vmId (fromIntegral seconds)
+    pure $ either RespError (const RespOk) result

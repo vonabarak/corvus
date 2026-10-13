@@ -78,6 +78,8 @@ def preprocess_build_yaml(text: str, base_dir: str) -> str:
 
     * ``pipeline[].build.provisioners[].shell.script: <path>`` →
       ``shell.inline: <file body as text>``
+    * ``pipeline[].build.provisioners[].wait-for.script: <path>`` →
+      ``wait-for.inline: <file body as text>``
     * ``pipeline[].build.provisioners[].file.from: <path>`` →
       ``file.content: <base64 of file bytes>``
     Paths are resolved relative to ``base_dir`` unless absolute.
@@ -111,13 +113,14 @@ def preprocess_build_yaml(text: str, base_dir: str) -> str:
             for prov in provs:
                 if not isinstance(prov, dict):
                     continue
-                shell = prov.get("shell")
-                if isinstance(shell, dict) and isinstance(shell.get("script"), str):
-                    with open(resolve(shell["script"]), encoding="utf-8") as f:
-                        body = f.read()
-                    del shell["script"]
-                    shell["inline"] = body
-                    changed = True
+                for kind in ("shell", "wait-for"):
+                    shell = prov.get(kind)
+                    if isinstance(shell, dict) and isinstance(shell.get("script"), str):
+                        with open(resolve(shell["script"]), encoding="utf-8") as f:
+                            body = f.read()
+                        del shell["script"]
+                        shell["inline"] = body
+                        changed = True
                 f_prov = prov.get("file")
                 if isinstance(f_prov, dict) and isinstance(f_prov.get("from"), str):
                     with open(resolve(f_prov["from"]), "rb") as fh:

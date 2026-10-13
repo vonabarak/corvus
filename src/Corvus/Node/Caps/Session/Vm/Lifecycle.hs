@@ -123,7 +123,11 @@ handleVmStopGraceful sc vmId timeoutSec = do
       -- guests with QGA but no acpid (e.g. early cloud-init), guests
       -- with acpid but no QGA, and guests with both. Either one
       -- exiting the QEMU process is good enough.
-      _ <- E.try @E.SomeException (NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId)
+      shutdownResult <- E.try @E.SomeException (NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId "powerdown")
+      case shutdownResult of
+        Left err -> runStderrLoggingT $ logWarnN ("QGA powerdown: " <> tshow err)
+        Right (Left err) -> runStderrLoggingT $ logWarnN ("QGA powerdown: " <> err)
+        Right (Right ()) -> pure ()
       qmpResult <- NQ.qmpShutdown agentQemuConfig vmId
       case qmpResult of
         NQ.QmpSuccess -> pure ()

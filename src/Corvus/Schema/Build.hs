@@ -11,7 +11,7 @@
 -- next image on top of that template").
 --
 -- The client preprocesses the YAML before sending: any provisioner that
--- references a host file (@shell.script@, @file.from@) is read off the
+-- references a host file (@shell.script@, @wait-for.script@, @file.from@) is read off the
 -- operator's filesystem and inlined as @shell.inline@ / @file.content@ so
 -- the daemon never needs access to the client's working directory.
 module Corvus.Schema.Build
@@ -27,6 +27,7 @@ module Corvus.Schema.Build
   , emptyShellDefaults
   , Provisioner (..)
   , Shell (..)
+  , ShellInterpreter (..)
   , FileProv (..)
   , WaitFor (..)
   , Reboot (..)
@@ -48,6 +49,7 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
 import Data.Int (Int64)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), Value (..), withObject, withText, (.!=), (.:), (.:?))
@@ -304,11 +306,21 @@ instance FromJSON Provisioner where
 -- reads and embeds as @inline@) must be present. After client preprocessing
 -- the daemon only sees @inline@ — a non-Nothing @script@ at parse time on
 -- the daemon is a bug in the client.
+data ShellInterpreter = ShellSh | ShellPowerShell
+  deriving stock (Eq, Show)
+
+instance FromJSON ShellInterpreter where
+  parseJSON = withText "ShellInterpreter" $ \case
+    "sh" -> pure ShellSh
+    "powershell" -> pure ShellPowerShell
+    other -> fail $ "unknown shell interpreter: " <> T.unpack other
+
 data Shell = Shell
   { shellInline :: Maybe Text
   , shellScript :: Maybe FilePath
   , shellWorkdir :: Maybe Text
   , shellEnv :: [(Text, Text)]
+  , shellInterpreter :: ShellInterpreter
   , shellTimeoutSec :: Maybe Int
   }
   deriving stock (Show)
@@ -322,6 +334,7 @@ instance FromJSON Shell where
           , shellScript = Nothing
           , shellWorkdir = Nothing
           , shellEnv = []
+          , shellInterpreter = ShellSh
           , shellTimeoutSec = Nothing
           }
     Object o -> do
@@ -329,6 +342,7 @@ instance FromJSON Shell where
       mScript <- o .:? "script"
       mWorkdir <- o .:? "workdir"
       mEnvVal <- o .:? "env" :: Yaml.Parser (Maybe Value)
+      interpreter <- o .:? "interpreter" .!= ShellSh
       mTimeout <- o .:? "timeoutSec"
       envList <- case mEnvVal of
         Nothing -> pure []
@@ -340,6 +354,7 @@ instance FromJSON Shell where
           , shellScript = mScript
           , shellWorkdir = mWorkdir
           , shellEnv = envList
+          , shellInterpreter = interpreter
           , shellTimeoutSec = mTimeout
           }
     _ -> typeMismatch "Shell" v
@@ -373,6 +388,7 @@ data WaitFor
   = WaitForPing Int
   | WaitForFile Text Int
   | WaitForPort Int Int
+  | WaitForScript Shell Int
   deriving stock (Show)
 
 instance FromJSON WaitFor where
@@ -380,13 +396,21 @@ instance FromJSON WaitFor where
     mPing <- o .:? "ping" :: Yaml.Parser (Maybe Bool)
     mFile <- o .:? "file"
     mPort <- o .:? "port"
+    when (KM.member "command" o) $ fail "wait-for: unknown field 'command'"
     timeoutSec <- o .:? "timeoutSec" .!= 300
-    case (mPing, mFile, mPort) of
-      (Just True, Nothing, Nothing) -> pure $ WaitForPing timeoutSec
-      (Nothing, Just p, Nothing) -> pure $ WaitForFile p timeoutSec
-      (Nothing, Nothing, Just p) -> pure $ WaitForPort p timeoutSec
-      (Nothing, Nothing, Nothing) -> fail "wait-for: specify one of ping, file, port"
-      _ -> fail "wait-for: specify exactly one of ping, file, port"
+    mInline <- o .:? "inline" :: Yaml.Parser (Maybe Text)
+    mScript <- o .:? "script" :: Yaml.Parser (Maybe FilePath)
+    let hasScript = isJust mInline || isJust mScript
+    case (mPing, mFile, mPort, hasScript) of
+      (Nothing, Nothing, Nothing, True) -> do
+        when (isJust mInline && isJust mScript) $ fail "wait-for: specify either inline or script"
+        sh <- parseJSON (Object o)
+        pure $ WaitForScript sh timeoutSec
+      (Just True, Nothing, Nothing, False) -> pure $ WaitForPing timeoutSec
+      (Nothing, Just p, Nothing, False) -> pure $ WaitForFile p timeoutSec
+      (Nothing, Nothing, Just p, False) -> pure $ WaitForPort p timeoutSec
+      (Nothing, Nothing, Nothing, False) -> fail "wait-for: specify one of ping, file, port, inline or script"
+      _ -> fail "wait-for: specify exactly one of ping, file, port, inline or script"
 
 newtype Reboot = Reboot {rebootTimeoutSec :: Int}
   deriving stock (Show)
