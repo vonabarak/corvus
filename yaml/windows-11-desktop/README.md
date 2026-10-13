@@ -10,6 +10,9 @@ installed by extracting the official cabinet payload and creating a shared
 shortcut, because its interactive installer fails in QGA's SYSTEM session.
 It uses per-user configuration and has no installer-created uninstall entry.
 
+SDelete is also installed under `C:\Program Files\Sysinternals\SDelete`, with
+its download hash and executable version recorded alongside the applications.
+
 ```sh
 make image IMAGE=windows-11-desktop
 ```
@@ -56,7 +59,10 @@ Modern Standby), configured/active pagefiles, and remaining `pagefile.sys`,
 to check persistence. Windows uses RAM without disk-backed paging; allocate
 enough RAM for the intended workload. Host-controlled VM pause/save is unaffected.
 The bake then removes that account/profile,
-and seals with Sysprep `/generalize /oobe /quit`. Corvus then requests graceful
+and seals with Sysprep `/generalize /oobe /quit`. The final provisioner runs
+`sdelete64.exe -accepteula -nobanner -z C:` to zero system-volume free space
+after configuration, installation and sealing, allowing qcow2 compaction to
+omit those blocks. Corvus then requests graceful
 poweroff before capturing a compact qcow2 image. Failed builds, including final
 shutdown timeouts, preserve the bake VM for inspection and do not publish it.
 
@@ -74,4 +80,5 @@ Vendor page layout changes fail the bake rather than selecting an unknown file.
 Vendor references: [Total Commander](https://www.ghisler.com/download.htm),
 [Firefox MSI deployment](https://support.mozilla.org/en-US/kb/deploy-firefox-msi-installers),
 [PDF-XChange Editor](https://www.pdf-xchange.com/product/pdf-xchange-editor),
-[Process Explorer](https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer).
+[Process Explorer](https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer),
+[SDelete](https://learn.microsoft.com/en-us/sysinternals/downloads/sdelete).

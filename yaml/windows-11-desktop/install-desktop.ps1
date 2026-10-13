@@ -68,6 +68,13 @@ function Install-PdfXChangeEditor {
     Install-Msi 'pdf-editor' $pdf 'DESKTOP_SHORTCUTS=0 PROGRAMSMENU_SHORTCUTS=1 SET_AS_DEFAULT=0 VIEW_IN_BROWSERS=0'
 }
 
+function Install-SDelete {
+    $zip = Get-Installer 'SDelete' 'https://download.sysinternals.com/files/SDelete.zip' 'sdelete.zip'
+    $directory = 'C:\Program Files\Sysinternals\SDelete'
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    Expand-Archive -LiteralPath $zip -DestinationPath $directory -Force
+}
+
 function Install-ProcessExplorer {
     $zip = Get-Installer 'Process Explorer' 'https://download.sysinternals.com/files/ProcessExplorer.zip' 'process-explorer.zip'
     $peDir = 'C:\Program Files\Sysinternals\Process Explorer'
@@ -85,12 +92,14 @@ try {
     Install-Firefox
     Install-PdfXChangeEditor
     Install-ProcessExplorer
+    Install-SDelete
 
     $executables = [ordered]@{
         'Total Commander' = 'C:\Program Files\Total Commander\TOTALCMD64.EXE'
         Firefox = 'C:\Program Files\Mozilla Firefox\firefox.exe'
         'PDF-XChange Editor' = 'C:\Program Files\PDF-XChange\PDF Editor\PXCEditor.exe'
         'Process Explorer' = 'C:\Program Files\Sysinternals\Process Explorer\procexp64.exe'
+        SDelete = 'C:\Program Files\Sysinternals\SDelete\sdelete64.exe'
     }
     $versions = foreach ($entry in $executables.GetEnumerator()) {
         if (-not (Test-Path -LiteralPath $entry.Value)) { throw "Missing installed executable: $($entry.Value)" }

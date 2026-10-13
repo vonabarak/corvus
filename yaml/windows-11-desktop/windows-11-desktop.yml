@@ -98,6 +98,12 @@ pipeline:
         interpreter: powershell
         script: ./seal.ps1
         timeoutSec: 1800
+    # Zero free space after all configuration, installation and sealing, before
+    # Corvus powers off and compacts the qcow2 artifact.
+    - shell:
+        interpreter: powershell
+        script: ./zero-free-space.ps1
+        timeoutSec: 3600
     cleanup: onSuccess
 - apply:
     ifExists: overwrite

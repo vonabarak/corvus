@@ -260,6 +260,7 @@ class TestImageRecipes:
             "shell",
             "shell",
             "shell",
+            "shell",
         ]
         assert [
             step["shell"]["script"] for step in provisioners if "shell" in step
@@ -270,6 +271,7 @@ class TestImageRecipes:
             "./keep-awake.ps1",
             "./verify-runtime-settings.ps1",
             "./seal.ps1",
+            "./zero-free-space.ps1",
         ]
         assert all(
             (directory / step["shell"]["script"]).is_file()
