@@ -32,6 +32,7 @@ flag with-sqlite
 library
   exposed-modules:
       Corvus.DiskSelector
+      Corvus.Node.DirectoryCleanup
       Corvus.ImageOperationGuard
       Corvus.Images
       Corvus.Protocol
@@ -570,6 +571,7 @@ test-suite corvus-test
       Corvus.CoreSpec
       Corvus.DatabaseMigrationSpec
       Corvus.DatabaseSpec
+      Corvus.DirectoryCleanupSpec
       Corvus.DiskCleanupSpec
       Corvus.DiskSpec
       Corvus.DnsmasqArgsSpec

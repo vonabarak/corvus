@@ -101,7 +101,20 @@ deleteStoppedVm ctx vmId keepDisks = do
               runSqlPool (deleteVm vmId) (ssDbPool state)
               -- Reap each ephemeral disk as a subtask.
               mapM_ (runActionAsSubtask ctx . DiskDelete) disksToDelete
+              -- Route with the retained node ID: the VM row no longer exists.
+              cleanup <- withNodeAgent state (vmNodeId vm) $ \nac ->
+                NOA.removeVmDirectoryIfEmpty nac (vmName vm)
+              case cleanup of
+                Left err -> warnVmDirectoryCleanup state (vmName vm) err
+                Right (Left err) -> warnVmDirectoryCleanup state (vmName vm) (T.pack (show err))
+                Right (Right ()) -> pure ()
               pure RespVmDeleted
+
+warnVmDirectoryCleanup :: ServerState -> Text -> Text -> IO ()
+warnVmDirectoryCleanup state name err =
+  runServerLogging state $
+    logWarnN $
+      "Empty VM directory cleanup failed for " <> name <> ": " <> err
 
 -- | Strictly remove persistent TPM state through the VM's nodeagent.
 -- A missing state directory is success on the agent. Routing or RPC

@@ -109,6 +109,7 @@ library:
     - cbits
   exposed-modules:
     - Corvus.DiskSelector
+    - Corvus.Node.DirectoryCleanup
     - Corvus.ImageOperationGuard
     - Corvus.Images
     - Corvus.Protocol

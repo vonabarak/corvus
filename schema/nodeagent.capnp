@@ -79,6 +79,12 @@ interface Session {
   diskCreateOverlay  @2 (overlayPath :Text, backingPath :Text, backingFormat :Text)
                         -> (result :DiskOpResult);
   diskDelete         @3 (path :Text) -> (result :DiskOpResult);
+  # Non-recursive cleanup after a successful file deletion. The daemon supplies
+  # the registered storage root; the agent also protects its own default root.
+  # Missing/nonempty directories and symlinks are no-ops; other errors throw.
+  removeDirectoryIfEmpty @54 (path :Text, protectedBasePath :Text) -> ();
+  # Resolve the usual VM directory locally, using the saved-state convention.
+  removeVmDirectoryIfEmpty @55 (vmName :Text) -> ();
   diskResize         @4 (path :Text, newSize :Int64)
                         -> (result :DiskOpResult);
   # `hasNewBacking = false` flattens (removes backing); `true` rebases.

@@ -52,15 +52,21 @@ module Corvus.Handlers.Disk.Agent
   )
 where
 
+import Control.Exception (IOException, try)
+import Control.Monad (when)
+import Control.Monad.Logger (logWarnN)
 import Corvus.Model (DriveFormat, EnumText (..))
 import qualified Corvus.Model as M
 import qualified Corvus.Node.Image as NI
 import qualified Corvus.NodeAgentClient as NOA
-import Corvus.Types (ServerState, lookupNodeAgent)
+import Corvus.Types (ServerState, lookupNodeAgent, runServerLogging, ssDbPool)
 import Data.Bifunctor (bimap)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Database.Persist (get)
+import Database.Persist.Sql (runSqlPool)
+import System.FilePath (takeDirectory)
 
 -- ---------------------------------------------------------------------------
 -- Internals
@@ -131,8 +137,25 @@ createOverlayViaAgent state nid overlayPath backingPath backingFormat =
       (enumToText backingFormat)
 
 deleteImageViaAgent :: ServerState -> M.NodeId -> FilePath -> IO NI.ImageResult
-deleteImageViaAgent state nid path =
-  withDiskOp state nid $ \nac -> NOA.diskDelete nac (T.pack path)
+deleteImageViaAgent state nid path = do
+  result <- withDiskOp state nid $ \nac -> NOA.diskDelete nac (T.pack path)
+  when (result == NI.ImageSuccess) $ do
+    cleanup <- try (cleanupDiskDirectoryViaAgent state nid path)
+    case cleanup of
+      Left err -> warn (T.pack (show (err :: IOException)))
+      Right (Left err) -> warn err
+      Right (Right ()) -> pure ()
+  pure result
+  where
+    warn err = runServerLogging state $ logWarnN $ "Empty disk directory cleanup failed for " <> T.pack path <> ": " <> err
+
+cleanupDiskDirectoryViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text ())
+cleanupDiskDirectoryViaAgent state nid path = do
+  node <- runSqlPool (get nid) (ssDbPool state)
+  case node of
+    Nothing -> pure (Left "Node not found; storage root protection unavailable")
+    Just row -> withEitherText state nid $ \nac ->
+      NOA.removeDirectoryIfEmpty nac (T.pack (takeDirectory path)) (M.nodeBasePath row)
 
 resizeImageViaAgent :: ServerState -> M.NodeId -> FilePath -> Int64 -> IO NI.ImageResult
 resizeImageViaAgent state nid path newSize =

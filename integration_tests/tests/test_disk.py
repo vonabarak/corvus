@@ -10,13 +10,14 @@ swap is gone).
 from __future__ import annotations
 
 import secrets
+import shlex
 import time
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock
 
 import pytest
-from corvus_client import Client, ServerError, VmMustBeStopped
+from corvus_client import Client, ServerError, VmMustBeStopped, VmNotFound
 from corvus_client._entityref import disk_entity_ref
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 from corvus_test_harness.base_images import (
@@ -649,6 +650,43 @@ class TestDisk(SingleNodeCase):
             self._delete_silent(data_disk)
 
     # ---- ephemeral cleanup on vm delete -------------------------------------
+
+    def test_delete_cleans_only_empty_disk_directory(self) -> None:
+        name = _uniq("directory-cleanup")
+        disk = self.client.disks.create(
+            name, size=8388608, format="qcow2", path=f"{name}/disk.qcow2"
+        )
+        directory = str(Path(disk.show().placements[0].file_path).parent)
+        remaining = f"{directory}/.retained"
+        try:
+            self.node.run(f"touch {shlex.quote(remaining)}")
+            disk.delete()
+            self.node.run(f"test -f {shlex.quote(remaining)}")
+            self.node.run(f"rm {shlex.quote(remaining)}")
+            disk = self.client.disks.create(
+                name, size=8388608, format="qcow2", path=f"{name}/disk.qcow2"
+            )
+            disk.delete()
+            self.node.run(f"test ! -d {shlex.quote(directory)}")
+        finally:
+            self._delete_silent(name)
+            self.node.run(f"rm -f {shlex.quote(remaining)}", check=False)
+            self.node.run(f"rmdir {shlex.quote(directory)}", check=False)
+
+    def test_vm_delete_cleans_default_directory_without_disks(self) -> None:
+        name = _uniq("vm-directory-cleanup")
+        vm = self.client.vms.create(name, cpu_count=1, ram=134217728)
+        directory = f"$HOME/VMs/{name}"
+        try:
+            self.node.run(f'mkdir -p "{directory}"')
+            vm.delete(keep_disks=True)
+            self.node.run(f'test ! -d "{directory}" && test -d "$HOME/VMs"')
+        finally:
+            try:
+                vm.delete(keep_disks=True)
+            except VmNotFound:
+                pass
+            self.node.run(f'rmdir "{directory}"', check=False)
 
     def test_vm_delete_reaps_ephemeral_keeps_non_ephemeral(self) -> None:
         """`vm.delete()` with no flags must reap every ephemeral disk

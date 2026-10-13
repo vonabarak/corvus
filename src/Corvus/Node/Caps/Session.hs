@@ -40,6 +40,7 @@ import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
+import qualified Corvus.Node.DirectoryCleanup as DC
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Qmp as NQ
@@ -63,7 +64,10 @@ import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
 import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, tshow, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
+import Corvus.Node.Caps.Session.Vm.Lifecycle (sanitiseVmName)
 import Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot)
+import qualified Corvus.Node.Runtime as NR
+import Corvus.Qemu.Config (getEffectiveBasePath)
 import System.FilePath (takeDirectory)
 
 newtype SessionServer = SessionServer SessionCap
@@ -111,6 +115,22 @@ instance CGNA.Session'server_ SessionServer where
         CGNA.Session'diskDelete'results
           { CGNA.result = encodeDiskOpResult result
           }
+
+  session'removeDirectoryIfEmpty _ =
+    handleParsed $ \CGNA.Session'removeDirectoryIfEmpty'params {CGNA.path = path, CGNA.protectedBasePath = protectedBase} -> do
+      base <- getEffectiveBasePath agentQemuConfig
+      DC.removeDirectoryIfEmpty (base : [T.unpack protectedBase | not (T.null protectedBase)]) (T.unpack path)
+      pure CGNA.Session'removeDirectoryIfEmpty'results
+
+  session'removeVmDirectoryIfEmpty _ =
+    handleParsed $ \CGNA.Session'removeVmDirectoryIfEmpty'params {CGNA.vmName = name} -> do
+      case sanitiseVmName name of
+        Left err -> throwFailed ("removeVmDirectoryIfEmpty: " <> err)
+        Right safeName -> do
+          base <- getEffectiveBasePath agentQemuConfig
+          path <- NR.getSavedStateFile agentQemuConfig safeName
+          DC.removeDirectoryIfEmpty [base] (takeDirectory path)
+          pure CGNA.Session'removeVmDirectoryIfEmpty'results
 
   session'diskResize _ =
     handleParsed $

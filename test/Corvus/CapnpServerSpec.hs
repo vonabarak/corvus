@@ -46,6 +46,7 @@ import Corvus.Types
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import qualified Data.Text as T
 import Database.Persist (delete, update, (=.))
 import Database.Persist.Sql (runSqlPool, toSqlKey)
 import Network.Socket
@@ -232,6 +233,39 @@ spec = withTestDb $ sequential $ do
         dsAfter <- CR.rpcDiskList conn
         dsAfter `shouldBe` []
 
+    it "disk deletion removes an empty custom parent directory" $ \env ->
+      withSystemTempDirectory "corvus-disk-cleanup" $ \tmp ->
+        withCapnpDaemon env $ \conn -> do
+          let directory = tmp </> "disk-directory"
+              path = directory </> "disk.qcow2"
+          Dir.createDirectory directory
+          did <- CR.rpcDiskCreate conn "cleanup-disk" 10 CapnpEnums.DriveFormat'qcow2 (Just (T.pack path)) False (WC.RefById 0)
+          CR.rpcDiskDelete conn (WC.RefById did)
+          Dir.doesDirectoryExist directory `shouldReturn` False
+          Dir.doesDirectoryExist tmp `shouldReturn` True
+
+    it "VM deletion independently cleans its default directory even with keep-disks" $ \env ->
+      withCapnpDaemon env $ \conn -> do
+        home <- Dir.getHomeDirectory
+        let base = home </> "VMs"
+            directory = base </> "cleanup-vm"
+        Dir.createDirectoryIfMissing True directory
+        vid <- CR.rpcVmCreate conn "cleanup-vm" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True 1200
+        CR.rpcVmDelete conn (WC.RefById vid) True False
+        Dir.doesDirectoryExist directory `shouldReturn` False
+        Dir.doesDirectoryExist base `shouldReturn` True
+
+    it "VM deletion preserves other files in its default directory" $ \env ->
+      withCapnpDaemon env $ \conn -> do
+        home <- Dir.getHomeDirectory
+        let directory = home </> "VMs" </> "cleanup-vm"
+            remaining = directory </> "state.qemu.zst"
+        Dir.createDirectoryIfMissing True directory
+        writeFile remaining "retained memory"
+        vid <- CR.rpcVmCreate conn "cleanup-vm" "" 1 1073741824 Nothing True False False False False False "host" M.GraphicsVirtioVga True True True 1200
+        CR.rpcVmDelete conn (WC.RefById vid) False False
+        Dir.doesFileExist remaining `shouldReturn` True
+
   describe "Cap'n Proto streaming (Phase 6a)" $ do
     it "rpcBuild streams events through BuildEventSink until end" $ \env -> do
       withCapnpDaemon env $ \conn -> do
@@ -339,10 +373,15 @@ withCapnpDaemon env action = do
 withSandboxedXdg :: FilePath -> IO a -> IO a
 withSandboxedXdg sandbox action = do
   prev <- lookupEnv "XDG_RUNTIME_DIR"
+  previousHome <- lookupEnv "HOME"
   let restore = case prev of
         Just v -> setEnv "XDG_RUNTIME_DIR" v
         Nothing -> unsetEnv "XDG_RUNTIME_DIR"
-  bracket_ (setEnv "XDG_RUNTIME_DIR" sandbox) restore action
+      restoreHome = case previousHome of
+        Just v -> setEnv "HOME" v
+        Nothing -> unsetEnv "HOME"
+  bracket_ (setEnv "XDG_RUNTIME_DIR" sandbox) restore $
+    bracket_ (setEnv "HOME" sandbox) restoreHome action
 
 -- | Drop every row from the test DB except the bootstrap
 -- 'test-node' (id=1) that handlers' FK targets need. Same shape

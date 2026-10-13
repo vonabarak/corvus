@@ -15,6 +15,7 @@ module Corvus.NodeAgentClient.Disk
   , diskCreate
   , diskCreateOverlay
   , diskDelete
+  , removeDirectoryIfEmpty
   , diskResize
   , diskRebase
   , diskClone
@@ -162,6 +163,16 @@ diskDelete nac path = remote $ do
       CGNA.Session'diskDelete'params {CGNA.path = path}
       (nacSession nac)
   pure (decodeDiskOpResult r)
+
+-- | Remove an empty directory, preserving the registered node storage root.
+removeDirectoryIfEmpty :: NodeAgentClient -> T.Text -> T.Text -> IO (Either NodeAgentError ())
+removeDirectoryIfEmpty nac path protectedBasePath = remote $ do
+  _ :: C.Parsed CGNA.Session'removeDirectoryIfEmpty'results <-
+    callOn
+      #removeDirectoryIfEmpty
+      CGNA.Session'removeDirectoryIfEmpty'params {CGNA.path = path, CGNA.protectedBasePath = protectedBasePath}
+      (nacSession nac)
+  pure ()
 
 diskResize
   :: NodeAgentClient

@@ -335,6 +335,14 @@ Pass `--keep-disks` when debugging an instance's state and you need the
 ISO or overlay to outlive the VM record. See
 [disk-management.md](disk-management.md) for the `ephemeral` flag.
 
+After VM deletion finishes, Corvus also checks the usual VM directory
+(`~/VMs/<vm_name>` by default) and removes it if empty. This check is independent
+of disk-parent cleanup, so it also covers VMs with disks stored elsewhere and
+directories emptied by saved-memory or TPM-state removal. Remaining files or
+subdirectories keep the directory in place, including disks retained with
+`--keep-disks`. Cleanup is non-recursive; failures are logged without failing
+the completed VM deletion.
+
 ## Display and Console
 
 ### SPICE (graphical VMs)

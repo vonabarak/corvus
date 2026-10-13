@@ -15,6 +15,7 @@ module Corvus.NodeAgentClient.Vm
   , vmSave
   , deleteSavedState
   , deleteTpmState
+  , removeVmDirectoryIfEmpty
   , prepareTpmMigration
   , restoreTpmMigration
   , cleanupTpmMigrationArchive
@@ -341,6 +342,16 @@ deleteTpmState nac vmName = remote $ do
     callOn
       #deleteTpmState
       CGNA.Session'deleteTpmState'params {CGNA.vmName = vmName}
+      (nacSession nac)
+  pure ()
+
+-- | Remove the usual persistent VM directory only when it is empty.
+removeVmDirectoryIfEmpty :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError ())
+removeVmDirectoryIfEmpty nac vmName = remote $ do
+  _ :: C.Parsed CGNA.Session'removeVmDirectoryIfEmpty'results <-
+    callOn
+      #removeVmDirectoryIfEmpty
+      CGNA.Session'removeVmDirectoryIfEmpty'params {CGNA.vmName = vmName}
       (nacSession nac)
   pure ()
 

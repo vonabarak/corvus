@@ -176,6 +176,11 @@ Non-ephemeral disks attached exclusively to a VM are **not**
 auto-deleted on `vm delete` — remove them with `crv disk delete` after
 the VM is gone, or attach them with `ephemeral=true` from the start.
 
+After a disk file is successfully deleted, Corvus removes its immediate parent
+directory if it is empty. Storage base directories and symlink directories are
+preserved. Cleanup is non-recursive; any remaining file or subdirectory keeps
+the parent in place. Cleanup failures are logged and do not fail disk deletion.
+
 ## Registering Existing Files
 
 Register points the database at an existing file without copying it. The path is
