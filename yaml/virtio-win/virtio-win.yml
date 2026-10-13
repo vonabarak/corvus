@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
 # Dedicated owner of virtio-win-iso; consumers prepare this recipe with Make.
 vars:

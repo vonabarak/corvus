@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
 # Synthetic installer-strategy bake — integration-test asset.
 #

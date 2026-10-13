@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
 # Windows 11 Pro image — unattended, VirtIO-enabled build pipeline.
 #

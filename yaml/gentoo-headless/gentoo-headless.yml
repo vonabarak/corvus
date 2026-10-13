@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # Regular Gentoo headless pipeline: cached builder, headless, then Cloud-init.
 # `make build-headless` prepares the shared gentoo-cloud import first.
 # Common provisioning lives in scripts/; early QGA bootstrap stays below.

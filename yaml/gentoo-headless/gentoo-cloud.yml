@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # `make build-cloud` checks the latest upstream checksum before importing.
 vars:
   image_if_exists: update

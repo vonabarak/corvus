@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # Bake a Debian 12 image with nginx preinstalled.
 #
 # Make refreshes the multi-os import recipe and its `debian12` template

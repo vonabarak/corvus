@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # Bake a Debian 12 image with Prometheus + Grafana preinstalled,
 # preconfigured to scrape Corvus daemon metrics from corvus-web.
 #

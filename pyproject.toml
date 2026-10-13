@@ -50,9 +50,11 @@ desktop = [
 # Developer-only lint/type-check tools. Keep these in the same environment as
 # the project and its test dependencies so mypy resolves their annotations.
 dev = [
+    "jsonschema>=4.18",
     "mypy",
     "ruff",
     "types-PyYAML",
+    "types-jsonschema",
 ]
 
 [project.scripts]

@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # `make build` updates ../gentoo-headless before evaluating this build.
 vars:
   image_if_exists: update

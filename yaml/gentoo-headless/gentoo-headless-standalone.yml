@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # Gentoo headless with Cloud-init, using official mirrors and no host mounts.
 # Publishes gentoo-headless-cloudinit:standalone (also moves latest).
 # `make build-headless-standalone` prepares the shared gentoo-cloud import first.

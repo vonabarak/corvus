@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
 # Windows Server 2025 evaluation image — unattended build pipeline.
 #

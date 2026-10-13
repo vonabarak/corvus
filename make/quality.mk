@@ -1,4 +1,4 @@
-.PHONY: format check check-haskell haskell-format-tools typecheck-core desktop-typecheck code-metrics install-git-hooks
+.PHONY: format check check-haskell haskell-format-tools typecheck-core desktop-typecheck code-metrics install-git-hooks yaml-schema-check
 
 # Lint tools must run through the shared venv's Python, alongside project and
 # test typing dependencies. With --system-site-packages, pip may reuse a host
@@ -36,6 +36,7 @@ check: haskell-format-tools
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MAKE) typecheck-core
+	$(MAKE) yaml-schema-check
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-lint ; \
 	fi
@@ -43,6 +44,10 @@ check: haskell-format-tools
 
 check-haskell:
 	MATCH="$(MATCH)" script -qec 'bash scripts/check-haskell.sh $(STACK_BUILD_FLAGS)' /dev/null
+
+# Check editor schemas and authored recipes without starting a daemon.
+yaml-schema-check: venv
+	.venv/bin/python -m pytest python/tests/test_build_yaml_schema.py -v
 
 # The primary check environment deliberately omits the large optional Qt
 # runtime.  It still type-checks every non-desktop Python module and the

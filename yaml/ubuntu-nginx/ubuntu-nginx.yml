@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # Bake an Ubuntu 26.04 image with nginx preinstalled.
 #
 # Make refreshes yaml/multi-os/multi-os.yml so the `ubuntu26`

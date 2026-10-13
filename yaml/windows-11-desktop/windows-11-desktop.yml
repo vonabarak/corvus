@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 # Consumes registered images owned by ../windows-11/windows-11.yml.
 # make image IMAGE=windows-11-desktop
 vars:

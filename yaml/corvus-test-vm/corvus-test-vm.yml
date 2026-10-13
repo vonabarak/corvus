@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
 # Minimal Alpine Linux test image for Corvus integration tests.
 #

@@ -40,6 +40,7 @@ repository root. Image recipes remain owned by their Makefiles under `yaml/`.
 | `make capnp` | Regenerate `src-generated/Capnp/Gen/*.hs` from `schema/*.capnp` |
 | `make install` | Install Haskell binaries, shell completions, Python tooling, and web assets when available |
 | `make format` | Ruff + Fourmolu formatting; also frontend formatting when `frontend/node_modules/` exists |
+| `make yaml-schema-check` | Validate the build YAML editor schema and repository recipes without starting a daemon |
 | `make check` | Formatting/static checks, strict Haskell build, code metrics, Weeder, and full Haskell tests with a coverage gate; also frontend checks when `frontend/node_modules/` exists |
 | `make desktop-typecheck` | Strict mypy check for the desktop package and its tests; requires the `desktop` extra |
 | `make code-metrics` | Report and enforce size limits for authored Haskell modules and top-level value definitions using the GHC parser |

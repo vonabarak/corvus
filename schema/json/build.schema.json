@@ -1,0 +1,3416 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Corvus image build pipeline",
+  "description": "Authoring schema for crv build YAML, before client-side variable and local-file preprocessing. Unknown Corvus fields are rejected. Runtime resource and semantic validation still applies.",
+  "type": "object",
+  "properties": {
+    "vars": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "description": "Scalar variable defaults. Null requires a --var value at build time."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pipeline": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/step"
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "pipeline"
+  ],
+  "patternProperties": {
+    "^_": {
+      "description": "Unrestricted root anchor helper, usable through YAML aliases and merges."
+    }
+  },
+  "definitions": {
+    "driveFormat": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "qcow2",
+            "raw",
+            "vmdk",
+            "vdi",
+            "vpc",
+            "vhdx"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[qQ][cC][oO][wW]2|[rR][aA][wW]|[vV][mM][dD][kK]|[vV][dD][iI]|[vV][pP][cC]|[vV][hH][dD][xX])$"
+        }
+      ],
+      "description": "Allowed values: qcow2, raw, vmdk, vdi, vpc, vhdx. Case insensitive."
+    },
+    "driveInterface": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "virtio",
+            "ide",
+            "scsi",
+            "sata",
+            "nvme",
+            "pflash",
+            "floppy"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[vV][iI][rR][tT][iI][oO]|[iI][dD][eE]|[sS][cC][sS][iI]|[sS][aA][tT][aA]|[nN][vV][mM][eE]|[pP][fF][lL][aA][sS][hH]|[fF][lL][oO][pP][pP][yY])$"
+        }
+      ],
+      "description": "Allowed values: virtio, ide, scsi, sata, nvme, pflash, floppy. Case insensitive."
+    },
+    "driveMedia": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "disk",
+            "cdrom"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[dD][iI][sS][kK]|[cC][dD][rR][oO][mM])$"
+        }
+      ],
+      "description": "Allowed values: disk, cdrom. Case insensitive."
+    },
+    "cacheType": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "none",
+            "writeback",
+            "writethrough",
+            "directsync",
+            "unsafe"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[nN][oO][nN][eE]|[wW][rR][iI][tT][eE][bB][aA][cC][kK]|[wW][rR][iI][tT][eE][tT][hH][rR][oO][uU][gG][hH]|[dD][iI][rR][eE][cC][tT][sS][yY][nN][cC]|[uU][nN][sS][aA][fF][eE])$"
+        }
+      ],
+      "description": "Allowed values: none, writeback, writethrough, directsync, unsafe. Case insensitive."
+    },
+    "netType": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "user",
+            "tap",
+            "bridge",
+            "macvtap",
+            "vde",
+            "managed"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[uU][sS][eE][rR]|[tT][aA][pP]|[bB][rR][iI][dD][gG][eE]|[mM][aA][cC][vV][tT][aA][pP]|[vV][dD][eE]|[mM][aA][nN][aA][gG][eE][dD])$"
+        }
+      ],
+      "description": "Allowed values: user, tap, bridge, macvtap, vde, managed. Case insensitive."
+    },
+    "sharedCache": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "always",
+            "auto",
+            "never"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[aA][lL][wW][aA][yY][sS]|[aA][uU][tT][oO]|[nN][eE][vV][eE][rR])$"
+        }
+      ],
+      "description": "Allowed values: always, auto, never. Case insensitive."
+    },
+    "audioBackend": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "pulse",
+            "pipewire",
+            "spice"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[pP][uU][lL][sS][eE]|[pP][iI][pP][eE][wW][iI][rR][eE]|[sS][pP][iI][cC][eE])$"
+        }
+      ],
+      "description": "Allowed values: pulse, pipewire, spice. Case insensitive."
+    },
+    "audioModel": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "virtio-sound",
+            "intel-hda",
+            "ich9-intel-hda",
+            "AC97"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[vV][iI][rR][tT][iI][oO]\\-[sS][oO][uU][nN][dD]|[iI][nN][tT][eE][lL]\\-[hH][dD][aA]|[iI][cC][hH]9\\-[iI][nN][tT][eE][lL]\\-[hH][dD][aA]|[aA][cC]97)$"
+        }
+      ],
+      "description": "Allowed values: virtio-sound, intel-hda, ich9-intel-hda, AC97. Case insensitive."
+    },
+    "netModel": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "virtio-net-pci",
+            "virtio-net-pci-non-transitional",
+            "virtio-net-pci-transitional",
+            "e1000"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[vV][iI][rR][tT][iI][oO]\\-[nN][eE][tT]\\-[pP][cC][iI]|[vV][iI][rR][tT][iI][oO]\\-[nN][eE][tT]\\-[pP][cC][iI]\\-[nN][oO][nN]\\-[tT][rR][aA][nN][sS][iI][tT][iI][oO][nN][aA][lL]|[vV][iI][rR][tT][iI][oO]\\-[nN][eE][tT]\\-[pP][cC][iI]\\-[tT][rR][aA][nN][sS][iI][tT][iI][oO][nN][aA][lL]|[eE]1000)$"
+        }
+      ],
+      "description": "Allowed values: virtio-net-pci, virtio-net-pci-non-transitional, virtio-net-pci-transitional, e1000. Case insensitive."
+    },
+    "graphics": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "virtio-vga",
+            "qxl-vga",
+            "vga",
+            "virtio-gpu-pci",
+            "virtio-vga-gl",
+            "virtio-gpu-gl-pci"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[vV][iI][rR][tT][iI][oO]\\-[vV][gG][aA]|[qQ][xX][lL]\\-[vV][gG][aA]|[vV][gG][aA]|[vV][iI][rR][tT][iI][oO]\\-[gG][pP][uU]\\-[pP][cC][iI]|[vV][iI][rR][tT][iI][oO]\\-[vV][gG][aA]\\-[gG][lL]|[vV][iI][rR][tT][iI][oO]\\-[gG][pP][uU]\\-[gG][lL]\\-[pP][cC][iI])$"
+        }
+      ],
+      "description": "Allowed values: virtio-vga, qxl-vga, vga, virtio-gpu-pci, virtio-vga-gl, virtio-gpu-gl-pci. Case insensitive."
+    },
+    "cloneStrategy": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "clone",
+            "overlay",
+            "direct",
+            "create"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[cC][lL][oO][nN][eE]|[oO][vV][eE][rR][lL][aA][yY]|[dD][iI][rR][eE][cC][tT]|[cC][rR][eE][aA][tT][eE])$"
+        }
+      ],
+      "description": "Allowed values: clone, overlay, direct, create. Case insensitive."
+    },
+    "checksumAlgorithm": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "md5",
+            "sha1",
+            "sha256",
+            "sha512",
+            "blake2b"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[mM][dD]5|[sS][hH][aA]1|[sS][hH][aA]256|[sS][hH][aA]512|[bB][lL][aA][kK][eE]2[bB])$"
+        }
+      ],
+      "description": "Allowed values: md5, sha1, sha256, sha512, blake2b. Case insensitive."
+    },
+    "checksumTarget": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "download",
+            "final"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[dD][oO][wW][nN][lL][oO][aA][dD]|[fF][iI][nN][aA][lL])$"
+        }
+      ],
+      "description": "Allowed values: download, final. Case insensitive."
+    },
+    "ifExists": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "error",
+            "skip",
+            "overwrite"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        }
+      ],
+      "description": "Allowed values: error, skip, overwrite."
+    },
+    "diskIfExists": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "error",
+            "skip",
+            "overwrite",
+            "update"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        }
+      ],
+      "description": "Allowed values: error, skip, overwrite, update."
+    },
+    "buildStrategy": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "overlay",
+            "from-scratch",
+            "installer"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        }
+      ],
+      "description": "Allowed values: overlay, from-scratch, installer."
+    },
+    "cleanup": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "always",
+            "onSuccess",
+            "never"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        }
+      ],
+      "description": "Allowed values: always, onSuccess, never."
+    },
+    "interpreter": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "sh",
+            "powershell"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}",
+          "description": "Client-side variable reference; resolved when crv build runs."
+        }
+      ],
+      "description": "Allowed values: sh, powershell."
+    },
+    "size": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^0*[1-9][0-9]*[bBkKmMgGtT]$"
+        },
+        {
+          "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}"
+        }
+      ],
+      "description": "Positive integral size with B, K, M, G or T suffix (binary units). RAM must resolve to whole MiB; overflow and alignment are checked at runtime. Quote variable references.",
+      "examples": [
+        "4G",
+        "512M",
+        "{{ ram }}"
+      ]
+    },
+    "startupTimeout": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967,
+      "default": 120,
+      "description": "Guest startup timeout in seconds."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "description": "Environment value; quote numeric and boolean values."
+      },
+      "default": {}
+    },
+    "cloudInit": {
+      "type": "object",
+      "properties": {
+        "userData": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "networkConfig": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "injectSshKeys": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Cloud-init payloads are unrestricted YAML values; their contents are not validated here."
+    },
+    "sharedDir": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Host directory path."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Guest mount tag."
+        },
+        "cache": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/sharedCache"
+                }
+              ],
+              "default": "auto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readOnly": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "tag"
+      ]
+    },
+    "audio": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "$ref": "#/definitions/audioBackend"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/audioModel"
+                }
+              ],
+              "default": "virtio-sound"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "options": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Backend-specific options."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "backend"
+      ]
+    },
+    "checksum": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/definitions/checksumAlgorithm"
+        },
+        "value": {
+          "type": "string",
+          "description": "Expected checksum digest."
+        },
+        "target": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/checksumTarget"
+                }
+              ],
+              "default": "download"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "value"
+      ]
+    },
+    "sshKey": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Text value."
+        },
+        "publicKey": {
+          "type": "string",
+          "description": "OpenSSH public key text."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "publicKey"
+      ]
+    },
+    "templateSshKey": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Registered SSH key name."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "diskSelector": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        }
+      ],
+      "description": "Disk image name, name:tag, or positive numeric ID. Name and tag rules are checked at runtime."
+    },
+    "applyDisk": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Registered disk image name."
+        },
+        "import": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overlay": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clone": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "register": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backing": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "node": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/driveFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/size"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ifExists": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/diskIfExists"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checksum": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/checksum"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ephemeral": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Text value."
+        },
+        "node": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subnet": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dhcp": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nat": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "autostart": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dnsServers": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "Text value."
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hostDns": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "applyNetIf": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/netType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Managed network name; implies type managed."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hostDevice": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/netModel"
+                }
+              ],
+              "default": "virtio-net-pci"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mac": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "network"
+            ],
+            "properties": {
+              "network": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[mM][aA][nN][aA][gG][eE][dD]$"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "templateNetIf": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/netType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Managed network name; implies type managed."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hostDevice": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/netModel"
+                }
+              ],
+              "default": "virtio-net-pci"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "not": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "required": [
+            "network"
+          ],
+          "properties": {
+            "network": {
+              "not": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "network"
+            ],
+            "properties": {
+              "network": {
+                "type": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[mM][aA][nN][aA][gG][eE][dD]$"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\{\\{\\s*[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*\\s*\\}\\}"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "applyDrive": {
+      "type": "object",
+      "properties": {
+        "disk": {
+          "type": "string",
+          "description": "Registered disk name or selector."
+        },
+        "interface": {
+          "$ref": "#/definitions/driveInterface"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/driveMedia"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readOnly": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cacheType": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/cacheType"
+                }
+              ],
+              "default": "writeback"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discard": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "disk",
+        "interface"
+      ]
+    },
+    "templateDrive": {
+      "type": "object",
+      "properties": {
+        "interface": {
+          "$ref": "#/definitions/driveInterface"
+        },
+        "strategy": {
+          "$ref": "#/definitions/cloneStrategy"
+        },
+        "diskImage": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/diskSelector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diskName": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/driveMedia"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readOnly": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cacheType": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/cacheType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discard": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/size"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/driveFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ephemeral": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "description": "Defaults to true for clone, overlay and create; false for direct."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "interface",
+        "strategy"
+      ]
+    },
+    "applyVm": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Text value."
+        },
+        "cpuCount": {
+          "type": "integer"
+        },
+        "ram": {
+          "$ref": "#/definitions/size"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "headless": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graphicsAdapter": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/graphics"
+                }
+              ],
+              "default": "virtio-vga"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vsock": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "balloon": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rng": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startupTimeoutSec": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/startupTimeout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cloudInit": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "guestAgent": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tpm": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "autostart": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rebootQuirk": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cloudInitConfig": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/cloudInit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "networkInterfaces": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/applyNetIf"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sshKeys": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "Registered SSH key name."
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sharedDirs": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/sharedDir"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "audioDevices": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/audio"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "drives": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/applyDrive"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "node": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cpuModel": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": "host"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "cpuCount",
+        "ram"
+      ]
+    },
+    "template": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Text value."
+        },
+        "cpuCount": {
+          "type": "integer"
+        },
+        "ram": {
+          "$ref": "#/definitions/size"
+        },
+        "drives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/templateDrive"
+          },
+          "default": []
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "headless": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "graphicsAdapter": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/graphics"
+                }
+              ],
+              "default": "virtio-vga"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vsock": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "balloon": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rng": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "startupTimeoutSec": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/startupTimeout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cloudInit": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "guestAgent": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tpm": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "autostart": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rebootQuirk": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cloudInitConfig": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/cloudInit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "networkInterfaces": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/templateNetIf"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sshKeys": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/templateSshKey"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sharedDirs": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/sharedDir"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "audioDevices": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/audio"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "cpuCount",
+        "ram",
+        "drives"
+      ]
+    },
+    "apply": {
+      "type": "object",
+      "properties": {
+        "sshKeys": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/sshKey"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disks": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/applyDisk"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "networks": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/network"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vms": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/applyVm"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "templates": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/template"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ifExists": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ifExists"
+                }
+              ],
+              "default": "error"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Default policy for existing resources: error, skip, or overwrite."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Declarative resources registered through crv apply."
+    },
+    "upload": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of uploaded image."
+        },
+        "from": {
+          "type": "string",
+          "description": "Local image path relative to this YAML file."
+        },
+        "format": {
+          "$ref": "#/definitions/driveFormat"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Destination path on the node."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ephemeral": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether the uploaded image is ephemeral."
+        },
+        "node": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Destination node; empty selects the default node."
+        },
+        "ifExists": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/diskIfExists"
+                }
+              ],
+              "default": "error"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Policy for an existing uploaded image: error, skip, overwrite, or update."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "from",
+        "format"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/driveFormat"
+                }
+              ],
+              "default": "qcow2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/size"
+                }
+              ],
+              "default": "10G"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Target disk size, using binary units. Runtime validates overflow."
+        },
+        "compact": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Compact the published image."
+        },
+        "ephemeral": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": false
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether the published disk image is ephemeral."
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ifExists": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/diskIfExists"
+                }
+              ],
+              "default": "error"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Publication policy for an existing image: error, skip, overwrite, or update."
+        }
+      },
+      "additionalProperties": false
+    },
+    "buildVm": {
+      "type": "object",
+      "properties": {
+        "cpuCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 4
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of virtual CPUs in the temporary build VM."
+        },
+        "ram": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/size"
+                }
+              ],
+              "default": "4G"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Build VM RAM, using binary units; must resolve to whole MiB."
+        },
+        "startupTimeoutSec": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/startupTimeout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "shellDefaults": {
+      "type": "object",
+      "properties": {
+        "preamble": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Prepended to every shell script."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "env": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/env"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "shellObject": {
+      "type": "object",
+      "properties": {
+        "inline": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Shell program executed inside the guest."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "script": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Local script path relative to this YAML file."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workdir": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Guest working directory."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "env": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/env"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interpreter": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/interpreter"
+                }
+              ],
+              "default": "sh"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeoutSec": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "inline"
+          ],
+          "properties": {
+            "inline": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "script"
+                ],
+                "properties": {
+                  "script": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "script"
+          ],
+          "properties": {
+            "script": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "inline"
+                ],
+                "properties": {
+                  "inline": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "shell": {
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "Inline shell program (sh)."
+        },
+        {
+          "$ref": "#/definitions/shellObject"
+        }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "Guest destination path."
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Local file path relative to this YAML file."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "content": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Base64-encoded file contents."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Guest file mode, e.g. \"0644\"."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "to"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "from"
+          ],
+          "properties": {
+            "from": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "content"
+          ],
+          "properties": {
+            "content": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "from"
+                ],
+                "properties": {
+                  "from": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "waitFor": {
+      "type": "object",
+      "properties": {
+        "inline": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Shell program executed inside the guest."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "script": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Local script path relative to this YAML file."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workdir": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Guest working directory."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "env": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/env"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interpreter": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/interpreter"
+                }
+              ],
+              "default": "sh"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeoutSec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 300
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Guest path to wait for."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "port": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ping": {
+          "anyOf": [
+            {
+              "const": true,
+              "description": "Wait for guest-agent ping."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "ping"
+          ],
+          "properties": {
+            "ping": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "port"
+                ],
+                "properties": {
+                  "port": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "inline"
+                ],
+                "properties": {
+                  "inline": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "script"
+                ],
+                "properties": {
+                  "script": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "ping"
+                ],
+                "properties": {
+                  "ping": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "port"
+                ],
+                "properties": {
+                  "port": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "inline"
+                ],
+                "properties": {
+                  "inline": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "script"
+                ],
+                "properties": {
+                  "script": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "port"
+          ],
+          "properties": {
+            "port": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "ping"
+                ],
+                "properties": {
+                  "ping": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "inline"
+                ],
+                "properties": {
+                  "inline": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "script"
+                ],
+                "properties": {
+                  "script": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "inline"
+          ],
+          "properties": {
+            "inline": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "ping"
+                ],
+                "properties": {
+                  "ping": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "port"
+                ],
+                "properties": {
+                  "port": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "script"
+                ],
+                "properties": {
+                  "script": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "script"
+          ],
+          "properties": {
+            "script": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "ping"
+                ],
+                "properties": {
+                  "ping": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "port"
+                ],
+                "properties": {
+                  "port": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "inline"
+                ],
+                "properties": {
+                  "inline": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "reboot": {
+      "type": "object",
+      "properties": {
+        "timeoutSec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 300
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "provisioner": {
+      "type": "object",
+      "properties": {
+        "shell": {
+          "$ref": "#/definitions/shell"
+        },
+        "file": {
+          "$ref": "#/definitions/file"
+        },
+        "wait-for": {
+          "$ref": "#/definitions/waitFor"
+        },
+        "reboot": {
+          "$ref": "#/definitions/reboot"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "shell"
+          ],
+          "properties": {
+            "shell": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "wait-for"
+                ],
+                "properties": {
+                  "wait-for": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "reboot"
+                ],
+                "properties": {
+                  "reboot": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "shell"
+                ],
+                "properties": {
+                  "shell": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "wait-for"
+                ],
+                "properties": {
+                  "wait-for": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "reboot"
+                ],
+                "properties": {
+                  "reboot": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "wait-for"
+          ],
+          "properties": {
+            "wait-for": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "shell"
+                ],
+                "properties": {
+                  "shell": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "reboot"
+                ],
+                "properties": {
+                  "reboot": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "reboot"
+          ],
+          "properties": {
+            "reboot": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "shell"
+                ],
+                "properties": {
+                  "shell": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "wait-for"
+                ],
+                "properties": {
+                  "wait-for": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "bootKey": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "type": "string",
+          "description": "QEMU key sequence."
+        },
+        "delaySec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Delay before sending the key sequence, in seconds."
+        },
+        "repeat": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of times to send the sequence."
+        },
+        "intervalSec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Delay between repeats, in seconds."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "keys"
+      ]
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Published image name."
+        },
+        "template": {
+          "type": "string",
+          "description": "Registered base template name."
+        },
+        "target": {
+          "$ref": "#/definitions/target"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Text value."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "node": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "type": "string",
+                  "description": "Text value."
+                }
+              ],
+              "default": ""
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Node name; empty selects the default node."
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/buildStrategy"
+                }
+              ],
+              "default": "overlay"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Build strategy: overlay modifies a template disk; from-scratch attaches an empty target; installer boots installation media."
+        },
+        "vm": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/buildVm"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "shellDefaults": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/shellDefaults"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provisioners": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/provisioner"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Ordered guest provisioning operations."
+        },
+        "cleanup": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/cleanup"
+                }
+              ],
+              "default": "always"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Resource cleanup: always, only on success (onSuccess), or never."
+        },
+        "bootKeys": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/bootKey"
+              },
+              "default": []
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Key sequences sent during guest boot."
+        },
+        "waitForShutdownSec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "default": 3600
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Maximum time to wait for shutdown, in seconds."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "template",
+        "target"
+      ]
+    },
+    "step": {
+      "type": "object",
+      "properties": {
+        "upload": {
+          "$ref": "#/definitions/upload"
+        },
+        "build": {
+          "$ref": "#/definitions/build"
+        },
+        "apply": {
+          "$ref": "#/definitions/apply"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "upload"
+          ],
+          "properties": {
+            "upload": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "build"
+                ],
+                "properties": {
+                  "build": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "apply"
+                ],
+                "properties": {
+                  "apply": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "build"
+          ],
+          "properties": {
+            "build": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "upload"
+                ],
+                "properties": {
+                  "upload": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "apply"
+                ],
+                "properties": {
+                  "apply": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "apply"
+          ],
+          "properties": {
+            "apply": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "upload"
+                ],
+                "properties": {
+                  "upload": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "build"
+                ],
+                "properties": {
+                  "build": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "pipeline": [
+        {
+          "build": {
+            "name": "custom-debian",
+            "template": "debian12",
+            "target": {},
+            "provisioners": [
+              {
+                "shell": "echo hello"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

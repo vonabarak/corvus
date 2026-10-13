@@ -850,3 +850,100 @@ shutdown on timeout. Shell timeouts are measured in seconds, applied once.
 The [Windows desktop recipe](../yaml/windows-11-desktop/README.md) adds desktop
 applications to the Windows 11 base. See [Other QGA opportunities reviewed](../plans/qga-image-build-opportunities.md)
 for follow-up generalization ideas beyond native reboot and readiness.
+
+## Editor completion and validation
+
+Corvus ships a JSON Schema for build YAML at
+[`schema/json/build.schema.json`](../schema/json/build.schema.json). It works
+with the [Red Hat YAML extension for VS Code](https://github.com/redhat-developer/vscode-yaml),
+which uses [yaml-language-server](https://github.com/redhat-developer/yaml-language-server).
+The schema is self-contained and works offline once the extension is installed.
+
+1. Install **YAML**, published by Red Hat (`redhat.vscode-yaml`).
+2. Open the Corvus checkout as a VS Code workspace.
+3. Open a build recipe, such as `yaml/debian-nginx/debian-nginx.yml`.
+   Existing recipes already contain a schema modeline. For a new recipe, add
+   this comment at the top, adjusting the relative path:
+
+   ```yaml
+   # yaml-language-server: $schema=../../schema/json/build.schema.json
+   pipeline:
+     - build:
+         name: my-image
+         template: debian12
+         target: {}
+   ```
+
+4. Press **Ctrl+Space** to complete property names and enum values. Hover over
+   fields for descriptions and defaults; open **View → Problems** to inspect
+   syntax and schema errors.
+
+Modeline paths resolve relative to the YAML file. Keep the `schema/` directory
+alongside recipes when using a release bundle, or adjust the comment to point to
+an accessible schema file. Standalone `crv apply` and template documents do not
+use this pipeline schema.
+
+If you prefer workspace configuration, associate specific recipes in
+`.vscode/settings.json` instead. These paths resolve relative to the workspace
+root; avoid associating every YAML file, since the repository also contains
+other configuration formats:
+
+```json
+{
+  "yaml.schemas": {
+    "./schema/json/build.schema.json": [
+      "yaml/debian-nginx/debian-nginx.yml",
+      "yaml/ubuntu-nginx/ubuntu-nginx.yml"
+    ]
+  },
+  "yaml.validate": true,
+  "yaml.completion": true,
+  "yaml.hover": true
+}
+```
+
+The schema covers `upload`, `build`, and embedded `apply` steps, including
+VMs, templates, disks, networking, and provisioners. It rejects unknown fields
+in Corvus objects. Root keys starting with `_` remain available for YAML anchor
+helpers; `vars` and environment mappings accept arbitrary keys, and cloud-init
+`userData` and `networkConfig` accept arbitrary payloads. YAML aliases and merge
+keys can share defaults between recipes.
+
+Always quote variable references, for example `ram: "{{ ram }}"`. String fields
+such as sizes and enums accept references embedded in strings; suggestions still
+include concrete enum values. Substitution does not convert strings to other
+YAML types: `cpuCount: "{{ cpus }}"` is a type error, whereas `cpuCount: 4` is
+valid. Variable names are not completed or checked against `vars` by the schema.
+
+Defaults shown by the editor describe parser behavior; validation does not
+insert them into your file. Optional fields generally accept `null`, as the
+parser treats it like omission. Each pipeline step and provisioner must select
+one operation with a non-null payload.
+
+If validation or completion is missing, check that the document language is
+**YAML**, the modeline path exists, and no other schema association overrides it.
+The language server defaults to YAML 1.2; Corvus uses libyaml-style parsing.
+For recipes using YAML 1.1 boolean spellings or merge keys, set
+`"yaml.yamlVersion": "1.1"` in workspace settings if needed. Quote values such
+as `on`, `off`, and numeric environment values when they must remain strings.
+
+Editor validation catches YAML syntax errors and structural mistakes. Corvus
+still checks resource references, variable expansion, disk modes, size overflow
+and RAM alignment, upload ordering, and local-file existence at build time.
+Embedded shell programs and cloud-init contents need their own validation.
+
+### Maintaining the schema
+
+When changing build, apply, template, or cloud-init authoring fields, update
+`schema/json/build.schema.json` alongside the parsers in `src/Corvus/Schema/`,
+the enum mappings in `src/Corvus/Model.hs`, and the relevant examples and docs.
+Keep the schema in JSON Schema Draft 7 with local references so it remains
+portable. It describes files before client-side preprocessing, rather than the
+resolved daemon payload.
+
+Run `make yaml-schema-check` to validate the schema itself, all repository build
+recipes (including their modelines), and focused acceptance/rejection cases.
+This also runs as part of `make check` and the Python test suite. It requires no
+running daemon or VM. For an editor smoke test, open a recipe, complete a
+`strategy` value, then temporarily introduce an unknown field and verify that
+it appears in Problems.
