@@ -30,14 +30,32 @@ To rebuild the base and desktop together:
 make image-rebuild IMAGE=windows-11-desktop
 ```
 
-The bake runs without TPM and first disables AC standby so Windows cannot
-suspend while specialize/OOBE is still running. It then waits for Windows setup
+The bake runs without TPM and first disables sleep and hibernation so Windows cannot
+suspend while specialize/OOBE is still running. Machine policies prohibit standby
+on AC and battery, with idle and unattended sleep timers disabled, hybrid sleep
+disabled, and sleep-button/lid actions set to do nothing. Hibernation is disabled,
+including Fast Startup. These settings persist in runtime VMs after sealing.
+It then waits for Windows setup
 and the initial `corvus` account using repeated short read-only probes. The probe also requires cleared
 setup flags and at least three minutes of uptime: QGA and `IMAGE_STATE_COMPLETE`
 can precede Windows’ final specialize reboot. The recipe references `wait-for-setup.ps1` through `wait-for.script`.
 Corvus reads that source and generates PowerShell’s `-EncodedCommand` at runtime
 to avoid `cmd.exe` quoting.
-The bake installs software, reboots using QGA, removes that account/profile,
+After setup completes, the bake disables automatic pagefile management and removes
+all configured pagefiles. It installs software and reboots using QGA to activate
+the paging changes. It reapplies power settings after that reboot because the
+early pass runs during specialize/OOBE, which can restore power defaults.
+If an inherited `hiberfil.sys` survives disabling hibernation, the post-setup
+pass briefly enables and disables hibernation to let Windows remove the file.
+This recovery waits until setup finishes, since Windows rejects enabling
+hibernation during specialize.
+A read-only check then rejects available sleep states (including
+Modern Standby), configured/active pagefiles, and remaining `pagefile.sys`,
+`swapfile.sys` or `hiberfil.sys` on fixed drives before sealing. Run
+`verify-runtime-settings.ps1` in a fresh clone after OOBE and again after reboot
+to check persistence. Windows uses RAM without disk-backed paging; allocate
+enough RAM for the intended workload. Host-controlled VM pause/save is unaffected.
+The bake then removes that account/profile,
 and seals with Sysprep `/generalize /oobe /quit`. Corvus then requests graceful
 poweroff before capturing a compact qcow2 image. Failed builds, including final
 shutdown timeouts, preserve the bake VM for inspection and do not publish it.

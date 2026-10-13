@@ -58,7 +58,7 @@ pipeline:
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12'
     provisioners:
     # QGA becomes available before specialize/OOBE finishes. Disable Windows'
-    # default idle sleep now, or the guest can suspend before wait-for completes.
+    # sleep/hibernation now and persist the policies in the published image.
     - shell:
         interpreter: powershell
         script: ./keep-awake.ps1
@@ -71,10 +71,26 @@ pipeline:
         timeoutSec: 900
     - shell:
         interpreter: powershell
+        script: ./disable-paging.ps1
+        timeoutSec: 120
+    - shell:
+        interpreter: powershell
         script: ./install-desktop.ps1
         timeoutSec: 3600
     - reboot:
         timeoutSec: 900
+    # The first pass runs during specialize/OOBE, which can restore power
+    # defaults. Reapply after setup, installers and reboot have all completed.
+    - shell:
+        interpreter: powershell
+        script: ./keep-awake.ps1
+        timeoutSec: 60
+    # Paging changes take effect at reboot. Fail before sealing if Windows still
+    # exposes any sleep state or uses disk-backed memory files.
+    - shell:
+        interpreter: powershell
+        script: ./verify-runtime-settings.ps1
+        timeoutSec: 120
     # Remove the temporary corvus account/profile and run Sysprep with the runtime
     # answer file to generalize Windows for OOBE on first boot. Verify the sealed
     # state; Corvus then powers off the VM gracefully before capturing the image.

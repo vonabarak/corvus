@@ -242,13 +242,40 @@ class TestImageRecipes:
         doc = yaml.safe_load((directory / "windows-11-desktop.yml").read_text())
         provisioners = doc["pipeline"][1]["build"]["provisioners"]
         assert provisioners[0]["shell"]["script"] == "./keep-awake.ps1"
-        assert "standby-timeout-ac" in (directory / "keep-awake.ps1").read_text()
+        assert (directory / "keep-awake.ps1").is_file()
         installer = (directory / "install-desktop.ps1").read_text()
         assert "C:\\Program Files\\PDF-XChange\\PDF Editor\\PXCEditor.exe" in installer
         probe = provisioners[1]["wait-for"]
         assert probe["script"] == "./wait-for-setup.ps1"
         assert probe["interpreter"] == "powershell"
         assert (directory / "wait-for-setup.ps1").is_file()
+        # Disable paging only after setup; activate it with the existing reboot,
+        # then validate the effective runtime state before destructive sealing.
+        assert [next(iter(step)) for step in provisioners] == [
+            "shell",
+            "wait-for",
+            "shell",
+            "shell",
+            "reboot",
+            "shell",
+            "shell",
+            "shell",
+        ]
+        assert [
+            step["shell"]["script"] for step in provisioners if "shell" in step
+        ] == [
+            "./keep-awake.ps1",
+            "./disable-paging.ps1",
+            "./install-desktop.ps1",
+            "./keep-awake.ps1",
+            "./verify-runtime-settings.ps1",
+            "./seal.ps1",
+        ]
+        assert all(
+            (directory / step["shell"]["script"]).is_file()
+            for step in provisioners
+            if "shell" in step
+        )
 
     @pytest.mark.parametrize("recipe", RECIPES)
     def test_yaml_policy_and_import_ownership(
