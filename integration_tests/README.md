@@ -288,8 +288,8 @@ crv -o json vm show corvus-it-TestVmLifecycle-a1b2c3d4-single | jq
 Preferred helper, using the node's outer managed-network IP:
 
 ```sh
-integration_tests/scripts/ssh-it corvus-it-TestVmLifecycle-a1b2c3d4-single
-integration_tests/scripts/ssh-it corvus-it-TestVmLifecycle-a1b2c3d4-single \
+scripts/ssh-it corvus-it-TestVmLifecycle-a1b2c3d4-single
+scripts/ssh-it corvus-it-TestVmLifecycle-a1b2c3d4-single \
   sudo journalctl -u corvus.service --no-pager -n 300
 ```
 
@@ -313,25 +313,27 @@ the `corvus` user plus `sudo`.
 From the host, use the debug wrapper:
 
 ```sh
-integration_tests/scripts/crv-it corvus-it-TestVmLifecycle-a1b2c3d4-single status
-integration_tests/scripts/crv-it corvus-it-TestVmLifecycle-a1b2c3d4-single vm list
-integration_tests/scripts/crv-it corvus-it-TestVmLifecycle-a1b2c3d4-single task list
+scripts/crv-it corvus-it-TestVmLifecycle-a1b2c3d4-single status
+scripts/crv-it corvus-it-TestVmLifecycle-a1b2c3d4-single vm list
+scripts/crv-it corvus-it-TestVmLifecycle-a1b2c3d4-single task list
 ```
 
 `crv-it` resolves the outer VM, finds the leaked cert directory under `/tmp`,
-parses the node's IPv4 address, and runs:
+parses the node's IPv4 address, and runs the checkout’s Stack-built `crv` (run `make build` first):
 
 ```sh
-crv --host <node-ip> --tls-cert-dir <cert-dir> ...
+$(stack path --local-install-root)/bin/crv --host <node-ip> --tls-cert-dir <cert-dir> ...
 ```
 
-It only works while a topology is paused or leaked after failure. Clean teardown
-removes the cert directory.
+For integration nodes it works while a topology is running, paused, or leaked
+after failure; clean teardown removes the cert directory. The helpers also
+accept numeric outer VM IDs and managed dev nodes, including custom names.
+See [Dev node host access](../doc/dev-node.md#using-the-cli-from-the-host).
 
 You can also run the inner CLI from inside a node:
 
 ```sh
-integration_tests/scripts/ssh-it <node> /opt/corvus/bin/crv status
+scripts/ssh-it <node> /opt/corvus/bin/crv status
 ```
 
 This requires client certs in `/home/corvus/.config/corvus`. Some tests install
@@ -342,25 +344,25 @@ them explicitly with `install_node_client_certs`; otherwise prefer `crv-it`.
 Daemon and agents:
 
 ```sh
-integration_tests/scripts/ssh-it <node> sudo journalctl -u corvus.service --no-pager -n 300
-integration_tests/scripts/ssh-it <node> sudo journalctl -u corvus-nodeagent.service --no-pager -n 300
-integration_tests/scripts/ssh-it <node> sudo journalctl -u corvus-netd.service --no-pager -n 300
+scripts/ssh-it <node> sudo journalctl -u corvus.service --no-pager -n 300
+scripts/ssh-it <node> sudo journalctl -u corvus-nodeagent.service --no-pager -n 300
+scripts/ssh-it <node> sudo journalctl -u corvus-netd.service --no-pager -n 300
 ```
 
 Follow logs live:
 
 ```sh
-integration_tests/scripts/ssh-it <node> sudo journalctl -u corvus.service -f
+scripts/ssh-it <node> sudo journalctl -u corvus.service -f
 ```
 
 Boot and system state:
 
 ```sh
-integration_tests/scripts/ssh-it <node> sudo journalctl -b --no-pager
-integration_tests/scripts/ssh-it <node> systemctl status corvus corvus-nodeagent corvus-netd
-integration_tests/scripts/ssh-it <node> ip addr
-integration_tests/scripts/ssh-it <node> ss -ltnp
-integration_tests/scripts/ssh-it <node> mount
+scripts/ssh-it <node> sudo journalctl -b --no-pager
+scripts/ssh-it <node> systemctl status corvus corvus-nodeagent corvus-netd
+scripts/ssh-it <node> ip addr
+scripts/ssh-it <node> ss -ltnp
+scripts/ssh-it <node> mount
 ```
 
 Outer daemon logs, when the outer daemon is user-systemd managed:
@@ -374,15 +376,15 @@ journalctl --user -u corvus.service --no-pager -n 300
 The inner binary mount should expose the host build output:
 
 ```sh
-integration_tests/scripts/ssh-it <node> ls -la /opt/corvus/bin
-integration_tests/scripts/ssh-it <node> /opt/corvus/bin/corvus --version
+scripts/ssh-it <node> ls -la /opt/corvus/bin
+scripts/ssh-it <node> /opt/corvus/bin/corvus --version
 ```
 
 The base-image mount should expose host images:
 
 ```sh
-integration_tests/scripts/ssh-it <node> ls -la /home/corvus/VMs/BaseImages
-integration_tests/scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImages
+scripts/ssh-it <node> ls -la /home/corvus/VMs/BaseImages
+scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImages
 ```
 
 ## Common Problems
@@ -426,8 +428,6 @@ integration_tests/
 │   ├── component_deploy.py      # per-class CA and service cert deployment
 │   └── vm.py                    # VM lifecycle helpers used by tests
 ├── scripts/
-│   ├── crv-it                   # host-side crv wrapper for leaked inner daemon
-│   ├── ssh-it                   # SSH wrapper for leaked test nodes
 │   └── detect_workers.py        # xdist worker budget calculator
 └── tests/
     └── test_*.py

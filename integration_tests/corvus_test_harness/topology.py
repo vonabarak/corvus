@@ -249,7 +249,7 @@ class Topology:
         # unless we're leaking on failure.
         #
         # The dir name embeds `run_id` (same run_id baked into every VM
-        # name) so debug tools — e.g. `integration_tests/scripts/crv-it` —
+        # name) so debug tools — e.g. `scripts/crv-it` —
         # can map a leaked outer-daemon VM name back to its cert dir
         # without guessing among multiple leaked trees.
         self._cert_root = (

@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,6 +77,7 @@ def deploy_daemon(
     runner: Runner,
     *,
     listen_ip: str | None,
+    additional_ips: Sequence[str] = (),
     user_service: bool = False,
     reuse_uuid: str | None = None,
     binary_path: str | None = None,
@@ -124,6 +126,7 @@ def deploy_daemon(
         role=ca.ROLE_DAEMON,
         name=daemon_uuid,
         ip=listen_ip,
+        additional_ips=additional_ips,
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _install_and_restart(
@@ -673,10 +676,14 @@ def renew_daemon(
     # rec.user_service is None for legacy records (predates the
     # field). Default to False (system-service) — that's what the
     # old code unconditionally assumed.
+    additional_ips = rec.extra.get("additional_ips", [])
     return deploy_daemon(
         admin_store,
         runner,
         listen_ip=rec.ip,
+        additional_ips=[str(ip) for ip in additional_ips]
+        if isinstance(additional_ips, list)
+        else (),
         user_service=bool(rec.user_service),
         reuse_uuid=rec.name_or_uuid,
         dry_run=dry_run,

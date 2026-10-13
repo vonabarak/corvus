@@ -74,23 +74,33 @@ def test_mount_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     client.disks.get.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", [None, "fetch", "connect", "register"])
+@pytest.mark.parametrize("failure", [None, "certs", "connect", "register"])
 def test_command_cleanup(
     monkeypatch: pytest.MonkeyPatch,
     failure: str | None,
     capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
-    crv, shell, relay, client = (MagicMock() for _ in range(4))
-    crv.vm_show.return_value = {"status": "running", "vsock_cid": 44}
+    crv, relay, client = (MagicMock() for _ in range(3))
+    crv.vm_show.return_value = {
+        "id": 1,
+        "name": "corvus-dev-node",
+        "status": "running",
+        "vsock_cid": 44,
+    }
     monkeypatch.setattr(Crv, "autodetect", lambda: crv)
-    monkeypatch.setattr(devnode_images, "NodeShell", lambda **kw: shell)
-    shell.run.return_value = SimpleNamespace(
-        returncode=0, stdout=b"credential", stderr=b""
-    )
-    if failure == "fetch":
-        shell.run.return_value = SimpleNamespace(
-            returncode=1, stdout=b"", stderr=b"missing"
-        )
+    certs = tmp_path / "client"
+    certs.mkdir(mode=0o700)
+    for name in ("ca.crt", "corvus-client.crt", "corvus-client.key"):
+        (certs / name).write_bytes(b"credential")
+        (certs / name).chmod(0o600)
+
+    def certificate_directory(details: object) -> Path:
+        if failure == "certs":
+            raise RuntimeError("Missing host certificates; run make dev-node-vm-setup")
+        return certs
+
+    monkeypatch.setattr(devnode_images, "certificate_directory", certificate_directory)
     relay.__enter__.return_value = relay
     monkeypatch.setattr(VsockTcpRelay, "start", lambda cid: relay)
     paths: list[Path] = []
@@ -118,16 +128,17 @@ def test_command_cleanup(
     monkeypatch.setattr(base_images, "register_all", register)
     result = devnode_images.main([])
     assert result == (1 if failure else 0)
-    assert all(not path.exists() for path in paths)
-    if failure != "fetch":
+    assert all(path.exists() for path in paths)
+    assert (certs / "corvus-client.key").read_bytes() == b"credential"
+    if failure != "certs":
         relay.__exit__.assert_called_once()
-    if failure not in ("fetch", "connect"):
+    if failure not in ("certs", "connect"):
         client.close.assert_called_once()
         register.assert_called_once_with(
             client, crv, "corvus-dev-node", update_existing=True
         )
-    if failure == "fetch":
-        assert "setup.sh" in capsys.readouterr().err
+    if failure == "certs":
+        assert "dev-node-vm-setup" in capsys.readouterr().err
     if failure is None:
         assert "No eligible" in capsys.readouterr().out
 
@@ -136,7 +147,12 @@ def test_stopped_vm(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     crv = MagicMock()
-    crv.vm_show.return_value = {"status": "stopped", "vsock_cid": 44}
+    crv.vm_show.return_value = {
+        "id": 1,
+        "name": "manual",
+        "status": "stopped",
+        "vsock_cid": 44,
+    }
     monkeypatch.setattr(Crv, "autodetect", lambda: crv)
     assert devnode_images.main(["--vm", "manual"]) == 1
     assert "must be started" in capsys.readouterr().err

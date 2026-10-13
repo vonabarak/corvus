@@ -1,0 +1,257 @@
+---
+# Apply to the INNER daemon, after make dev-node-vm has registered host images:
+#   scripts/crv-it corvus-dev-node apply yaml/dev-node/dev-node.yml --wait
+# Register the dev-node SSH key first; see doc/dev-node.md.
+# No image downloads or builds. Remove entries for unavailable OS images.
+# Existing resources are reused; edit/delete a template to change it on reapply.
+ifExists: skip
+
+_defaults: &defaults
+  cpuCount: 2
+  ram: 2G
+  headless: true
+  cloudInit: false
+  guestAgent: true
+  startupTimeoutSec: 600
+  networkInterfaces:
+    - network: dev-node-vms
+
+_user: &user
+  name: corvus
+  shell: /bin/sh
+  sudo: ALL=(ALL) NOPASSWD:ALL
+  lock_passwd: false
+  plain_text_passwd: corvus
+
+_user_data: &user_data
+  users:
+    - *user
+  ssh_pwauth: true
+  chpasswd:
+    expire: false
+
+_cloud: &cloud
+  <<: *defaults
+  cloudInit: true
+  sshKeys:
+    - name: dev-node
+  cloudInitConfig:
+    userData: *user_data
+
+_root: &root
+  interface: virtio
+  strategy: overlay
+  cacheType: writeback
+  discard: true
+
+_ovmf_code: &ovmf_code
+  diskImage: ovmf-code
+  interface: pflash
+  strategy: direct
+  readOnly: true
+
+_ovmf_vars: &ovmf_vars
+  diskImage: ovmf-vars
+  interface: pflash
+  strategy: clone
+
+_ovmf_code_secboot: &ovmf_code_secboot
+  <<: *ovmf_code
+  diskImage: ovmf-code-secboot
+
+_ovmf_vars_secboot: &ovmf_vars_secboot
+  <<: *ovmf_vars
+  diskImage: ovmf-vars-secboot
+
+_windows: &windows
+  <<: *defaults
+  cpuCount: 4
+  ram: 8G
+  headless: false
+  vsock: false
+  graphicsAdapter: qxl-vga
+  startupTimeoutSec: 1200
+
+# These system files are installed in the dev-node image, not shared host images.
+disks:
+  - name: ovmf-code
+    register: /usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2
+    format: qcow2
+  - name: ovmf-vars
+    register: /usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2
+    format: qcow2
+  - name: ovmf-code-secboot
+    register: /usr/share/edk2/OvmfX64/OVMF_CODE_4M.secboot.qcow2
+    format: qcow2
+  - name: ovmf-vars-secboot
+    register: /usr/share/edk2/OvmfX64/OVMF_VARS_4M.secboot.qcow2
+    format: qcow2
+
+# This network lives inside the dev node; start it explicitly after apply.
+networks:
+  - name: dev-node-vms
+    subnet: 10.92.0.0/24
+    dhcp: true
+    nat: true
+    dnsServers: [1.1.1.1, 8.8.8.8]
+    autostart: true
+
+sshKeys:
+  - name: dev-node
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+templates:
+  - name: debian-generic
+    <<: *cloud
+    cloudInitConfig:
+      userData:
+        <<: *user_data
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
+    drives:
+      - <<: *root
+        diskImage: debian-generic
+      - *ovmf_code
+      - *ovmf_vars
+
+  - name: ubuntu-server
+    <<: *cloud
+    cloudInitConfig:
+      userData:
+        <<: *user_data
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
+    drives:
+      - <<: *root
+        diskImage: ubuntu-server
+      - *ovmf_code
+      - *ovmf_vars
+
+  - name: almalinux
+    <<: *cloud
+    cloudInitConfig:
+      userData:
+        <<: *user_data
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
+    drives:
+      - <<: *root
+        diskImage: almalinux
+      - *ovmf_code
+      - *ovmf_vars
+
+  - name: freebsd
+    <<: *cloud
+    # Stock FreeBSD uses nuageinit, which cannot install packages via user-data.
+    guestAgent: false
+    vsock: false
+    headless: false
+    cloudInitConfig:
+      userData:
+        users:
+          - name: corvus
+            shell: /bin/sh
+            groups: wheel
+            plain_text_passwd: corvus
+        ssh_pwauth: true
+    drives:
+      - <<: *root
+        diskImage: freebsd
+      - *ovmf_code
+      - *ovmf_vars
+
+  - name: alpine
+    <<: *cloud
+    cloudInitConfig:
+      userData:
+        <<: *user_data
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - rc-update add qemu-guest-agent default
+          - rc-service qemu-guest-agent start
+    drives:
+      - <<: *root
+        diskImage: alpine
+
+  - name: corvus-test-vm
+    <<: *defaults
+    ram: 1G
+    description: Alpine integration-test VM with baked SSH key and VSOCK relay
+    drives:
+      - <<: *root
+        diskImage: corvus-test-vm
+
+  - name: corvus-test-node
+    <<: *defaults
+    description: Gentoo integration-test node; baked services need manual configuration
+    drives:
+      - <<: *root
+        diskImage: corvus-test-node
+
+  - name: gentoo-cloud
+    <<: *cloud
+    # Upstream image does not include QGA; install it manually if needed.
+    guestAgent: false
+    drives:
+      - <<: *root
+        diskImage: gentoo-cloud
+      - *ovmf_code
+      - *ovmf_vars
+
+  - name: gentoo-headless
+    <<: *defaults
+    drives:
+      - <<: *root
+        diskImage: gentoo-headless
+
+  - name: gentoo-headless-cloudinit
+    <<: *cloud
+    drives:
+      - <<: *root
+        diskImage: gentoo-headless-cloudinit
+
+  - name: windows-server-2025-eval
+    <<: *windows
+    cloudInit: true
+    cloudInitConfig:
+      injectSshKeys: false
+      userData: |
+        #ps1_sysnative
+        net user Administrator "corvus" /y
+    drives:
+      - <<: *root
+        diskImage: windows-server-2025-eval
+      - *ovmf_code
+      - *ovmf_vars
+
+  - name: windows-11-pro
+    <<: *windows
+    tpm: true
+    audioDevices:
+      - model: intel-hda
+        backend: spice
+    drives:
+      - <<: *root
+        diskImage: windows-11-pro-base
+      - *ovmf_code_secboot
+      - *ovmf_vars_secboot
+
+  - name: windows-11-desktop
+    <<: *windows
+    tpm: true
+    audioDevices:
+      - model: intel-hda
+        backend: spice
+    drives:
+      - <<: *root
+        diskImage: windows-11-desktop
+      - *ovmf_code_secboot
+      - *ovmf_vars_secboot
+

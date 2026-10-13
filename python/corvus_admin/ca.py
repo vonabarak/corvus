@@ -37,6 +37,7 @@ from __future__ import annotations
 import datetime as dt
 import ipaddress
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -202,6 +203,7 @@ def issue_cert(
     role: str,
     name: str,
     ip: str | None = None,
+    additional_ips: Sequence[str] = (),
     not_after: dt.datetime | None = None,
 ) -> IssuedCert:
     """Sign a leaf certificate for the given role / name with the
@@ -233,8 +235,8 @@ def issue_cert(
     leaf_key = ed25519.Ed25519PrivateKey.generate()
 
     san_list: list[x509.GeneralName] = [x509.DNSName(name)]
-    if ip is not None:
-        san_list.append(x509.IPAddress(ipaddress.ip_address(ip)))
+    for address in ([ip] if ip is not None else []) + list(additional_ips):
+        san_list.append(x509.IPAddress(ipaddress.ip_address(address)))
 
     builder = (
         x509.CertificateBuilder()
@@ -308,6 +310,7 @@ def issue_cert(
         expires_at=not_after.isoformat(timespec="seconds"),
         serial=serial,
         ip=ip,
+        extra={"additional_ips": list(additional_ips)} if additional_ips else {},
     )
     store.record(rec)
 

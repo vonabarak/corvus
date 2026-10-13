@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import ipaddress
 from pathlib import Path
 
 import pytest
 from corvus_admin import ca, deploy, store
 from corvus_admin.runner import LocalRunner
+from cryptography import x509
 
 
 @pytest.fixture()
@@ -118,3 +120,22 @@ def test_renew_client_remints_into_xdg(
     # The index still has the same CN — overwrite, not append.
     cns = [r.cn for r in initialised_store.iter_records()]
     assert cns.count(first_rec.cn) == 1
+
+
+def test_renew_daemon_preserves_additional_sans(
+    initialised_store: store.AdminStore, fake_paths: tuple[Path, Path]
+) -> None:
+    etc, _ = fake_paths
+    deploy.deploy_daemon(
+        initialised_store,
+        LocalRunner(),
+        listen_ip="192.168.73.7",
+        additional_ips=("127.0.0.1",),
+    )
+    deploy.renew_daemon(initialised_store, target="local", force=True)
+    cert = x509.load_pem_x509_certificate((etc / "corvus-daemon.crt").read_bytes())
+    san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    assert set(san.get_values_for_type(x509.IPAddress)) == {
+        ipaddress.ip_address("192.168.73.7"),
+        ipaddress.ip_address("127.0.0.1"),
+    }

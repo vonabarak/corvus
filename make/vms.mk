@@ -29,7 +29,7 @@ image image-ensure image-clean image-rebuild image-check image-cache-clean image
 DEV_NODE_VM ?= corvus-dev-node
 # Backend for fresh setup; existing configurations must match.
 DEV_NODE_DATABASE ?= sqlite
-export DEV_NODE_DATABASE
+export DEV_NODE_DATABASE STACK_BUILD_FLAGS
 # Private half of the SSH key the image bakes into
 # /home/corvus/.ssh/authorized_keys at build time
 # (see yaml/corvus-test-node/corvus-test-node.yml).
@@ -49,56 +49,39 @@ dev-node-vm-database-check:
 	  echo "DEV_NODE_DATABASE must be sqlite or postgresql" >&2; exit 1 ;; esac
 
 dev-node-vm-setup: dev-node-vm-database-check
+	@bash scripts/devnode/setup.sh --vm "$(DEV_NODE_VM)" --ssh-key "$(DEV_NODE_SSH_KEY)" --database "$(DEV_NODE_DATABASE)"
 
-# Build binaries, create the VM and its shares, and boot it.
+# Build binaries, create a dedicated DHCP/NAT network and VM shares, and boot it.
 dev-node-vm-create: build
-	@set -eu; \
-	  crv() { command "$${CORVUS_CRV:-crv}" "$$@"; }; \
-	  if crv -o json vm show "$(DEV_NODE_VM)" >/dev/null 2>&1; then \
-	  echo "VM '$(DEV_NODE_VM)' already exists; leaving it alone."; \
-	  echo "Run 'make dev-node-vm-clean' to remove it first if you want a fresh VM."; \
-	else \
-	  stack_bin=$$(stack $(STACK_BUILD_FLAGS) path --local-install-root)/bin; \
-	  echo "Instantiating template 'corvus-test-node' as VM '$(DEV_NODE_VM)'"; \
-	  crv template instantiate corvus-test-node "$(DEV_NODE_VM)"; \
-	  echo "Attaching $$stack_bin -> corvus_host (read-only)"; \
-	  crv shared-dir add "$(DEV_NODE_VM)" "$$stack_bin" corvus_host --read-only; \
-	  echo "Attaching $(CURDIR) -> corvus_src (read-only, mounted at /mnt/corvus)"; \
-	  crv shared-dir add "$(DEV_NODE_VM)" "$(CURDIR)" corvus_src --read-only; \
-	  echo "Attaching $$HOME/VMs/BaseImages -> base_images (read-only, mounted at /home/corvus/VMs/BaseImages)"; \
-	  crv shared-dir add "$(DEV_NODE_VM)" "$$HOME/VMs/BaseImages" base_images --read-only; \
-	  echo "Starting $(DEV_NODE_VM)"; \
-	  crv vm start "$(DEV_NODE_VM)" --wait; \
-	fi
+	@bash scripts/devnode/create.sh "$(DEV_NODE_VM)"
 	@echo
 	@echo "VM is ready. Use:"
 	@echo "  crv vm show $(DEV_NODE_VM)     # connection details (vsock CID, sockets)"
 	@echo "  make dev-node-vm-ssh           # ssh in over VSOCK"
-	@echo "  make dev-node-vm-setup         # run setup inside VM once"
+	@echo "  make dev-node-vm-setup         # deploy services and host PKI"
 	@echo "  make dev-node-vm-images        # register base images after setup"
 	@echo "  make dev-node-vm-clean         # reset + delete the VM (and its overlay)"
 
 # Register images without building binaries or creating/starting a VM.
 dev-node-vm-images:
-	@bash scripts/devnode/register-images.sh --vm "$(DEV_NODE_VM)" --ssh-key "$(DEV_NODE_SSH_KEY)"
+	@bash scripts/devnode/register-images.sh --vm "$(DEV_NODE_VM)"
 
 
-# Reset + delete the manual-testing VM and its overlay disk.
+# Delete the dev VM, its overlay disk, dedicated network, and host PKI.
 # The overlay is template-instantiated, so it's ephemeral by default
 # and `vm delete` reaps it together with the VM.
 dev-node-vm-clean:
-	-crv vm delete --force $(DEV_NODE_VM)
+	@bash scripts/devnode/clean.sh "$(DEV_NODE_VM)"
 
 
 # SSH into the dev VM over VSOCK. Pulls the CID from `crv vm show`
 # and uses the test image's baked-in SSH key. Pass extra ssh args
 # via `make dev-node-vm-ssh SSH_ARGS='-v'`.
-# The setup target runs the guest script with the mounted binaries on PATH.
-dev-node-vm-ssh dev-node-vm-setup:
+# Setup is host-managed; this target remains an explicit VSOCK guest shell.
+dev-node-vm-ssh:
 	@cid=$$("$${CORVUS_CRV:-crv}" -o json vm show "$(DEV_NODE_VM)" | jq -r '.vsock_cid // empty'); \
 	  if [ -z "$$cid" ]; then \
 	    echo "$(DEV_NODE_VM) has no vsock_cid (is the VM up?)" >&2; \
 	    exit 1; \
 	  fi; \
-	  exec ssh -i "$(DEV_NODE_SSH_KEY)" $(SSH_ARGS) corvus@vsock%$$cid \
-	    $(if $(filter dev-node-vm-setup,$@),'export PATH=/opt/corvus/bin:$$PATH; exec bash /mnt/corvus/scripts/devnode/setup.sh --database $(DEV_NODE_DATABASE)')
+	  exec ssh -i "$(DEV_NODE_SSH_KEY)" $(SSH_ARGS) corvus@vsock%$$cid

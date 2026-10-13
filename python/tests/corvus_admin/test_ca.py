@@ -42,6 +42,7 @@ def test_issued_cert_has_expected_cn_and_san(admin_store: store.AdminStore) -> N
         role=ca.ROLE_DAEMON,
         name="abc-123",
         ip="10.0.0.10",
+        additional_ips=("127.0.0.1",),
     )
     assert issued.cn == "corvus-daemon:abc-123"
     cert = x509.load_pem_x509_certificate(issued.cert_pem)
@@ -50,6 +51,7 @@ def test_issued_cert_has_expected_cn_and_san(admin_store: store.AdminStore) -> N
     san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     ips = list(san.get_values_for_type(x509.IPAddress))
     assert ipaddress.ip_address("10.0.0.10") in ips
+    assert ipaddress.ip_address("127.0.0.1") in ips
 
 
 def test_issued_cert_validates_against_the_ca(admin_store: store.AdminStore) -> None:

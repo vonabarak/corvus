@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Host CLI access to an integration or dev node: crv-it <vm-name-or-id> [crv args...]
+source "$(dirname -- "${BASH_SOURCE[0]}")/node-helper.sh"
+exec "$checkout/.venv/bin/python" -m corvus_test_harness.host_access crv "$@"
