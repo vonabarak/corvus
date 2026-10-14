@@ -12,8 +12,10 @@ import Corvus.Client.Types
 import Corvus.Model (EnumText (..), GraphicsAdapter (..))
 import Corvus.Size (parseRam)
 import Corvus.StartupTimeout (defaultStartupTimeoutSec, validateStartupTimeoutSec)
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Options.Applicative
+import qualified System.FilePath.Windows as Windows
 
 nonNegativeInt :: ReadM Int
 nonNegativeInt =
@@ -410,6 +412,20 @@ vmExecCommand =
           <> help "Command to execute inside the VM"
       )
 
+vmUploadCommand :: Parser Command
+vmUploadCommand =
+  VmUpload
+    <$> argument (T.pack <$> str) (metavar "VM" <> completer vmCompleter)
+    <*> argument str (metavar "LOCAL_FILE" <> help "Binary file to upload")
+    <*> argument (T.pack <$> str) (metavar "GUEST_FILE" <> help "Exact guest destination path (overwrite)")
+
+vmDownloadCommand :: Parser Command
+vmDownloadCommand =
+  (\vm guest local -> VmDownload vm guest (fromMaybe (Windows.takeFileName (T.unpack guest)) local))
+    <$> argument (T.pack <$> str) (metavar "VM" <> completer vmCompleter)
+    <*> argument (T.pack <$> str) (metavar "GUEST_FILE" <> help "Exact guest source path")
+    <*> optional (argument str (metavar "LOCAL_FILE" <> help "Local destination; defaults to the guest filename in the current directory (replace after success)"))
+
 -- | Parser for @crv vm snapshot create VM NAME@.
 vmSnapshotCreateCommand :: Parser Command
 vmSnapshotCreateCommand =
@@ -570,6 +586,12 @@ vmCommandParser =
         <> command
           "monitor"
           (info vmMonitorCommand (progDesc "Connect to VM's HMP monitor (Ctrl+] to exit)"))
+        <> command
+          "upload"
+          (info vmUploadCommand (progDesc "Upload a binary file through QEMU guest agent"))
+        <> command
+          "download"
+          (info vmDownloadCommand (progDesc "Download a binary file through QEMU guest agent"))
         <> command
           "exec"
           (info vmExecCommand (progDesc "Execute a command inside a VM via guest agent"))

@@ -22,7 +22,7 @@ using Enums = import "enums.capnp";
 interface ByteSink {
   write @0 (chunk :Data) -> ();
   end   @1 () -> ();
-  # Cancel a file upload without publishing its bytes.
+  # Cancel the stream. Previously written guest bytes cannot be rolled back.
   abort @2 () -> ();
 }
 
@@ -208,3 +208,9 @@ interface TaskProgressSink {
 # reference to its subscriber list keyed by the handle's identity;
 # when the client drops it, the server prunes.
 interface Handle {}
+
+# Pull source for guest file uploads. Readers request at most 32768 bytes;
+# non-final replies must make progress. Await each read for backpressure.
+interface ByteSource {
+  read @0 (maxBytes :UInt32) -> (chunk :Data, eof :Bool);
+}

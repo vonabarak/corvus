@@ -169,6 +169,8 @@ runCommand opts = do
       VmSave vmRef waitOpts -> handleVmSave fmt conn vmRef waitOpts
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec ->
         handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec
+      VmUpload vmRef local guest -> handleVmUpload fmt conn vmRef local guest
+      VmDownload vmRef guest local -> handleVmDownload fmt conn vmRef guest local
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef

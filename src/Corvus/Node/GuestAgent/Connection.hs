@@ -15,7 +15,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
-import Control.Exception (SomeException, catch, mask, mask_, onException, try)
+import Control.Exception (SomeAsyncException, SomeException, catch, fromException, mask, mask_, onException, throwIO, try)
 import Corvus.Node.GuestAgent.Transport (recvJson, sendJson)
 import Corvus.Node.Runtime (getGuestAgentSocket)
 import Corvus.Qemu.Config (QemuConfig)
@@ -103,7 +103,10 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
         pure (sock, value)
       case mResult of
         Just (Right result) -> pure (Right result)
-        Just (Left (err :: SomeException)) -> pure (Left (T.pack (show err)))
+        Just (Left (err :: SomeException)) ->
+          case fromException err :: Maybe SomeAsyncException of
+            Just _ -> throwIO err
+            Nothing -> pure (Left (T.pack (show err)))
         Nothing -> pure (Left "Timed out waiting for guest agent")
 
 connectWithRetry :: Int -> FilePath -> IO Socket

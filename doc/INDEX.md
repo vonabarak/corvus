@@ -19,6 +19,7 @@
 - [Cloud-Init](cloud-init.md) -- ISO generation, custom user-data, SSH key injection, Windows support
 - [Shared Directories](shared-directories.md) -- virtiofs host directories and SPICE viewer-local folder sharing
 - [VM Audio](vm-audio.md) -- Sound cards, playback, microphones, and audio backends
+- [Guest Files](guest-files.md) -- Upload/download files via the guest agent
 - [Guest Execution](guest-exec.md) -- Execute commands inside VMs via guest agent
 - [Task History](task-history.md) -- Track async operations, query history
 - [Observability](observability.md) -- Per-VM resource metrics: CLI Resource Usage, WebUI sparklines, Prometheus `/metrics`

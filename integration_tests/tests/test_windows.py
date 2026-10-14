@@ -35,6 +35,7 @@ import secrets
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -427,3 +428,18 @@ class TestWindows(SingleNodeCase):
                         pass
         finally:
             self.node.run(f"rm -rf {share_path}", check=False)
+
+    def test_guest_file_binary_round_trip(self, tmp_path: Path) -> None:
+        source = tmp_path / "source"
+        destination = tmp_path / "destination"
+        body = bytes(range(256)) * 300
+        source.write_bytes(body)
+        with VmWindows(self) as vm:
+            path = r"C:\Windows\Temp\corvus-guest-file.bin"
+            assert vm.cap.upload_from_file(source, path) == len(body)
+            assert vm.cap.download_to_file(path, destination) == len(body)
+            assert destination.read_bytes() == body
+            source.write_bytes(b"")
+            assert vm.cap.upload_from_file(source, path) == 0
+            assert vm.cap.download_to_file(path, destination) == 0
+            assert destination.read_bytes() == b""

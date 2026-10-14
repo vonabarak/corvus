@@ -15,14 +15,16 @@ import Control.Exception (bracket, try)
 import Control.Monad (unless)
 import Corvus.Node.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
 import qualified Corvus.Node.GuestAgent as GA
-import Corvus.Node.GuestAgent.File (writeFileOnSocket)
+import Corvus.Node.GuestAgent.File (downloadFile, socketRequest, uploadFile)
 import Corvus.Node.GuestAgent.Transport (parseQgaFrame, recvJson, sendJson)
 import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Rpc.FileTransfer (bytesSource)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.QQ (aesonQQ)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Time (diffUTCTime, getCurrentTime)
 import Network.Socket (Family (..), SocketType (..), close, defaultProtocol, socketPair)
@@ -92,7 +94,8 @@ spec = do
               )
               [[aesonQQ| { "return": 42 } |], [aesonQQ| { "return": { "count": 2 } } |], [aesonQQ| { "return": { "count": 3 } } |], [aesonQQ| { "return": {} } |], [aesonQQ| { "return": {} } |]]
           putMVar requests captured
-        writeFileOnSocket client "C:\\Temp\\script.ps1" "hello"
+        source <- bytesSource "hello"
+        uploadFile (socketRequest client) "C:\\Temp\\script.ps1" source `shouldReturn` 5
         captured <- takeMVar requests
         captured
           `shouldBe` map
@@ -115,8 +118,105 @@ spec = do
           request <- recvJson peer
           sendJson peer [aesonQQ| { "return": {} } |]
           putMVar closed request
-        writeFileOnSocket client "script.ps1" "hello" `shouldThrow` isUserError
+        source <- bytesSource "hello"
+        uploadFile (socketRequest client) "script.ps1" source `shouldThrow` isUserError
         takeMVar closed `shouldReturn` Just [aesonQQ| { "execute": "guest-file-close", "arguments": { "handle": 42 } } |]
+
+  describe "guest file session serialization" $ do
+    it "allows a health ping while awaiting a source chunk" $
+      bracket (socketPair AF_UNIX Stream defaultProtocol) (\(client, peer) -> close client >> close peer) $ \(client, peer) -> do
+        slot <- newMVar (Just client)
+        conns <- STM.newTVarIO (Map.singleton 42 slot)
+        requests <- newEmptyMVar
+        _ <- forkIO $ do
+          captured <-
+            mapM
+              ( \reply -> do
+                  request <- recvJson peer
+                  sendJson peer reply
+                  pure request
+              )
+              [[aesonQQ| {"return": 7} |], [aesonQQ| {"return": {}} |], [aesonQQ| {"return": {"count": 1}} |], [aesonQQ| {"return": {}} |], [aesonQQ| {"return": {}} |]]
+          putMVar requests captured
+        GA.guestWriteFile
+          conns
+          defaultQemuConfig
+          42
+          "/binary"
+          ( \_ -> do
+              GA.guestPing conns defaultQemuConfig 42 `shouldReturn` True
+              pure ("x", True)
+          )
+          `shouldReturn` 1
+        captured <- takeMVar requests
+        length captured `shouldBe` 5
+        captured !! 1 `shouldBe` Just [aesonQQ| {"execute": "guest-ping"} |]
+
+    it "refuses handles after the cached socket is replaced" $
+      bracket (socketPair AF_UNIX Stream defaultProtocol) (\(client, peer) -> close client >> close peer) $ \(client, peer) ->
+        bracket (socketPair AF_UNIX Stream defaultProtocol) (\(next, nextPeer) -> close next >> close nextPeer) $ \(next, _) -> do
+          slot <- newMVar (Just client)
+          conns <- STM.newTVarIO (Map.singleton 42 slot)
+          _ <- forkIO $ do
+            _ <- recvJson peer
+            sendJson peer [aesonQQ| {"return": 7} |]
+          GA.guestWriteFile
+            conns
+            defaultQemuConfig
+            42
+            "/binary"
+            ( \_ -> do
+                _ <- takeMVar slot
+                putMVar slot (Just next)
+                pure ("x", True)
+            )
+            `shouldThrow` isUserError
+          -- A rejected stale handle must not discard the replacement socket.
+          takeMVar slot `shouldReturn` Just next
+          putMVar slot (Just next)
+
+  describe "native guest downloads" $ do
+    it "reads binary bytes and closes before returning" $ do
+      calls <- newIORef ([] :: [Aeson.Value])
+      chunks <- newIORef []
+      let send command args = do
+            modifyIORef' calls (<> [Aeson.object ["execute" Aeson..= command, "arguments" Aeson..= Aeson.object args]])
+            pure $
+              if command == "guest-file-open"
+                then [aesonQQ| {"return": 42} |]
+                else
+                  if command == "guest-file-read"
+                    then [aesonQQ| {"return": {"count": 3, "buf-b64": "AP+A", "eof": true}} |]
+                    else [aesonQQ| {"return": {}} |]
+      downloadFile send "/binary" (\chunk -> modifyIORef' chunks (<> [chunk])) `shouldReturn` 3
+      readIORef chunks `shouldReturn` [BS.pack [0, 255, 128]]
+      requests <- readIORef calls
+      last requests `shouldBe` [aesonQQ| {"execute": "guest-file-close", "arguments": {"handle": 42}} |]
+
+    mapM_
+      ( \reply -> it ("rejects invalid download reply " <> show reply <> " and closes") $ do
+          closed <- newIORef False
+          let send command _
+                | command == "guest-file-open" = pure [aesonQQ| {"return": 42} |]
+                | command == "guest-file-read" = pure reply
+                | otherwise = modifyIORef' closed (const True) >> pure [aesonQQ| {"return": {}} |]
+          downloadFile send "/binary" (const (pure ())) `shouldThrow` isUserError
+          readIORef closed `shouldReturn` True
+      )
+      [ [aesonQQ| {"return": {"count": 1, "buf-b64": "!", "eof": true}} |]
+      , [aesonQQ| {"return": {"count": 2, "buf-b64": "AA==", "eof": true}} |]
+      , [aesonQQ| {"return": {"count": 0, "buf-b64": "", "eof": false}} |]
+      , [aesonQQ| {"error": {"desc": "permission denied"}} |]
+      ]
+
+    it "uploads empty files without a write and still flushes" $ do
+      commands <- newIORef []
+      let send command _ = do
+            modifyIORef' commands (<> [command])
+            pure $ if command == "guest-file-open" then [aesonQQ| {"return": 42} |] else [aesonQQ| {"return": {}} |]
+      source <- bytesSource BS.empty
+      uploadFile send "/empty" source `shouldReturn` 0
+      readIORef commands `shouldReturn` ["guest-file-open", "guest-file-flush", "guest-file-close"]
 
   describe "interface parsing" $ do
     it "parses interfaces with hardware-address" $ do

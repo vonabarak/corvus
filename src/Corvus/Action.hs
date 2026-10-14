@@ -509,6 +509,7 @@ classifyResponse = \case
   RespAudioDeviceOk -> (TaskSuccess, Nothing)
   RespAudioDeviceList _ -> (TaskSuccess, Nothing)
   RespNetIfAdded nid -> (TaskSuccess, Just $ "NetIf ID " <> T.pack (show nid))
+  RespGuestFileTransferred bytes -> (TaskSuccess, Just $ T.pack (show bytes) <> " bytes transferred")
   RespGuestExecResult code _ _ -> (TaskSuccess, Just $ "Exit code " <> T.pack (show code))
   RespCloudInitOk -> (TaskSuccess, Nothing)
   RespStartupComplete -> (TaskSuccess, Just "Startup complete")

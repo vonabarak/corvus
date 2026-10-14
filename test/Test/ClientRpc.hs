@@ -28,6 +28,7 @@ import qualified Capnp.Rpc.Untyped as Untyped
 import Control.Concurrent.Async (AsyncCancelled, async, cancel, withAsync)
 import Control.Exception (SomeException, bracket, catch, finally, fromException)
 import Control.Monad (forever, unless, (>=>))
+import Corvus.Rpc.Common (handleParsedAsync)
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as Map
@@ -342,6 +343,8 @@ instance GVm.Vm'server_ Mock where
   vm'delete (Mock f) = handleParsed (respond f "Vm.delete")
   vm'cloudInit (Mock f) = handleParsed (respond f "Vm.cloudInit")
   vm'viewGrant (Mock f) = handleParsed (respond f "Vm.viewGrant")
+  vm'uploadFile (Mock f) = handleParsedAsync (respond f "Vm.uploadFile")
+  vm'downloadFile (Mock f) = handleParsedAsync (respond f "Vm.downloadFile")
   vm'guestExec (Mock f) = handleParsed (respond f "Vm.guestExec")
   vm'sendCtrlAltDel (Mock f) = handleParsed (respond f "Vm.sendCtrlAltDel")
   vm'serialConsole (Mock f) = handleParsed (respond f "Vm.serialConsole")

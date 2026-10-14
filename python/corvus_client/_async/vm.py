@@ -8,7 +8,10 @@ request/response wrappers.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import capnp
@@ -285,6 +288,45 @@ class AsyncVm:
     async def guest_exec(self, command: str) -> t.GuestExecResult:
         resp = await self._cap.guestExec(command=command)
         return conv.guest_exec_result(resp.result)
+
+    async def upload_from_file(self, local_path: str | Path, guest_path: str) -> int:
+        """Overwrite one exact guest path; failure may leave partial bytes."""
+        from .files import FileSource
+
+        with Path(local_path).open("rb") as handle:
+            source = FileSource(handle)
+            try:
+                result = await self._cap.uploadFile(path=guest_path, source=source)
+                count = int(result.bytesTransferred)
+                if source.active or count != source.count:
+                    raise OSError("incomplete guest file upload")
+                return count
+            finally:
+                source.active = False
+
+    async def download_to_file(self, guest_path: str, local_path: str | Path) -> int:
+        """Replace the local destination only after a complete guest download."""
+        from .files import FileSink
+
+        destination = Path(local_path)
+        fd, temporary = tempfile.mkstemp(
+            prefix=destination.name + ".part", dir=destination.parent
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                sink = FileSink(handle)
+                try:
+                    result = await self._cap.downloadFile(path=guest_path, sink=sink)
+                    count = int(result.bytesTransferred)
+                    if not sink.ended or count != sink.count:
+                        raise OSError("incomplete guest file download")
+                finally:
+                    sink.active = False
+            os.replace(temporary, destination)
+            return count
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     async def send_ctrl_alt_del(self) -> None:
         await self._cap.sendCtrlAltDel()

@@ -35,6 +35,7 @@ import Corvus.Action (runAction, runActionAsync, runActionAsyncWithId)
 import Corvus.Handlers.AudioDevice (AudioDeviceAdd (..), AudioDeviceEdit (..), AudioDeviceRemove (..), handleAudioDeviceList)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
+import Corvus.Handlers.GuestFile (GuestFileUpload (..), downloadGuestFile)
 import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfEdit (..), NetIfRemove (..), handleNetIfList)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNetwork, resolveNode, resolveSshKey, resolveVm)
 import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
@@ -72,7 +73,8 @@ import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
-import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
+import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, handleParsedAsync, resolveOrThrow, throwError, throwWireError)
+import Corvus.Rpc.FileTransfer (readSource)
 import Corvus.Rpc.Streams (EmptyHandle (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
@@ -338,6 +340,20 @@ instance CGVm.Vm'server_ VmCap where
                     , vgTtlSeconds = ttl
                     }
             }
+      _ -> throwError resp
+
+  vm'uploadFile (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'uploadFile'params {..} -> do
+    resp <- runAction st cn (GuestFileUpload eid path (readSource source))
+    case resp of
+      RespGuestFileTransferred count -> pure CGVm.Vm'uploadFile'results {CGVm.bytesTransferred = count}
+      RespInvalidTransition status msg -> throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
+      _ -> throwError resp
+
+  vm'downloadFile (VmCap st _ eid _) = handleParsedAsync $ \CGVm.Vm'downloadFile'params {..} -> do
+    resp <- downloadGuestFile st eid path sink
+    case resp of
+      RespGuestFileTransferred count -> pure CGVm.Vm'downloadFile'results {CGVm.bytesTransferred = count}
+      RespInvalidTransition status msg -> throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
       _ -> throwError resp
 
   vm'guestExec (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'guestExec'params {..} -> do

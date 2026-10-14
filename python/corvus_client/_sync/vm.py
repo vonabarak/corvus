@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from types import TracebackType
 
 from .. import types as t
@@ -228,6 +229,12 @@ class SyncVm(LoopBoundResource):
 
     def view_grant(self) -> t.ViewGrant:
         return self._rl.run(self._a.view_grant())
+
+    def upload_from_file(self, local_path: str | Path, guest_path: str) -> int:
+        return self._rl.run(self._a.upload_from_file(local_path, guest_path))
+
+    def download_to_file(self, guest_path: str, local_path: str | Path) -> int:
+        return self._rl.run(self._a.download_to_file(guest_path, local_path))
 
     def guest_exec(self, command: str) -> t.GuestExecResult:
         return self._rl.run(self._a.guest_exec(command))

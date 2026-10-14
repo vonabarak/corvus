@@ -3,7 +3,9 @@
 
 -- | Guest execution command handlers for the Corvus client.
 module Corvus.Client.Commands.GuestExec
-  ( handleVmExec
+  ( handleVmUpload
+  , handleVmDownload
+  , handleVmExec
   )
 where
 
@@ -18,6 +20,7 @@ import Data.Aeson (toJSON)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Data.Word (Word64)
 import System.IO (stderr)
 
 -- | Handle guest-exec command
@@ -39,4 +42,23 @@ handleVmExec fmt conn vmRef command = do
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Guest agent error: " ++ show e)
+      pure False
+
+handleVmUpload :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Text -> IO Bool
+handleVmUpload fmt conn vm local guest =
+  handleTransfer fmt (CR.rpcGuestUpload conn (entityRefFromText vm) local guest)
+
+handleVmDownload :: OutputFormat -> CapnpConnection -> Text -> Text -> FilePath -> IO Bool
+handleVmDownload fmt conn vm guest local =
+  handleTransfer fmt (CR.rpcGuestDownload conn (entityRefFromText vm) guest local)
+
+handleTransfer :: OutputFormat -> IO Word64 -> IO Bool
+handleTransfer fmt transfer = do
+  result <- try transfer
+  case result of
+    Right count -> do
+      emitOkWith fmt [("bytes_transferred", toJSON count)] $ putStrLn (show count <> " bytes transferred")
+      pure True
+    Left (err :: SomeException) -> do
+      emitRpcError fmt err $ putStrLn ("Guest file transfer failed: " <> show err)
       pure False

@@ -1737,3 +1737,84 @@ instance (GH.Export Handle) where
     methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(Handle)) [] [])
 class (Handle'server_ s_) where
     {-# MINIMAL  #-}
+data ByteSource 
+type instance (R.ReprFor ByteSource) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId ByteSource) where
+    typeId  = 17527642362952428589
+instance (C.Parse ByteSource (GH.Client ByteSource)) where
+    parse  = GH.parseCap
+    encode  = GH.encodeCap
+instance (GH.Export ByteSource) where
+    type Server ByteSource = ByteSource'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(ByteSource)) [(GH.toUntypedMethodHandler ((byteSource'read) s_))] [])
+class (ByteSource'server_ s_) where
+    {-# MINIMAL byteSource'read #-}
+    byteSource'read :: s_ -> (GH.MethodHandler ByteSource'read'params ByteSource'read'results)
+    byteSource'read _ = GH.methodUnimplemented
+instance (GH.HasMethod "read" ByteSource ByteSource'read'params ByteSource'read'results) where
+    methodByLabel  = (GH.Method 17527642362952428589 0)
+data ByteSource'read'params 
+type instance (R.ReprFor ByteSource'read'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ByteSource'read'params) where
+    typeId  = 12281086209853802233
+instance (C.TypedStruct ByteSource'read'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate ByteSource'read'params) where
+    type AllocHint ByteSource'read'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ByteSource'read'params (C.Parsed ByteSource'read'params))
+instance (C.AllocateList ByteSource'read'params) where
+    type ListAllocHint ByteSource'read'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ByteSource'read'params (C.Parsed ByteSource'read'params))
+data instance C.Parsed ByteSource'read'params
+    = ByteSource'read'params 
+        {maxBytes :: (RP.Parsed Std_.Word32)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ByteSource'read'params))
+deriving instance (Std_.Eq (C.Parsed ByteSource'read'params))
+instance (C.Parse ByteSource'read'params (C.Parsed ByteSource'read'params)) where
+    parse raw_ = (ByteSource'read'params <$> (GH.parseField #maxBytes raw_))
+instance (C.Marshal ByteSource'read'params (C.Parsed ByteSource'read'params)) where
+    marshalInto raw_ ByteSource'read'params{..} = (do
+        (GH.encodeField #maxBytes maxBytes raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "maxBytes" GH.Slot ByteSource'read'params Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 0 32 0)
+data ByteSource'read'results 
+type instance (R.ReprFor ByteSource'read'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ByteSource'read'results) where
+    typeId  = 13436053776242177449
+instance (C.TypedStruct ByteSource'read'results) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate ByteSource'read'results) where
+    type AllocHint ByteSource'read'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ByteSource'read'results (C.Parsed ByteSource'read'results))
+instance (C.AllocateList ByteSource'read'results) where
+    type ListAllocHint ByteSource'read'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ByteSource'read'results (C.Parsed ByteSource'read'results))
+data instance C.Parsed ByteSource'read'results
+    = ByteSource'read'results 
+        {chunk :: (RP.Parsed Basics.Data)
+        ,eof :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ByteSource'read'results))
+deriving instance (Std_.Eq (C.Parsed ByteSource'read'results))
+instance (C.Parse ByteSource'read'results (C.Parsed ByteSource'read'results)) where
+    parse raw_ = (ByteSource'read'results <$> (GH.parseField #chunk raw_)
+                                          <*> (GH.parseField #eof raw_))
+instance (C.Marshal ByteSource'read'results (C.Parsed ByteSource'read'results)) where
+    marshalInto raw_ ByteSource'read'results{..} = (do
+        (GH.encodeField #chunk chunk raw_)
+        (GH.encodeField #eof eof raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "chunk" GH.Slot ByteSource'read'results Basics.Data) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "eof" GH.Slot ByteSource'read'results Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)

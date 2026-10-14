@@ -607,9 +607,12 @@ errors fail the step. `shell` string shorthand retains the `sh` default.
 
 ### `file`
 
-Uploads a host file into the VM. Internally: the file is base64-encoded
-on the client, streamed over QGA stdin to a `base64 -d > <to>` shell
-invocation, and `chmod`-ed to the requested mode.
+Uploads a client file into the VM. The client still base64-inlines the file
+in the manifest. The daemon strictly decodes it before touching the guest,
+creates the parent directory, and streams bytes through native QGA file
+commands using the same upload Action as `crv vm upload`. It then applies
+the requested mode with `chmod`; symbolic modes are supported. PowerShell
+script staging also uses this native uploader.
 
 ```yaml
 - file:
@@ -617,6 +620,11 @@ invocation, and `chmod`-ed to the requested mode.
     to:   /etc/nginx/nginx.conf
     mode: "0644"               # optional, default 0644
 ```
+
+Manifest contents are held in memory; this step is not a bounded-memory
+client upload. Top-level `pipeline[].upload` instead imports a disk image or
+installation medium through the disk-upload API, with its own publication
+and hash checks. It does not copy files into a guest.
 
 For files larger than ~16 MiB use a tarball + a `shell` provisioner
 that extracts it; the file kind is intended for config drops, not bulk

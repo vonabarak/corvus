@@ -11,16 +11,20 @@ import qualified Capnp.Gen.Corvus as GCorvus
 import qualified Capnp.Gen.Disk as GDisk
 import qualified Capnp.Gen.Streams as GStreams
 import qualified Capnp.Gen.Template as GTemplate
+import qualified Capnp.Gen.Vm as GVm
 import Control.Exception (bracket)
-import Control.Monad (forM_, void)
+import Control.Monad (forM_, unless, void, when)
 import Corvus.Client.Types
 import Corvus.Model (TaskResult (..))
 import Corvus.Protocol.Apply (ApplyEvent (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
+import Corvus.Rpc.FileTransfer (readSource)
+import Corvus.Rpc.Streams (callSink)
 import Corvus.Wire.Apply (toCapnpApplyEvent)
 import Corvus.Wire.Build (toCapnpBuildEvent)
 import Data.Aeson (Value, object, (.=))
 import qualified Data.ByteString.Char8 as BS
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -36,6 +40,41 @@ import Test.Hspec
 
 spec :: Spec
 spec = sequential $ describe "CLI files, editors and event streams" $ do
+  describe "guest file transfers" $ do
+    forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> it ("uploads bounded binary chunks: " <> show fmt) $ withSystemTempDirectory "guest-files" $ \dir -> withMock $ \f -> do
+      let path = dir </> "source"
+          payload = BS.replicate 70000 '\255' <> "\0"
+      BS.writeFile path payload
+      chunks <- newIORef []
+      expectCalls f ["Daemon.vms", "VmManager.get", "Vm.uploadFile"]
+      setReply f "Vm.uploadFile" $ \GVm.Vm'uploadFile'params {GVm.path = guest, GVm.source = source} -> do
+        guest `shouldBe` "/guest/binary"
+        let readAll = do
+              (chunk, eof) <- readSource source 32768
+              modifyIORef' chunks (<> [chunk])
+              unless eof readAll
+        readAll
+        pure GVm.Vm'uploadFile'results {GVm.bytesTransferred = fromIntegral (BS.length payload)}
+      out <- checkCli f fmt (VmUpload "vm" path "/guest/binary") ExitSuccess
+      out `shouldSatisfy` isInfixOf "70001"
+      received <- readIORef chunks
+      BS.concat received `shouldBe` payload
+      map BS.length received `shouldBe` [32768, 32768, 4465]
+
+    forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> forM_ [False, True] $ \failRpc -> it ("downloads atomically: " <> show (fmt, failRpc)) $ withSystemTempDirectory "guest-files" $ \dir -> withMock $ \f -> do
+      let path = dir </> "destination"
+          payload = "\0\255bytes"
+      BS.writeFile path "original"
+      expectCalls f ["Daemon.vms", "VmManager.get", "Vm.downloadFile"]
+      setReply f "Vm.downloadFile" $ \GVm.Vm'downloadFile'params {GVm.sink = sink} -> do
+        callSink #write GStreams.ByteSink'write'params {GStreams.chunk = payload} sink
+        BS.readFile path `shouldReturn` "original"
+        when failRpc $ ioError (userError "download failed")
+        callSink #end GStreams.ByteSink'end'params sink
+        pure GVm.Vm'downloadFile'results {GVm.bytesTransferred = fromIntegral (BS.length payload)}
+      void $ checkCli f fmt (VmDownload "vm" "/guest/binary" path) (exitFor failRpc)
+      BS.readFile path `shouldReturn` if failRpc then "original" else payload
+
   describe "file errors" $ do
     forM_ [TemplateCreate (Just "/nonexistent-corvus.yml"), CloudInitSet "vm" (Just "/nonexistent-corvus.yml"), Apply "/nonexistent-corvus.yml" False noWait] $ \cmd ->
       it (show cmd) $ withMock $ \f -> do

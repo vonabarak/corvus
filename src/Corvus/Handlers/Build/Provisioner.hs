@@ -11,7 +11,6 @@ module Corvus.Handlers.Build.Provisioner
     -- | Run every provisioner in order, stopping on the first failure.
   , runProvisioners
   , runProvisioner
-  , runProvisionerBody
   , buildCorvusEnv
   , buildShellCommand
   , powerShellBootstrap
@@ -28,18 +27,18 @@ import Control.Monad.Logger (LoggingT, logInfoN)
 import Corvus.Action (Action (..), ActionContext (..), cancelRemainingSubtasks, mkActionContext)
 import Corvus.Handlers.Build.Qga
   ( agentGuestExec
-  , agentGuestExecWithStdin
   , agentGuestExecWithTail
   , agentGuestPing
   , agentGuestReboot
-  , agentGuestWriteFile
   )
+import Corvus.Handlers.GuestFile (GuestFileUpload (..))
 import Corvus.Handlers.Vm.Query (getVmDetails)
 import Corvus.Model
 import Corvus.Node.GuestAgent (GuestExecResult (..))
 import Corvus.Protocol (Response (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildSink)
 import Corvus.Protocol.Vm (vdName, vdVsockCid)
+import Corvus.Rpc.FileTransfer (bytesSource)
 import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.Aeson as Aeson
@@ -164,7 +163,7 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
         RespOk -> Right (Just "guest reboot confirmed; guest-ping ready")
         RespError err -> Left (err, Just err)
         other -> Left (T.pack (show other), Just (T.pack (show other)))
-    _ -> runProvisionerBody state vmId sd cEnv stepIdx sink p
+    _ -> runProvisionerBody (mkActionContext state taskKey "system") vmId sd cEnv stepIdx sink p
   finishedAt <- liftIO getCurrentTime
   let (orchResult, taskMsg, resultStatus) = case bodyResult of
         Right (Right msg) -> (Right (), msg, TaskSuccess)
@@ -203,7 +202,7 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
 --   @task.message@ stores (cropped output tail prefixed with the exit
 --   code, etc.).
 runProvisionerBody
-  :: ServerState
+  :: ActionContext
   -> Int64
   -> ShellDefaults
   -> [(Text, Text)]
@@ -211,76 +210,81 @@ runProvisionerBody
   -> BuildSink
   -> Provisioner
   -> IO (Either (Text, Maybe Text) (Maybe Text))
-runProvisionerBody state vmId sd cEnv stepIdx sink p = case p of
-  ProvShell sh -> case shellInline sh of
-    Nothing ->
-      pure $
-        Left
-          ( "shell: missing inline body (client-side bug)"
-          , Just "shell: missing inline body (client-side bug)"
-          )
-    Just body -> do
-      let timeoutSec = fromMaybe 600 (shellTimeoutSec sh)
-          script = buildShellCommand sd cEnv sh body
-          scriptPath = "C:\\Windows\\Temp\\corvus-build-" <> T.pack (show vmId) <> "-" <> T.pack (show stepIdx) <> ".ps1"
-          fullCmd = case shellInterpreter sh of
-            ShellSh -> script
-            ShellPowerShell -> powerShellBootstrap scriptPath
-      bufRef <- newIORef BS.empty
-      totalRef <- newIORef (0 :: Int)
-      let onLine line = do
-            sink (StepOutput stepIdx line)
-            accumulateLine bufRef totalRef line
-      staged <- case shellInterpreter sh of
-        ShellSh -> pure (Right ())
-        ShellPowerShell -> agentGuestWriteFile state vmId scriptPath (TE.encodeUtf8 script)
-      result <- case staged of
-        Left err -> pure (GuestExecError ("script upload: " <> err))
-        Right () -> agentGuestExecWithTail state vmId fullCmd BS.empty (fromIntegral timeoutSec) onLine
-      tail' <- finalizeStepBuf bufRef totalRef
-      pure $ case result of
-        GuestExecSuccess 0 _ _ -> Right tail'
-        GuestExecSuccess code _ _ ->
-          let header = "exit code " <> T.pack (show code)
-              long = case tail' of
-                Just t -> Just (header <> "\n" <> t)
-                Nothing -> Just header
-           in Left ("shell: " <> header, long)
-        GuestExecError msg ->
-          Left ("shell agent error: " <> msg, Just msg)
-        GuestExecConnectionFailed msg ->
-          Left ("shell agent connection failed: " <> msg, Just msg)
-  ProvFile fp -> case fileContentBase64 fp of
-    Nothing ->
-      pure $
-        Left
-          ( "file: missing content (client-side bug)"
-          , Just "file: missing content (client-side bug)"
-          )
-    Just contentB64 -> do
-      let mode = fromMaybe "0644" (fileMode fp)
-          dest = shellQuote (fileTo fp)
-          payload = TE.encodeUtf8 contentB64
-          cmd =
-            "umask 022; install -d $(dirname "
-              <> dest
-              <> ") && base64 -d > "
-              <> dest
-              <> " && chmod "
-              <> mode
-              <> " "
-              <> dest
-      sink (StepOutput stepIdx ("writing " <> fileTo fp))
-      result <-
-        agentGuestExecWithStdin
-          state
-          vmId
-          cmd
-          payload
-          600
-      pure $ classifyAtomic "file" (fileTo fp) result
-  ProvWaitFor wf -> waitForIO state stepIdx sink vmId wf
-  ProvReboot _ -> pure $ Left ("reboot requires an Action context", Nothing)
+runProvisionerBody ctx vmId sd cEnv stepIdx sink p =
+  let state = acState ctx
+   in case p of
+        ProvShell sh -> case shellInline sh of
+          Nothing ->
+            pure $
+              Left
+                ( "shell: missing inline body (client-side bug)"
+                , Just "shell: missing inline body (client-side bug)"
+                )
+          Just body -> do
+            let timeoutSec = fromMaybe 600 (shellTimeoutSec sh)
+                script = buildShellCommand sd cEnv sh body
+                scriptPath = "C:\\Windows\\Temp\\corvus-build-" <> T.pack (show vmId) <> "-" <> T.pack (show stepIdx) <> ".ps1"
+                fullCmd = case shellInterpreter sh of
+                  ShellSh -> script
+                  ShellPowerShell -> powerShellBootstrap scriptPath
+            bufRef <- newIORef BS.empty
+            totalRef <- newIORef (0 :: Int)
+            let onLine line = do
+                  sink (StepOutput stepIdx line)
+                  accumulateLine bufRef totalRef line
+            staged <- case shellInterpreter sh of
+              ShellSh -> pure (Right ())
+              ShellPowerShell -> uploadBytes ctx vmId scriptPath (TE.encodeUtf8 script)
+            result <- case staged of
+              Left err -> pure (GuestExecError ("script upload: " <> err))
+              Right () -> agentGuestExecWithTail state vmId fullCmd BS.empty (fromIntegral timeoutSec) onLine
+            tail' <- finalizeStepBuf bufRef totalRef
+            pure $ case result of
+              GuestExecSuccess 0 _ _ -> Right tail'
+              GuestExecSuccess code _ _ ->
+                let header = "exit code " <> T.pack (show code)
+                    long = case tail' of
+                      Just t -> Just (header <> "\n" <> t)
+                      Nothing -> Just header
+                 in Left ("shell: " <> header, long)
+              GuestExecError msg ->
+                Left ("shell agent error: " <> msg, Just msg)
+              GuestExecConnectionFailed msg ->
+                Left ("shell agent connection failed: " <> msg, Just msg)
+        ProvFile fp -> case fileContentBase64 fp of
+          Nothing ->
+            pure $
+              Left
+                ( "file: missing content (client-side bug)"
+                , Just "file: missing content (client-side bug)"
+                )
+          Just contentB64 -> case B64.decode (TE.encodeUtf8 contentB64) of
+            Left err -> pure $ Left ("file: invalid base64 content", Just (T.pack err))
+            Right payload -> do
+              let dest = shellQuote (fileTo fp)
+                  mode = shellQuote (fromMaybe "0644" (fileMode fp))
+                  mkdir = "umask 022; install -d \"$(dirname -- " <> dest <> ")\""
+              sink (StepOutput stepIdx ("writing " <> fileTo fp))
+              prepared <- agentGuestExec state vmId mkdir 600
+              case prepared of
+                GuestExecSuccess 0 _ _ -> do
+                  staged <- uploadBytes ctx vmId (fileTo fp) payload
+                  case staged of
+                    Left err -> pure $ Left ("file upload: " <> err, Just err)
+                    Right () -> do
+                      result <- agentGuestExec state vmId ("chmod -- " <> mode <> " " <> dest) 600
+                      pure $ classifyAtomic "file" (fileTo fp) result
+                other -> pure $ classifyAtomic "file parent directory" (fileTo fp) other
+        ProvWaitFor wf -> waitForIO state stepIdx sink vmId wf
+        ProvReboot _ -> pure $ Left ("reboot requires an Action context", Nothing)
+
+uploadBytes :: ActionContext -> Int64 -> Text -> BS.ByteString -> IO (Either Text ())
+uploadBytes ctx vmId path bytes = do
+  source <- bytesSource bytes
+  result <- actionExecute ctx (GuestFileUpload vmId path source)
+  pure $ case result of
+    RespGuestFileTransferred _ -> Right ()
+    other -> Left (T.pack (show other))
 
 -- | Append a streamed line to the per-step ring buffer, updating the
 -- byte-counter that lets 'finalizeStepBuf' know whether truncation

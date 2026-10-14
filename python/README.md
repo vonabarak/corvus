@@ -227,3 +227,17 @@ VM creation accepts `startup_timeout_sec=120` in both sync and async clients;
 the next start. The value is an integer from 1 to 4294967 seconds. VM and
 template list/show dataclasses expose `startup_timeout_sec`. This deadline
 waits for the first guest-agent response; VMs without a guest agent skip it.
+
+### Guest file transfers
+
+```python
+bytes_uploaded = vm.upload_from_file("./config.bin", "/tmp/config.bin")
+bytes_downloaded = vm.download_to_file("/tmp/config.bin", "./copy.bin")
+# AsyncClient exposes the same methods with await.
+```
+
+Both methods accept `str` or `Path` for the local path and return the byte
+count. The VM must be running with QGA enabled. Transfers stream through
+the daemon in 32 KiB chunks. Downloads replace the local destination only
+after successful completion; failed uploads can leave a partial guest file.
+See [guest file transfers](../doc/guest-files.md) for the full contract.

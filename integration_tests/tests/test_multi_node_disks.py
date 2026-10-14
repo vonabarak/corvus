@@ -26,13 +26,16 @@ no ``client_beta``; every RPC goes through ``client_alpha``.
 
 from __future__ import annotations
 
+import base64
+import json
 import secrets
 import textwrap
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
-from corvus_client import Client, ServerError
+from corvus_client import Client, GuestAgentError, ServerError
 from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
 
 
@@ -417,3 +420,63 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 self._delete_vm_silent(vm_name)
         finally:
             self._delete_disk_silent(disk_name)
+
+    def test_guest_files_on_remote_node(self, tmp_path: Path) -> None:
+        """CLI on alpha and Python on host transfer bytes to a guest on beta."""
+        images = self.register_base_images()
+        base = images.get("corvus-test-vm")
+        if base is None:
+            pytest.skip("corvus-test-vm base image is not registered")
+        self.stage_base_images_on(1)
+        self.install_node_client_certs()
+        name = _uniq("guest-files-beta")
+        self.client_alpha.disks.create_overlay(name, base, ephemeral=True)
+        copy_task = self.client_alpha.disks.copy(
+            name, self.beta_name, with_backing_chain=True
+        )
+        # copy() returns before the destination placement is registered.
+        self.wait_for_task(self.client_alpha, copy_task)
+        vm = self.client_alpha.vms.create(
+            name,
+            cpu_count=1,
+            ram=268435456,
+            headless=True,
+            guest_agent=True,
+            node=self.beta_name,
+        )
+        source = tmp_path / "source"
+        destination = tmp_path / "destination"
+        body = bytes(range(256)) * 300
+        source.write_bytes(body)
+        try:
+            vm.attach_disk(name, interface="virtio")
+            vm.start(wait=True)
+            assert vm.upload_from_file(source, "/tmp/binary") == len(body)
+            assert vm.download_to_file("/tmp/binary", destination) == len(body)
+            assert destination.read_bytes() == body
+            encoded = base64.b64encode(body).decode("ascii")
+            self.node_alpha.run(
+                f"printf '%s' '{encoded}' | base64 -d > /tmp/guest-file-source"
+            )
+            for args in [
+                f"upload {name} /tmp/guest-file-source /tmp/cli-binary",
+                f"download {name} /tmp/cli-binary /tmp/guest-file-copy",
+            ]:
+                result = self.node_alpha.run(
+                    f"/opt/corvus/bin/crv --output json vm {args}"
+                )
+                assert json.loads(result.stdout)["bytes_transferred"] == len(body)
+            result = self.node_alpha.run(
+                "cmp /tmp/guest-file-source /tmp/guest-file-copy"
+            )
+            assert result.returncode == 0
+            destination.write_bytes(b"original")
+            with pytest.raises(GuestAgentError, match="guest-file-open"):
+                vm.download_to_file("/missing/guest-file", destination)
+            assert destination.read_bytes() == b"original"
+        finally:
+            self._delete_vm_silent(name)
+            self._delete_disk_silent(name)
+            self.node_alpha.run(
+                "rm -f /tmp/guest-file-source /tmp/guest-file-copy", check=False
+            )

@@ -438,6 +438,12 @@ interface Vm {
   # Live stream of resource-stats samples — one per agent poll
   # cycle (~10 s). Drop the returned `handle` to unsubscribe.
   subscribeStats  @33 (sink :VmStatsSink) -> (handle :Streams.Handle);
+
+  # Single binary files through QGA. Exact guest paths; no parent creation.
+  # Upload overwrites directly and may leave partial bytes on failure.
+  # Streams are daemon-proxied, with one outstanding chunk (max 32768 bytes).
+  uploadFile @41 (path :Text, source :Streams.ByteSource) -> (bytesTransferred :UInt64);
+  downloadFile @42 (path :Text, sink :Streams.ByteSink) -> (bytesTransferred :UInt64);
 }
 
 # Parameters for `Vm.migrate`. The VM is identified by the

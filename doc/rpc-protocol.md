@@ -22,7 +22,7 @@ runnable Python example.
 | `schema/template.capnp` | `TemplateManager` + `Template` cap. |
 | `schema/task.capnp` | `TaskManager` + `Task` cap; async-op history + progress sub. |
 | `schema/cloudinit.capnp` | `CloudInitManager` + custom user-data CRUD. |
-| `schema/streams.capnp` | Streaming sinks: `ByteSink`, `BuildEventSink`, `ApplyEventSink`, `DiskDownloadSink`, `GuestAgentStatusSink`, `TaskProgressSink`, plus `Handle` token. |
+| `schema/streams.capnp` | Streaming callbacks: `ByteSource`, `ByteSink`, `BuildEventSink`, `ApplyEventSink`, `DiskDownloadSink`, `GuestAgentStatusSink`, `TaskProgressSink`, plus `Handle` token. |
 
 ## Capability tree
 
@@ -47,6 +47,22 @@ Resource caps (`Vm`, `Disk`, …) are first-class objects on the wire.
 Once you hold a `Vm` cap, calling `.show()` on a deleted VM gives a
 clean `notFound` exception rather than a daemon crash or a stale
 ID confusion.
+
+## Guest file streams
+
+`Vm.uploadFile(path, source)` pulls `ByteSource.read(maxBytes)` replies
+containing `chunk` and `eof`. `Vm.downloadFile(path, sink)` pushes
+`ByteSink.write(chunk)` calls and ends the sink after closing the guest
+handle. Both methods return `bytesTransferred :UInt64`. File chunks are
+limited to 32768 bytes and there is one outstanding callback at a time.
+The daemon routes these capabilities to the VM's nodeagent, proxying the
+byte stream over existing RPC connections. Callbacks are scoped to the
+transfer and reject calls after completion or failure.
+
+Protocol version 5 changes the nodeagent's `vmGuestWriteFile` from an inline
+buffer to a `ByteSource` and adds `vmGuestReadFile`. Update all components
+together. See [guest files](guest-files.md) for completion, timeouts, and
+partial-upload behavior.
 
 ## Entity references
 

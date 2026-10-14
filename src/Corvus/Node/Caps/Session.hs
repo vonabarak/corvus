@@ -51,6 +51,7 @@ import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
+import Corvus.Rpc.FileTransfer (readSource)
 import Corvus.Rpc.Streams (callSink, runByteSinkRelay)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
@@ -60,6 +61,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
+import System.Timeout (timeout)
 
 import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, tshow, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
@@ -476,10 +478,24 @@ instance CGNA.Session'server_ SessionServer where
       handleCleanupTpmMigrationArchive sc name
 
   session'vmGuestWriteFile (SessionServer sc) =
-    handleParsedAsync $ \CGNA.Session'vmGuestWriteFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.content = bytes} -> do
-      result <- NGA.guestWriteFile (scQgaConns sc) agentQemuConfig vid path bytes
-      either (throwFailed . tshow) pure result
-      pure CGNA.Session'vmGuestWriteFile'results
+    handleParsedAsync $ \CGNA.Session'vmGuestWriteFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.source = source} -> guestFileRpc $ do
+      count <- NGA.guestWriteFile (scQgaConns sc) agentQemuConfig vid path (readSource source)
+      pure CGNA.Session'vmGuestWriteFile'results {CGNA.bytesTransferred = count}
+
+  session'vmGuestReadFile (SessionServer sc) =
+    handleParsedAsync $ \CGNA.Session'vmGuestReadFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.sink = sink} -> guestFileRpc $ do
+      let boundedCall action = do
+            result <- timeout 60000000 action
+            maybe (throwFailed "guest file sink timed out") pure result
+          abort = E.catch (void $ timeout 5000000 $ callSink #abort CGS.ByteSink'abort'params sink) (\(_ :: E.SomeException) -> pure ())
+      count <-
+        ( do
+            bytes <- NGA.guestReadFile (scQgaConns sc) agentQemuConfig vid path (\chunk -> callSink #write CGS.ByteSink'write'params {CGS.chunk = chunk} sink)
+            boundedCall (callSink #end CGS.ByteSink'end'params sink)
+            pure bytes
+          )
+          `E.onException` abort
+      pure CGNA.Session'vmGuestReadFile'results {CGNA.bytesTransferred = count}
 
   session'vmGuestPing (SessionServer sc) =
     handleParsedAsync $ \CGNA.Session'vmGuestPing'params {CGNA.vmId = vid} ->
@@ -900,3 +916,11 @@ openChardev bufMapVar sc vid sink = do
   case Map.lookup vid bufMap of
     Nothing -> throwFailed ("chardev buffer not available for vmId " <> tshow vid)
     Just handle -> runByteSinkRelay (scSup sc) handle sink
+
+-- Preserve native QGA error details across the RPC exception boundary.
+guestFileRpc :: IO a -> IO a
+guestFileRpc action =
+  action `E.catch` \(err :: E.SomeException) ->
+    case E.fromException err :: Maybe E.SomeAsyncException of
+      Just _ -> E.throwIO err
+      Nothing -> throwFailed (T.pack (E.displayException err))

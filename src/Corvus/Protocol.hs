@@ -59,6 +59,7 @@ import Corvus.Protocol.Vm
 import Data.Aeson (FromJSON (..), ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
+import Data.Word (Word64)
 import GHC.Generics (Generic)
 
 -- | A reference to an entity by name or numeric ID.
@@ -248,6 +249,7 @@ data Response
       !Text
   | -- | Guest agent not enabled on this VM
     RespGuestAgentNotEnabled
+  | RespGuestFileTransferred !Word64
   | -- | Guest agent communication error
     RespGuestAgentError !Text
   | -- | Apply config result with summary of created resources

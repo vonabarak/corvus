@@ -30,6 +30,8 @@ module Corvus.Client.Capnp.Rpc.Vm
   , rpcVmSendCtrlAltDel
   , rpcVmSerialConsoleFlush
   , rpcVmHmpMonitorFlush
+  , rpcGuestUpload
+  , rpcGuestDownload
   , rpcGuestExec
 
     -- * VM-scoped snapshots
@@ -90,6 +92,7 @@ import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.SharedDir as PSd
 import qualified Corvus.Protocol.SshKey as PSk
 import qualified Corvus.Protocol.Vm as PV
+import Corvus.Rpc.FileTransfer (withDownload, withSource)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpViewGrant, toCapnpEntityRef)
 import Corvus.Wire.Enums
@@ -110,6 +113,7 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Word (Word32, Word64)
+import System.IO (IOMode (ReadMode), withBinaryFile)
 
 -- | Call a method on a cap and return its parsed results struct.
 callOn
@@ -383,6 +387,27 @@ rpcVmHmpMonitorFlush conn ref = do
   vmClient <- getVmClient conn ref
   _ <- callOn #hmpMonitorFlush CGVm.Vm'hmpMonitorFlush'params vmClient
   pure ()
+
+rpcGuestUpload :: CapnpConnection -> EntityRef -> FilePath -> Text -> IO Word64
+rpcGuestUpload conn ref local path = do
+  vm <- getVmClient conn ref
+  withBinaryFile local ReadMode $ \handle ->
+    withSource
+      (ccSupervisor conn)
+      ( \size -> do
+          chunk <- BS.hGet handle size
+          pure (chunk, BS.length chunk < size)
+      )
+      $ \source -> do
+        CGVm.Vm'uploadFile'results count <- callOn #uploadFile CGVm.Vm'uploadFile'params {CGVm.path = path, CGVm.source = source} vm
+        pure count
+
+rpcGuestDownload :: CapnpConnection -> EntityRef -> Text -> FilePath -> IO Word64
+rpcGuestDownload conn ref path local = do
+  vm <- getVmClient conn ref
+  withDownload (ccSupervisor conn) local $ \sink -> do
+    CGVm.Vm'downloadFile'results count <- callOn #downloadFile CGVm.Vm'downloadFile'params {CGVm.path = path, CGVm.sink = sink} vm
+    pure count
 
 rpcGuestExec :: CapnpConnection -> EntityRef -> Text -> IO (Int, Text, Text)
 rpcGuestExec conn ref cmd = do

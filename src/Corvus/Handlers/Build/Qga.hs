@@ -13,8 +13,6 @@
 -- code reads the same.
 module Corvus.Handlers.Build.Qga
   ( agentGuestExec
-  , agentGuestExecWithStdin
-  , agentGuestWriteFile
   , agentGuestPing
   , agentGuestReboot
   , agentGuestExecWithTail
@@ -42,16 +40,6 @@ import Data.Word (Word32)
 agentGuestExec :: ServerState -> Int64 -> Text -> Word32 -> IO GuestExecResult
 agentGuestExec state vmId cmd =
   agentGuestExecCore state vmId cmd BS.empty
-
--- | Guest exec with a stdin payload.
-agentGuestExecWithStdin
-  :: ServerState
-  -> Int64
-  -> Text
-  -> BS.ByteString
-  -> Word32
-  -> IO GuestExecResult
-agentGuestExecWithStdin = agentGuestExecCore
 
 -- | Native QGA readiness probe; no guest shell or executable required.
 agentGuestPing :: ServerState -> Int64 -> IO Bool
@@ -133,7 +121,7 @@ agentGuestExecWithTail state vmId cmd stdinPayload timeoutSec onLine = do
                   | otherwise = stderrText
              in pure (GuestExecError msg)
 
--- | Common body for the four wrappers above.
+-- | Common body for guest command execution above.
 agentGuestExecCore
   :: ServerState
   -> Int64
@@ -179,11 +167,3 @@ agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
                       "guest-exec did not return an exit code"
                   | otherwise = stderrText
              in pure (GuestExecError msg)
-
-agentGuestWriteFile :: ServerState -> Int64 -> Text -> BS.ByteString -> IO (Either Text ())
-agentGuestWriteFile state vmId path bytes = do
-  result <- withVmNodeAgent state vmId $ \nac -> NOA.vmGuestWriteFile nac vmId path bytes
-  pure $ case result of
-    Left err -> Left err
-    Right (Left err) -> Left (T.pack (show err))
-    Right (Right ()) -> Right ()

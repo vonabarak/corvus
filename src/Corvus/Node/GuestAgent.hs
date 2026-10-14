@@ -10,6 +10,7 @@ module Corvus.Node.GuestAgent
   , GuestAgentConns
   , releaseConn
   , guestExecWithTimeout
+  , guestReadFile
   , guestWriteFile
   , guestExecWithStdin
   , guestExecStream
@@ -31,6 +32,6 @@ import Corvus.Node.GuestAgent.Connection (GuestAgentConns, releaseConn)
 import Corvus.Node.GuestAgent.Control (guestFsFreeze, guestFsThaw, guestPing, guestSetTime, guestShutdown)
 import Corvus.Node.GuestAgent.Exec (guestExecWithStdin, guestExecWithTimeout, pollRecvTimeoutMicros, pollStatus, splitLines)
 import Corvus.Node.GuestAgent.Exec.Stream (guestExecStream)
-import Corvus.Node.GuestAgent.File (guestWriteFile)
+import Corvus.Node.GuestAgent.File (guestReadFile, guestWriteFile)
 import Corvus.Node.GuestAgent.Network (guestNetworkGetInterfaces, parseGuestInterfaces)
 import Corvus.Node.GuestAgent.Types (ChunkSink, GuestExecResult (..), GuestIpAddress (..), GuestNetIf (..))

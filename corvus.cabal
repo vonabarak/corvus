@@ -167,6 +167,7 @@ library
       Corvus.Node.SocketBuffer
       Corvus.Node.SpicePort
       Corvus.Node.VsockCid
+      Corvus.Handlers.GuestFile
       Corvus.Handlers.GuestExec
       Corvus.Handlers.VmStatusSink
       Corvus.Handlers.Apply
@@ -212,6 +213,7 @@ library
       Corvus.Rpc.Server
       Corvus.Rpc.Common
       Corvus.Rpc.Error
+      Corvus.Rpc.FileTransfer
       Corvus.Rpc.Streams
       Corvus.Rpc.Daemon
       Corvus.Rpc.Vm

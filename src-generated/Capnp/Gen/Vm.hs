@@ -1585,9 +1585,11 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'removeAudioDevice) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'listAudioDevices) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'editNetIf) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'setBalloon) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'setBalloon) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'uploadFile) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'downloadFile) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1670,6 +1672,10 @@ class (Vm'server_ s_) where
     vm'editNetIf _ = GH.methodUnimplemented
     vm'setBalloon :: s_ -> (GH.MethodHandler Vm'setBalloon'params Vm'setBalloon'results)
     vm'setBalloon _ = GH.methodUnimplemented
+    vm'uploadFile :: s_ -> (GH.MethodHandler Vm'uploadFile'params Vm'uploadFile'results)
+    vm'uploadFile _ = GH.methodUnimplemented
+    vm'downloadFile :: s_ -> (GH.MethodHandler Vm'downloadFile'params Vm'downloadFile'results)
+    vm'downloadFile _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1752,6 +1758,10 @@ instance (GH.HasMethod "editNetIf" Vm Vm'editNetIf'params Vm'editNetIf'results) 
     methodByLabel  = (GH.Method 17269745093196220462 39)
 instance (GH.HasMethod "setBalloon" Vm Vm'setBalloon'params Vm'setBalloon'results) where
     methodByLabel  = (GH.Method 17269745093196220462 40)
+instance (GH.HasMethod "uploadFile" Vm Vm'uploadFile'params Vm'uploadFile'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 41)
+instance (GH.HasMethod "downloadFile" Vm Vm'downloadFile'params Vm'downloadFile'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 42)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -4087,6 +4097,136 @@ instance (C.Parse Vm'setBalloon'results (C.Parsed Vm'setBalloon'results)) where
     parse raw_ = (Std_.pure Vm'setBalloon'results)
 instance (C.Marshal Vm'setBalloon'results (C.Parsed Vm'setBalloon'results)) where
     marshalInto _raw (Vm'setBalloon'results) = (Std_.pure ())
+data Vm'uploadFile'params 
+type instance (R.ReprFor Vm'uploadFile'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'uploadFile'params) where
+    typeId  = 18073533805806098734
+instance (C.TypedStruct Vm'uploadFile'params) where
+    numStructWords  = 0
+    numStructPtrs  = 2
+instance (C.Allocate Vm'uploadFile'params) where
+    type AllocHint Vm'uploadFile'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'uploadFile'params (C.Parsed Vm'uploadFile'params))
+instance (C.AllocateList Vm'uploadFile'params) where
+    type ListAllocHint Vm'uploadFile'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'uploadFile'params (C.Parsed Vm'uploadFile'params))
+data instance C.Parsed Vm'uploadFile'params
+    = Vm'uploadFile'params 
+        {path :: (RP.Parsed Basics.Text)
+        ,source :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSource)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'uploadFile'params))
+deriving instance (Std_.Eq (C.Parsed Vm'uploadFile'params))
+instance (C.Parse Vm'uploadFile'params (C.Parsed Vm'uploadFile'params)) where
+    parse raw_ = (Vm'uploadFile'params <$> (GH.parseField #path raw_)
+                                       <*> (GH.parseField #source raw_))
+instance (C.Marshal Vm'uploadFile'params (C.Parsed Vm'uploadFile'params)) where
+    marshalInto raw_ Vm'uploadFile'params{..} = (do
+        (GH.encodeField #path path raw_)
+        (GH.encodeField #source source raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "path" GH.Slot Vm'uploadFile'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "source" GH.Slot Vm'uploadFile'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSource) where
+    fieldByLabel  = (GH.ptrField 1)
+data Vm'uploadFile'results 
+type instance (R.ReprFor Vm'uploadFile'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'uploadFile'results) where
+    typeId  = 13927787751632209751
+instance (C.TypedStruct Vm'uploadFile'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'uploadFile'results) where
+    type AllocHint Vm'uploadFile'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'uploadFile'results (C.Parsed Vm'uploadFile'results))
+instance (C.AllocateList Vm'uploadFile'results) where
+    type ListAllocHint Vm'uploadFile'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'uploadFile'results (C.Parsed Vm'uploadFile'results))
+data instance C.Parsed Vm'uploadFile'results
+    = Vm'uploadFile'results 
+        {bytesTransferred :: (RP.Parsed Std_.Word64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'uploadFile'results))
+deriving instance (Std_.Eq (C.Parsed Vm'uploadFile'results))
+instance (C.Parse Vm'uploadFile'results (C.Parsed Vm'uploadFile'results)) where
+    parse raw_ = (Vm'uploadFile'results <$> (GH.parseField #bytesTransferred raw_))
+instance (C.Marshal Vm'uploadFile'results (C.Parsed Vm'uploadFile'results)) where
+    marshalInto raw_ Vm'uploadFile'results{..} = (do
+        (GH.encodeField #bytesTransferred bytesTransferred raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "bytesTransferred" GH.Slot Vm'uploadFile'results Std_.Word64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Vm'downloadFile'params 
+type instance (R.ReprFor Vm'downloadFile'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'downloadFile'params) where
+    typeId  = 15104937273174901155
+instance (C.TypedStruct Vm'downloadFile'params) where
+    numStructWords  = 0
+    numStructPtrs  = 2
+instance (C.Allocate Vm'downloadFile'params) where
+    type AllocHint Vm'downloadFile'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'downloadFile'params (C.Parsed Vm'downloadFile'params))
+instance (C.AllocateList Vm'downloadFile'params) where
+    type ListAllocHint Vm'downloadFile'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'downloadFile'params (C.Parsed Vm'downloadFile'params))
+data instance C.Parsed Vm'downloadFile'params
+    = Vm'downloadFile'params 
+        {path :: (RP.Parsed Basics.Text)
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'downloadFile'params))
+deriving instance (Std_.Eq (C.Parsed Vm'downloadFile'params))
+instance (C.Parse Vm'downloadFile'params (C.Parsed Vm'downloadFile'params)) where
+    parse raw_ = (Vm'downloadFile'params <$> (GH.parseField #path raw_)
+                                         <*> (GH.parseField #sink raw_))
+instance (C.Marshal Vm'downloadFile'params (C.Parsed Vm'downloadFile'params)) where
+    marshalInto raw_ Vm'downloadFile'params{..} = (do
+        (GH.encodeField #path path raw_)
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "path" GH.Slot Vm'downloadFile'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "sink" GH.Slot Vm'downloadFile'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 1)
+data Vm'downloadFile'results 
+type instance (R.ReprFor Vm'downloadFile'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'downloadFile'results) where
+    typeId  = 14680071379238256733
+instance (C.TypedStruct Vm'downloadFile'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'downloadFile'results) where
+    type AllocHint Vm'downloadFile'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'downloadFile'results (C.Parsed Vm'downloadFile'results))
+instance (C.AllocateList Vm'downloadFile'results) where
+    type ListAllocHint Vm'downloadFile'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'downloadFile'results (C.Parsed Vm'downloadFile'results))
+data instance C.Parsed Vm'downloadFile'results
+    = Vm'downloadFile'results 
+        {bytesTransferred :: (RP.Parsed Std_.Word64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'downloadFile'results))
+deriving instance (Std_.Eq (C.Parsed Vm'downloadFile'results))
+instance (C.Parse Vm'downloadFile'results (C.Parsed Vm'downloadFile'results)) where
+    parse raw_ = (Vm'downloadFile'results <$> (GH.parseField #bytesTransferred raw_))
+instance (C.Marshal Vm'downloadFile'results (C.Parsed Vm'downloadFile'results)) where
+    marshalInto raw_ Vm'downloadFile'results{..} = (do
+        (GH.encodeField #bytesTransferred bytesTransferred raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "bytesTransferred" GH.Slot Vm'downloadFile'results Std_.Word64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where
