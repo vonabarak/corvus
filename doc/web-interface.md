@@ -103,6 +103,7 @@ Known limitations vs. `crv vm view`:
 - No 3D acceleration.
 - Locale-specific keyboard keys may misbehave (non-US layouts).
 - No clipboard or file transfer (could be enabled later — spice-html5 has partial support behind feature flags).
+- No SPICE folder sharing. Use a native viewer opened through `crv vm view` or the desktop application; see [SPICE folder sharing](shared-directories.md#spice-folder-sharing).
 
 For serious work on a graphical guest, use `crv vm view`. The in-browser console is for quick fixes, install screens, and BIOS-level interaction.
 

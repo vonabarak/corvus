@@ -15,8 +15,8 @@
 # bake VM, and registers the `windows-11-pro` overlay template.
 #
 # The image contains the VirtIO drivers, QEMU Guest Agent, SPICE guest tools,
-# WinFSP, and the VirtIO-FS guest service. Cloudbase-Init/cloud-init is not
-# installed or enabled.
+# the SPICE WebDAV daemon, WinFSP, and the VirtIO-FS guest service.
+# Cloudbase-Init/cloud-init is not installed or enabled.
 #
 # Installation runs without TPM. Every runtime VM gets its own TPM state on
 # first start. Automatic device encryption is disabled; BitLocker is opt-in
@@ -27,7 +27,8 @@
 #     multi-edition installation ISO.
 #   * The node must have internet access to download missing VirtIO-Win media.
 #   * The `corvus` managed network must exist and provide outbound internet;
-#     audit-mode provisioning downloads a pinned, checksummed WinFSP MSI.
+#     audit-mode provisioning downloads pinned, checksummed WinFSP and
+#     SPICE WebDAV MSIs.
 #   * The host must provide the OVMF files registered below.
 #
 # Expect roughly 45-70 minutes on KVM. The bake is graphical so failures can be

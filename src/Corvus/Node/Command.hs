@@ -254,6 +254,11 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
           GraphicsVirtioGpuGlPci -> "virtio-gpu-gl-pci"
       , "-device"
       , "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
+      , -- webdav folder sharing support
+        "-chardev"
+      , "spiceport,id=webdav,name=org.spice-space.webdav.0"
+      , "-device"
+      , "virtserialport,bus=virtio-serial0.0,chardev=webdav,id=spice-webdav,name=org.spice-space.webdav.0"
       ]
         ++ if VS.vsGraphicsAdapter spec `elem` [GraphicsVirtioVgaGl, GraphicsVirtioGpuGlPci]
           then ["-display", "egl-headless"]

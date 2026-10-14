@@ -62,6 +62,24 @@ try {
     Set-Service -Name spice-agent -StartupType Automatic
     Start-Service -Name spice-agent
 
+    # SPICE guest tools do not include the WebDAV daemon used for viewer-local
+    # folder sharing. Pin and verify its separate installer before sealing.
+    $spiceWebDavMsi = 'C:\Windows\Temp\spice-webdavd-x64-2.4.msi'
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://www.spice-space.org/download/windows/spice-webdavd/spice-webdavd-x64-2.4.msi' -OutFile $spiceWebDavMsi
+    $spiceWebDavHash = (Get-FileHash -Algorithm SHA256 -Path $spiceWebDavMsi).Hash
+    if ($spiceWebDavHash -ne 'F278C17FCA6B129EB5C9A46B8634AF2ECFAF3BCA8903EB9A5C7874F0E45F82B9') {
+        throw "SPICE WebDAV checksum mismatch: $spiceWebDavHash"
+    }
+    $spiceWebDavInstall = Start-Process msiexec.exe -ArgumentList '/i', $spiceWebDavMsi, '/qn', '/norestart', '/l*v', 'C:\Windows\Temp\spice-webdavd-install.log' -Wait -PassThru
+    if ($spiceWebDavInstall.ExitCode -notin @(0, 3010)) {
+        throw "SPICE WebDAV installer exited with code $($spiceWebDavInstall.ExitCode)"
+    }
+
+    Set-Service -Name WebClient -StartupType Automatic
+    Start-Service -Name WebClient
+    Set-Service -Name spice-webdavd -StartupType Automatic
+    Start-Service -Name spice-webdavd
+
     $virtioFsService = Get-Service -Name VirtioFsSvc -ErrorAction SilentlyContinue
     if ($null -eq $virtioFsService) {
         $vioFsDriver = Start-Process pnputil.exe -ArgumentList '/add-driver', 'E:\viofs\w11\amd64\viofs.inf', '/install' -Wait -PassThru
@@ -84,6 +102,12 @@ try {
     if ((Get-Service -Name spice-agent).Status -ne 'Running') {
         throw 'SPICE guest agent did not reach the Running state'
     }
+    if ((Get-Service -Name spice-webdavd).Status -ne 'Running') {
+        throw 'SPICE WebDAV daemon did not reach the Running state'
+    }
+    if ((Get-Service -Name WebClient).Status -ne 'Running') {
+        throw 'Windows WebClient did not reach the Running state'
+    }
     if ($null -eq (Get-Service -Name VirtioFsSvc -ErrorAction SilentlyContinue)) {
         throw 'VirtIO-FS service was not installed'
     }
@@ -104,6 +128,7 @@ try {
     $runtimeAnswer = 'C:\Windows\Temp\corvus-runtime-unattend.xml'
     Copy-Item -Path 'F:\runtime-unattend.xml' -Destination $runtimeAnswer -Force
     Remove-Item -Path $winFspMsi -Force
+    Remove-Item -Path $spiceWebDavMsi -Force
 
     Write-Output 'Guest integration verified and system volume decrypted; generalizing the image'
     Stop-Transcript

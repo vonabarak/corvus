@@ -28,6 +28,7 @@ import shlex
 import time
 from collections.abc import Callable
 
+import pytest
 from corvus_client import Client
 from corvus_test_harness import SingleNodeCase, TestNode, Vm
 
@@ -89,12 +90,21 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
     survives. The other refusal/discard cases hang off this same
     fixture pattern to share the bake cost."""
 
-    def test_save_then_start_preserves_ram(self) -> None:
+    @pytest.mark.parametrize("headless", [True, False])
+    def test_save_then_start_preserves_ram(self, headless: bool) -> None:
         """The whole point of save: a value written to RAM survives
         a save → start cycle. Drop a sentinel into `/tmp/sentinel`
         via QGA (no fsync — RAM is the only thing we care about),
         save, restart, read the sentinel back."""
-        with Vm(self) as vm:
+        vm_context = Vm(self)
+        vm_context.headless = headless
+        with vm_context as vm:
+            boot = vm.cap.guest_exec("/bin/cat /proc/sys/kernel/random/boot_id")
+            assert boot.exit_code == 0, boot
+            port = vm.cap.guest_exec(
+                "/bin/sh -c 'test -c /dev/virtio-ports/org.spice-space.webdav.0'"
+            )
+            assert port.exit_code == (1 if headless else 0), port
             sentinel = f"corvus-save-{int(time.monotonic_ns())}"
             r = vm.cap.guest_exec(
                 f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
@@ -149,6 +159,15 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
                 f"sentinel {sentinel!r} did not survive save→start round trip; "
                 f"guest stdout={r.stdout!r}"
             )
+            resumed_boot = vm.cap.guest_exec("/bin/cat /proc/sys/kernel/random/boot_id")
+            assert resumed_boot.exit_code == 0, resumed_boot
+            assert resumed_boot.stdout == boot.stdout, (
+                "guest cold-booted instead of resuming"
+            )
+            port = vm.cap.guest_exec(
+                "/bin/sh -c 'test -c /dev/virtio-ports/org.spice-space.webdav.0'"
+            )
+            assert port.exit_code == (1 if headless else 0), port
 
     def test_stop_refuses_saved_vm(self) -> None:
         """`vm stop` on a saved VM must refuse — operators land at

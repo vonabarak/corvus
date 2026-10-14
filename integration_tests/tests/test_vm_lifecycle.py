@@ -621,6 +621,8 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
 
         with _GfxOn(self) as vm:
             assert vm.cap.show().graphics_adapter == "virtio-vga"
+            r = vm.run("test -c /dev/virtio-ports/org.spice-space.webdav.0")
+            assert r.exit_code == 0, "SPICE WebDAV port missing in graphical guest"
             r = vm.run("lspci -n")
             assert r.exit_code == 0
             assert "0300: 1af4:1050" in r.stdout, (
@@ -658,6 +660,8 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
 
             with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
+                r = shell.run("test -c /dev/virtio-ports/org.spice-space.webdav.0")
+                assert r.exit_code == 0, "SPICE WebDAV port missing after graphics swap"
                 r = shell.run("lspci -n")
                 assert r.exit_code == 0
                 assert "0300: 1b36:0100" in r.stdout, (
@@ -674,6 +678,8 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
 
             with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
+                r = shell.run("test ! -e /dev/virtio-ports/org.spice-space.webdav.0")
+                assert r.exit_code == 0, "SPICE WebDAV port present in headless guest"
                 r = shell.run("lshw -class display")
                 assert r.exit_code == 0
                 assert r.stdout.strip() == "", (

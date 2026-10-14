@@ -1,6 +1,8 @@
 # Shared Directories
 
-Corvus uses [virtiofs](https://virtio-fs.gitlab.io/) to share host directories with guest VMs. The daemon manages `virtiofsd` processes automatically — one per shared directory per VM.
+Corvus supports [virtiofs](https://virtio-fs.gitlab.io/) for directories on the VM's host and [SPICE folder sharing](#spice-folder-sharing) for a directory on the viewer's machine. SPICE sharing works with the native viewer opened by the CLI or desktop application, including when the VM runs on another host.
+
+The following virtiofs configuration uses `crv shared-dir` and `sharedDirs` in YAML. The nodeagent manages `virtiofsd` processes automatically — one per shared directory per VM.
 
 ## Requirements
 
@@ -102,3 +104,34 @@ vms:
         cache: never
         readOnly: true
 ```
+
+## SPICE Folder Sharing
+
+Every graphical VM exposes the `org.spice-space.webdav.0` channel. Sharing is controlled by the connected native SPICE viewer; Corvus stores no viewer-local paths. This feature requires `remote-viewer` with folder-sharing support on the client and `spice-webdavd` inside the guest. QEMU Guest Agent is independent of folder sharing. Guests without `spice-webdavd` can still start and use the graphical console normally.
+
+### Selecting a Folder
+
+1. Open the VM with `crv vm view <vm>` or the desktop application's **View** button.
+2. In remote-viewer, open **File → Preferences**, select the folder on your client machine, and enable folder sharing. Use the viewer's read-only setting if the guest should not modify that folder.
+3. Access the share from inside the guest as described below.
+
+The share is available while that viewer is connected and sharing is enabled. Disable sharing in the viewer or disconnect to withdraw access; select and enable sharing again as needed after reconnecting. The browser console does not provide folder sharing. SPICE sharing does not create a `crv shared-dir` entry or use a virtiofs mount tag.
+
+### Linux Guest Setup
+
+Install your distribution's `spice-webdavd` package and start its service. For Debian/Ubuntu guests:
+
+```sh
+sudo apt install spice-webdavd
+sudo systemctl start spice-webdavd.service
+```
+
+The guest also needs its VirtIO serial driver. On Linux, check that `/dev/virtio-ports/org.spice-space.webdav.0` exists. The shared folder appears in GNOME Files network locations; it can be browsed through GVfs and accessed by traditional applications with `gvfs-fuse`. Alternatively, connect a WebDAV client inside the guest to `http://localhost:9843/` (the standard `spice-webdavd` service port). Other distributions may use different service names or ports.
+
+### Windows Guest Setup
+
+Install the VirtIO serial driver (`vioser`) from the VirtIO-Win package and the separate **Spice WebDAV daemon** installer linked from the [SPICE downloads page](https://www.spice-space.org/download.html). This daemon is not included in Windows SPICE Guest Tools. Start its installed service and enable automatic startup.
+
+Use the installer's `map-drive.bat` helper to map the shared folder to a drive, or use File Explorer's **Map network drive** with `http://localhost:9843/`. The Windows WebClient service must be running for Explorer's WebDAV access. This workflow does not require WinFsp or the VirtIO-FS service used for virtiofs above.
+
+See the upstream [SPICE folder-sharing guide](https://spice.pages.freedesktop.org/spice-space/spice-user-manual.html#_folder_sharing) for additional guest and client setup details.

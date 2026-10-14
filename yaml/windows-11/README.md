@@ -55,8 +55,8 @@ pinned VirtIO-Win 0.1.302 guest-tools ISO
 from Fedora, verifies its SHA-256 checksum, and registers it as `virtio-win-iso`
 under `ISOs/VirtIO/` if that disk
 is not already registered. A matching verified `virtio-win-iso` is reused under `update`. The node needs internet access for this download.
-The managed `corvus` network must provide internet access for the pinned WinFSP
-download. The host must have the OVMF firmware paths used in
+The managed `corvus` network must provide internet access for the pinned,
+checksummed WinFSP and SPICE WebDAV downloads. The host must have the OVMF firmware paths used in
 [windows-11.yml](windows-11.yml).
 From the repository root, run:
 
@@ -65,7 +65,10 @@ make image IMAGE=windows-11
 ```
 
 The installer uses no TPM and provisions Windows in audit mode. It installs
-VirtIO drivers, QEMU Guest Agent, SPICE guest tools, WinFSP, and VirtIO-FS,
+VirtIO drivers, QEMU Guest Agent, SPICE guest tools, the SPICE WebDAV daemon,
+WinFSP, and VirtIO-FS. SPICE WebDAV and Windows WebClient are configured to
+start automatically for native viewer folder sharing (see
+[SPICE folder sharing](../../doc/shared-directories.md#spice-folder-sharing)). It
 checks the QXL, balloon, and HDA drivers, and refuses to seal an encrypted
 system volume. Sysprep generalizes Windows and shuts it down for capture as
 `windows-11-pro-base` under `BaseImages/Windows11/`. Successful bake VMs are

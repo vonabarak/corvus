@@ -357,6 +357,8 @@ The daemon picks a TCP port in the range `5900-5999` (configurable via `qcSpiceP
 
 Requires `remote-viewer` (from `virt-viewer` package) installed on the client host.
 
+Graphical VMs also support sharing a folder from the viewer's machine through SPICE WebDAV. Open **File → Preferences** in remote-viewer to select and enable the folder; this works with `crv vm view` and the desktop application's **View** button. The guest needs `spice-webdavd`. See [SPICE folder sharing](shared-directories.md#spice-folder-sharing) for Linux and Windows setup and upgrade requirements. The browser console does not support this feature.
+
 For machine-readable output, `crv --output json vm view my-vm` emits the grant as JSON (`host`, `port`, `password`, `ttl_seconds`) and exits without launching a viewer.
 
 ### Serial Console (headless VMs)

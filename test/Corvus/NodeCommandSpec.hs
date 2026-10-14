@@ -101,6 +101,25 @@ spec = describe "buildQemuCommandFromSpec" $ do
     args `shouldContain` ["-device", "virtio-vga-gl"]
     args `shouldContain` ["-display", "egl-headless"]
 
+  it "provides one SPICE WebDAV port alongside QGA and vdagent for every graphical adapter" $ do
+    let webdavBackend = "spiceport,id=webdav,name=org.spice-space.webdav.0"
+        webdavPort = "virtserialport,bus=virtio-serial0.0,chardev=webdav,id=spice-webdav,name=org.spice-space.webdav.0"
+    mapM_
+      ( \(adapter, guestAgent) -> do
+          let args = qemuArgs baseSpec {vsHeadless = False, vsSpicePort = Just 5901, vsGraphicsAdapter = adapter, vsGuestAgent = guestAgent}
+          length (filter (== webdavBackend) args) `shouldBe` 1
+          length (filter (== webdavPort) args) `shouldBe` 1
+          args `shouldContain` ["-device", "virtio-serial,id=virtio-serial0"]
+          args `shouldContain` ["-device", "virtserialport,chardev=qga0,name=org.qemu.guest_agent.0"]
+          args `shouldContain` ["-device", "virtserialport,chardev=vdagent,name=com.redhat.spice.0", "-chardev", webdavBackend, "-device", webdavPort]
+      )
+      [(adapter, guestAgent) | adapter <- [GraphicsVirtioVga, GraphicsQxlVga, GraphicsVga, GraphicsVirtioGpuPci, GraphicsVirtioVgaGl, GraphicsVirtioGpuGlPci], guestAgent <- [False, True]]
+
+  it "omits the SPICE WebDAV backend and port for headless VMs" $ do
+    let args = qemuArgs baseSpec
+    args `shouldNotContain` ["spiceport,id=webdav,name=org.spice-space.webdav.0"]
+    args `shouldNotContain` ["virtserialport,bus=virtio-serial0.0,chardev=webdav,id=spice-webdav,name=org.spice-space.webdav.0"]
+
   it "ignores the selected graphics device for a headless VM" $ do
     let args = qemuArgs baseSpec {vsGraphicsAdapter = GraphicsQxlVga}
     args `shouldNotContain` ["-device", "qxl-vga"]
