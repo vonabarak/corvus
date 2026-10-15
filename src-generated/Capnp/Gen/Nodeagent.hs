@@ -389,9 +389,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'vmGuestWriteFile) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'removeDirectoryIfEmpty) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'removeVmDirectoryIfEmpty) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmGuestReadFile) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmGuestReadFile) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmGuestSshAddAuthorizedKeys) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon,session'vmGuestPing,session'vmGuestReboot,session'vmGuestWriteFile,session'removeDirectoryIfEmpty,session'removeVmDirectoryIfEmpty,session'vmGuestReadFile #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon,session'vmGuestPing,session'vmGuestReboot,session'vmGuestWriteFile,session'removeDirectoryIfEmpty,session'removeVmDirectoryIfEmpty,session'vmGuestReadFile,session'vmGuestSshAddAuthorizedKeys #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -506,6 +507,8 @@ class (Session'server_ s_) where
     session'removeVmDirectoryIfEmpty _ = GH.methodUnimplemented
     session'vmGuestReadFile :: s_ -> (GH.MethodHandler Session'vmGuestReadFile'params Session'vmGuestReadFile'results)
     session'vmGuestReadFile _ = GH.methodUnimplemented
+    session'vmGuestSshAddAuthorizedKeys :: s_ -> (GH.MethodHandler Session'vmGuestSshAddAuthorizedKeys'params Session'vmGuestSshAddAuthorizedKeys'results)
+    session'vmGuestSshAddAuthorizedKeys _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -620,6 +623,8 @@ instance (GH.HasMethod "removeVmDirectoryIfEmpty" Session Session'removeVmDirect
     methodByLabel  = (GH.Method 11450192344861352079 55)
 instance (GH.HasMethod "vmGuestReadFile" Session Session'vmGuestReadFile'params Session'vmGuestReadFile'results) where
     methodByLabel  = (GH.Method 11450192344861352079 56)
+instance (GH.HasMethod "vmGuestSshAddAuthorizedKeys" Session Session'vmGuestSshAddAuthorizedKeys'params Session'vmGuestSshAddAuthorizedKeys'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 57)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -4270,6 +4275,76 @@ instance (C.Marshal Session'vmGuestReadFile'results (C.Parsed Session'vmGuestRea
         )
 instance (GH.HasField "bytesTransferred" GH.Slot Session'vmGuestReadFile'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'vmGuestSshAddAuthorizedKeys'params
+type instance (R.ReprFor Session'vmGuestSshAddAuthorizedKeys'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmGuestSshAddAuthorizedKeys'params) where
+    typeId  = 9647495978101455858
+instance (C.TypedStruct Session'vmGuestSshAddAuthorizedKeys'params) where
+    numStructWords  = 2
+    numStructPtrs  = 2
+instance (C.Allocate Session'vmGuestSshAddAuthorizedKeys'params) where
+    type AllocHint Session'vmGuestSshAddAuthorizedKeys'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmGuestSshAddAuthorizedKeys'params (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params))
+instance (C.AllocateList Session'vmGuestSshAddAuthorizedKeys'params) where
+    type ListAllocHint Session'vmGuestSshAddAuthorizedKeys'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmGuestSshAddAuthorizedKeys'params (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params))
+data instance C.Parsed Session'vmGuestSshAddAuthorizedKeys'params
+    = Session'vmGuestSshAddAuthorizedKeys'params
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,username :: (RP.Parsed Basics.Text)
+        ,keys :: (RP.Parsed (R.List Basics.Text))
+        ,reset :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params))
+instance (C.Parse Session'vmGuestSshAddAuthorizedKeys'params (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params)) where
+    parse raw_ = (Session'vmGuestSshAddAuthorizedKeys'params <$> (GH.parseField #vmId raw_)
+                                                             <*> (GH.parseField #username raw_)
+                                                             <*> (GH.parseField #keys raw_)
+                                                             <*> (GH.parseField #reset raw_))
+instance (C.Marshal Session'vmGuestSshAddAuthorizedKeys'params (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params)) where
+    marshalInto raw_ Session'vmGuestSshAddAuthorizedKeys'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #username username raw_)
+        (GH.encodeField #keys keys raw_)
+        (GH.encodeField #reset reset raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmGuestSshAddAuthorizedKeys'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "username" GH.Slot Session'vmGuestSshAddAuthorizedKeys'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "keys" GH.Slot Session'vmGuestSshAddAuthorizedKeys'params (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "reset" GH.Slot Session'vmGuestSshAddAuthorizedKeys'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 1 1 0)
+data Session'vmGuestSshAddAuthorizedKeys'results
+type instance (R.ReprFor Session'vmGuestSshAddAuthorizedKeys'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmGuestSshAddAuthorizedKeys'results) where
+    typeId  = 11688743231627430520
+instance (C.TypedStruct Session'vmGuestSshAddAuthorizedKeys'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmGuestSshAddAuthorizedKeys'results) where
+    type AllocHint Session'vmGuestSshAddAuthorizedKeys'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results))
+instance (C.AllocateList Session'vmGuestSshAddAuthorizedKeys'results) where
+    type ListAllocHint Session'vmGuestSshAddAuthorizedKeys'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results))
+data instance C.Parsed Session'vmGuestSshAddAuthorizedKeys'results
+    = Session'vmGuestSshAddAuthorizedKeys'results
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results))
+instance (C.Parse Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results)) where
+    parse raw_ = (Std_.pure Session'vmGuestSshAddAuthorizedKeys'results)
+instance (C.Marshal Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results)) where
+    marshalInto _raw (Session'vmGuestSshAddAuthorizedKeys'results) = (Std_.pure ())
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where

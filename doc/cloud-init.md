@@ -13,7 +13,7 @@ Cloud-init is controlled by the `cloudInit` flag on a VM:
 | Apply YAML | `cloudInit: true` on a VM entry |
 | Template | `cloudInit: true` (inherited on instantiation) |
 
-When a VM has SSH keys attached, cloud-init is required — attaching an SSH key to a VM with `cloudInit: false` is rejected.
+SSH keys can be assigned independently of cloud-init. With `cloudInit: true`, they are included in the ISO according to `injectSshKeys`. For running guests, [explicit QGA injection](ssh-keys.md#injecting-into-a-running-guest) also works with `cloudInit: false`.
 
 In apply YAML, cloud-init auto-detection is available: omit the `cloudInit` field and it is automatically enabled when the VM has `sshKeys` defined.
 

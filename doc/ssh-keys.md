@@ -11,6 +11,7 @@ crv ssh-key delete <key>                   # Delete an SSH key
 crv ssh-key attach <vm> <key>              # Attach key to a VM
 crv ssh-key detach <vm> <key>              # Detach key from a VM
 crv ssh-key list-vm <vm>                   # List keys attached to a VM
+crv ssh-key inject <vm> <username> [--reset] # Inject assigned keys through QGA
 ```
 
 `<key>` and `<vm>` accept names or numeric IDs.
@@ -31,12 +32,12 @@ crv ssh-key attach my-vm admin
 crv ssh-key attach my-vm deploy
 ```
 
-**Requirements**: the VM must have `cloudInit: true`. Attaching a key to a VM without cloud-init is rejected.
+Keys can be assigned to any VM, including VMs without cloud-init.
 
 When a key is attached:
 1. The key is recorded in the database.
-2. The cloud-init ISO is regenerated to include the new key.
-3. On the next VM boot, cloud-init injects the key into the guest.
+2. If cloud-init is enabled, its ISO is regenerated to include the new key.
+3. Cloud-init provisions the keys when it runs in the guest. Assignment alone does not inject keys through QGA.
 
 Multiple keys can be attached to the same VM. The same key can be attached to multiple VMs.
 
@@ -46,7 +47,38 @@ Multiple keys can be attached to the same VM. The same key can be attached to mu
 crv ssh-key detach my-vm admin
 ```
 
-The cloud-init ISO is regenerated without the detached key. The key itself remains in the database — only the VM association is removed.
+If cloud-init is enabled, its ISO is regenerated without the detached key. Detaching does not revoke keys already installed in the guest. The key itself remains in the database — only the VM association is removed.
+
+## Injecting into a Running Guest
+
+```bash
+crv ssh-key inject my-vm root
+crv ssh-key inject my-vm root --reset
+```
+
+Injection uses QGA's `guest-ssh-add-authorized-keys` command to install all keys
+currently assigned to the VM. The username is required and must already exist.
+The VM must be running with the guest agent enabled, and its QGA must support
+this command (available since QEMU 5.2 on supported Unix guests). Cloud-init is
+optional; its `injectSshKeys` setting does not affect this operation.
+
+By default, existing authorized keys are preserved and assigned keys are appended.
+QGA avoids adding identical key strings twice. `--reset` replaces all authorized
+keys for the account, including keys added outside Corvus. A VM with no assigned
+keys is rejected in both modes. Corvus does not create guest users or fall back to
+shell commands. Attach, detach, start, and template instantiation do not implicitly
+perform QGA injection. Each explicit injection records a VM task named
+`inject-ssh-keys`; guest-agent errors are reported to the caller.
+
+Python clients expose the same operation in both sync and async APIs:
+
+```python
+client.ssh_keys.inject("my-vm", "root")
+client.ssh_keys.inject("my-vm", "root", reset=True)
+await async_client.ssh_keys.inject("my-vm", "root")
+```
+
+VM references accept IDs or names; use `by_name=True` for a numeric VM name.
 
 ## Deleting Keys
 
@@ -80,7 +112,7 @@ vms:
   - name: web-server
     cpuCount: 2
     ram: 2G
-    cloudInit: true   # Required for SSH keys
+    cloudInit: true   # Optional; false allows explicit QGA injection
     sshKeys:
       - admin
 ```

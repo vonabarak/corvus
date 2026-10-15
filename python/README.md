@@ -241,3 +241,19 @@ count. The VM must be running with QGA enabled. Transfers stream through
 the daemon in 32 KiB chunks. Downloads replace the local destination only
 after successful completion; failed uploads can leave a partial guest file.
 See [guest file transfers](../doc/guest-files.md) for the full contract.
+
+### Inject assigned SSH keys through QGA
+
+`client.ssh_keys.inject(vm_ref, username, *, reset=False, by_name=False)` installs
+all keys assigned to a running VM into an existing guest account. The async
+client exposes the same signature with `await`. The guest agent must be enabled
+and support `guest-ssh-add-authorized-keys`. Cloud-init is optional.
+
+```python
+client.ssh_keys.inject("web", "root")
+client.ssh_keys.inject("web", "root", reset=True)
+```
+
+The default preserves existing authorized keys. `reset=True` replaces all keys
+for that account. No assigned keys is an error in either mode. Assignment and
+removal do not automatically inject or revoke keys in the guest.

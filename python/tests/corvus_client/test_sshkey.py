@@ -27,3 +27,29 @@ def test_ssh_key_create_show_delete(daemon_socket: Path) -> None:
             await c.ssh_keys.get("py-key-1")
 
     run(go)
+
+
+def test_inject_stopped_vm_and_invalid_username(daemon_socket: Path) -> None:
+    from corvus_client import ServerError, VmNotFound, VmNotRunning
+
+    async def go(c: AsyncClient) -> None:
+        vm = await c.vms.create("py-inject-stopped", cpu_count=1, ram=67108864)
+        info = await vm.show()
+        key = await c.ssh_keys.create("py-inject-key", SAMPLE_PUBKEY)
+        await vm.attach_ssh_key("py-inject-key")
+        assert [item.name for item in await vm.list_ssh_keys()] == ["py-inject-key"]
+        refs: list[int | str] = [info.id, str(info.id), info.name]
+        for ref in refs:
+            with pytest.raises(VmNotRunning):
+                await c.ssh_keys.inject(ref, "root")
+        with pytest.raises(VmNotRunning):
+            await c.ssh_keys.inject(info.name, "root", reset=True, by_name=True)
+        with pytest.raises(ServerError, match="Guest username"):
+            await c.ssh_keys.inject(info.id, "")
+        with pytest.raises(VmNotFound):
+            await c.ssh_keys.inject("missing-injection-vm", "root")
+        await vm.detach_ssh_key("py-inject-key")
+        await key.delete()
+        await vm.delete()
+
+    with_client(daemon_socket)(go)

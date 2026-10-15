@@ -57,6 +57,7 @@ module Corvus.Client.Capnp.Rpc.Vm
 
     -- * SSH key attach / detach / list-for-vm
   , rpcSshKeyAttach
+  , rpcSshKeyInject
   , rpcSshKeyDetach
   , rpcSshKeyListForVm
 
@@ -608,6 +609,12 @@ rpcSshKeyAttach conn vmRef keyRef = do
       #attachSshKey
       CGVm.Vm'attachSshKey'params {CGVm.keyRef = toCapnpEntityRef keyRef}
       vmClient
+  pure ()
+
+rpcSshKeyInject :: CapnpConnection -> EntityRef -> Text -> Bool -> IO ()
+rpcSshKeyInject conn vmRef username reset = do
+  vmClient <- getVmClient conn vmRef
+  _ <- callOn #injectSshKeys CGVm.Vm'injectSshKeys'params {CGVm.username = username, CGVm.reset = reset} vmClient
   pure ()
 
 rpcSshKeyDetach :: CapnpConnection -> EntityRef -> EntityRef -> IO ()

@@ -106,7 +106,7 @@ vmCreateCommand =
       )
     <*> switch
       ( long "cloud-init"
-          <> help "Enable cloud-init for this VM (required for SSH key injection)"
+          <> help "Enable cloud-init provisioning for this VM"
       )
     <*> switch
       ( long "autostart"

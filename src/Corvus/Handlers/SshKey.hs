@@ -9,6 +9,7 @@ module Corvus.Handlers.SshKey
   , SshKeyDelete (..)
   , SshKeyAttach (..)
   , SshKeyDetach (..)
+  , SshKeyInject (..)
 
     -- * SSH key handlers
   , handleSshKeyCreate
@@ -30,6 +31,8 @@ import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
+import qualified Corvus.NodeAgentClient as NOA
+import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Types
 import Data.Int (Int64)
@@ -151,40 +154,36 @@ handleSshKeyAttach state clientName vmId keyId = runServerLogging state $ do
   case mVm of
     Nothing -> pure RespVmNotFound
     Just vm -> do
-      -- Check cloud-init is enabled
-      if not (vmCloudInit vm)
-        then do
-          logWarnN "Cannot attach SSH key: cloud-init is not enabled on this VM"
-          pure $ RespError "Cannot attach SSH key: cloud-init is not enabled on this VM"
-        else do
-          -- Check key exists
-          mKey <- liftIO $ runSqlPool (get sshKeyKey) pool
-          case mKey of
-            Nothing -> pure RespSshKeyNotFound
+      -- Check key exists
+      mKey <- liftIO $ runSqlPool (get sshKeyKey) pool
+      case mKey of
+        Nothing -> pure RespSshKeyNotFound
+        Just _ -> do
+          -- Check if already attached
+          existing <-
+            liftIO $
+              runSqlPool
+                (getBy (UniqueVmSshKey vmKey sshKeyKey))
+                pool
+          case existing of
             Just _ -> do
-              -- Check if already attached
-              existing <-
-                liftIO $
-                  runSqlPool
-                    (getBy (UniqueVmSshKey vmKey sshKeyKey))
-                    pool
-              case existing of
-                Just _ -> do
-                  logWarnN "SSH key is already attached to this VM"
-                  pure $ RespError "SSH key is already attached to this VM"
-                Nothing -> do
-                  -- Create attachment
-                  liftIO $
-                    runSqlPool
-                      ( insert_
-                          VmSshKey
-                            { vmSshKeyVmId = vmKey
-                            , vmSshKeySshKeyId = sshKeyKey
-                            }
-                      )
-                      pool
-                  logInfoN "SSH key attached"
+              logWarnN "SSH key is already attached to this VM"
+              pure $ RespError "SSH key is already attached to this VM"
+            Nothing -> do
+              -- Create attachment
+              liftIO $
+                runSqlPool
+                  ( insert_
+                      VmSshKey
+                        { vmSshKeyVmId = vmKey
+                        , vmSshKeySshKeyId = sshKeyKey
+                        }
+                  )
+                  pool
+              logInfoN "SSH key attached"
 
+              if vmCloudInit vm
+                then do
                   -- Regenerate cloud-init ISO
                   result <- liftIO $ classifyRegenResponse <$> runAction state clientName (RegenerateCloudInit vmId (vmName vm))
                   case result of
@@ -194,6 +193,7 @@ handleSshKeyAttach state clientName vmId keyId = runServerLogging state $ do
                     Right _ -> do
                       logInfoN "Cloud-init ISO regenerated"
                       pure RespSshKeyOk
+                else pure RespSshKeyOk
 
 -- | Detach an SSH key from a VM
 -- This also regenerates/removes the cloud-init ISO
@@ -329,3 +329,42 @@ instance Action SshKeyDetach where
 classifyRegenResponse :: Response -> Either Text ()
 classifyRegenResponse (RespError err) = Left err
 classifyRegenResponse _ = Right ()
+
+-- | Install the current assigned-key snapshot into an existing guest account.
+data SshKeyInject = SshKeyInject
+  { skiVmId :: Int64
+  , skiUsername :: Text
+  , skiReset :: Bool
+  }
+
+instance Action SshKeyInject where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "inject-ssh-keys"
+  actionEntityId = Just . fromIntegral . skiVmId
+  actionExecute ctx a
+    | T.null (skiUsername a) || T.any (== '\0') (skiUsername a) = pure (RespError "Guest username must be nonempty and contain no NUL")
+    | otherwise = do
+        let state = acState ctx
+            vmKey = toSqlKey (skiVmId a) :: VmId
+        (mVm, keys) <-
+          runSqlPool
+            ( do
+                vm <- get vmKey
+                attachments <- selectList [VmSshKeyVmId ==. vmKey] [Asc VmSshKeySshKeyId]
+                keys <- forM attachments $ \(Entity _ attachment) -> get (vmSshKeySshKeyId attachment)
+                pure (vm, map sshKeyPublicKey (catMaybes keys))
+            )
+            (ssDbPool state)
+        case mVm of
+          Nothing -> pure RespVmNotFound
+          Just vm
+            | vmStatus vm /= VmRunning -> pure RespVmNotRunning
+            | not (vmGuestAgent vm) -> pure RespGuestAgentNotEnabled
+            | null keys -> pure (RespError "VM has no assigned SSH keys")
+            | otherwise -> do
+                result <- withVmNodeAgent state (skiVmId a) $ \nac ->
+                  NOA.vmGuestSshAddAuthorizedKeys nac (skiVmId a) (skiUsername a) keys (skiReset a)
+                pure $ case result of
+                  Left err -> RespGuestAgentError err
+                  Right (Left err) -> RespGuestAgentError (T.pack (show err))
+                  Right (Right ()) -> RespSshKeyOk

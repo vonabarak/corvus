@@ -1,18 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | SSH-key CRUD + per-VM attach/detach.
---
--- The handler under test is `Corvus.Handlers.SshKey`. Attaching a
--- key to a VM requires the VM to have cloud-init enabled (the
--- cloud-init ISO is what materialises the key inside the guest)
--- — we exercise both that guard and the happy path against a
--- cloud-init-enabled VM. The post-attach cloud-init ISO
--- regeneration tries to shell out via the agent; in the test
--- fixture the agent is absent so the response surfaces as a
--- specific error string. We assert the specific shape.
+-- | SSH-key CRUD, assignment, and guest injection validation.
 module Corvus.SshKeySpec (spec) where
 
+import Control.Monad (void)
+import qualified Corvus.Model as M
+import Corvus.Protocol (SshKeyInfo (..))
+import Database.Persist (update, (=.))
+import Database.Persist.Sql (toSqlKey)
+import Test.DSL.Core (runDb)
 import Test.Prelude
 
 spec :: Spec
@@ -89,14 +86,16 @@ spec = sequential $ withTestDb $ do
       _ <- when_ $ whenSshKeyAttach 999 1
       then_ responseIsVmNotFound
 
-    testCase "refuses when the VM doesn't have cloud-init enabled" $ do
+    testCase "attaches without cloud-init and lists the assignment" $ do
       given $ do
         _ <- insertVm "no-ci" VmStopped
         _ <- insertSshKey "k" "ssh-ed25519 AAAA-k"
         pure ()
       _ <- when_ $ whenSshKeyAttach 1 1
+      then_ $ responseIs (== RespSshKeyOk)
+      _ <- when_ $ whenSshKeyListForVm 1
       then_ $ responseIs $ \case
-        RespError _ -> True
+        RespSshKeyList [key] -> skiPublicKey key == "ssh-ed25519 AAAA-k"
         _ -> False
 
     testCase "returns SshKeyNotFound when the key doesn't exist" $ do
@@ -121,3 +120,43 @@ spec = sequential $ withTestDb $ do
       then_ $ responseIs $ \case
         RespSshKeyList [] -> True
         _ -> False
+
+  describe "whenSshKeyInject" $ do
+    testCase "rejects missing VMs" $ do
+      _ <- when_ $ whenSshKeyInject 999 "root" False
+      then_ responseIsVmNotFound
+    testCase "requires a running VM" $ do
+      given $ void $ insertVm "stopped" VmStopped
+      _ <- when_ $ whenSshKeyInject 1 "root" False
+      then_ $ responseIs (== RespVmNotRunning)
+    testCase "reports routing failure for a valid assigned-key request" $ do
+      given $ do
+        vmId <- insertRunningVmWithGuestAgent "running-agent"
+        keyId <- insertSshKey "admin" "ssh-ed25519 AAAA-admin"
+        _ <- attachSshKeyToVm vmId keyId
+        pure ()
+      _ <- when_ $ whenSshKeyInject 1 "root" True
+      then_ $ responseIs $ \case
+        RespGuestAgentError _ -> True
+        _ -> False
+    testCase "requires an enabled guest agent" $ do
+      given $ void $ insertVm "running" VmRunning
+      _ <- when_ $ whenSshKeyInject 1 "root" False
+      then_ $ responseIs (== RespGuestAgentNotEnabled)
+    mapM_
+      ( \reset -> testCase "rejects empty assignments even with reset" $ do
+          given $ do
+            vmId <- insertVm "running-agent" VmRunning
+            runDb $ update (toSqlKey vmId :: M.VmId) [M.VmGuestAgent =. True]
+          _ <- when_ $ whenSshKeyInject 1 "root" reset
+          then_ $ responseIs (== RespError "VM has no assigned SSH keys")
+      )
+      [False, True]
+    mapM_
+      ( \username -> testCase "rejects invalid guest usernames" $ do
+          _ <- when_ $ whenSshKeyInject 1 username True
+          then_ $ responseIs $ \case
+            RespError "Guest username must be nonempty and contain no NUL" -> True
+            _ -> False
+      )
+      ["", "root\0bad"]

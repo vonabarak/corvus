@@ -232,6 +232,8 @@ data Command
     SshKeyDetach !Text !Text
   | -- | List SSH keys for VM (vmRef)
     SshKeyListForVm !Text
+  | -- | Inject assigned SSH keys through QGA (VM, username, reset)
+    SshKeyInject !Text !Text !Bool
   | -- Template commands
 
     -- | Create template from YAML file. 'Nothing' opens $EDITOR on a skeleton.

@@ -10,6 +10,7 @@ module Corvus.Client.Commands.SshKey
   , handleSshKeyList
   , handleSshKeyAttach
   , handleSshKeyDetach
+  , handleSshKeyInject
   , handleSshKeyListForVm
 
     -- * Formatters
@@ -78,6 +79,17 @@ handleSshKeyAttach fmt conn vmRef keyRef = do
     Left e -> do
       emitRpcError fmt e $
         putStrLn ("Error attaching SSH key: " ++ show e)
+      pure False
+
+handleSshKeyInject :: OutputFormat -> CapnpConnection -> Text -> Text -> Bool -> IO Bool
+handleSshKeyInject fmt conn vmRef username reset = do
+  r <- try @SomeException (CR.rpcSshKeyInject conn (entityRefFromText vmRef) username reset)
+  case r of
+    Right () -> do
+      emitOk fmt $ putStrLn "SSH keys injected into guest account."
+      pure True
+    Left e -> do
+      emitRpcError fmt e $ putStrLn ("Error injecting SSH keys: " ++ show e)
       pure False
 
 -- | Handle ssh-key detach command

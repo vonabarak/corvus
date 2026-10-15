@@ -1587,9 +1587,10 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'editNetIf) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'setBalloon) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'uploadFile) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'downloadFile) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'downloadFile) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'injectSshKeys) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile,vm'injectSshKeys #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1676,6 +1677,8 @@ class (Vm'server_ s_) where
     vm'uploadFile _ = GH.methodUnimplemented
     vm'downloadFile :: s_ -> (GH.MethodHandler Vm'downloadFile'params Vm'downloadFile'results)
     vm'downloadFile _ = GH.methodUnimplemented
+    vm'injectSshKeys :: s_ -> (GH.MethodHandler Vm'injectSshKeys'params Vm'injectSshKeys'results)
+    vm'injectSshKeys _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1762,6 +1765,8 @@ instance (GH.HasMethod "uploadFile" Vm Vm'uploadFile'params Vm'uploadFile'result
     methodByLabel  = (GH.Method 17269745093196220462 41)
 instance (GH.HasMethod "downloadFile" Vm Vm'downloadFile'params Vm'downloadFile'results) where
     methodByLabel  = (GH.Method 17269745093196220462 42)
+instance (GH.HasMethod "injectSshKeys" Vm Vm'injectSshKeys'params Vm'injectSshKeys'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 43)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -4227,6 +4232,66 @@ instance (C.Marshal Vm'downloadFile'results (C.Parsed Vm'downloadFile'results)) 
         )
 instance (GH.HasField "bytesTransferred" GH.Slot Vm'downloadFile'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
+data Vm'injectSshKeys'params
+type instance (R.ReprFor Vm'injectSshKeys'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'injectSshKeys'params) where
+    typeId  = 12020038094438978491
+instance (C.TypedStruct Vm'injectSshKeys'params) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Vm'injectSshKeys'params) where
+    type AllocHint Vm'injectSshKeys'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'injectSshKeys'params (C.Parsed Vm'injectSshKeys'params))
+instance (C.AllocateList Vm'injectSshKeys'params) where
+    type ListAllocHint Vm'injectSshKeys'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'injectSshKeys'params (C.Parsed Vm'injectSshKeys'params))
+data instance C.Parsed Vm'injectSshKeys'params
+    = Vm'injectSshKeys'params
+        {username :: (RP.Parsed Basics.Text)
+        ,reset :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'injectSshKeys'params))
+deriving instance (Std_.Eq (C.Parsed Vm'injectSshKeys'params))
+instance (C.Parse Vm'injectSshKeys'params (C.Parsed Vm'injectSshKeys'params)) where
+    parse raw_ = (Vm'injectSshKeys'params <$> (GH.parseField #username raw_)
+                                          <*> (GH.parseField #reset raw_))
+instance (C.Marshal Vm'injectSshKeys'params (C.Parsed Vm'injectSshKeys'params)) where
+    marshalInto raw_ Vm'injectSshKeys'params{..} = (do
+        (GH.encodeField #username username raw_)
+        (GH.encodeField #reset reset raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "username" GH.Slot Vm'injectSshKeys'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "reset" GH.Slot Vm'injectSshKeys'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+data Vm'injectSshKeys'results
+type instance (R.ReprFor Vm'injectSshKeys'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'injectSshKeys'results) where
+    typeId  = 16560716642847869791
+instance (C.TypedStruct Vm'injectSshKeys'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'injectSshKeys'results) where
+    type AllocHint Vm'injectSshKeys'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results))
+instance (C.AllocateList Vm'injectSshKeys'results) where
+    type ListAllocHint Vm'injectSshKeys'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results))
+data instance C.Parsed Vm'injectSshKeys'results
+    = Vm'injectSshKeys'results
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'injectSshKeys'results))
+deriving instance (Std_.Eq (C.Parsed Vm'injectSshKeys'results))
+instance (C.Parse Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results)) where
+    parse raw_ = (Std_.pure Vm'injectSshKeys'results)
+instance (C.Marshal Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results)) where
+    marshalInto _raw (Vm'injectSshKeys'results) = (Std_.pure ())
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

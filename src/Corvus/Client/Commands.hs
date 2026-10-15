@@ -263,6 +263,7 @@ runCommand opts = do
       SshKeyDelete keyRef -> handleSshKeyDelete fmt conn keyRef
       SshKeyList -> handleSshKeyList fmt tableOpts conn
       SshKeyAttach vmRef keyRef -> handleSshKeyAttach fmt conn vmRef keyRef
+      SshKeyInject vmRef username reset -> handleSshKeyInject fmt conn vmRef username reset
       SshKeyDetach vmRef keyRef -> handleSshKeyDetach fmt conn vmRef keyRef
       SshKeyListForVm vmRef -> handleSshKeyListForVm fmt tableOpts conn vmRef
       TemplateCreate mPath -> handleTemplateCreate fmt conn mPath

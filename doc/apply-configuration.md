@@ -20,7 +20,7 @@ A configuration file has five top-level sections, all optional, plus an `ifExist
 
 ```yaml
 ifExists:   error   # error (default) | skip | overwrite — see "ifExists" below
-sshKeys:    [...]   # SSH public keys for cloud-init injection
+sshKeys:    [...]   # SSH public keys for cloud-init or explicit QGA injection
 disks:      [...]   # Disk images (import, register, create, overlay, or clone)
 networks:   [...]   # Virtual networks (bridge + TAP managed by corvus-netd)
 vms:        [...]   # Virtual machines with drives, NICs, shared dirs
@@ -133,7 +133,7 @@ sshKeys:
     publicKey: <string>       # Required. Full public key string.
 ```
 
-SSH keys declared here can be referenced by name in the `sshKeys` list of any VM in the same file. Keys are used for cloud-init SSH injection — the VM must have cloud-init enabled (see [Cloud-Init Behavior](#cloud-init-behavior)).
+SSH keys declared here can be referenced by name in the `sshKeys` list of any VM in the same file. Keys can be used for cloud-init or [explicit QGA injection](ssh-keys.md#injecting-into-a-running-guest). Assignment does not require cloud-init (see [Cloud-Init Behavior](#cloud-init-behavior)).
 
 ### Example
 
@@ -652,12 +652,12 @@ The `cloudInit` field on a VM has three states:
 | Value | Behavior |
 |-------|----------|
 | `true` | Cloud-init is enabled. ISO is generated on VM start or SSH key attach. |
-| `false` | Cloud-init is disabled. SSH key attachment is rejected. |
+| `false` | Cloud-init is disabled. Assigned SSH keys remain available for explicit QGA injection. |
 | *omitted* | **Auto-detect**: enabled if `sshKeys` is non-empty, disabled otherwise. |
 
 In most cases, omit the field and let auto-detection handle it. Explicitly set `cloudInit: true` if you want cloud-init even without SSH keys (e.g., for hostname provisioning only).
 
-It is a validation error to list `sshKeys` on a VM with `cloudInit: false`.
+Explicit `cloudInit: false` permits SSH key assignment without generating an ISO. Use `crv ssh-key inject <vm> <username>` once the VM is running to inject its assigned keys through QGA.
 
 ### Custom Cloud-Init Config
 
@@ -703,7 +703,6 @@ The daemon validates the configuration before creating any resources:
 - A disk cannot specify more than one of `import`, `register`, `overlay`, `clone`.
 - The `path` field can only be used with `import`, `overlay`, `clone`, or `create` strategies (not `register`).
 - The `backing` field can only be used with the `register` strategy.
-- VMs with `sshKeys` must not have `cloudInit: false`.
 
 If validation fails, no resources are created.
 

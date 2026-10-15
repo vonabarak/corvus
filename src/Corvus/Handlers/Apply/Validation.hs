@@ -50,7 +50,6 @@ validateConfig config = do
   forM_ (acVms config) $ validateName "VM" . avName
   forM_ (acTemplates config) $ validateName "Template" . tyName
   forM_ (acDisks config) validateDisk
-  forM_ (acVms config) validateVmCloudInit
   where
     checkDuplicates kind names = case findDuplicate names of
       Nothing -> Right ()
@@ -60,9 +59,6 @@ validateConfig config = do
       Just (nm, nd) -> Left $ "Duplicate " <> kind <> " name '" <> nm <> "' on node '" <> if T.null nd then "(scheduler)'" else nd <> "'"
     findDuplicate [] = Nothing
     findDuplicate (x : xs) | x `elem` xs = Just x | otherwise = findDuplicate xs
-    validateVmCloudInit v
-      | not (null (avSshKeys v)) && not (effectiveCloudInit v) = Left $ "VM '" <> avName v <> "': has SSH keys but cloud-init is not enabled"
-      | otherwise = Right ()
     validateDisk d
       | adIfExists d == Just DiskIfExistsUpdate && (not (maybe False isHttpUrl $ adImport d) || isNothing (adChecksum d)) = Left $ "Disk '" <> adName d <> "': ifExists update requires an HTTP/HTTPS import with checksum"
       | otherwise =

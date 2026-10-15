@@ -219,6 +219,8 @@ commands =
   , (["ssh-key", "create", "key", "ssh-ed25519 abc"], SshKeyCreate "key" "ssh-ed25519 abc")
   , (["ssh-key", "delete", "key"], SshKeyDelete "key")
   , (["ssh-key", "list"], SshKeyList)
+  , (["ssh-key", "inject", "web", "root"], SshKeyInject "web" "root" False)
+  , (["ssh-key", "inject", "42", "admin", "--reset"], SshKeyInject "42" "admin" True)
   , (["ssh-key", "attach", "web", "key"], SshKeyAttach "web" "key")
   , (["ssh-key", "detach", "web", "key"], SshKeyDetach "web" "key")
   , (["ssh-key", "list-vm", "web"], SshKeyListForVm "web")

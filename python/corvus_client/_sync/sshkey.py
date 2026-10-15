@@ -19,6 +19,19 @@ class SyncSshKeyManager:
     def get(self, ref: int | str, *, by_name: bool = False) -> SyncSshKey:
         return SyncSshKey(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
+    def inject(
+        self,
+        vm_ref: int | str,
+        username: str,
+        *,
+        reset: bool = False,
+        by_name: bool = False,
+    ) -> None:
+        """Inject assigned keys through QGA; reset=True replaces authorized keys."""
+        return self._rl.run(
+            self._a.inject(vm_ref, username, reset=reset, by_name=by_name)
+        )
+
     def create(self, name: str, public_key: str) -> SyncSshKey:
         return SyncSshKey(self._rl.run(self._a.create(name, public_key)), self._rl)
 

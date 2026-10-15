@@ -490,3 +490,15 @@ Database migration 9 renames the MiB columns and converts their values to bytes.
 It preserves null and zero values and refuses conversions that overflow Int64.
 Previously truncated disk metadata is not rescanned automatically. Run
 `crv disk refresh <disk>` to inspect and restore an image's exact byte size.
+
+### Explicit SSH key injection
+
+`Vm.injectSshKeys(username :Text, reset :Bool = false) -> ()` runs the tracked
+VM `inject-ssh-keys` Action. It snapshots assigned public keys, requires a running
+VM with guest-agent support and at least one assigned key, and routes to
+`Nodeagent.Session.vmGuestSshAddAuthorizedKeys(vmId, username, keys, reset)`.
+The nodeagent invokes native QGA once with a bounded exchange. `reset` replaces
+all authorized keys for the existing account; the default appends. Cloud-init
+configuration does not govern this operation. VM and guest-agent errors retain
+their existing wire codes; invalid usernames and empty assignments use
+`internal_error`.

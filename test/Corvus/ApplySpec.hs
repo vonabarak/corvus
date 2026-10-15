@@ -19,7 +19,7 @@ import Corvus.Model
   ( SshKey (..)
   , Unique (..)
   )
-import Corvus.Protocol (ApplyEvent (..), ApplyResult (..))
+import Corvus.Protocol (ApplyEvent (..), ApplyResult (..), SshKeyInfo (..), VmDetails (..))
 import Corvus.Schema.Apply (IfExists (..))
 import Corvus.Types (ssDbPool)
 import Data.IORef (modifyIORef', newIORef, readIORef)
@@ -49,6 +49,24 @@ spec = sequential $ withTestDb $ do
 
   ------------------------------------------------------------------
   -- ssh keys
+
+  describe "whenApply: SSH keys without cloud-init" $ do
+    testCase "assigns keys with explicit cloudInit false and creates no ISO" $ do
+      given $ do
+        _ <- seedTestNode
+        pure ()
+      _ <- whenApply "sshKeys: [{name: admin, publicKey: ssh-ed25519 AAAA-admin}]\nvms: [{name: qga-vm, node: test-node, cpuCount: 1, ram: 1G, cloudInit: false, sshKeys: [admin]}]"
+      responseIs $ \case
+        RespApplyResult result -> length (arVms result) == 1
+        _ -> False
+      _ <- whenSshKeyListForVm 1
+      responseIs $ \case
+        RespSshKeyList [key] -> skiName key == "admin"
+        _ -> False
+      _ <- vmShow 1
+      responseIs $ \case
+        RespVmDetails details -> not (vdCloudInit details) && null (vdDrives details)
+        _ -> False
 
   describe "whenApply: sshKeys section" $ do
     testCase "creates each listed SSH key" $ do

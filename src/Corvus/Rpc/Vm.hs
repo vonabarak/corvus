@@ -39,7 +39,7 @@ import Corvus.Handlers.GuestFile (GuestFileUpload (..), downloadGuestFile)
 import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfEdit (..), NetIfRemove (..), handleNetIfList)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNetwork, resolveNode, resolveSshKey, resolveVm)
 import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
-import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyDetach (..), handleSshKeyListForVm)
+import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyDetach (..), SshKeyInject (..), handleSshKeyListForVm)
 import Corvus.Handlers.Vm
   ( VmCreate (..)
   , VmDelete (..)
@@ -622,6 +622,12 @@ instance CGVm.Vm'server_ VmCap where
     case resp of
       RespSshKeyOk -> pure CGVm.Vm'detachSshKey'results
       RespOk -> pure CGVm.Vm'detachSshKey'results
+      _ -> throwError resp
+
+  vm'injectSshKeys (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'injectSshKeys'params {..} -> do
+    resp <- runAction st cn (SshKeyInject eid username reset)
+    case resp of
+      RespSshKeyOk -> pure CGVm.Vm'injectSshKeys'results
       _ -> throwError resp
 
   vm'listSshKeys (VmCap st _ eid _) = handleParsed $ \_ -> do

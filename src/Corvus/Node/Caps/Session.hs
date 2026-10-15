@@ -34,7 +34,7 @@ import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (TVar, readTVarIO)
+import Control.Concurrent.STM (TVar, atomically, readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
@@ -43,6 +43,7 @@ import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.DirectoryCleanup as DC
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Image as NI
+import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.SnapshotLive as NSL
 import qualified Corvus.Node.StatusPoller as SP
@@ -496,6 +497,15 @@ instance CGNA.Session'server_ SessionServer where
           )
           `E.onException` abort
       pure CGNA.Session'vmGuestReadFile'results {CGNA.bytesTransferred = count}
+
+  session'vmGuestSshAddAuthorizedKeys (SessionServer sc) =
+    handleParsedAsync $ \CGNA.Session'vmGuestSshAddAuthorizedKeys'params {CGNA.vmId = vid, CGNA.username = username, CGNA.keys = keys, CGNA.reset = reset} -> do
+      live <- atomically $ L.lookupVm (scVmLedger sc) vid
+      case live of
+        Nothing -> throwFailed ("vmGuestSshAddAuthorizedKeys: unknown vmId " <> tshow vid)
+        Just _ -> do
+          result <- NGA.guestSshAddAuthorizedKeys (scQgaConns sc) agentQemuConfig vid username keys reset
+          either throwFailed (const $ pure CGNA.Session'vmGuestSshAddAuthorizedKeys'results) result
 
   session'vmGuestPing (SessionServer sc) =
     handleParsedAsync $ \CGNA.Session'vmGuestPing'params {CGNA.vmId = vid} ->

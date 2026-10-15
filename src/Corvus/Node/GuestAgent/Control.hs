@@ -6,6 +6,7 @@ module Corvus.Node.GuestAgent.Control
   , guestFsFreeze
   , guestFsThaw
   , guestSetTime
+  , guestSshAddAuthorizedKeys
   )
 where
 
@@ -85,6 +86,23 @@ guestSetTime conns config vmId = do
         Nothing -> Left (qgaErrText object)
       _ -> Left "guest-set-time: malformed reply"
   pure $ either (Left . T.pack . show) id result
+
+-- | Append or replace authorized keys once; never replay a mutating request.
+guestSshAddAuthorizedKeys :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> [Text] -> Bool -> IO (Either Text ())
+guestSshAddAuthorizedKeys conns config vmId username keys reset = do
+  result <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
+    sendJson sock $
+      Aeson.object
+        [ "execute" .= ("guest-ssh-add-authorized-keys" :: Text)
+        , "arguments" .= Aeson.object ["username" .= username, "keys" .= keys, "reset" .= reset]
+        ]
+    response <- recvJsonWithin 10000000 sock "guest-ssh-add-authorized-keys"
+    case response of
+      Just (Object object)
+        | KM.member "return" object -> pure (Right ())
+        | KM.member "error" object -> pure (Left (qgaErrText object))
+      _ -> ioError (userError "guest-ssh-add-authorized-keys: malformed or missing reply")
+  pure $ join result
 
 qgaErrText :: AT.Object -> Text
 qgaErrText object = case KM.lookup "error" object of

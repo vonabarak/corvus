@@ -32,6 +32,23 @@ class AsyncSshKeyManager:
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncSshKey(resp.key)
 
+    async def inject(
+        self,
+        vm_ref: int | str,
+        username: str,
+        *,
+        reset: bool = False,
+        by_name: bool = False,
+    ) -> None:
+        """Inject all assigned keys into an existing guest account through QGA.
+
+        By default keys are appended. reset=True replaces all authorized keys.
+        Requires a running VM, enabled guest agent, and at least one assigned key.
+        """
+        mgr = (await self._daemon.vms()).mgr
+        vm = (await mgr.get(ref=entity_ref(vm_ref, by_name=by_name))).vm
+        await vm.injectSshKeys(username=username, reset=reset)
+
     async def create(self, name: str, public_key: str) -> AsyncSshKey:
         mgr = await self._ensure()
         params = _schema.sshkey.SshKeyCreateParams.new_message()

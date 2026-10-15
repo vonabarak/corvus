@@ -21,6 +21,7 @@ module Corvus.Node.GuestAgent
   , guestFsFreeze
   , guestFsThaw
   , guestSetTime
+  , guestSshAddAuthorizedKeys
   , parseGuestInterfaces
   , splitLines
   , pollStatus
@@ -29,7 +30,7 @@ module Corvus.Node.GuestAgent
 where
 
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, releaseConn)
-import Corvus.Node.GuestAgent.Control (guestFsFreeze, guestFsThaw, guestPing, guestSetTime, guestShutdown)
+import Corvus.Node.GuestAgent.Control (guestFsFreeze, guestFsThaw, guestPing, guestSetTime, guestShutdown, guestSshAddAuthorizedKeys)
 import Corvus.Node.GuestAgent.Exec (guestExecWithStdin, guestExecWithTimeout, pollRecvTimeoutMicros, pollStatus, splitLines)
 import Corvus.Node.GuestAgent.Exec.Stream (guestExecStream)
 import Corvus.Node.GuestAgent.File (guestReadFile, guestWriteFile)

@@ -68,7 +68,7 @@ A template is defined by a single YAML document. The same schema is accepted by 
 | `cloudInitConfig` | object | no | | Custom cloud-init settings (see below). |
 | `drives` | list | yes | | Drive definitions (may be empty). |
 | `networkInterfaces` | list | no | `[]` | Network interface definitions. |
-| `sshKeys` | list | no | `[]` | SSH key references. Requires `cloudInit: true`. |
+| `sshKeys` | list | no | `[]` | SSH key references for cloud-init or explicit QGA injection. |
 | `sharedDirs` | list | no | `[]` | Virtiofs shared-directory definitions (see below). |
 | `audioDevices` | list | no | `[]` | Sound cards, each with `backend`, optional `model` (default `virtio-sound`), and optional `options` (see [VM audio](vm-audio.md)). |
 
@@ -120,7 +120,7 @@ Each instantiated VM gets a fresh random MAC address per interface.
 |-------|------|----------|-------------|
 | `name` | string | yes | Name of an SSH key that must already exist in the database (or be defined earlier in an apply file). |
 
-SSH keys require `cloudInit: true` on the template. At instantiation, keys are attached to the VM and injected into the cloud-init ISO.
+At instantiation, keys are assigned to the VM. When `cloudInit: true`, keys are also included in the cloud-init ISO. With or without cloud-init, use `crv ssh-key inject <vm> <username>` after starting the VM to inject keys through QGA.
 
 ### Shared Directory Fields
 
@@ -227,7 +227,6 @@ Before execution, the apply subsystem validates:
 - Template names are non-empty and not all-digit (to avoid ambiguity with numeric IDs).
 - Drive references (`diskImage`) for non-create strategies point to disks that exist in the database or are defined earlier in the same file.
 - SSH keys referenced by templates exist.
-- Templates with `sshKeys` have `cloudInit: true`.
 
 ---
 

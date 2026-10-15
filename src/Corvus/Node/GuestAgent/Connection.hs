@@ -89,7 +89,8 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
           pure (Left err)
 
     doWork mSock path sockRef = do
-      mResult <- timeout timeoutMicros $ try $ do
+      -- Let timeout consume its own exception before handling other failures.
+      mResult <- try $ timeout timeoutMicros $ do
         sock <- case mSock of
           Just existing -> pure existing
           Nothing -> mask_ $ do
@@ -102,12 +103,12 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
         value <- action sock
         pure (sock, value)
       case mResult of
-        Just (Right result) -> pure (Right result)
-        Just (Left (err :: SomeException)) ->
+        Right (Just result) -> pure (Right result)
+        Left (err :: SomeException) ->
           case fromException err :: Maybe SomeAsyncException of
             Just _ -> throwIO err
             Nothing -> pure (Left (T.pack (show err)))
-        Nothing -> pure (Left "Timed out waiting for guest agent")
+        Right Nothing -> pure (Left "Timed out waiting for guest agent")
 
 connectWithRetry :: Int -> FilePath -> IO Socket
 connectWithRetry 0 path = socket AF_UNIX Stream defaultProtocol >>= \sock -> connect sock (SockAddrUnix path) >> pure sock

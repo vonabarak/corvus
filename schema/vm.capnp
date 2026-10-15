@@ -405,6 +405,8 @@ interface Vm {
   attachSshKey @27 (keyRef :Common.EntityRef) -> ();
   detachSshKey @28 (keyRef :Common.EntityRef) -> ();
   listSshKeys  @29 () -> (keys :List(SshKey.SshKeyInfo));
+  # Explicitly inject assigned keys into an existing guest account through QGA.
+  injectSshKeys @43 (username :Text, reset :Bool = false) -> ();
 
   # Migrate this VM to a different node without live memory streaming. Running
   # and paused VMs are saved before transfer and restored on the destination.

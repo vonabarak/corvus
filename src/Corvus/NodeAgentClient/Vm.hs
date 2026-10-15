@@ -23,6 +23,7 @@ module Corvus.NodeAgentClient.Vm
   , vmGuestReadFile
   , vmGuestWriteFile
   , vmGuestPing
+  , vmGuestSshAddAuthorizedKeys
   , vmGuestReboot
   , vmGuestExecStream
   , vmStatus
@@ -654,3 +655,12 @@ vmGuestReadFile nac vmId path sink = remote $ do
   CGNA.Session'vmGuestReadFile'results count <-
     callOn #vmGuestReadFile CGNA.Session'vmGuestReadFile'params {CGNA.vmId = vmId, CGNA.path = path, CGNA.sink = sink} (nacSession nac)
   pure count
+
+vmGuestSshAddAuthorizedKeys :: NodeAgentClient -> Int64 -> T.Text -> [T.Text] -> Bool -> IO (Either NodeAgentError ())
+vmGuestSshAddAuthorizedKeys nac vmId username keys reset = remote $ do
+  _ <-
+    callOn
+      #vmGuestSshAddAuthorizedKeys
+      CGNA.Session'vmGuestSshAddAuthorizedKeys'params {CGNA.vmId = vmId, CGNA.username = username, CGNA.keys = keys, CGNA.reset = reset}
+      (nacSession nac)
+  pure ()

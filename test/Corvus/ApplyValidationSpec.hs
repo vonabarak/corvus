@@ -59,6 +59,6 @@ cases =
   , ("nonhex checksum", "disks: [{name: base, import: 'https://image', checksum: {algorithm: md5, value: zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz}}]", Just "32 hex")
   , ("update without checksum", "disks: [{name: base, import: 'https://image', ifExists: update}]", Just "update requires")
   , ("SSH keys enable cloud-init by default", "vms: [{name: web, cpuCount: 1, ram: 1G, sshKeys: [key]}]", Nothing)
-  , ("explicit disabled cloud-init rejects SSH keys", "vms: [{name: web, cpuCount: 1, ram: 1G, cloudInit: false, sshKeys: [key]}]", Just "cloud-init is not enabled")
+  , ("explicit disabled cloud-init permits SSH keys", "vms: [{name: web, cpuCount: 1, ram: 1G, cloudInit: false, sshKeys: [key]}]", Nothing)
   , ("explicit cloud-init with SSH keys", "vms: [{name: web, cpuCount: 1, ram: 1G, cloudInit: true, sshKeys: [key]}]", Nothing)
   ]

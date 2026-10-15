@@ -51,6 +51,7 @@ module Test.DSL.When
   , whenSshKeyDelete
   , whenSshKeyList
   , whenSshKeyAttach
+  , whenSshKeyInject
   , whenSshKeyListForVm
 
     -- * VM edit
@@ -359,6 +360,9 @@ whenSshKeyList = withState handleSshKeyList
 
 whenSshKeyAttach :: Int64 -> Int64 -> TestM Response
 whenSshKeyAttach vmId keyId = withState (\st -> runAction st "alice" (SshKeyAttach vmId keyId))
+
+whenSshKeyInject :: Int64 -> Text -> Bool -> TestM Response
+whenSshKeyInject vmId username reset = withState (\st -> runAction st "alice" (SshKeyInject vmId username reset))
 
 whenSshKeyListForVm :: Int64 -> TestM Response
 whenSshKeyListForVm vmId = withState (`handleSshKeyListForVm` vmId)

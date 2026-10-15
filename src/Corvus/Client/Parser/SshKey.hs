@@ -86,13 +86,21 @@ sshKeyListVmCommand =
           <> completer vmCompleter
       )
 
+sshKeyInjectCommand :: Parser Command
+sshKeyInjectCommand =
+  SshKeyInject
+    <$> argument (T.pack <$> str) (metavar "VM" <> help "Name or ID of the VM" <> completer vmCompleter)
+    <*> argument (T.pack <$> str) (metavar "USERNAME" <> help "Existing guest account")
+    <*> switch (long "reset" <> help "Replace all authorized keys for the guest account")
+
 -- | Parser for all ssh-key subcommands
 sshKeyCommandParser :: Parser Command
 sshKeyCommandParser =
   subparser
-    ( command
-        "create"
-        (info sshKeyCreateCommand (progDesc "Create a new SSH key"))
+    ( command "inject" (info sshKeyInjectCommand (progDesc "Inject assigned SSH keys through the guest agent"))
+        <> command
+          "create"
+          (info sshKeyCreateCommand (progDesc "Create a new SSH key"))
         <> command
           "delete"
           (info sshKeyDeleteCommand (progDesc "Delete an SSH key"))

@@ -378,6 +378,72 @@ spec = do
           expectationFailure
             ("expected pollStatus to throw on silent QGA; got: " <> show r)
 
+  describe "authorized key injection" $ do
+    mapM_
+      ( \reset -> it ("sends assigned keys with reset=" <> show reset) $ do
+          (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+          slot <- newMVar (Just client)
+          conns <- STM.newTVarIO (Map.singleton 42 slot)
+          observed <- newEmptyMVar
+          _ <- forkIO $ do
+            request <- recv peer 4096
+            putMVar observed (Aeson.eitherDecodeStrict' request :: Either String Aeson.Value)
+            sendJson peer (Aeson.object ["return" Aeson..= Aeson.object []])
+          GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key-a", "key-b"] reset `shouldReturn` Right ()
+          takeMVar observed
+            `shouldReturn` Right
+              ( Aeson.object
+                  [ "execute" Aeson..= ("guest-ssh-add-authorized-keys" :: String)
+                  , "arguments" Aeson..= Aeson.object ["username" Aeson..= ("alice" :: String), "keys" Aeson..= (["key-a", "key-b"] :: [String]), "reset" Aeson..= reset]
+                  ]
+              )
+          GA.releaseConn conns 42
+          close peer
+      )
+      [False, True]
+    it "preserves QGA error class and description" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      _ <- forkIO $ do
+        _ <- recv peer 4096
+        sendJson peer (Aeson.object ["error" Aeson..= Aeson.object ["class" Aeson..= ("CommandNotFound" :: String), "desc" Aeson..= ("unsupported" :: String)]])
+      GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key"] False `shouldReturn` Left "CommandNotFound: unsupported"
+      GA.releaseConn conns 42
+      close peer
+    it "invalidates the connection after a missing reply without replay" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      _ <- forkIO $ recv peer 4096 >> close peer
+      result <- GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key"] False
+      result `shouldSatisfy` either (const True) (const False)
+      takeMVar slot `shouldReturn` Nothing
+
+  describe "authorized key reply failure" $ do
+    it "invalidates a malformed response" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      _ <- forkIO $ do
+        _ <- recv peer 4096
+        sendJson peer (Aeson.object ["unexpected" Aeson..= True])
+      result <- GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key"] True
+      result `shouldSatisfy` either (const True) (const False)
+      takeMVar slot `shouldReturn` Nothing
+      recv peer 4096 `shouldReturn` BS.empty
+      close peer
+    it "bounds a stalled exchange and discards its connection" $ do
+      (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      slot <- newMVar (Just client)
+      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      result <- GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key"] False
+      result `shouldSatisfy` either (const True) (const False)
+      takeMVar slot `shouldReturn` Nothing
+      _ <- recv peer 4096
+      recv peer 4096 `shouldReturn` BS.empty
+      close peer
+
   describe "native guest control" $ do
     it "checks readiness with guest-ping" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol

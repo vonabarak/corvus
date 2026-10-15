@@ -309,6 +309,8 @@ interface Session {
   vmGuestWriteFile @53 (vmId :Int64, path :Text, source :Streams.ByteSource) -> (bytesTransferred :UInt64);
   vmGuestReadFile @56 (vmId :Int64, path :Text, sink :Streams.ByteSink) -> (bytesTransferred :UInt64);
 
+  vmGuestSshAddAuthorizedKeys @57 (vmId :Int64, username :Text, keys :List(Text), reset :Bool = false) -> ();
+
   vmGuestPing @51 (vmId :Int64) -> (alive :Bool);
   vmGuestReboot @52 (vmId :Int64, timeoutSec :UInt32) -> (result :DiskOpResult);
 

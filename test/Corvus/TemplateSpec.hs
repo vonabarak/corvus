@@ -13,7 +13,7 @@
 module Corvus.TemplateSpec (spec) where
 
 import qualified Corvus.Model as M
-import Corvus.Protocol (CloudInitInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), VmDetails (..))
+import Corvus.Protocol (CloudInitInfo (..), SshKeyInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), VmDetails (..))
 import qualified Data.Text as T
 import Database.Persist (Filter, count)
 import Test.DSL.Core (runDb)
@@ -50,6 +50,30 @@ spec = sequential $ withTestDb $ do
       _ <- when_ whenTemplateList
       then_ $ responseIs $ \case
         RespTemplateList [] -> True
+        _ -> False
+
+  describe "SSH keys without cloud-init" $ do
+    testCase "creates, updates, and instantiates assigned keys without an ISO" $ do
+      given $ do
+        _ <- insertSshKey "admin" "ssh-ed25519 AAAA-admin"
+        pure ()
+      let yaml = minimalYaml "qga-template" <> "cloudInit: false\nsshKeys: [{name: admin}]\n"
+      _ <- whenTemplateCreate yaml
+      responseIs $ \case
+        RespTemplateCreated _ -> True
+        _ -> False
+      updated <- whenTemplateUpdate 1 yaml
+      updatedTid <- case updated of
+        RespTemplateUpdated tid -> pure tid
+        _ -> liftIO $ expectationFailure (show updated) >> pure 0
+      _ <- whenTemplateInstantiate updatedTid "qga-vm"
+      _ <- whenSshKeyListForVm 1
+      responseIs $ \case
+        RespSshKeyList [key] -> skiName key == "admin"
+        _ -> False
+      _ <- vmShow 1
+      responseIs $ \case
+        RespVmDetails details -> not (vdCloudInit details) && null (vdDrives details)
         _ -> False
 
   describe "whenTemplateCreate" $ do

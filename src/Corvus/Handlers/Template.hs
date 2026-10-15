@@ -290,85 +290,81 @@ insertTemplateYaml ty now = do
           Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
           Just (Entity kid _) -> pure $ Right kid
 
-      -- Validate: SSH keys require cloud-init
-      let hasKeys = not (null (tySshKeys ty))
-      if hasKeys && not (tyCloudInit ty)
-        then pure $ Left "Template has SSH keys but cloud-init is not enabled"
-        else case (sequence mDiskIds, sequence mKeyIds) of
-          (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty) (tyStartupTimeoutSec ty)
-            case mTid of
-              Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
-              Just tid -> do
-                forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
-                  insert_ $
-                    TemplateDrive
-                      tid
-                      mDiskId
-                      ( case tdyDiskImage tdy of
-                          Just (ImageTag n _) -> Just n
-                          _ -> tdyDiskName tdy
-                      )
-                      ( case tdyDiskImage tdy of
-                          Just (ImageTag _ tag) -> Just tag
-                          _ -> Nothing
-                      )
-                      (tdyInterface tdy)
-                      (tdyMedia tdy)
-                      (fromMaybe False (tdyReadOnly tdy))
-                      (fromMaybe CacheNone (tdyCacheType tdy))
-                      (fromMaybe False (tdyDiscard tdy))
-                      (tdyStrategy tdy)
-                      (tdySize tdy)
-                      (tdyFormat tdy)
-                      (tdyEphemeral tdy)
+      case (sequence mDiskIds, sequence mKeyIds) of
+        (Right diskIds, Right keyIds) -> do
+          mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty) (tyStartupTimeoutSec ty)
+          case mTid of
+            Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
+            Just tid -> do
+              forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
+                insert_ $
+                  TemplateDrive
+                    tid
+                    mDiskId
+                    ( case tdyDiskImage tdy of
+                        Just (ImageTag n _) -> Just n
+                        _ -> tdyDiskName tdy
+                    )
+                    ( case tdyDiskImage tdy of
+                        Just (ImageTag _ tag) -> Just tag
+                        _ -> Nothing
+                    )
+                    (tdyInterface tdy)
+                    (tdyMedia tdy)
+                    (fromMaybe False (tdyReadOnly tdy))
+                    (fromMaybe CacheNone (tdyCacheType tdy))
+                    (fromMaybe False (tdyDiscard tdy))
+                    (tdyStrategy tdy)
+                    (tdySize tdy)
+                    (tdyFormat tdy)
+                    (tdyEphemeral tdy)
 
-                forM_ (tyNetworkInterfaces ty) $ \tny ->
-                  -- Mirror NetIf-add: if a network is named, force
-                  -- type=managed; if type=managed, network must be
-                  -- non-empty so the instantiator can resolve it.
-                  -- Validation is done at this layer (rather than
-                  -- in 'validateNetIf' inside the lambda) so the
-                  -- error names the offending field/value if the
-                  -- write path ever sees it.
-                  let effectiveType = case tnyNetwork tny of
-                        Just nm | not (T.null nm) -> NetManaged
-                        _ -> tnyType tny
-                   in insert_ $
-                        TemplateNetworkInterface
-                          tid
-                          effectiveType
-                          (tnyModel tny)
-                          (tnyHostDevice tny)
-                          (tnyNetwork tny)
+              forM_ (tyNetworkInterfaces ty) $ \tny ->
+                -- Mirror NetIf-add: if a network is named, force
+                -- type=managed; if type=managed, network must be
+                -- non-empty so the instantiator can resolve it.
+                -- Validation is done at this layer (rather than
+                -- in 'validateNetIf' inside the lambda) so the
+                -- error names the offending field/value if the
+                -- write path ever sees it.
+                let effectiveType = case tnyNetwork tny of
+                      Just nm | not (T.null nm) -> NetManaged
+                      _ -> tnyType tny
+                 in insert_ $
+                      TemplateNetworkInterface
+                        tid
+                        effectiveType
+                        (tnyModel tny)
+                        (tnyHostDevice tny)
+                        (tnyNetwork tny)
 
-                forM_ keyIds $ \keyId ->
-                  insert_ $ TemplateSshKey tid keyId
+              forM_ keyIds $ \keyId ->
+                insert_ $ TemplateSshKey tid keyId
 
-                forM_ (tySharedDirs ty) $ \tsd ->
-                  insert_ $
-                    TemplateSharedDir
-                      tid
-                      (tsdyPath tsd)
-                      (tsdyTag tsd)
-                      (tsdyCache tsd)
-                      (tsdyReadOnly tsd)
+              forM_ (tySharedDirs ty) $ \tsd ->
+                insert_ $
+                  TemplateSharedDir
+                    tid
+                    (tsdyPath tsd)
+                    (tsdyTag tsd)
+                    (tsdyCache tsd)
+                    (tsdyReadOnly tsd)
 
-                forM_ (tyAudioDevices ty) $ \audioDevice ->
-                  insert_ $ TemplateAudioDevice tid (tadyBackend audioDevice) (tadyModel audioDevice) (tadyOptions audioDevice)
+              forM_ (tyAudioDevices ty) $ \audioDevice ->
+                insert_ $ TemplateAudioDevice tid (tadyBackend audioDevice) (tadyModel audioDevice) (tadyOptions audioDevice)
 
-                -- Insert cloud-init config if provided
-                forM_ (tyCloudInitConfig ty) $ \cic ->
-                  insert_ $
-                    TemplateCloudInit
-                      tid
-                      (cicyUserData cic)
-                      (cicyNetworkConfig cic)
-                      (cicyInjectSshKeys cic)
+              -- Insert cloud-init config if provided
+              forM_ (tyCloudInitConfig ty) $ \cic ->
+                insert_ $
+                  TemplateCloudInit
+                    tid
+                    (cicyUserData cic)
+                    (cicyNetworkConfig cic)
+                    (cicyInjectSshKeys cic)
 
-                pure $ Right tid
-          (Left err, _) -> pure $ Left err
-          (_, Left err) -> pure $ Left err
+              pure $ Right tid
+        (Left err, _) -> pure $ Left err
+        (_, Left err) -> pure $ Left err
   where
     validateDrive tdy = case tdyStrategy tdy of
       StrategyCreate ->

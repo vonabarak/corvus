@@ -256,6 +256,8 @@ cases =
   , (SshKeyCreate "new" "ssh-ed25519 key", created "sshKeys" "SshKey" "create", "42")
   , (SshKeyDelete "fixture", resource "sshKeys" "SshKey" "delete", "deleted")
   , (SshKeyList, ["Daemon.sshKeys", "SshKeyManager.list"], "fixture")
+  , (SshKeyInject "fixture" "root" False, vm "injectSshKeys", "injected")
+  , (SshKeyInject "fixture" "admin" True, vm "injectSshKeys", "injected")
   , (SshKeyAttach "fixture" "key", vm "attachSshKey", "attached")
   , (SshKeyDetach "fixture" "key", vm "detachSshKey", "detached")
   , (SshKeyListForVm "fixture", vm "listSshKeys", "fixture")
