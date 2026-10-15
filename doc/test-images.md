@@ -45,16 +45,15 @@ publication. `image-check` checks every declared output without publishing.
 removes reusable download caches where declared. Published resources, runtime
 VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 
-The Gentoo base recipes live in `yaml/gentoo-headless/`, together with their
-shared kernel configuration and `scripts/` provisioners. `yaml/gentoo-test/` owns the Corvus development
-image built from the `gentoo-headless-cloudinit` template. Manage the stages
+All Gentoo recipes share `yaml/gentoo/` and its Makefile, kernel configuration,
+and `scripts/` provisioners. The Corvus development image builds from
+`gentoo-headless`. The default `build` target runs the full chain. Manage the stages
 with:
 
 ```sh
-make -C yaml/gentoo-headless build-cloud
-make -C yaml/gentoo-headless build-headless
-make -C yaml/gentoo-headless build-headless-standalone
-make -C yaml/gentoo-test build-test
+make -C yaml/gentoo build-cloud
+make -C yaml/gentoo build-headless
+make -C yaml/gentoo build-test
 make image IMAGE=gentoo-headless
 make image IMAGE=gentoo
 ```
@@ -69,47 +68,71 @@ current recipe and resolved source versions; a changed source or rebuilt
 intermediate causes dependent builds to rebuild. See
 [build metadata comparison](image-builds.md#how-update-compares-metadata).
 
-The standalone target runs the same `build-cloud` prerequisite as the regular
-headless target, then builds its derivative using official mirrors without the
-regular recipe's host-side mounts. The download URL and checksum belong only
-to `gentoo-cloud.yml`; both headless pipelines consume the registered
-`gentoo-cloud:latest` image. The imported version tag comes from the timestamp
-in Gentoo's upstream filename. Standalone is opt-in and is not required by the
-default Gentoo build or its presence checks. Aggregate image builds run the
-development-image chain, which includes the regular headless images, once.
+The single headless pipeline uses official Gentoo mirrors and a writable
+virtiofs cache; the build host does not need Gentoo or a Portage tree. The
+`gentoo-cloud.yml` recipe owns the upstream import, tagged with the timestamp
+in Gentoo's filename. The pipeline prepares `gentoo-builder`, builds
+`gentoo-headless` from scratch, then adds Cloud-init in a separate overlay.
+Small provisioning steps live inline; larger steps remain in `scripts/`.
+Expanded script contents participate in build metadata.
 
-Both headless recipes use the same scripts for the system bootstrap, kernel,
-runtime packages (including `net-fs/nfs-utils`), GRUB, and system configuration.
-The regular recipe adds Cloud-init in a separate overlay; standalone installs it
-into its new root before publication. Both generate `en_US.UTF-8` with
-`localedef` and set Cloud-init's `locale: false`. The bake host and published
-systems also generate `C.UTF-8` for Portage and package build scripts, avoiding
-missing-locale warnings for `C.UTF-8` / `C.utf8`. Published systems use the same
-Portage profile, package policy, and official binhost configuration; build-time
-repositories and caches can still produce different package versions.
+Provision `/data/corvus-cache` on the execution node with permissions allowing
+VM root to write through virtiofs. When the node agent runs as an ordinary user,
+that host user must be able to create directories and files in each cache
+subdirectory too. A root-owned `binpkgs` directory with mode `0755` prevents
+binary package writes in this setup. Repair its ownership on the execution node,
+for example `sudo chown -R <node-agent-user>:<node-agent-group> /data/corvus-cache/binpkgs`.
+The recipes check directory creation and file writes before starting Portage.
+The guest creates `distfiles`, `binpkgs`, and
+`binhost` subdirectories after mounting the share. Override the path throughout
+the dependency chain with:
 
-Standalone publishes `gentoo-headless-cloudinit:standalone` and advances that
-image family's `latest` tag. The unchanged `gentoo-headless-cloudinit` runtime
-template and downstream recipes follow `latest`, so they can use either flavor.
-The non-Cloud-init `gentoo-headless` image remains the node-image dependency.
-Script paths resolve relative to the recipe and their expanded contents are
-included in build metadata, so editing a shared script invalidates its consumers.
-The regular recipe's `nfs_binpkgs` variable controls the NFS server and export
-used by all bake stages. Change its default in `gentoo-headless.yml` or override
-it with `crv build yaml/gentoo-headless/gentoo-headless.yml --var nfs_binpkgs=192.168.72.1:/new/export --wait`.
+```sh
+make image IMAGE=gentoo GENTOO_CACHE_DIR=/srv/corvus-cache
+```
 
-`ensure-cloud` and `ensure-headless` in `yaml/gentoo-headless/`, and `ensure` in
-`yaml/gentoo-test/`, fill missing outputs with `skip`. When all outputs exist,
+For direct CLI builds, pass `--var cache_dir=/srv/corvus-cache` to each consuming
+recipe. Distfiles, downloaded official binaries, and locally compiled packages
+are cached separately inside this directory. Every package installation uses
+`--buildpkg`; `emerge-webrsync -k` also keeps repository snapshots and their
+verification files in the distfiles cache. Subsequent builds reuse cached files
+while checking for current snapshots. Kernel compilation still runs normally.
+The first build can take substantially longer than subsequent builds. Bake
+commands disable Portage’s `userfetch` and `userpriv` features: downloads and
+ebuild phases run as guest root, including live-package Git fetches during
+`src_unpack`. Root can write through the share even when the host cannot map
+the guest `portage` UID. These overrides apply only while building images; installed
+images retain their normal Portage privilege settings.
+Native build dependencies also receive these settings in the bake host's
+`make.conf`; Portage resolves them separately from packages installed into the
+target root. Build environments explicitly set `DISTDIR` and `PKGDIR` to
+`/mnt/corvus-cache/distfiles` and `/mnt/corvus-cache/binpkgs`, so selecting another
+ROOT or SYSROOT does not redirect the caches. The target's distfiles and package cache directories stay empty during the
+build; the shared caches are not mounted inside SYSROOT. This fetch override is
+not saved in the runtime image’s Portage configuration.
+
+The intermediate builder retains `/var/db/repos` on its filesystem so the
+from-scratch build can use it. The new headless root has an empty repository
+directory. Cloud-init and development-image overlay builds mount that directory
+as tmpfs before syncing, including additional development overlays, so their
+published disks contain no Portage tree. The bake host exposes caches at `/mnt/corvus-cache` and temporary `/var/cache`
+bind mounts; runtime templates have no shared directories or cache mounts in fstab.
+The external host cache survives both `clean` and `cache-clean`.
+
+Published systems retain the systemd no-multilib profile, official binhost,
+runtime NFS tools, and UTF-8 locales. Cloud-init uses `locale: false` because
+localedef generates the locales during the bake.
+
+`ensure-cloud`, `ensure-headless`, and `ensure` in `yaml/gentoo/` fill missing outputs with `skip`. When all outputs exist,
 they perform no upstream downloads or publication. Node-image ensure operations
 use this presence-only path; ordinary node builds evaluate the headless chain
 first.
 
-To force the regular chain, use `make image-rebuild IMAGE=gentoo-headless`; use
-`IMAGE=gentoo` to force the development image and its upstream chain too. For
-standalone, run `make -C yaml/gentoo-headless build-headless-standalone
-IMAGE_POLICY=overwrite`. Forced builds publish fresh versions and retain old
-ones. Build metadata does not detect changes inside external Portage
-repositories, mirrors, or shared directories; force a rebuild to pick up those
+To force the chain, use `make image-rebuild IMAGE=gentoo-headless`; use
+`IMAGE=gentoo` to force the development image and its upstream chain too.
+Forced builds publish fresh versions and retain old ones. Build metadata does
+not detect changes inside external Portage repositories, mirrors, or shared
+directories; force a rebuild to pick up those
 changes when the declared inputs and upstream image checksum are unchanged.
 
 ## Import ownership
@@ -137,10 +160,9 @@ Conditional builds do not detect changes in external package repositories or
 host-mounted directories. Use `image-rebuild` when those undeclared inputs
 must be refreshed. Direct CLI invocation requires preparing dependencies first.
 
-For direct Gentoo CLI use, run `make -C yaml/gentoo-headless build-cloud` before
-invoking either headless YAML. Their Make build targets prepare the source
-automatically, including with parallel Make. "Standalone" refers to the absence
-of host-side mounts during the bake, not to importing dependencies in its YAML.
+For direct Gentoo CLI use, run `make -C yaml/gentoo build-cloud` before
+invoking the headless YAML. Its Make build targets prepare the source
+automatically, including with parallel Make.
 
 The shared VirtIO-Win medium belongs to `yaml/virtio-win/`; the Windows Server
 installation ISO belongs to `yaml/windows-server-media/`. Both Windows recipes
@@ -168,7 +190,7 @@ artifacts above.
 
 | Image | Directory | Artifact and use |
 | --- | --- | --- |
-| `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo-headless/` when needed. |
+| `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo/` when needed. |
 | `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures `multi-os` first. |
 | `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, FreeBSD 14, and Alpine 3.21 base disks used by cloud-init tests and as the VM-image build base. |
 | `virtio-win` | `yaml/virtio-win/` | Shared, pinned `virtio-win-iso` installation medium. |
@@ -176,8 +198,8 @@ artifacts above.
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
 | `key` | `integration_tests/keys/` | The SSH keypair embedded in the node and inner-VM images, used by the harness tunnel. |
-| `gentoo-headless` | `yaml/gentoo-headless/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-headless`, and `gentoo-headless-cloudinit`. The headless-cloudinit image is the base for the Corvus development image; `gentoo-headless` is the node-image base. An opt-in target builds `gentoo-headless-cloudinit:standalone`. |
-| `gentoo` | `yaml/gentoo-test/` | `gentoo-corvus-test`, the Corvus development image. Builds or ensures the regular headless chain first. |
+| `gentoo-headless` | `yaml/gentoo/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-headless`, and `gentoo-headless-cloudinit`. The `gentoo-headless` image is the base for both the Corvus development and node images. |
+| `gentoo` | `yaml/gentoo/` | `gentoo-corvus-test`, the Corvus development image. Builds or ensures the regular headless chain first. |
 | `windows-11` | [yaml/windows-11/](../yaml/windows-11/README.md) | `BaseImages/Windows11/<id>-windows-11-pro-base.qcow2`, a generalized, decrypted Windows 11 Pro overlay base. The runtime template gives each VM its own TPM. Requires registered `windows-11-iso` media; missing VirtIO-Win media is downloaded automatically. |
 | `windows-11-desktop` | [yaml/windows-11-desktop/](../yaml/windows-11-desktop/README.md) | Generalized Windows 11 desktop with Total Commander, Firefox, PDF-XChange Editor and Process Explorer; consumes the Windows 11 base and publishes `windows-11-desktop`. |
 | `debian-nginx` | `yaml/debian-nginx/` | `debian-12-nginx`, an example Debian 12 nginx derivative built from the multi-OS Debian base. |

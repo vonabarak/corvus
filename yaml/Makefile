@@ -10,8 +10,9 @@ IMAGE_DIR_windows-server-media := windows-server-media
 IMAGE_DIR_windows := windows-server-2025
 IMAGE_DIR_installer := corvus-test-installer
 IMAGE_DIR_key := ../integration_tests/keys
-IMAGE_DIR_gentoo := gentoo-test
-IMAGE_DIR_gentoo-headless := gentoo-headless
+IMAGE_DIR_gentoo := gentoo
+IMAGE_DIR_gentoo-headless := gentoo
+IMAGE_ARGS_gentoo-headless := HEADLESS_ONLY=1
 IMAGE_DIR_windows-11 := windows-11
 IMAGE_DIR_windows-11-desktop := windows-11-desktop
 IMAGE_DIR_debian-nginx := debian-nginx
@@ -32,27 +33,27 @@ empty :=
 
 image:
 	$(require-image)
-	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) build
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) build $(IMAGE_ARGS_$(IMAGE))
 
 image-ensure:
 	$(require-image)
-	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) ensure
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) ensure $(IMAGE_ARGS_$(IMAGE))
 
 image-clean:
 	$(require-image)
-	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) clean
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) clean $(IMAGE_ARGS_$(IMAGE))
 
 image-rebuild:
 	$(require-image)
-	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) rebuild
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) rebuild $(IMAGE_ARGS_$(IMAGE))
 
 image-check:
 	$(require-image)
-	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) check
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) check $(IMAGE_ARGS_$(IMAGE))
 
 image-cache-clean:
 	$(require-image)
-	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) cache-clean
+	+$(MAKE) -C $(IMAGE_DIR_$(IMAGE)) cache-clean $(IMAGE_ARGS_$(IMAGE))
 
 image-list:
 	@printf '%s\n' $(IMAGES)

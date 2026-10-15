@@ -59,8 +59,7 @@ any companion files like kernel configs or autounattend answer files):
 - [yaml/windows-server-2025/](../yaml/windows-server-2025/) -- Build a Windows Server 2025 image
 - [yaml/windows-11/](../yaml/windows-11/README.md) -- Build a generalized Windows 11 Pro overlay base and template with per-VM TPM
 - [Windows 11 desktop](../yaml/windows-11-desktop/README.md) -- Desktop applications on the managed Windows 11 base
-- [yaml/gentoo-headless/](../yaml/gentoo-headless/) -- Import the Gentoo cloud base and build regular or standalone headless images
-- [yaml/gentoo-test/](../yaml/gentoo-test/) -- Build the Corvus development image from headless Gentoo
+- [yaml/gentoo/](../yaml/gentoo/) -- Import the Gentoo cloud base and build headless and Corvus development images
 - [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
 - [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 26.04 base
 - [yaml/template-example/template-example.yml](../yaml/template-example/template-example.yml) -- Standalone template file

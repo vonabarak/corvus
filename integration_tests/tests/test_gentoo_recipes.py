@@ -29,56 +29,190 @@ class TestGentooRecipes:
     def test_shared_provisioners_and_script_expansion(
         self, recipes: RecipeRunner
     ) -> None:
-        directory = recipes.root / "yaml/gentoo-headless"
+        directory = recipes.root / "yaml/gentoo"
+        source = directory / "gentoo-headless.yml"
+        original = yaml.safe_load(source.read_text())
+        expanded = yaml.safe_load(preprocess_build_yaml(str(source)))
         builds = {}
-        for filename in ("gentoo-headless.yml", "gentoo-headless-standalone.yml"):
-            source = directory / filename
-            original = yaml.safe_load(source.read_text())
-            expanded = yaml.safe_load(preprocess_build_yaml(str(source)))
-            for step, resolved in zip(
-                original["pipeline"], expanded["pipeline"], strict=True
+        for step, resolved in zip(
+            original["pipeline"], expanded["pipeline"], strict=True
+        ):
+            if "build" not in step:
+                continue
+            build = step["build"]
+            builds[build["name"]] = build
+            for provisioner, inline in zip(
+                build["provisioners"], resolved["build"]["provisioners"], strict=True
             ):
-                if "build" not in step:
+                if "shell" not in provisioner:
                     continue
-                build = step["build"]
-                builds[build["name"]] = build
-                for provisioner, inline in zip(
-                    build["provisioners"],
-                    resolved["build"]["provisioners"],
-                    strict=True,
-                ):
-                    if "shell" in provisioner:
-                        script = directory / provisioner["shell"]["script"]
-                        assert "script" not in inline["shell"]
-                        assert inline["shell"]["inline"] == script.read_text()
+                shell = provisioner["shell"]
+                assert "script" not in inline["shell"]
+                expected = (
+                    (directory / shell["script"]).read_text()
+                    if "script" in shell
+                    else shell["inline"]
+                )
+                assert inline["shell"]["inline"] == expected
         assert set(builds) == {
             "gentoo-builder",
             "gentoo-headless",
             "gentoo-headless-cloudinit",
-            "gentoo-headless-cloudinit:standalone",
         }
-        shared = [
-            "partition-disk",
-            "bootstrap-system",
-            "build-kernel",
-            "install-runtime",
-            "install-grub",
-            "configure-system",
+        scripts = [
+            Path(item["shell"]["script"]).stem
+            for item in builds["gentoo-headless"]["provisioners"]
+            if "shell" in item and "script" in item["shell"]
         ]
-        for name in ("gentoo-headless", "gentoo-headless-cloudinit:standalone"):
-            scripts = [
-                Path(item["shell"]["script"]).stem
-                for item in builds[name]["provisioners"]
-                if "shell" in item
-            ]
-            assert [script for script in scripts if script in shared] == shared
-        cloud_scripts = [
-            item["shell"]
-            for item in builds["gentoo-headless-cloudinit"]["provisioners"]
-            if "shell" in item
-            and item["shell"]["script"].endswith("install-cloud-init.sh")
-        ]
-        assert cloud_scripts[0]["env"]["IMAGE_ROOT"] == "/"
+        assert scripts == ["bootstrap-system", "build-kernel", "configure-system"]
+
+    @pytest.mark.parametrize("cache_dir", ["/data/corvus-cache", "/srv/build cache"])
+    def test_cache_directory_forwarded(
+        self, recipes: RecipeRunner, cache_dir: str
+    ) -> None:
+        result = recipes.run("gentoo", "build", (f"GENTOO_CACHE_DIR={cache_dir}",))
+        assert result.returncode == 0, result.stdout + result.stderr
+        calls = [call for call in recipes.calls() if call.command == "crv"]
+        assert len(calls) == 3
+        for call in calls[1:]:
+            assert f"cache_dir={cache_dir}" in call.args
+
+    @pytest.mark.parametrize("fail_mount", [False, True])
+    def test_cache_mounts(self, recipes: RecipeRunner, fail_mount: bool) -> None:
+        doc = yaml.safe_load(
+            (recipes.root / "yaml/gentoo/gentoo-headless.yml").read_text()
+        )
+        script = doc["pipeline"][0]["apply"]["templates"][0]["cloudInitConfig"][
+            "userData"
+        ]["bootcmd"][0][2]
+        log = recipes.root / "mounts"
+        # Redirect mountpoints to the fixture and stub mounts, never mount on the host.
+        script = script.replace("/mnt/corvus-cache", str(recipes.root / "cache"))
+        script = script.replace("/var/cache", str(recipes.root / "guest"))
+        for command, body in {
+            "mountpoint": "exit 1",
+            "mount": 'printf "%s\\n" "$*" >> "$MOUNT_LOG"\n'
+            + ("exit 7" if fail_mount else ":"),
+        }.items():
+            executable = recipes.bin / command
+            executable.write_text("#!/bin/sh\n" + body + "\n")
+            executable.chmod(0o755)
+        result = subprocess.run(
+            ["sh", "-ec", script],
+            env={
+                **os.environ,
+                "PATH": f"{recipes.bin}:{os.environ['PATH']}",
+                "MOUNT_LOG": str(log),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if fail_mount:
+            assert result.returncode == 7
+            assert not (recipes.root / "cache/distfiles").exists()
+            assert len(log.read_text().splitlines()) == 1
+        else:
+            assert result.returncode == 0, result.stderr
+            assert len(log.read_text().splitlines()) == 4
+            for cache in ("distfiles", "binpkgs", "binhost"):
+                assert (recipes.root / "cache" / cache).is_dir()
+                assert (recipes.root / "guest" / cache).is_dir()
+
+    def test_repository_storage_policy(self, recipes: RecipeRunner) -> None:
+        for recipe in ("gentoo-headless", "gentoo-test"):
+            source = recipes.root / f"yaml/gentoo/{recipe}.yml"
+            assert (
+                yaml.safe_load(source.read_text())["vars"]["cache_dir"]
+                == "/data/corvus-cache"
+            )
+            doc = yaml.safe_load(preprocess_build_yaml(str(source)))
+            for step in doc["pipeline"]:
+                for template in step.get("apply", {}).get("templates", []):
+                    shares = template.get("sharedDirs", [])
+                    assert all(share["tag"] == "corvus-cache" for share in shares)
+                    if template["name"] in {
+                        "gentoo-headless",
+                        "gentoo-headless-cloudinit",
+                    }:
+                        assert not shares
+                if "build" not in step:
+                    continue
+                build = step["build"]
+                env = build["shellDefaults"]["env"]
+                assert env["DISTDIR"] == "/mnt/corvus-cache/distfiles"
+                assert env["PKGDIR"] == "/mnt/corvus-cache/binpkgs"
+                assert {"-userfetch", "-userpriv"} <= set(env["FEATURES"].split())
+                shell = "\n".join(
+                    item["shell"]["inline"]
+                    for item in build["provisioners"]
+                    if "shell" in item
+                )
+                if build["name"] in {"gentoo-headless-cloudinit", "gentoo-corvus-test"}:
+                    assert shell.index(
+                        "mount -t tmpfs tmpfs /var/db/repos"
+                    ) < shell.index("emerge-webrsync -k")
+                else:
+                    assert "mount -t tmpfs" not in shell
+                assert "emerge-webrsync -k" in shell
+                if build["name"] in {"gentoo-builder", "gentoo-headless"}:
+                    # Native BDEPENDs read the builder's configuration separately;
+                    # shell environment overrides alone do not cover that root.
+                    assert 'DISTDIR="/mnt/corvus-cache/distfiles"' in shell
+                    assert 'PKGDIR="/mnt/corvus-cache/binpkgs"' in shell
+                    assert 'FEATURES="${FEATURES} -userfetch -userpriv' in shell
+                for line in shell.splitlines():
+                    if (
+                        not line.lstrip().startswith("#")
+                        and " emerge " in " " + line
+                        and not any(flag in line for flag in ("--sync", "--config"))
+                    ):
+                        args = line.split()
+                        # The development package itself is deliberately rebuilt;
+                        # its dependencies still populate the binary cache.
+                        if (
+                            build["name"] == "gentoo-corvus-test"
+                            and args[0] == "emerge"
+                            and args[-1] == "app-emulation/corvus"
+                            and "--onlydeps" not in args
+                        ):
+                            continue
+                        assert "--buildpkg" in line
+
+    def test_target_finalization_without_cache_mounts(
+        self, recipes: RecipeRunner
+    ) -> None:
+        doc = yaml.safe_load(
+            (recipes.root / "yaml/gentoo/gentoo-headless.yml").read_text()
+        )
+        script = doc["pipeline"][1]["build"]["provisioners"][-1]["shell"]["inline"]
+        root = recipes.root / "target"
+        (root / "etc").mkdir(parents=True)
+        log = recipes.root / "unmounts"
+        for command, body in {
+            "sync": ":",
+            "umount": 'echo "$1" >> "$MOUNT_LOG"',
+        }.items():
+            executable = recipes.bin / command
+            executable.write_text("#!/bin/sh\n" + body + "\n")
+            executable.chmod(0o755)
+        result = subprocess.run(
+            ["sh", "-eu", "-c", script],
+            env={
+                **os.environ,
+                "PATH": f"{recipes.bin}:{os.environ['PATH']}",
+                "IMAGE_ROOT": str(root),
+                "CORVUS_BUILD_NAME": "test",
+                "MOUNT_LOG": str(log),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert log.read_text().splitlines() == [str(root)]
+        bootstrap = recipes.root / "yaml/gentoo/scripts/bootstrap-system.sh"
+        assert "mount --bind" not in bootstrap.read_text()
 
     @pytest.mark.parametrize("fail_install", [False, True])
     def test_cloud_init_configuration(
@@ -101,9 +235,7 @@ class TestGentooRecipes:
             [
                 "sh",
                 "-eu",
-                str(
-                    recipes.root / "yaml/gentoo-headless/scripts/install-cloud-init.sh"
-                ),
+                str(recipes.root / "yaml/gentoo/scripts/install-cloud-init.sh"),
             ],
             env={
                 **os.environ,
@@ -127,65 +259,45 @@ class TestGentooRecipes:
                 "locale": False,
             }
         assert f"--root={root}" in log.read_text().splitlines()
+        assert "--buildpkg" in log.read_text().splitlines()
 
     @pytest.mark.parametrize(
         "recipe,target,variables,pipelines,policy",
         [
-            ("gentoo-headless", "build-cloud", (), ["gentoo-cloud"], "update"),
+            ("gentoo", "build-cloud", (), ["gentoo-cloud"], "update"),
             (
-                "gentoo-headless",
+                "gentoo",
                 "build",
                 (),
-                ["gentoo-cloud", "gentoo-headless"],
+                ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
                 "update",
             ),
             (
-                "gentoo-headless",
+                "gentoo",
                 "build-headless",
                 (),
                 ["gentoo-cloud", "gentoo-headless"],
                 "update",
             ),
             (
-                "gentoo-test",
-                "build",
-                (),
-                ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
-                "update",
-            ),
-            (
-                "gentoo-test",
+                "gentoo",
                 "build-test",
                 (),
                 ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
                 "update",
             ),
             (
-                "gentoo-headless",
+                "gentoo",
                 "rebuild",
-                (),
+                ("HEADLESS_ONLY=1",),
                 ["gentoo-cloud", "gentoo-headless"],
                 "overwrite",
             ),
             (
-                "gentoo-test",
+                "gentoo",
                 "rebuild",
                 ("IMAGE_POLICY=skip",),
                 ["gentoo-cloud", "gentoo-headless", "gentoo-test"],
-                "overwrite",
-            ),
-            (
-                "gentoo-headless",
-                "build-headless-standalone",
-                (),
-                ["gentoo-cloud", "gentoo-headless-standalone"],
-                "update",
-            ),
-            (
-                "gentoo-headless",
-                "build-headless-standalone",
-                ("IMAGE_POLICY=overwrite",),
-                ["gentoo-cloud", "gentoo-headless-standalone"],
                 "overwrite",
             ),
             (
@@ -237,7 +349,7 @@ class TestGentooRecipes:
         for build in builds:
             assert (build.cwd / build.args[1]).is_file()
 
-    @pytest.mark.parametrize("recipe", ["gentoo-headless", "gentoo-test"])
+    @pytest.mark.parametrize("recipe", ["gentoo"])
     @pytest.mark.parametrize("target", ["ensure", "check"])
     def test_existing_outputs_are_reused(
         self, recipes: RecipeRunner, recipe: str, target: str
@@ -253,20 +365,20 @@ class TestGentooRecipes:
         "recipe,target,missing,pipeline,downloads",
         [
             (
-                "gentoo-headless",
+                "gentoo",
                 "ensure-cloud",
                 "disk:gentoo-cloud",
                 "gentoo-cloud.yml",
                 2,
             ),
             (
-                "gentoo-headless",
+                "gentoo",
                 "ensure-headless",
                 "disk:gentoo-headless",
                 "gentoo-headless.yml",
                 0,
             ),
-            ("gentoo-test", "ensure", "disk:gentoo-corvus-test", "gentoo-test.yml", 0),
+            ("gentoo", "ensure", "disk:gentoo-corvus-test", "gentoo-test.yml", 0),
         ],
     )
     def test_ensure_missing_outputs(
@@ -304,46 +416,25 @@ class TestGentooRecipes:
     def test_failure_stops_downstream_stages(
         self, recipes: RecipeRunner, env: dict[str, str], completed: list[str]
     ) -> None:
-        result = recipes.run("gentoo-test", "build", env=env)
+        result = recipes.run("gentoo", "build", env=env)
         assert result.returncode != 0
         assert [
             call.args[1] for call in recipes.calls() if call.args[0] == "build"
         ] == completed
 
     def test_ensure_lookup_error_stops_publication(self, recipes: RecipeRunner) -> None:
-        result = recipes.run("gentoo-test", "ensure", env={"LOOKUP_ERROR": "1"})
+        result = recipes.run("gentoo", "ensure", env={"LOOKUP_ERROR": "1"})
         assert result.returncode != 0
         assert all(
             call.command == "crv" and call.args[0] == "-o" for call in recipes.calls()
         )
 
     @pytest.mark.parametrize(
-        "env,attempted",
-        [
-            ({"DOWNLOAD_ERROR": "manifest"}, []),
-            ({"DOWNLOAD_ERROR": "checksum"}, []),
-            ({"INVALID_DOWNLOAD": "manifest"}, []),
-            ({"INVALID_DOWNLOAD": "checksum"}, []),
-            ({"FAIL_BUILD": "gentoo-cloud.yml"}, ["gentoo-cloud.yml"]),
-        ],
-    )
-    def test_standalone_import_failure_stops_build(
-        self, recipes: RecipeRunner, env: dict[str, str], attempted: list[str]
-    ) -> None:
-        """The standalone derivative must wait for a successful source command."""
-        result = recipes.run("gentoo-headless", "build-headless-standalone", env=env)
-        assert result.returncode != 0
-        assert [
-            call.args[1] for call in recipes.calls() if call.args[0] == "build"
-        ] == attempted
-
-    @pytest.mark.parametrize(
         "recipe",
         [
-            "gentoo-headless/gentoo-cloud.yml",
-            "gentoo-headless/gentoo-headless.yml",
-            "gentoo-headless/gentoo-headless-standalone.yml",
-            "gentoo-test/gentoo-test.yml",
+            "gentoo/gentoo-cloud.yml",
+            "gentoo/gentoo-headless.yml",
+            "gentoo/gentoo-test.yml",
         ],
     )
     @pytest.mark.parametrize("policy", ["update", "skip", "overwrite"])
@@ -402,5 +493,5 @@ class TestGentooRecipes:
                         kernel_inputs.append(
                             base64.b64decode(provisioner["file"]["content"])
                         )
-        if source.name in {"gentoo-headless.yml", "gentoo-headless-standalone.yml"}:
+        if source.name == "gentoo-headless.yml":
             assert kernel_inputs == [(source.parent / "gentoo-kernel").read_bytes()]

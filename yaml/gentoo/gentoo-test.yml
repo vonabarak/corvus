@@ -1,31 +1,59 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
-# `make build` updates ../gentoo-headless before evaluating this build.
+# `make build` updates the headless chain before evaluating this build.
 vars:
   image_if_exists: update
+  cache_dir: /data/corvus-cache
 
 pipeline:
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: gentoo-test-builder
+          cpuCount: 8
+          ram: 16G
+          cloudInit: false
+          guestAgent: true
+          headless: true
+          description: "Gentoo test VM builder"
+          drives:
+            - diskImage: gentoo-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              size: 40G
+          sharedDirs: 
+            - path: "{{ cache_dir }}"
+              tag: corvus-cache
+          networkInterfaces:
+            - network: corvus
+          sshKeys: 
+            - name: corvus
+
   - build:
       name: gentoo-corvus-test
       description: Gentoo image preloaded with everything Corvus builds against
-      template: gentoo-headless-cloudinit
+      template: gentoo-test-builder
+      strategy: overlay
 
       target:
         ifExists: "{{ image_if_exists }}"
         compact: true
 
-      strategy: overlay
-
-      vm:
-        cpuCount: 8
-        # Node.js / V8 source builds peak at ~1.5 GB per cc1plus
-        # process; with MAKEOPTS=-j$(nproc) and 8 cores we saw the
-        # bake VM hit OOM at 8 GB. 16 GB gives enough headroom.
-        ram: 16G
-
       shellDefaults:
         preamble: "set -eux"
+        # The host share supports guest root, but may not map the portage UID.
+        env:
+          FEATURES: "-userfetch -userpriv"
+          DISTDIR: /mnt/corvus-cache/distfiles
+          PKGDIR: /mnt/corvus-cache/binpkgs
 
       provisioners:
+        - shell:
+            inline: |
+              growpart /dev/vda 2
+              resize2fs /dev/vda2
+        
         - shell:
             inline: |
               for i in $(seq 1 60); do
@@ -38,28 +66,34 @@ pipeline:
 
         - shell:
             inline: |
-              mkdir -p /var/cache/distfiles /var/db/repos /mnt/corvus
-
-              # /var/cache/binpkgs is the writable corvus-specific
-              # binhost cache (same export gentoo-headless.yml's
-              # gentoo-cloud template mounts at line ~61): all_squash
-              # with anonuid=1000 on the host side means writes from
-              # any guest UID land as bobr on disk. Mounting it rw
-              # lets this bake contribute its source-built packages
-              # back into the shared cache so subsequent bakes (and
-              # gentoo-builder rebuilds) read them as binpkgs instead
-              # of recompiling. nfs4 + vers=4.2 also matches the
-              # other binpkgs_corvus mounts in the pipeline.
-              cat >> /etc/fstab <<'EOF'
-              192.168.72.1:/data/portage/distfiles /var/cache/distfiles nfs rw 0 0
-              192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0
-              192.168.72.1:/var/db/repos /var/db/repos nfs ro 0 0
-              192.168.72.1:/home/bobr/Work/corvus /mnt/corvus nfs rw 0 0
-              EOF
-
-              systemctl daemon-reload
-              mount -a
+              set -eu
+              mkdir -p /mnt/corvus-cache
+              mountpoint -q /mnt/corvus-cache || mount -t virtiofs corvus-cache /mnt/corvus-cache
+              for cache in distfiles binpkgs binhost; do
+                mkdir -p "/mnt/corvus-cache/$cache" "/var/cache/$cache"
+                mountpoint -q "/var/cache/$cache" || mount --bind "/mnt/corvus-cache/$cache" "/var/cache/$cache"
+                # Check directory creation and file writes, as binary packages need both.
+                probe=$(mktemp -d "/var/cache/$cache/.corvus-write-test.XXXXXX") || {
+                  echo "Cache /var/cache/$cache is not writable through virtiofs. Fix ownership and permissions of $cache on the execution node for the user running virtiofsd." >&2
+                  exit 1
+                }
+                if ! (umask 077; : > "$probe/package"); then
+                  rmdir "$probe"
+                  echo "Cannot write files in cache /var/cache/$cache; check host cache permissions." >&2
+                  exit 1
+                fi
+                rm "$probe/package"
+                rmdir "$probe"
+              done
+              mkdir -p /var/db/repos
+              mount -t tmpfs tmpfs /var/db/repos
             timeoutSec: 60
+
+        - shell:
+            inline: |
+              emerge-webrsync -k 
+              emerge --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git
+            timeoutSec: 600
 
         - shell:
             inline: |
@@ -78,13 +112,6 @@ pipeline:
               app-admin/haskell-updater ~amd64
               EOF
 
-              # /etc/portage/repos.conf is a DIRECTORY in the
-              # gentoo-headless image (stage 2 of
-              # gentoo-headless.yml lays it out that way to match
-              # the modern Gentoo convention of dropping one .conf
-              # per overlay). Write our extra overlays into
-              # repos.conf/corvus.conf instead of trying to clobber
-              # the directory with a flat file.
               install -d /etc/portage/repos.conf
               cat > /etc/portage/repos.conf/corvus.conf <<'EOF'
               [vonabarak]
@@ -99,25 +126,13 @@ pipeline:
               EOF
             timeoutSec: 60
 
+
         - shell:
             inline: |
-              emerge --noreplace --usepkg --buildpkg --quiet-build \
-                app-emulation/qemu \
-                app-crypt/swtpm \
-                net-misc/vde \
-                net-dns/dnsmasq \
-                net-firewall/nftables \
-                app-emulation/virtiofsd \
-                app-cdr/cdrtools \
-                sys-firmware/edk2-bin \
-                dev-db/postgresql \
-                dev-vcs/git \
-                net-misc/curl \
-                app-misc/jq \
-                dev-util/ghcup-bin \
-                app-editors/vim \
-                app-emulation/corvus
-            timeoutSec: 14400
+              emerge --sync
+              emerge --usepkg --buildpkg --quiet-build --onlydeps app-emulation/corvus
+              emerge --verbose app-emulation/corvus
+            timeoutSec: 14400  # 4 hours
 
         - shell:
             inline: |
@@ -215,12 +230,44 @@ pipeline:
             timeoutSec: 60
 
         - shell:
+            script: ./scripts/install-cloud-init.sh
+            env:
+              IMAGE_ROOT: /
+            timeoutSec: 1800
+
+        - shell:
             inline: |
-              install -d /etc/cloud/cloud.cfg.d
-              cat > /etc/cloud/cloud.cfg.d/91_corvus_kvm.cfg <<'EOF'
-              runcmd:
-                - getent group kvm >/dev/null && id corvus >/dev/null 2>&1 && usermod -aG kvm corvus || true
+              cloud-init clean --logs
+            timeoutSec: 30
+
+        - shell:
+            inline: |
+              cat > /etc/issue <<'EOF'
+              Gentoo Linux with Corvus installed
+
+              Log in as corvus. Passwordless sudo is available.
+              Set up Corvus:
+                corvus-admin quickstart      Configure and start a local node
+
+              Corvus commands after setup:
+                crv node list                List registered nodes
+                crv vm list                  List virtual machines
+                crv vm start NAME            Start a virtual machine
+                crv vm stop NAME             Stop a virtual machine
+                crv --help                   Show commands and options
+                corvus-admin --help          Show administration commands
+
               EOF
+              # Gentoo PAM displays /etc/motd; suppress duplicate SSH banners.
+              install -d /etc/ssh/sshd_config.d
+              cat > /etc/ssh/sshd_config.d/90-corvus-banner.conf <<'EOF'
+              Banner none
+              PrintMotd no
+              EOF
+              # Share the console banner with the PAM login message.
+              ln -sf /etc/issue /etc/motd
+              sshd -t
+              cat /etc/issue
             timeoutSec: 30
 
         - shell:
@@ -244,11 +291,11 @@ pipeline:
       vms:
         - name: gentoo-corvus-test
           cpuCount: 8
-          ram: 8G
+          ram: 16G
           cloudInit: true
           guestAgent: true
           headless: true
-          description: "Test VM for Corvus"
+          description: "Test Gentoo VM for Corvus"
           drives:
             - disk: gentoo-corvus-test
               interface: virtio
@@ -258,3 +305,12 @@ pipeline:
             - network: corvus
           sshKeys:
             - corvus
+          cloudInitConfig:
+            userData:
+              runcmd:
+                  - [ passwd, -d, root ]
+              users:
+                - name: corvus
+                  groups: [kvm]
+                  sudo: "ALL=(ALL) NOPASSWD:ALL"
+                  shell: /bin/bash

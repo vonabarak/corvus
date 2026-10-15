@@ -1,8 +1,6 @@
 #!/bin/sh
-# Install into either the standalone sysroot or the regular overlay's root.
-# Retain the Python build helpers in both images. Otherwise an overlay build
-# leaves them in the image while a sysroot build installs them on the bake host.
-env -u SYSROOT emerge --sysroot="$IMAGE_ROOT" --root="$IMAGE_ROOT" \
+# Install Cloud-init and its Python build helpers into the overlay root.
+env -u SYSROOT emerge --buildpkg --sysroot="$IMAGE_ROOT" --root="$IMAGE_ROOT" \
   --noreplace --usepkg --binpkg-respect-use=y --quiet-build \
   app-emulation/cloud-init \
   dev-python/gpep517 \

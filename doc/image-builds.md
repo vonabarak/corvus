@@ -322,11 +322,11 @@ publishes a fresh version.
 
 Combine disk-level `ifExists: update` and a verified import checksum with build
 `target.ifExists: update`: the dedicated
-[`gentoo-cloud.yml`](../yaml/gentoo-headless/gentoo-cloud.yml) recipe
+[`gentoo-cloud.yml`](../yaml/gentoo/gentoo-cloud.yml) recipe
 owns the import, while
-[`gentoo-headless-standalone.yml`](../yaml/gentoo-headless/gentoo-headless-standalone.yml)
-consumes that registered image. `make -C yaml/gentoo-headless
-build-headless-standalone` runs the import recipe before the build recipe in
+[`gentoo-headless.yml`](../yaml/gentoo/gentoo-headless.yml)
+consumes that registered image. `make -C yaml/gentoo
+build-headless` runs the import recipe before the build recipe in
 separate CLI invocations, forwarding the selected policy to both.
 An unchanged checksum keeps the source version and skips matching downstream
 builds. A new import or rebuilt intermediate artifact changes its image ID, so
@@ -760,20 +760,18 @@ once before building):
   Debian 12 with nginx preinstalled (`debian12` template).
 - [yaml/ubuntu-nginx/ubuntu-nginx.yml](../yaml/ubuntu-nginx/ubuntu-nginx.yml) —
   Ubuntu 26.04 LTS with nginx preinstalled (`ubuntu26` template).
-- [yaml/gentoo-test/gentoo-test.yml](../yaml/gentoo-test/gentoo-test.yml) —
+- [yaml/gentoo/gentoo-test.yml](../yaml/gentoo/gentoo-test.yml) —
   Gentoo image preloaded with the full Corvus build/test toolchain
-  (`gentoo-headless-cloudinit` template). The bake takes ~15 minutes.
+  (`gentoo-headless` image), with a persistent virtiofs package cache and
+  repositories on tmpfs during the bake.
 
 From-scratch builds:
 
-- [yaml/gentoo-headless/gentoo-headless.yml](../yaml/gentoo-headless/gentoo-headless.yml) —
+- [yaml/gentoo/gentoo-headless.yml](../yaml/gentoo/gentoo-headless.yml) —
   minimal headless Gentoo on an empty target disk, custom kernel
   (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
-  kernel `.config` next to the YAML.
-- [yaml/gentoo-headless/gentoo-headless-standalone.yml](../yaml/gentoo-headless/gentoo-headless-standalone.yml) —
-  headless Gentoo built using official mirrors without host-side mounts.
-  Run `make -C yaml/gentoo-headless build-headless-standalone` to resolve
-  and check the current upstream image before building.
+  kernel `.config` next to the YAML. Uses official mirrors and a persistent
+  virtiofs cache; see [Gentoo cache setup](test-images.md).
 - [yaml/corvus-test-vm/corvus-test-vm.yml](../yaml/corvus-test-vm/corvus-test-vm.yml) —
   the integration-test Alpine image (BIOS+UEFI, sshd, qemu-ga,
   vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian

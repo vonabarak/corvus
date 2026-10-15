@@ -1,0 +1,417 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Regular Gentoo headless pipeline: cached builder, headless, then Cloud-init.
+# `make build-headless` prepares the shared gentoo-cloud import first.
+# Larger provisioning steps live in scripts/; small steps stay inline.
+
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+
+pipeline:
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: gentoo-cloud
+          cpuCount: 8
+          ram: 8G
+          cloudInit: true
+          guestAgent: true
+          startupTimeoutSec: 1200
+          description: "Gentoo cloud-init bake host (stage 1)"
+          cloudInitConfig:
+            userData:
+              bootcmd:
+                - - sh
+                  - -ec
+                  - &mount_build_caches |
+                      set -eu
+                      mkdir -p /mnt/corvus-cache
+                      mountpoint -q /mnt/corvus-cache || mount -t virtiofs corvus-cache /mnt/corvus-cache
+                      for cache in distfiles binpkgs binhost; do
+                        mkdir -p "/mnt/corvus-cache/$cache" "/var/cache/$cache"
+                        mountpoint -q "/var/cache/$cache" || mount --bind "/mnt/corvus-cache/$cache" "/var/cache/$cache"
+                        # Check directory creation and file writes, as binary packages need both.
+                        probe=$(mktemp -d "/var/cache/$cache/.corvus-write-test.XXXXXX") || {
+                          echo "Cache /var/cache/$cache is not writable through virtiofs. Fix ownership and permissions of $cache on the execution node for the user running virtiofsd." >&2
+                          exit 1
+                        }
+                        if ! (umask 077; : > "$probe/package"); then
+                          rmdir "$probe"
+                          echo "Cannot write files in cache /var/cache/$cache; check host cache permissions." >&2
+                          exit 1
+                        fi
+                        rm "$probe/package"
+                        rmdir "$probe"
+                      done
+              runcmd:
+                - |
+                  set -eu
+                  export FEATURES="${FEATURES:-} -userfetch -userpriv"
+                  # Cloud-init may continue after a failed bootcmd. Require all caches.
+                  for path in /mnt/corvus-cache /var/cache/distfiles /var/cache/binpkgs /var/cache/binhost; do
+                    mountpoint -q "$path" || exit 1
+                  done
+                  cat >> /etc/portage/make.conf <<'EOF'
+                  DISTDIR="/mnt/corvus-cache/distfiles"
+                  PKGDIR="/mnt/corvus-cache/binpkgs"
+                  FEATURES="${FEATURES} -userfetch -userpriv buildpkg binpkg-multi-instance getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
+                  EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
+                  GPG_VERIFY_USER_DROP=""
+                  GPG_VERIFY_GROUP_DROP=""
+                  EOF
+                  mkdir -p /etc/portage/binrepos.conf
+                  cat > /etc/portage/binrepos.conf/gentoo.conf <<'EOF'
+                  [binhost]
+                  location = /mnt/corvus-cache/binhost/binhost
+                  priority = 9999
+                  sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
+                  verify-signature = false
+                  EOF
+                  LC_ALL=C localedef -i C -f UTF-8 C.UTF-8
+                  emerge-webrsync -k
+                  emerge --buildpkg --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
+                  systemctl enable --now qemu-guest-agent.service
+          sharedDirs: &cache_share
+            - path: "{{ cache_dir }}"
+              tag: corvus-cache
+          drives:
+            - diskImage: gentoo-cloud:latest
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - diskImage: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImage: ovmf-vars
+              interface: pflash
+              strategy: clone
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+
+  - build:
+      name: gentoo-builder
+      description: Gentoo bake host with builder tools pre-installed
+      template: gentoo-cloud
+
+      target:
+        ifExists: "{{ image_if_exists }}"
+        format: qcow2
+        size: 12G
+        path: BaseImages/Gentoo/
+        compact: true
+        ephemeral: true
+
+      strategy: overlay
+
+      vm:
+        cpuCount: 8
+        ram: 8G
+
+      shellDefaults:
+        preamble: "set -eux"
+        # The host share supports guest root, but may not map the portage UID.
+        env:
+          FEATURES: "-userfetch -userpriv"
+          DISTDIR: /mnt/corvus-cache/distfiles
+          PKGDIR: /mnt/corvus-cache/binpkgs
+
+      provisioners:
+        - shell:
+            inline: &wait_for_network |
+              for i in $(seq 1 60); do
+                getent hosts distfiles.gentoo.org >/dev/null && break
+                sleep 2
+              done
+              getent hosts distfiles.gentoo.org >/dev/null \
+                || { echo "network never came up after 120s" >&2; exit 1; }
+            timeoutSec: 130
+        - shell:
+            inline: *mount_build_caches
+            timeoutSec: 180
+        - shell:
+            script: ./scripts/prepare-bake-host.sh
+            timeoutSec: 7200
+        - shell:
+            inline: &finalize_image |
+              cat > "$IMAGE_ROOT/etc/corvus-image-info" <<EOF
+              image: $CORVUS_BUILD_NAME
+              built: $(date -Iseconds)
+              EOF
+
+              sync
+              if [ "$IMAGE_ROOT" != / ]; then
+                umount "$IMAGE_ROOT"
+              fi
+            env:
+              IMAGE_ROOT: /
+            timeoutSec: 300
+
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: gentoo-builder-bake
+          cpuCount: 8
+          ram: 8G
+          cloudInit: true
+          guestAgent: true
+          startupTimeoutSec: 1200
+          description: "Gentoo builder bake VM (stage 2's bake host)"
+          sharedDirs: *cache_share
+          drives:
+            - diskImage: gentoo-builder
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - diskImage: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImage: ovmf-vars
+              interface: pflash
+              strategy: clone
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+
+  - build:
+      name: gentoo-headless
+      description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4) — no cloud-init
+      template: gentoo-builder-bake
+
+      target:
+        ifExists: "{{ image_if_exists }}"
+        format: qcow2
+        size: 20G
+        path: BaseImages/Gentoo/
+        compact: true
+
+      strategy: from-scratch
+
+      vm:
+        cpuCount: 8
+        ram: 8G
+
+      shellDefaults:
+        preamble: "set -eux"
+        # The host share supports guest root, but may not map the portage UID.
+        env:
+          FEATURES: "-userfetch -userpriv"
+          DISTDIR: /mnt/corvus-cache/distfiles
+          PKGDIR: /mnt/corvus-cache/binpkgs
+          SYSROOT: /mnt/sysroot
+          DEV: /dev/vdb
+
+      provisioners:
+        - shell:
+            inline: *wait_for_network
+            timeoutSec: 130
+        - shell:
+            inline: *mount_build_caches
+            timeoutSec: 180
+        - shell:
+            inline: env -u SYSROOT emerge-webrsync -k
+            timeoutSec: 600
+        - file:
+            from: ./gentoo-kernel
+            to: /tmp/gentoo-kernel-config
+            mode: "0644"
+        - shell:
+            inline: |
+              wipefs -a "$DEV"
+              sgdisk --zap-all "$DEV"
+              sgdisk -n 1:0:+1M  -t 1:ef02 -c 1:bios "$DEV"
+              sgdisk -n 2:0:0    -t 2:8300 -c 2:root "$DEV"
+              partprobe "$DEV" || sleep 2
+
+              mkfs.ext4 -F -L corvus-root "${DEV}2"
+            timeoutSec: 120
+        - shell:
+            script: ./scripts/bootstrap-system.sh
+            timeoutSec: 7200
+
+        - shell:
+            script: ./scripts/build-kernel.sh
+            timeoutSec: 14400
+
+        - shell:
+            inline: |
+              # Build natively against the bake host, as in the @system bootstrap. Treating
+              # this same-architecture root as a cross-compilation sysroot makes Rust bindgen
+              # look for build-host libclang inside the unfinished image.
+              # Keep thin-provisioning-tools explicit: it was shipped by the regular flavor,
+              # but Portage can treat it as a bake-host dependency when installing LVM.
+              env -u SYSROOT ROOT="$SYSROOT" emerge --buildpkg --quiet-build \
+                app-emulation/qemu-guest-agent \
+                mail-mta/msmtp \
+                app-admin/sudo \
+                sys-fs/growpart \
+                net-fs/nfs-utils \
+                sys-block/thin-provisioning-tools \
+                app-editors/vim \
+                app-shells/bash-completion
+            timeoutSec: 1800
+
+        - shell:
+            inline: |
+              grub-install --target=i386-pc --boot-directory="$SYSROOT/boot" "$DEV"
+
+              KERNEL=$(cd "$SYSROOT/boot" && ls -1t vmlinuz-* 2>/dev/null | grep -v '\.old$' | head -1)
+              test -n "$KERNEL"
+              ln -sf "$KERNEL" "$SYSROOT/boot/vmlinuz"
+
+              install -d "$SYSROOT/boot/grub"
+              cat > "$SYSROOT/boot/grub/grub.cfg" <<EOF
+              set timeout=0
+              set default=0
+
+              insmod part_gpt
+              insmod ext2
+              insmod search_label
+
+              serial --unit=0 --speed=115200
+              terminal_input serial console
+              terminal_output serial console
+
+              menuentry 'Gentoo Linux (custom kernel)' {
+                  search --set=root --label corvus-root
+                  linux /boot/$KERNEL root=/dev/vda2 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
+              }
+              EOF
+            timeoutSec: 600
+
+        - shell:
+            script: ./scripts/configure-system.sh
+            timeoutSec: 120
+
+        - shell:
+            inline: *finalize_image
+            env:
+              IMAGE_ROOT: /mnt/sysroot
+            timeoutSec: 300
+
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: gentoo-headless-bake
+          cpuCount: 8
+          ram: 8G
+          cloudInit: false
+          guestAgent: true
+          startupTimeoutSec: 1200
+          headless: true
+          description: "Gentoo headless bake VM (stage 3's bake host)"
+          sharedDirs: *cache_share
+          drives:
+            - diskImage: gentoo-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+          networkInterfaces:
+            - network: corvus
+
+  - build:
+      name: gentoo-headless-cloudinit
+      description: gentoo-headless + cloud-init (NoCloud datasource)
+      template: gentoo-headless-bake
+
+      target:
+        ifExists: "{{ image_if_exists }}"
+        format: qcow2
+        path: BaseImages/Gentoo/
+        compact: true
+
+      strategy: overlay
+
+      vm:
+        cpuCount: 8
+        ram: 8G
+
+      shellDefaults:
+        preamble: "set -eux"
+        # The host share supports guest root, but may not map the portage UID.
+        env:
+          FEATURES: "-userfetch -userpriv"
+          DISTDIR: /mnt/corvus-cache/distfiles
+          PKGDIR: /mnt/corvus-cache/binpkgs
+
+      provisioners:
+        - shell:
+            inline: *wait_for_network
+            timeoutSec: 130
+        - shell:
+            inline: *mount_build_caches
+            timeoutSec: 180
+        - shell:
+            # Runtime overlays keep the repository out of the resulting disk.
+            inline: |
+              mkdir -p /var/db/repos
+              mount -t tmpfs tmpfs /var/db/repos
+              emerge-webrsync -k
+            timeoutSec: 180
+
+        - shell:
+            script: ./scripts/install-cloud-init.sh
+            env:
+              IMAGE_ROOT: /
+            timeoutSec: 1800
+        - shell:
+            inline: *finalize_image
+            env:
+              IMAGE_ROOT: /
+            timeoutSec: 300
+
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: gentoo-headless
+          cpuCount: 8
+          ram: 16G
+          cloudInit: false
+          guestAgent: true
+          headless: true
+          description: "Gentoo headless (no cloud-init)"
+          drives:
+            - diskImage: gentoo-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              size: 20G  # same size as the base
+          networkInterfaces:
+            - network: corvus
+
+        - name: gentoo-headless-cloudinit
+          cpuCount: 8
+          ram: 16G
+          cloudInit: true
+          guestAgent: true
+          headless: true
+          description: "Gentoo headless (with cloud-init)"
+          drives:
+            - diskImage: gentoo-headless-cloudinit
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              size: 40G  # Cloud-init expand the root partition automatically
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+          cloudInitConfig:
+            userData:
+              runcmd:
+                - [ passwd, -d, root ]

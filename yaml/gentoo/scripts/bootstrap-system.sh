@@ -13,10 +13,14 @@ install -d "$SYSROOT/etc/portage" \
            "$SYSROOT/etc/portage/binrepos.conf" \
            "$SYSROOT/var/cache/distfiles" \
            "$SYSROOT/var/cache/binpkgs" \
+           "$SYSROOT/var/cache/binhost" \
            "$SYSROOT/var/db/repos" \
            "$SYSROOT/usr/bin" \
            "$SYSROOT/usr/lib" \
            "$SYSROOT/usr/lib64"
+
+# Cache paths are supplied explicitly in the build environment. Keep these
+# runtime directories empty; no host cache mounts are needed inside SYSROOT.
 
 ln -sf bin       "$SYSROOT/usr/sbin"
 ln -sf usr/bin   "$SYSROOT/bin"
@@ -37,7 +41,9 @@ CXXFLAGS="${COMMON_FLAGS}"
 FCFLAGS="${COMMON_FLAGS}"
 FFLAGS="${COMMON_FLAGS}"
 
-FEATURES="getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
+DISTDIR="/var/cache/distfiles"
+PKGDIR="/var/cache/binpkgs"
+FEATURES="buildpkg binpkg-multi-instance getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
 EMERGE_DEFAULT_OPTS="--getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
 ACCEPT_LICENSE="*"
 USE="bash-completion"
@@ -119,9 +125,24 @@ sys-apps/util-linux build
 sys-libs/pam -systemd
 EOF
 
+# Native build dependencies (BDEPEND, e.g. rust-bin) use the bake host's
+# configuration, not the target's environment. Configure both roots: the
+# shell defaults cover the target, and this block covers native dependencies
+# and interactive recovery commands, including with an older builder image.
+cat >> /etc/portage/make.conf <<'EOF'
+DISTDIR="/mnt/corvus-cache/distfiles"
+PKGDIR="/mnt/corvus-cache/binpkgs"
+FEATURES="${FEATURES} -userfetch -userpriv"
+EOF
+install -d /etc/portage/binrepos.conf
+cat > /etc/portage/binrepos.conf/zz-corvus-cache.conf <<'EOF'
+[binhost]
+location = /mnt/corvus-cache/binhost/binhost
+EOF
+
 # Install @system using the bake VM's repository and package caches.
 # The bake VM's /etc/portage drives dependency resolution for this native
-# amd64 systemd build, whether its sources are mounted or downloaded.
+# amd64 systemd build, with sources downloaded into the shared cache.
 #
 # `env -u SYSROOT` is critical: this pipeline exports a
 # shell-level SYSROOT=/mnt/sysroot for ergonomics, but
@@ -133,13 +154,13 @@ EOF
 # assert.h: No such file or directory". Unsetting SYSROOT
 # here puts portage in native mode — uses the bake VM's
 # own headers/libs, installs into ROOT=/mnt/sysroot.
-env -u SYSROOT ROOT="$SYSROOT" emerge --quiet-build @system
+env -u SYSROOT ROOT="$SYSROOT" emerge --buildpkg --quiet-build @system
 
 # Cycles broken: drop the overrides and re-emerge the
 # bootstrapped packages with full USE now that
 # sys-apps/systemd is on disk in the sysroot.
 rm /etc/portage/package.use/zz-corvus-bootstrap
-env -u SYSROOT ROOT="$SYSROOT" emerge --quiet-build -1 sys-apps/util-linux sys-libs/pam
+env -u SYSROOT ROOT="$SYSROOT" emerge --buildpkg --quiet-build -1 sys-apps/util-linux sys-libs/pam
 
 # systemd-PID1's required pseudo-fs mountpoints. baselayout
 # normally lays /proc, /sys, /dev, /run, /tmp down on a

@@ -1,11 +1,19 @@
 DISKS := gentoo-cloud gentoo-builder gentoo-headless gentoo-headless-cloudinit
 TEMPLATES := gentoo-cloud gentoo-builder-bake gentoo-headless-bake gentoo-headless gentoo-headless-cloudinit
 IMAGE_POLICY ?= update
+export GENTOO_CACHE_DIR ?= /data/corvus-cache
+BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)"
+# The headless selector also serves node-image dependencies.
+ifeq ($(HEADLESS_ONLY),1)
 BUILD_DEPENDENCIES := build-cloud
+else
+DISKS += gentoo-corvus-test
+BUILD_DEPENDENCIES := build-headless
+endif
 
 include ../image.mk
 
-.PHONY: build-cloud ensure-cloud publish-cloud build-headless ensure-headless publish-headless build-headless-standalone publish-headless-standalone latest-url latest-sha256
+.PHONY: build-cloud ensure-cloud publish-cloud build-headless ensure-headless publish-headless build-test publish-test latest-url latest-sha256
 
 CURL ?= curl
 GENTOO_AUTOBUILDS := https://distfiles.gentoo.org/releases/amd64/autobuilds
@@ -21,9 +29,13 @@ LATEST_SHA256_SH = "$(CURL)" -fsS "$(GENTOO_AUTOBUILDS)/$(GENTOO_BRANCH)/$${file
     | awk -v file="$${file}" 'length($$1) == 64 && $$2 == file {print $$1; exit}'
 
 # Ensure uses presence checks; build checks the current upstream checksum.
+ifeq ($(HEADLESS_ONLY),1)
 dependencies: ensure-cloud
-
 publish: publish-headless
+else
+dependencies: ensure-headless
+publish: publish-test
+endif
 
 build-cloud:
 	+$(MAKE) --no-print-directory publish-cloud IMAGE_POLICY=$(IMAGE_POLICY)
@@ -31,18 +43,19 @@ build-cloud:
 ensure-cloud:
 	$(call ensure-images,disk:gentoo-cloud,publish-cloud)
 
-build-headless: build
+build-headless:
+	+$(MAKE) --no-print-directory build HEADLESS_ONLY=1 IMAGE_POLICY=$(IMAGE_POLICY)
 
-ensure-headless: ensure
+ensure-headless:
+	+$(MAKE) --no-print-directory ensure HEADLESS_ONLY=1
+
+build-test: build
+
+publish-test:
+	"$(CRV)" build gentoo-test.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) --wait
 
 publish-headless:
-	"$(CRV)" build gentoo-headless.yml --var image_if_exists=$(IMAGE_POLICY) --wait
-
-build-headless-standalone: build-cloud
-	+$(MAKE) --no-print-directory publish-headless-standalone IMAGE_POLICY=$(IMAGE_POLICY)
-
-publish-headless-standalone:
-	"$(CRV)" build gentoo-headless-standalone.yml --var image_if_exists=$(IMAGE_POLICY) --wait
+	"$(CRV)" build gentoo-headless.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) --wait
 
 publish-cloud:
 	@file=$$( $(LATEST_FILE_SH) ); \

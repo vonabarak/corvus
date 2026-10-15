@@ -22,12 +22,14 @@ def validator() -> Draft7Validator:
 
 def test_repository_recipes(validator: Draft7Validator) -> None:
     paths = subprocess.check_output(
-        ["git", "ls-files", "yaml"], cwd=ROOT, text=True
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "yaml"],
+        cwd=ROOT,
+        text=True,
     ).splitlines()
     recipes = 0
     for relative in paths:
         path = ROOT / relative
-        if path.suffix not in {".yml", ".yaml"}:
+        if not path.is_file() or path.suffix not in {".yml", ".yaml"}:
             continue
         text = path.read_text()
         document = yaml.safe_load(text)
