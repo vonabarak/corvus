@@ -101,7 +101,7 @@ pipeline:
 
         - shell:
             inline: |
-              emerge --noreplace --usepkg \
+              emerge --noreplace --usepkg --buildpkg --quiet-build \
                 app-emulation/qemu \
                 app-crypt/swtpm \
                 net-misc/vde \
@@ -116,7 +116,7 @@ pipeline:
                 app-misc/jq \
                 dev-util/ghcup-bin \
                 app-editors/vim \
-                app-emulation/corvus --onlydeps
+                app-emulation/corvus
             timeoutSec: 14400
 
         - shell:

@@ -82,7 +82,9 @@ Both headless recipes use the same scripts for the system bootstrap, kernel,
 runtime packages (including `net-fs/nfs-utils`), GRUB, and system configuration.
 The regular recipe adds Cloud-init in a separate overlay; standalone installs it
 into its new root before publication. Both generate `en_US.UTF-8` with
-`localedef` and set Cloud-init's `locale: false`. Published systems use the same
+`localedef` and set Cloud-init's `locale: false`. The bake host and published
+systems also generate `C.UTF-8` for Portage and package build scripts, avoiding
+missing-locale warnings for `C.UTF-8` / `C.utf8`. Published systems use the same
 Portage profile, package policy, and official binhost configuration; build-time
 repositories and caches can still produce different package versions.
 

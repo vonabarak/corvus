@@ -1,6 +1,10 @@
 #!/bin/sh
 # Prepare the bake host; its package sources differ, its build policy does not.
 unset SYSROOT
+# Portage and package build scripts request C.UTF-8 (also spelled C.utf8).
+# Generate it before any emerge runs, even when the cloud image lacks it.
+LC_ALL=C localedef -i C -f UTF-8 C.UTF-8
+
 case "$BUILD_SOURCE" in
   mounted)
     # The template mounted the host repository and package caches before QGA.

@@ -31,6 +31,7 @@ pipeline:
                 - mkdir -p /var/cache/binpkgs
                 - mount -t nfs4 -o rw,vers=4.2 '{{ nfs_binpkgs }}' /var/cache/binpkgs
                 - sh -c "echo '{{ nfs_binpkgs }} /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0' >> /etc/fstab"
+                - systemctl daemon-reload
                 - sh -c 'printf "\nFEATURES=\"\${FEATURES} -binpkg-request-signature binpkg-ignore-signature\"\nGPG_VERIFY_USER_DROP=\"\"\nGPG_VERIFY_GROUP_DROP=\"\"\n" >> /etc/portage/make.conf'
                 - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 - systemctl enable --now qemu-guest-agent.service
@@ -120,6 +121,7 @@ pipeline:
                 - mkdir -p /var/cache/binpkgs
                 - mount -t nfs4 -o rw,vers=4.2 '{{ nfs_binpkgs }}' /var/cache/binpkgs
                 - sh -c "echo '{{ nfs_binpkgs }} /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0' >> /etc/fstab"
+                - systemctl daemon-reload
           sharedDirs:
             - path: /var/db/repos
               tag: repos

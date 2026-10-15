@@ -30,6 +30,7 @@ ln -sf ../usr/share/zoneinfo/UTC "$SYSROOT/etc/localtime"
 # locale-gen wrapper (sys-apps/locale-gen) is NOT in
 # @system, so we call localedef from glibc directly.
 cat > "$SYSROOT/etc/locale.gen" <<'EOF'
+C.UTF-8 UTF-8
 en_US.UTF-8 UTF-8
 EOF
 cat > "$SYSROOT/etc/locale.conf" <<'EOF'
@@ -40,6 +41,8 @@ mount --bind /dev  "$SYSROOT/dev"
 mount --bind /proc "$SYSROOT/proc"
 mount --bind /sys  "$SYSROOT/sys"
 chroot "$SYSROOT" localedef -i en_US -f UTF-8 en_US.UTF-8
+# Keep Portage's C.UTF-8 locale available in downstream bake VMs too.
+LC_ALL=C chroot "$SYSROOT" localedef -i C -f UTF-8 C.UTF-8
 umount "$SYSROOT/sys" "$SYSROOT/proc" "$SYSROOT/dev"
 
 install -d "$SYSROOT/etc/systemd/network"
