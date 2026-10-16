@@ -16,6 +16,7 @@ import qualified Data.ByteArray.Encoding as BAEnc
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as L
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -74,15 +75,16 @@ canonicalJson value = Encoding.value value
 -- such as boot keys retain their execution order.
 envelopeValue :: Build -> Value
 envelopeValue b =
-  obj
-    [ ("template", String (buildTemplate b))
-    , ("resolvedTemplate", toJSON (buildResolvedTemplate b))
-    , ("target", targetValue (buildTarget b))
-    , ("strategy", String (strategyText (buildStrategy b)))
-    , ("vm", buildVmValue (buildVm b))
-    , ("shellDefaults", shellDefaultsValue (buildShellDefaults b))
-    , ("bootKeys", Array (V.fromList (map bootKeyValue (buildBootKeys b))))
-    ]
+  obj $
+    [("sourceImage", toJSON (buildResolvedSourceImage b)) | buildStrategy b == BuildStrategyOfflineOverlay]
+      ++ [ ("template", String (buildTemplate b))
+         , ("resolvedTemplate", toJSON (buildResolvedTemplate b))
+         , ("target", targetValue (buildStrategy b) (buildTarget b))
+         , ("strategy", String (strategyText (buildStrategy b)))
+         , ("vm", buildVmValue (buildVm b))
+         , ("shellDefaults", shellDefaultsValue (buildShellDefaults b))
+         , ("bootKeys", Array (V.fromList (map bootKeyValue (buildBootKeys b))))
+         ]
 
 -- | Only the target fields that affect what the BAKE produces go
 -- into the hash. The bake VM gets a target disk created with the
@@ -98,11 +100,11 @@ envelopeValue b =
 --                   already exists (error / skip / overwrite / update)
 --
 -- Compaction is recorded separately at the manifest top level.
-targetValue :: BuildTarget -> Value
-targetValue t =
+targetValue :: BuildStrategy -> BuildTarget -> Value
+targetValue strategy t =
   obj
     [ ("format", String (enumToText (btFormat t)))
-    , ("size", intValue (btSize t))
+    , ("size", if strategy == BuildStrategyOfflineOverlay then maybe Null intValue (btSize t) else intValue (fromMaybe 10737418240 (btSize t)))
     ]
 
 buildVmValue :: BuildVm -> Value
@@ -209,6 +211,7 @@ strategyText = \case
   BuildStrategyOverlay -> "overlay"
   BuildStrategyFromScratch -> "from-scratch"
   BuildStrategyInstaller -> "installer"
+  BuildStrategyOfflineOverlay -> "offline-overlay"
 
 stripInjectedEnvs :: [(Text, Text)] -> [(Text, Text)]
 stripInjectedEnvs = filter (\(k, _) -> k `notElem` injectedKeys)

@@ -39,17 +39,18 @@ module Corvus.Schema.Build
 where
 
 import Control.Monad (when)
+import Corvus.DiskSelector (DiskSelector)
 import Corvus.Model (DriveFormat (..))
 import Corvus.Protocol.Disk (UploadIfExists (..), parseUploadIfExists)
 import Corvus.Protocol.Template (TemplateDetails)
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
-import Corvus.Size (defaultSizeField)
+import Corvus.Size (defaultSizeField, optionalSizeField)
 import Corvus.StartupTimeout (startupTimeoutField)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
 import Data.Int (Int64)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), Value (..), withObject, withText, (.!=), (.:), (.:?))
@@ -117,9 +118,10 @@ data Build = Build
   , buildDescription :: Maybe Text
   , buildTemplate :: Text
   , buildNode :: Text
-  -- ^ Node to run the bake VM on. Required as of multi-node
-  -- slice 1c (no scheduler yet).
+  -- ^ Node name or ID. Offline builds default to an online source-image host.
   , buildTarget :: BuildTarget
+  , buildSourceImage :: Maybe DiskSelector
+  , buildResolvedSourceImage :: Maybe Int64
   , buildStrategy :: BuildStrategy
   , buildVm :: BuildVm
   , buildShellDefaults :: ShellDefaults
@@ -137,13 +139,19 @@ instance FromJSON Build where
   parseJSON = withObject "Build" $ \o -> do
     when (KM.member "floppy" o) $
       fail "build.floppy was removed; upload prepared media with a leading pipeline upload step and attach it in the template"
+    strategy <- o .:? "strategy" .!= BuildStrategyOverlay
+    source <- o .:? "sourceImage"
+    when ((strategy == BuildStrategyOfflineOverlay && isNothing source) || (strategy /= BuildStrategyOfflineOverlay && KM.member "sourceImage" o)) $
+      fail "build.sourceImage is required only for offline-overlay"
     Build
       <$> o .: "name"
       <*> o .:? "description"
       <*> o .: "template"
       <*> o .:? "node" .!= ""
       <*> o .: "target"
-      <*> o .:? "strategy" .!= BuildStrategyOverlay
+      <*> pure source
+      <*> pure Nothing
+      <*> pure strategy
       <*> o .:? "vm" .!= defaultBuildVm
       <*> o .:? "shellDefaults" .!= emptyShellDefaults
       <*> o .:? "provisioners" .!= []
@@ -211,7 +219,7 @@ instance FromJSON ShellDefaults where
 --     the current recipe and resolved source image versions.
 data BuildTarget = BuildTarget
   { btFormat :: DriveFormat
-  , btSize :: Int64
+  , btSize :: Maybe Int64
   , btCompact :: Bool
   , btEphemeral :: Bool
   , btPath :: Maybe Text
@@ -223,7 +231,7 @@ instance FromJSON BuildTarget where
   parseJSON = withObject "BuildTarget" $ \o ->
     BuildTarget
       <$> o .:? "format" .!= FormatQcow2
-      <*> defaultSizeField o "size" 10737418240
+      <*> optionalSizeField o "size"
       <*> o .:? "compact" .!= True
       <*> o .:? "ephemeral" .!= False
       <*> o .:? "path"
@@ -249,6 +257,7 @@ data BuildStrategy
   = BuildStrategyOverlay
   | BuildStrategyFromScratch
   | BuildStrategyInstaller
+  | BuildStrategyOfflineOverlay
   deriving stock (Eq, Show)
 
 instance FromJSON BuildStrategy where
@@ -256,7 +265,8 @@ instance FromJSON BuildStrategy where
     "overlay" -> pure BuildStrategyOverlay
     "from-scratch" -> pure BuildStrategyFromScratch
     "installer" -> pure BuildStrategyInstaller
-    other -> fail $ "unknown strategy '" <> T.unpack other <> "' (expected: overlay, from-scratch, installer)"
+    "offline-overlay" -> pure BuildStrategyOfflineOverlay
+    other -> fail $ "unknown strategy '" <> T.unpack other <> "' (expected: overlay, from-scratch, installer, offline-overlay)"
 
 data BuildVm = BuildVm
   { bvmCpuCount :: Int

@@ -183,6 +183,7 @@ library
       Corvus.Handlers.Build.Provisioner
       Corvus.Handlers.Build.Artifact
       Corvus.Handlers.Build.Installer
+      Corvus.Handlers.Build.Placement
       Corvus.Handlers.Build.Template
       Corvus.Handlers.Build.CleanupBakeVm
       Corvus.Handlers.Build.Run
@@ -558,6 +559,7 @@ test-suite corvus-test
       Corvus.BalloonParserSpec
       Corvus.BuildCleanupSpec
       Corvus.BuildIdentitySpec
+      Corvus.BuildPlacementSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec
       Corvus.BuildUpdateSpec

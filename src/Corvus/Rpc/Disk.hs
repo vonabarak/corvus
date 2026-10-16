@@ -171,6 +171,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dcoResize = Nothing
               , dcoPath = if T.null path then Nothing else Just path
               , dcoEphemeral = ephemeral
+              , dcoNode = Nothing
               }
       resp <- runAction st cn act
       case resp of
@@ -194,6 +195,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dclResize = Nothing
               , dclPath = mPath
               , dclEphemeral = ephemeral
+              , dclNode = Nothing
               }
       resp <- runAction st cn act
       case resp of

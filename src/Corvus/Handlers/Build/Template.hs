@@ -15,17 +15,21 @@ where
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT)
 import Corvus.Action (mkActionContext, runActionAsSubtask)
-import Corvus.Handlers.Build.Cleanup (CleanupStack, push)
+import Corvus.Handlers.Build.Cleanup (CleanupStack, detachByTag, push)
 import Corvus.Handlers.Build.CleanupBakeVm (cleanupBakeVm)
+import Corvus.Handlers.Disk.Agent (getImageSizeViaAgent)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..))
 import Corvus.Handlers.Disk.Create (DiskCreate (..))
+import Corvus.Handlers.Disk.Derive (DiskCreateOverlay (..))
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
+import Corvus.Handlers.Disk.Path (resolveDiskPath)
 import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..))
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.Build (Build (..), BuildStrategy (..), BuildTarget (..), btFormat, btSize)
 import Corvus.Types
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
@@ -85,7 +89,7 @@ setupTargetDisk
   -> CleanupStack
   -> Int64
   -- ^ bake VM id
-  -> BuildStrategy
+  -> Build
   -> BuildTarget
   -> Text
   -- ^ ephemeral target name
@@ -93,10 +97,11 @@ setupTargetDisk
   -- ^ build's target node (passes through to DiskCreate so the
   -- target lands on the same kernel as the bake VM)
   -> LoggingT IO (Either Text (Int64, Bool))
-setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName buildNodeRef = case strategy of
+setupTargetDisk state parentTaskId stack vmIdLong build target targetTmpName buildNodeRef = case buildStrategy build of
   BuildStrategyOverlay -> firstDriveAsArtifact True
   BuildStrategyInstaller -> firstDriveAsArtifact False
   BuildStrategyFromScratch -> createAndAttachTarget
+  BuildStrategyOfflineOverlay -> createOverlayTarget
   where
     firstDriveAsArtifact needFlatten = do
       mDrive <-
@@ -115,7 +120,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
             pure $ Right (fromSqlKey diskImageId, needFlatten)
 
     createAndAttachTarget = do
-      let size = btSize target
+      let size = fromMaybe 10737418240 (btSize target)
       -- ephemeral=True for the bake-VM-attached disk; publish
       -- produces a separate CLONE with the target flag, so the bake disk stays
       -- ephemeral whether the build succeeds or fails.
@@ -125,37 +130,48 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
             (mkActionContext state parentTaskId "system")
             (DiskCreate targetTmpName (btFormat target) size Nothing True buildNodeRef)
       case diskResp of
-        RespDiskCreated diskIdLong -> attachTarget diskIdLong
+        RespDiskCreated diskIdLong -> trackAndAttach diskIdLong
         RespError err -> pure $ Left $ "create target disk: " <> err
         _ -> pure $ Left "create target disk: unexpected response"
 
-    attachTarget diskIdLong = do
+    createOverlayTarget = case buildResolvedSourceImage build of
+      Nothing -> pure $ Left "build source image snapshot missing"
+      Just sourceId -> do
+        mVm <- liftIO $ runSqlPool (get (toSqlKey vmIdLong)) (ssDbPool state)
+        case mVm of
+          Nothing -> pure $ Left "bake VM not found"
+          Just vm -> do
+            let nid = vmNodeId vm
+            path <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) (toSqlKey sourceId) nid
+            sourceSize <- liftIO $ getImageSizeViaAgent state nid path
+            case sourceSize of
+              Nothing -> pure $ Left "cannot determine source image virtual size"
+              Just size | maybe False (< size) (btSize target) -> pure $ Left "target.size cannot be smaller than source image virtual size"
+              Just _ -> do
+                resp <-
+                  liftIO $
+                    runActionAsSubtask
+                      (mkActionContext state parentTaskId "system")
+                      (DiskCreateOverlay targetTmpName sourceId (btSize target) Nothing True (Just nid))
+                case resp of
+                  RespDiskCreated diskId -> trackAndAttach diskId
+                  RespError err -> pure $ Left $ "create target overlay: " <> err
+                  other -> pure $ Left $ "create target overlay: unexpected response: " <> T.pack (show other)
+
+    trackAndAttach diskIdLong = do
+      liftIO $ push stack "orphan-target-disk" $ do
+        _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete diskIdLong)
+        pure ()
       attachResp <-
         liftIO $
           runActionAsSubtask
             (mkActionContext state parentTaskId "system")
-            ( DiskAttach
-                vmIdLong
-                diskIdLong
-                InterfaceVirtio
-                Nothing
-                False
-                False
-                CacheWriteback
-            )
+            (DiskAttach vmIdLong diskIdLong InterfaceVirtio Nothing False False CacheWriteback)
       case attachResp of
-        RespDiskAttached _ -> pure $ Right (diskIdLong, False)
-        RespError err -> do
-          -- The disk was created but couldn't attach: register a
-          -- cleanup so a failed attach doesn't strand it.
-          liftIO $
-            push stack "orphan-target-disk" $ do
-              _ <-
-                runActionAsSubtask
-                  (mkActionContext state parentTaskId "system")
-                  (DiskDelete diskIdLong)
-              pure ()
-          pure $ Left $ "attach target disk: " <> err
+        RespDiskAttached _ -> do
+          liftIO $ detachByTag stack "orphan-target-disk"
+          pure $ Right (diskIdLong, False)
+        RespError err -> pure $ Left $ "attach target disk: " <> err
         _ -> pure $ Left "attach target disk: unexpected response"
 
 -- | Sanitise a build name for use in a generated VM/disk name. Keeps

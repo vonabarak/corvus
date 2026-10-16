@@ -41,10 +41,10 @@ instance Action ApplyDiskCreate where
                     maybe (pure $ RespError $ "backing disk '" <> backingName <> "' not found") (\backingId -> actionExecute ctx $ DiskRegister (adName d) registerPath (Just format) (Just backingId) ephem nodeRef) mBackingId
           (_, Just backingName, _, _) -> do
             mBackingId <- resolveDiskName state (adcDiskMap a) backingName
-            maybe (pure $ RespError $ "backing disk '" <> backingName <> "' not found") (\backingId -> actionExecute ctx $ DiskCreateOverlay (adName d) backingId (adSize d) (adPath d) ephem) mBackingId
+            maybe (pure $ RespError $ "backing disk '" <> backingName <> "' not found") (\backingId -> actionExecute ctx $ DiskCreateOverlay (adName d) backingId (adSize d) (adPath d) ephem Nothing) mBackingId
           (_, _, Just cloneName, _) -> do
             mSourceId <- resolveDiskName state (adcDiskMap a) cloneName
-            maybe (pure $ RespError $ "source disk '" <> cloneName <> "' not found") (\sourceId -> actionExecute ctx $ DiskClone (adName d) sourceId Nothing (adPath d) ephem) mSourceId
+            maybe (pure $ RespError $ "source disk '" <> cloneName <> "' not found") (\sourceId -> actionExecute ctx $ DiskClone (adName d) sourceId Nothing (adPath d) ephem Nothing) mSourceId
           _ -> actionExecute ctx $ DiskCreate (adName d) (fromMaybe FormatQcow2 $ adFormat d) (fromIntegral $ fromMaybe 10240 $ adSize d) (adPath d) ephem nodeRef
 
 -- | Compare the verified import identity of the currently selected version.

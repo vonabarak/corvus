@@ -260,6 +260,7 @@ library:
     - Corvus.Handlers.Build.Provisioner
     - Corvus.Handlers.Build.Artifact
     - Corvus.Handlers.Build.Installer
+    - Corvus.Handlers.Build.Placement
     - Corvus.Handlers.Build.Template
     - Corvus.Handlers.Build.CleanupBakeVm
     - Corvus.Handlers.Build.Run

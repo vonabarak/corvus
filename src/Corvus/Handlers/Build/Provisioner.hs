@@ -117,6 +117,7 @@ strategyName :: BuildStrategy -> Text
 strategyName BuildStrategyOverlay = "overlay"
 strategyName BuildStrategyFromScratch = "from-scratch"
 strategyName BuildStrategyInstaller = "installer"
+strategyName BuildStrategyOfflineOverlay = "offline-overlay"
 
 -- | Run a single provisioner: insert a subtask row, invoke the body,
 -- finalize the row with the result + (cropped) output, emit the

@@ -20,7 +20,7 @@ import Corvus.Handlers.Disk.Agent
   , getImageSizeViaAgent
   , resizeImageViaAgent
   )
-import Corvus.Handlers.Disk.Db (getRunningAttachedVms, recordDiskImageNode)
+import Corvus.Handlers.Disk.Db (getBackingChainIds, getRunningAttachedVms, hasPlacementOnNode, recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Model
@@ -39,8 +39,8 @@ import System.FilePath (takeExtension, takeFileName)
 import Corvus.Handlers.Disk.Placement (nodeBasePathFor)
 
 -- | Create a qcow2 overlay backed by an existing disk image
-handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int64 -> Maybe T.Text -> Bool -> IO Response
-handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral = runServerLogging state $ do
+handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int64 -> Maybe T.Text -> Bool -> Maybe NodeId -> IO Response
+handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral requestedNode = runServerLogging state $ do
   logInfoN $ "Creating overlay '" <> name <> "' backed by disk " <> T.pack (show baseDiskId)
 
   case sanitizeDiskName name of
@@ -51,7 +51,7 @@ handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral = run
       -- The overlay must sit on the same node as its backing image
       -- — qemu can't open a backing chain across hosts. Pick from
       -- the base's existing placements rather than first-online.
-      mNid <- liftIO $ pickNodeForExistingDisk state (toSqlKey baseDiskId :: DiskImageId)
+      mNid <- liftIO $ selectDerivationNode state baseDiskId requestedNode
       case mNid of
         Left err -> pure $ RespError err
         Right nid -> do
@@ -124,8 +124,8 @@ handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral = run
                     ImageNotFound -> pure $ RespError "Base image file not found"
 
 -- | Clone a disk image
-handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int64 -> Maybe Text -> Bool -> IO Response
-handleDiskClone state name baseDiskId mResize optionalPath ephemeral = runServerLogging state $ do
+handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int64 -> Maybe Text -> Bool -> Maybe NodeId -> IO Response
+handleDiskClone state name baseDiskId mResize optionalPath ephemeral requestedNode = runServerLogging state $ do
   logInfoN $ "Cloning disk image " <> T.pack (show baseDiskId) <> " to '" <> name <> "'"
 
   case sanitizeDiskName name of
@@ -136,7 +136,7 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral = runServer
       -- Clone reads the source file with qemu-img convert and writes
       -- the destination on the same node, so the picker must land
       -- on a node where the source already lives.
-      mNid <- liftIO $ pickNodeForExistingDisk state (toSqlKey baseDiskId :: DiskImageId)
+      mNid <- liftIO $ selectDerivationNode state baseDiskId requestedNode
       case mNid of
         Left err -> pure $ RespError err
         Right nid -> do
@@ -210,13 +210,14 @@ data DiskCreateOverlay = DiskCreateOverlay
   , dcoResize :: Maybe Int64
   , dcoPath :: Maybe Text
   , dcoEphemeral :: Bool
+  , dcoNode :: Maybe NodeId
   }
 
 instance Action DiskCreateOverlay where
   actionSubsystem _ = SubDisk
   actionCommand _ = "overlay"
   actionEntityName = Just . dcoName
-  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a)
+  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a) (dcoNode a)
 
 data DiskClone = DiskClone
   { dclName :: Text
@@ -224,10 +225,28 @@ data DiskClone = DiskClone
   , dclResize :: Maybe Int64
   , dclPath :: Maybe Text
   , dclEphemeral :: Bool
+  , dclNode :: Maybe NodeId
   }
 
 instance Action DiskClone where
   actionSubsystem _ = SubDisk
   actionCommand _ = "clone"
   actionEntityName = Just . dclName
-  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a)
+  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a) (dclNode a)
+
+-- | Honor the VM placement when deriving attached media.
+selectDerivationNode :: ServerState -> Int64 -> Maybe NodeId -> IO (Either Text NodeId)
+selectDerivationNode state baseDiskId requestedNode = case requestedNode of
+  Nothing -> pickNodeForExistingDisk state (toSqlKey baseDiskId :: DiskImageId)
+  Just nid ->
+    runSqlPool
+      ( do
+          node <- get nid
+          chain <- getBackingChainIds baseDiskId
+          present <- mapM (`hasPlacementOnNode` nid) (toSqlKey baseDiskId : chain)
+          pure $
+            if maybe False ((== NodeOnline) . nodeAdminState) node && and present
+              then Right nid
+              else Left "overlay source and backing chain must be present on the selected online node"
+      )
+      (ssDbPool state)

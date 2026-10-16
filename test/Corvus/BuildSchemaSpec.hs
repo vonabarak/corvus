@@ -9,6 +9,7 @@
 -- are rejected.
 module Corvus.BuildSchemaSpec (spec) where
 
+import Corvus.DiskSelector (DiskSelector (..))
 import Corvus.Handlers.Build (buildShellCommand, powerShellBootstrap)
 import Corvus.Model (DriveFormat (..))
 import Corvus.Protocol.Disk (UploadIfExists (..))
@@ -16,6 +17,7 @@ import Corvus.Schema.Apply (ApplyConfig (..))
 import Corvus.Schema.Build
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BS8
+import Data.Either (isLeft)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Yaml as Yaml
@@ -37,6 +39,24 @@ firstBuild cfg = case pcSteps cfg of
 
 spec :: Spec
 spec = describe "Schema.Build" $ do
+  describe "offline-overlay" $ do
+    it "requires a source only for offline-overlay" $ do
+      let parse fields = decodePipeline ("pipeline: [{build: {name: x, template: t, target: {}, " <> fields <> "}}]")
+      mapM_
+        (\fields -> parse fields `shouldSatisfy` isLeft)
+        ["strategy: offline-overlay", "strategy: offline-overlay, sourceImage: null", "sourceImage: null", "strategy: overlay, sourceImage: base", "strategy: from-scratch, sourceImage: base", "strategy: installer, sourceImage: base"]
+    it "parses selectors and preserves omitted target size" $ do
+      let parse source = decodePipeline ("pipeline: [{build: {name: x, template: t, strategy: offline-overlay, sourceImage: " <> source <> ", target: {}}}]")
+      mapM_
+        ( \(source, expected) -> case parse source of
+            Left err -> expectationFailure err
+            Right config -> do
+              let b = firstBuild config
+              buildStrategy b `shouldBe` BuildStrategyOfflineOverlay
+              buildSourceImage b `shouldBe` Just expected
+              btSize (buildTarget b) `shouldBe` Nothing
+        )
+        [("base", ImageTag "base" "latest"), ("base:stable", ImageTag "base" "stable"), ("42", ImageId 42)]
   describe "PipelineConfig" $ do
     it "accepts an empty document" $
       decodePipeline "{}" `shouldSatisfy` \case

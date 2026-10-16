@@ -10,7 +10,7 @@ top of that template*.
 A `build:` step:
 
 1. Instantiates a named template into an ephemeral "bake" VM.
-2. Optionally attaches an empty target disk (for `from-scratch`).
+2. Optionally attaches a separate target disk (empty for `from-scratch`, or a source image overlay for `offline-overlay`).
 3. Starts the bake VM, waits for the guest agent.
 4. Runs each provisioner inside the running VM (via `qemu-guest-agent`).
 5. Stops the VM gracefully.
@@ -147,14 +147,14 @@ pipeline:
 
       target:
         format: qcow2                      # default: qcow2
-        size: 10G                          # only used by from-scratch strategy
+        size: 10G                          # from-scratch; optional growth for offline-overlay
         ephemeral: false                   # true: delete with a directly attached VM
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
         ifExists: error                    # error (default) | skip | overwrite | update — see below
 
 
-      strategy: overlay                    # overlay (default) | from-scratch | installer
+      strategy: overlay                    # overlay (default) | from-scratch | installer | offline-overlay
 
       vm:
         cpuCount: 4                        # default: 4
@@ -538,6 +538,74 @@ the source of the publish-time clone.
 Use this for stripped-down golden images or images that don't share
 content with any existing template (custom kernels, embedded OSes).
 
+### `offline-overlay`
+
+The template boots a disposable helper VM with QGA. A separate writable qcow2
+overlay of `build.sourceImage` is attached after the template's drives. Only
+this target becomes the artifact; changes to the helper's boot disk are discarded.
+Choose a helper whose root filesystem lookup cannot select the target: when
+images share filesystem labels or UUIDs, configure the helper to use its explicit
+root device or give the images distinct identifiers.
+Use this to customize cloud images while preserving Cloud-init state, users,
+and other first-boot behavior for the eventual consumer.
+
+| Strategy | Execution environment | Artifact input |
+| --- | --- | --- |
+| `installer` | Installation media | First template drive |
+| `overlay` | Target OS | First template drive |
+| `from-scratch` | Helper OS | Empty separate disk |
+| `offline-overlay` | Helper OS | Overlay of registered `sourceImage` |
+
+`sourceImage` accepts an image name, `name:tag`, or numeric image ID and is
+required only for this strategy. It is resolved once with the template's
+dependencies before baking. The resolved version ID enters the build fingerprint:
+changing a tag to another version triggers `ifExists: update`; selecting the
+same version by another label does not.
+
+Omitting `target.size` inherits the source's virtual size. An explicit size may
+match or exceed it; shrinking fails. Growing the disk does not grow partitions
+or filesystems. The temporary disk is always qcow2; `target.format` selects the
+published, flat image format. Publication excludes backing chains and snapshots.
+
+The helper needs filesystem drivers and any mounting, partitioning, or chroot
+tools your scripts use. Corvus does not mount or chroot automatically. Identify
+the target device from the template's drive ordering: `/dev/vdb` applies when
+one virtio helper disk precedes it. The helper's boot drives precede the target;
+there is no additional firmware boot exclusion for the target.
+
+```yaml
+pipeline:
+  - build:
+      name: customized-cloud
+      template: linux-build-helper       # registered template with QGA
+      strategy: offline-overlay
+      sourceImage: distro-cloud:stable   # already registered image
+      target:
+        format: qcow2
+        ifExists: update
+      provisioners:
+        - shell: |
+            set -eu
+            mkdir -p /mnt/target
+            mount /dev/vdb1 /mnt/target  # adapt to the source partition layout
+            trap 'umount /mnt/target' EXIT
+            printf 'prepared offline\n' > /mnt/target/etc/image-origin
+            sync
+      cleanup: always
+```
+
+Unmount all target filesystems before provisioners finish. If needed, scripts
+can mount additional partitions and bind mounts and invoke `chroot` explicitly.
+Keep source imports in their owning import recipe; consumer pipelines reference
+registered dependencies (see [import ownership](test-images.md#import-ownership)).
+
+With `build.node`, the helper and target are created on that node. Otherwise,
+Corvus selects an online node hosting the source. The source, its backing chain,
+and every helper image and backing chain must already be present there; missing
+placements fail without copying images. Cleanup follows the usual `always`,
+`onSuccess`, and `never` policies for the helper and temporary target; published
+artifacts and the source remain independent.
+
 ## `shellDefaults`
 
 Build-level defaults applied to every `shell:` provisioner. Hoists
@@ -708,7 +776,7 @@ making host-side scripts reachable via vsock from inside the bake VM.
 | `CORVUS_BUILD_NAME` | the current `build.name` |
 | `CORVUS_BUILD_TARGET` | the published artifact name (= `build.name`) |
 | `CORVUS_BUILD_TEMPLATE` | the current `build.template` |
-| `CORVUS_BUILD_STRATEGY` | `overlay` / `from-scratch` / `installer` |
+| `CORVUS_BUILD_STRATEGY` | `overlay` / `from-scratch` / `installer` / `offline-overlay` |
 | `CORVUS_BUILD_TASK_ID` | the parent task id (handy for log correlation) |
 | `CORVUS_BAKEVM_ID` | the bake VM's id |
 | `CORVUS_BAKEVM_NAME` | the bake VM's name (`__build_<task>_<sanitized>-vm`) |
@@ -810,7 +878,7 @@ before starting a bake.
 
 ## Limitations
 
-- Overlay and from-scratch templates must have `guestAgent: true` and a base
+- Overlay, from-scratch and offline-overlay templates must have `guestAgent: true` and a base
   image with qemu-guest-agent installed. The `installer` strategy does
   not require QGA.
 - The bake VM has no networking semantics declared by the build YAML;

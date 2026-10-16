@@ -102,6 +102,14 @@ spec = describe "build input identity" $ do
     fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 1" ShellPowerShell 300)
     fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 0" ShellSh 300)
     fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 0" ShellPowerShell 900)
+  it "pins offline-overlay identity to the resolved image version" $ do
+    let offline = build {buildStrategy = BuildStrategyOfflineOverlay, buildSourceImage = Just (ImageTag "base" "latest"), buildResolvedSourceImage = Just 7}
+    fingerprint offline `shouldBe` fingerprint (offline {buildSourceImage = Just (ImageId 7)})
+    fingerprint offline `shouldNotBe` fingerprint (offline {buildResolvedSourceImage = Just 8})
+    fingerprint offline `shouldNotBe` fingerprint build
+    fingerprint (offline {buildTarget = (buildTarget offline) {btSize = Just 10737418240}}) `shouldNotBe` fingerprint offline
+  it "retains legacy default target size identity" $ do
+    fingerprint build `shouldBe` fingerprint (build {buildTarget = (buildTarget build) {btSize = Just 10737418240}})
   it "stores valid deterministic JSON and a SHA-256 fingerprint" $ do
     identity build `shouldBe` identity build
     biFingerprint (identity build) `shouldBe` "c14bccf6d1da66150cfc8a865c0a4a012055a6c88ba63a20ae32713aa23f7e77"
@@ -139,7 +147,7 @@ spec = describe "build input identity" $ do
         changes =
           [ build {buildVm = BuildVm 9 1234 Nothing}
           , build {buildTarget = target {btFormat = FormatRaw}}
-          , build {buildTarget = target {btSize = btSize target + 1}}
+          , build {buildTarget = target {btSize = Just 10737418241}}
           , build {buildTarget = target {btCompact = not (btCompact target)}}
           , build {buildStrategy = BuildStrategyFromScratch}
           , build {buildBootKeys = [BootKey "ret" 1 1 1]}

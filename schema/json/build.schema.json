@@ -389,7 +389,8 @@
           "enum": [
             "overlay",
             "from-scratch",
-            "installer"
+            "installer",
+            "offline-overlay"
           ]
         },
         {
@@ -398,7 +399,7 @@
           "description": "Client-side variable reference; resolved when crv build runs."
         }
       ],
-      "description": "Allowed values: overlay, from-scratch, installer."
+      "description": "Allowed values: overlay, from-scratch, installer, offline-overlay."
     },
     "cleanup": {
       "type": "string",
@@ -2016,7 +2017,7 @@
               "type": "null"
             }
           ],
-          "description": "Target disk size, using binary units. Runtime validates overflow."
+          "description": "Virtual target size. Defaults to 10G for from-scratch; offline-overlay inherits source size when omitted and allows growth only."
         },
         "compact": {
           "anyOf": [
@@ -3153,7 +3154,7 @@
               "type": "null"
             }
           ],
-          "description": "Node name; empty selects the default node."
+          "description": "Node name or ID; offline-overlay defaults to an online source-image host, other strategies use the default node."
         },
         "strategy": {
           "anyOf": [
@@ -3169,7 +3170,7 @@
               "type": "null"
             }
           ],
-          "description": "Build strategy: overlay modifies a template disk; from-scratch attaches an empty target; installer boots installation media."
+          "description": "Build strategy: overlay captures a template disk; from-scratch populates an empty disk; installer boots installation media; offline-overlay modifies a separate source image using a helper VM."
         },
         "vm": {
           "anyOf": [
@@ -3248,6 +3249,10 @@
             }
           ],
           "description": "Maximum time to wait for shutdown, in seconds."
+        },
+        "sourceImage": {
+          "$ref": "#/definitions/diskSelector",
+          "description": "Registered artifact source; required only for offline-overlay. Resolved once before baking."
         }
       },
       "additionalProperties": false,
@@ -3255,6 +3260,45 @@
         "name",
         "template",
         "target"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "strategy": {
+                "const": "offline-overlay"
+              }
+            },
+            "required": [
+              "strategy"
+            ]
+          },
+          "then": {
+            "required": [
+              "sourceImage"
+            ]
+          },
+          "else": {
+            "if": {
+              "properties": {
+                "strategy": {
+                  "type": "string",
+                  "pattern": "\\{\\{"
+                }
+              },
+              "required": [
+                "strategy"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "sourceImage"
+                ]
+              }
+            }
+          }
+        }
       ]
     },
     "step": {

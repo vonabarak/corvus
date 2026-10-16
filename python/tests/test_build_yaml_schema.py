@@ -48,6 +48,9 @@ def test_repository_recipes(validator: Draft7Validator) -> None:
 @pytest.mark.parametrize(
     "document",
     [
+        "pipeline: [{build: {name: x, template: t, strategy: offline-overlay, sourceImage: 'base:stable', target: {}}}]",
+        "pipeline: [{build: {name: x, template: t, strategy: offline-overlay, sourceImage: 42, target: {size: '3G', format: raw}}}]",
+        "pipeline: [{build: {name: x, template: t, strategy: '{{ strategy }}', sourceImage: '{{ source }}', target: {}}}]",
         "pipeline: []",
         "vars: null\npipeline: []",
         "vars: {url: null, enabled: true, count: 3, ratio: 1.5}\npipeline: []",
@@ -68,6 +71,10 @@ def test_valid_authoring_documents(validator: Draft7Validator, document: str) ->
 @pytest.mark.parametrize(
     "document",
     [
+        "pipeline: [{build: {name: x, template: t, strategy: offline-overlay, target: {}}}]",
+        "pipeline: [{build: {name: x, template: t, sourceImage: base, target: {}}}]",
+        "pipeline: [{build: {name: x, template: t, strategy: from-scratch, sourceImage: base, target: {}}}]",
+        "pipeline: [{build: {name: x, template: t, strategy: offline-overlay, sourceImage: 0, target: {}}}]",
         "{}",
         "pipeline: {}",
         "pipline: []\npipeline: []",

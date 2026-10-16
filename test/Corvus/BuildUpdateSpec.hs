@@ -21,7 +21,7 @@ spec = describe "build update publication policy" $ do
     bracket Db.setupTestDb Db.teardownTestDb $ \env -> do
       state <- createTestServerState (Db.tePool env) (Db.teTempDir env)
       now <- getCurrentTime
-      let target = BuildTarget FormatQcow2 10737418240 True False Nothing BuildIfExistsUpdate
+      let target = BuildTarget FormatQcow2 (Just 10737418240) True False Nothing BuildIfExistsUpdate
           identity = BuildIdentity "fingerprint" "{}"
           check requested = runLoggingT (checkBuildUpdate state (const (pure ())) "output" requested identity) (\_ _ _ _ -> pure ())
           run :: SqlPersistT IO a -> IO a

@@ -34,11 +34,13 @@ import qualified Corvus.Build.Identity as H
 import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Build.Artifact (checkBuildUpdate, checkIfExistsPreBake)
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, withCleanup)
+import Corvus.Handlers.Build.Placement (placeBuild)
 import Corvus.Handlers.Build.Provisioner (buildShellCommand, powerShellBootstrap)
 import Corvus.Handlers.Build.Run (runBakeAndPublish)
 import Corvus.Handlers.Build.Template (instantiateBakeVm, resolveTemplateAndValidate, sanitizeNameFragment, setupTargetDisk)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (getTemplateDetails)
+import Corvus.Images (resolveImage)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.Build
@@ -304,16 +306,20 @@ runOneBuildBody state parentTaskId sink stack b = do
                       Nothing -> pure Nothing
                       Just resolved -> do
                         keys <- mapM (get . toSqlKey . tvskiId) (tvdSshKeys resolved)
-                        pure (Just (resolved, map (fmap sshKeyPublicKey) keys))
+                        source <- case buildSourceImage b of
+                          Nothing -> pure Nothing
+                          Just selector -> fmap fromSqlKey <$> resolveImage selector
+                        pure (Just (resolved, map (fmap sshKeyPublicKey) keys, source))
             )
             (ssDbPool state)
       case snapshot of
         Nothing -> pure (Left "build template not found")
-        Just (details, keys)
+        Just (details, keys, source)
+          | buildStrategy b == BuildStrategyOfflineOverlay && isNothing source -> pure (Left "build source image not found")
           | any (\d -> tvdiCloneStrategy d /= StrategyCreate && isNothing (tvdiDiskImage d)) (tvdDrives details) -> pure (Left "build template source image not found")
           | any isNothing keys -> pure (Left "build template SSH key not found")
           | otherwise -> do
-              let resolved = b {buildResolvedTemplate = Just details}
+              let resolved = b {buildResolvedTemplate = Just details, buildResolvedSourceImage = source}
                   identity = H.buildInputIdentity resolved (map (fromMaybe "") keys)
                   captured = resolved {buildIdentity = Just identity}
               validation <- resolveTemplateAndValidate captured
@@ -335,7 +341,14 @@ runFreshBake
   -> CleanupStack
   -> Build
   -> LoggingT IO (Either Text Int64)
-runFreshBake state parentTaskId sink stack b = do
+runFreshBake state parentTaskId sink stack input = do
+  placed <- liftIO $ placeBuild state input
+  case placed of
+    Left err -> pure $ Left err
+    Right b -> runPlacedBake state parentTaskId sink stack b
+
+runPlacedBake :: ServerState -> TaskId -> BuildSink -> CleanupStack -> Build -> LoggingT IO (Either Text Int64)
+runPlacedBake state parentTaskId sink stack b = do
   let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
@@ -349,7 +362,7 @@ runFreshBake state parentTaskId sink stack b = do
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do
-          tgtR <- setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName (buildNode b)
+          tgtR <- setupTargetDisk state parentTaskId stack vmIdLong b target targetTmpName (buildNode b)
           case tgtR of
             Left err -> pure $ Left err
             Right (artifactDiskId, needFlatten) ->
