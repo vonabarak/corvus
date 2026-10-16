@@ -94,13 +94,17 @@ interface Session {
                          hasNewBacking :Bool,
                          unsafeUpdate :Bool)
                         -> (result :DiskOpResult);
-  diskClone          @6 (sourcePath :Text, destPath :Text, destFormat :Text)
+  diskClone          @6 (sourcePath :Text, destPath :Text, destFormat :Text,
+                         backingPath :Text, backingFormat :Text,
+                         hasBacking :Bool, compact :Bool)
                         -> (result :DiskOpResult);
   # `destFormat` selects the on-disk format of the clone (e.g. "qcow2",
   # "raw"). The agent uses `qemu-img convert -O <destFormat>` so a
   # qcow2-source-to-raw-destination clone behaves correctly and the
   # destination file's bytes match the format the daemon's DiskImage
   # row will record.
+  # Optional backing preserves a registered backing dependency in the output.
+  # compact enables qcow2 compression during conversion.
   diskInspect        @7 (path :Text) -> (info :DiskInspectInfo);
 
   # Snapshot operations (qcow2 only; format errors surface via DiskOpResult).

@@ -16,11 +16,13 @@ module Corvus.Handlers.Build.Artifact
   )
 where
 
-import Control.Monad (when)
+import Control.Exception (onException)
+import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
+  , deleteImageViaAgent
   , getImageSizeViaAgent
   , rebaseImageViaAgent
   )
@@ -36,10 +38,11 @@ import Corvus.Schema.Build
 import Corvus.Types
 import Data.Int (Int64)
 import qualified Data.List
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (get, getBy, insert_, update)
+import Database.Persist (get, getBy, getJust, insert_, update)
 import Database.Persist.Sql (runSqlPool, (=.))
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory)
@@ -50,8 +53,8 @@ import System.FilePath (takeDirectory)
 -- cleanup can remove it after publication.
 -- @qemu-img convert@ copies only the source qcow2's active
 -- state and does NOT preserve internal snapshots, so the published
--- disk is hard-guaranteed flat (verifiable via
--- @qemu-img snapshot -l@ returning empty output).
+-- disk has no internal snapshots. With rebase disabled it retains
+-- the artifact's immediate backing image; otherwise it is standalone.
 --
 -- The bake VM MUST already be stopped before this runs — the
 -- @qemu-img convert@ source path takes the file's exclusive lock.
@@ -69,7 +72,7 @@ publishArtifact
   -> Build
   -- ^ Includes the identity captured before baking.
   -> Bool
-  -- ^ (legacy) flatten flag — ignored; clone is always flat
+  -- ^ Legacy setup hint; target.rebase controls publication backing.
   -> LoggingT IO (Either Text Int64)
 publishArtifact state _parentTaskId _bakeVmId artifactDiskId b _needFlatten =
   case buildIdentity b of
@@ -96,6 +99,18 @@ publishArtifactByClone state srcDiskId name target identity = do
     (Entity _ row : _) -> do
       let nid = diskImageNodeNodeId row
       srcPath <- liftIO $ resolveDiskPath pool (ssQemuConfig state) srcKey nid
+      source <- liftIO $ runSqlPool (getJust srcKey) pool
+      let backingKey = if btRebase target then Nothing else diskImageBackingImageId source
+      backing <-
+        liftIO $
+          traverse
+            ( \key -> do
+                disk <- runSqlPool (getJust key) pool
+                path <- resolveDiskPath pool (ssQemuConfig state) key nid
+                when (null path) $ ioError (userError "publish: backing image has no placement on the build node")
+                pure (path, diskImageFormat disk)
+            )
+            backingKey
       basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
       let ext = T.unpack (enumToText (btFormat target))
           fileName = T.unpack name <> "." <> ext
@@ -107,7 +122,7 @@ publishArtifactByClone state srcDiskId name target identity = do
           <> T.pack srcPath
           <> " -> "
           <> T.pack destPath
-      cloneRes <- liftIO $ cloneImageViaAgent state nid srcPath destPath (btFormat target)
+      cloneRes <- liftIO $ cloneImageViaAgent state nid srcPath destPath (btFormat target) backing (btCompact target && isJust backingKey)
       case cloneRes of
         ImageError err -> pure $ Left $ "publish clone: " <> err
         ImageNotFound -> pure $ Left "publish clone: source not found"
@@ -131,7 +146,7 @@ publishArtifactByClone state srcDiskId name target identity = do
                           , diskImageFormat = btFormat target
                           , diskImageSize = mSize
                           , diskImageCreatedAt = now
-                          , diskImageBackingImageId = Nothing
+                          , diskImageBackingImageId = backingKey
                           , diskImageEphemeral = btEphemeral target
                           }
                     insert_ $ DiskImageBuildIdentity key (biFingerprint identity) (biInputs identity)
@@ -139,8 +154,9 @@ publishArtifactByClone state srcDiskId name target identity = do
                     pure key
                 )
                 pool
+                `onException` void (deleteImageViaAgent state nid destPath)
           let newId = fromSqlKey newKey
-          when (btCompact target) $ compactDisk state newId
+          when (btCompact target && isNothing backingKey) $ compactDisk state newId
           pure $ Right newId
 
 -- | Fast collision checks preserve error/skip behaviour even when the

@@ -1025,8 +1025,8 @@ type instance (R.ReprFor Session'diskClone'params) = (R.Ptr (Std_.Just R.Struct)
 instance (C.HasTypeId Session'diskClone'params) where
     typeId  = 14875352729381787711
 instance (C.TypedStruct Session'diskClone'params) where
-    numStructWords  = 0
-    numStructPtrs  = 3
+    numStructWords  = 1
+    numStructPtrs  = 5
 instance (C.Allocate Session'diskClone'params) where
     type AllocHint Session'diskClone'params = ()
     new _ = C.newTypedStruct
@@ -1039,19 +1039,31 @@ data instance C.Parsed Session'diskClone'params
     = Session'diskClone'params 
         {sourcePath :: (RP.Parsed Basics.Text)
         ,destPath :: (RP.Parsed Basics.Text)
-        ,destFormat :: (RP.Parsed Basics.Text)}
+        ,destFormat :: (RP.Parsed Basics.Text)
+        ,backingPath :: (RP.Parsed Basics.Text)
+        ,backingFormat :: (RP.Parsed Basics.Text)
+        ,hasBacking :: (RP.Parsed Std_.Bool)
+        ,compact :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskClone'params))
 deriving instance (Std_.Eq (C.Parsed Session'diskClone'params))
 instance (C.Parse Session'diskClone'params (C.Parsed Session'diskClone'params)) where
     parse raw_ = (Session'diskClone'params <$> (GH.parseField #sourcePath raw_)
                                            <*> (GH.parseField #destPath raw_)
-                                           <*> (GH.parseField #destFormat raw_))
+                                           <*> (GH.parseField #destFormat raw_)
+                                           <*> (GH.parseField #backingPath raw_)
+                                           <*> (GH.parseField #backingFormat raw_)
+                                           <*> (GH.parseField #hasBacking raw_)
+                                           <*> (GH.parseField #compact raw_))
 instance (C.Marshal Session'diskClone'params (C.Parsed Session'diskClone'params)) where
     marshalInto raw_ Session'diskClone'params{..} = (do
         (GH.encodeField #sourcePath sourcePath raw_)
         (GH.encodeField #destPath destPath raw_)
         (GH.encodeField #destFormat destFormat raw_)
+        (GH.encodeField #backingPath backingPath raw_)
+        (GH.encodeField #backingFormat backingFormat raw_)
+        (GH.encodeField #hasBacking hasBacking raw_)
+        (GH.encodeField #compact compact raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "sourcePath" GH.Slot Session'diskClone'params Basics.Text) where
@@ -1060,6 +1072,14 @@ instance (GH.HasField "destPath" GH.Slot Session'diskClone'params Basics.Text) w
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "destFormat" GH.Slot Session'diskClone'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "backingPath" GH.Slot Session'diskClone'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "backingFormat" GH.Slot Session'diskClone'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 4)
+instance (GH.HasField "hasBacking" GH.Slot Session'diskClone'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+instance (GH.HasField "compact" GH.Slot Session'diskClone'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 1 0 1 0)
 data Session'diskClone'results 
 type instance (R.ReprFor Session'diskClone'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskClone'results) where

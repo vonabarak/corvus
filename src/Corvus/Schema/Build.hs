@@ -143,12 +143,20 @@ instance FromJSON Build where
     source <- o .:? "sourceImage"
     when ((strategy == BuildStrategyOfflineOverlay && isNothing source) || (strategy /= BuildStrategyOfflineOverlay && KM.member "sourceImage" o)) $
       fail "build.sourceImage is required only for offline-overlay"
+    targetValue <- o .: "target"
+    target <- parseJSON targetValue
+    let supportsRebase = strategy `elem` [BuildStrategyOverlay, BuildStrategyOfflineOverlay]
+    when (not supportsRebase && case targetValue of Object fields -> KM.member "rebase" fields; _ -> False) $
+      fail $
+        "build.target.rebase is not supported by " <> (if strategy == BuildStrategyInstaller then "installer" else "from-scratch") <> " strategy"
+    when (not (btRebase target) && btFormat target /= FormatQcow2) $
+      fail "build.target.rebase: false requires target.format: qcow2"
     Build
       <$> o .: "name"
       <*> o .:? "description"
       <*> o .: "template"
       <*> o .:? "node" .!= ""
-      <*> o .: "target"
+      <*> pure target
       <*> pure source
       <*> pure Nothing
       <*> pure strategy
@@ -220,6 +228,7 @@ instance FromJSON ShellDefaults where
 data BuildTarget = BuildTarget
   { btFormat :: DriveFormat
   , btSize :: Maybe Int64
+  , btRebase :: Bool
   , btCompact :: Bool
   , btEphemeral :: Bool
   , btPath :: Maybe Text
@@ -232,6 +241,7 @@ instance FromJSON BuildTarget where
     BuildTarget
       <$> o .:? "format" .!= FormatQcow2
       <*> optionalSizeField o "size"
+      <*> o .:? "rebase" .!= True
       <*> o .:? "compact" .!= True
       <*> o .:? "ephemeral" .!= False
       <*> o .:? "path"

@@ -40,7 +40,7 @@ import Capnp.Rpc.Server (SomeServer, handleParsed)
 import qualified Control.Exception as E
 import Corvus.NodeAgentClient.Core
 import Data.Int (Int32, Int64)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
 import Data.Word (Word32)
 
@@ -225,8 +225,10 @@ diskClone
   -> T.Text
   -- ^ destination on-disk format (\"qcow2\" / \"raw\"); passed
   -- to @qemu-img convert -O <destFormat>@.
+  -> Maybe (T.Text, T.Text)
+  -> Bool
   -> IO (Either NodeAgentError DiskOpResult)
-diskClone nac src dest destFormat = remote $ do
+diskClone nac src dest destFormat backing compact = remote $ do
   CGNA.Session'diskClone'results {CGNA.result = r} <-
     callOn
       #diskClone
@@ -234,6 +236,10 @@ diskClone nac src dest destFormat = remote $ do
         { CGNA.sourcePath = src
         , CGNA.destPath = dest
         , CGNA.destFormat = destFormat
+        , CGNA.backingPath = maybe "" fst backing
+        , CGNA.backingFormat = maybe "" snd backing
+        , CGNA.hasBacking = isJust backing
+        , CGNA.compact = compact
         }
       (nacSession nac)
   pure (decodeDiskOpResult r)

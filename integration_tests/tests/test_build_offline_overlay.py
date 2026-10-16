@@ -7,6 +7,7 @@ import secrets
 import shlex
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import PurePosixPath
 
 import pytest
 from corvus_client.types import BuildLogLine, BuildPipelineEnd, BuildStreamItem
@@ -32,9 +33,22 @@ class TestBuildOfflineOverlay(SingleNodeCase):
             for template in self.client.templates.list():
                 if template.name.startswith(prefix):
                     self.client.templates.get(template.id).delete()
-            for image in reversed(self.client.disks.list()):
-                if prefix in image.name:
-                    self.client.disks.get(image.id).delete()
+            images = {
+                image.id: self.client.disks.get(image.id).show()
+                for image in self.client.disks.list()
+                if prefix in image.name
+            }
+            while images:
+                backing_ids = {
+                    image.backing_image.id
+                    for image in images.values()
+                    if image.backing_image is not None
+                }
+                leaves = set(images) - backing_ids
+                assert leaves, "Image dependency cycle during cleanup"
+                for image_id in leaves:
+                    self.client.disks.get(image_id).delete()
+                    del images[image_id]
 
     def _run(
         self, steps: list[dict[str, object]]
@@ -47,9 +61,17 @@ class TestBuildOfflineOverlay(SingleNodeCase):
             print(events)
         return end, events
 
-    @pytest.mark.parametrize("output_format", ["qcow2", "raw"])
+    @pytest.mark.parametrize(
+        "output_format,rebase,compact",
+        [
+            ("qcow2", True, False),
+            ("raw", True, False),
+            ("qcow2", False, False),
+            ("qcow2", False, True),
+        ],
+    )
     def test_firstboot_preserved_and_only_target_published(
-        self, output_format: str
+        self, output_format: str, rebase: bool, compact: bool
     ) -> None:
         base = self.register_base_images()["corvus-test-vm"]
         with self._resources() as prefix:
@@ -163,7 +185,8 @@ rc-update add local default
                 "target": {
                     "format": output_format,
                     "ifExists": "update",
-                    "compact": False,
+                    "compact": compact,
+                    "rebase": rebase,
                 },
                 "provisioners": [
                     {
@@ -198,13 +221,18 @@ sync
             assert artifact.size == (
                 3 * 1024**3 if output_format == "raw" else source_info.size
             )
-            assert artifact.backing_image is None
+            assert (artifact.backing_image.id if artifact.backing_image else None) == (
+                None if rebase else source_info.id
+            )
             info = json.loads(
                 self.node.run(
                     f"qemu-img info --output=json {shlex.quote(artifact.placements[0].file_path)}"
                 ).stdout
             )
-            assert "backing-filename" not in info
+            if rebase:
+                assert "backing-filename" not in info
+            else:
+                assert info["backing-filename"] == source_info.placements[0].file_path
             assert not info.get("snapshots")
             assert self.node.run(f"sha256sum {source_path}").stdout == before
             assert len(source_disk.snapshot_list()) == 1
@@ -217,7 +245,7 @@ sync
                 for event in events
             )
 
-            if output_format == "qcow2":
+            if output_format == "qcow2" and rebase:
                 # Moving a floating selector changes identity even when image bytes match.
                 replacement = self.client.disks.clone(source_info.id, source)
                 replacement.tag("stable")
@@ -276,3 +304,146 @@ sync
                 prefix in vm.name and vm.name.startswith("__build_")
                 for vm in self.client.vms.list()
             )
+
+    @pytest.mark.parametrize("compact", [False, True])
+    def test_overlay_retains_nested_backing_and_update_policy(
+        self, compact: bool
+    ) -> None:
+        from corvus_client.exceptions import DiskHasOverlays
+
+        base = self.register_base_images()["corvus-test-vm"]
+        with self._resources() as prefix:
+            template = f"{prefix}-template"
+
+            def apply_template(image: str | int) -> None:
+                end, _ = self._run(
+                    [
+                        {
+                            "apply": {
+                                "ifExists": "overwrite",
+                                "templates": [
+                                    {
+                                        "name": template,
+                                        "cpuCount": 1,
+                                        "ram": "512M",
+                                        "headless": True,
+                                        "guestAgent": True,
+                                        "drives": [
+                                            {
+                                                "diskImage": image,
+                                                "strategy": "overlay",
+                                                "interface": "virtio",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                )
+                assert not [b for b in end.builds if b.error_message], end
+
+            apply_template(base)
+            parent = f"{prefix}-parent"
+            target = {"rebase": False, "compact": compact, "ifExists": "update"}
+            recipe: dict[str, object] = {
+                "name": parent,
+                "template": template,
+                "target": target,
+                "provisioners": [
+                    {
+                        "shell": "printf inherited > /etc/rebase-inherited; printf old > /etc/rebase-change; dd if=/dev/urandom of=/etc/rebase-zero bs=4096 count=1; sync"
+                    }
+                ],
+            }
+            end, _ = self._run([{"build": recipe}])
+            assert not end.builds[0].error_message, end
+            parent_id = end.builds[0].artifact_disk_id
+            assert parent_id is not None
+            parent_disk = self.client.disks.get(parent_id)
+            parent_info = parent_disk.show()
+            assert parent_info.backing_image is not None
+            parent_path = shlex.quote(parent_info.placements[0].file_path)
+            before = self.node.run(f"sha256sum {parent_path}").stdout
+            apply_template(parent_id)
+            recipe["name"] = f"{prefix}-child"
+            recipe["provisioners"] = [
+                {
+                    "shell": "printf new > /etc/rebase-change; dd if=/dev/zero of=/etc/rebase-zero bs=4096 count=1 conv=notrunc; sync"
+                }
+            ]
+            end, _ = self._run([{"build": recipe}])
+            assert not end.builds[0].error_message, end
+            artifact_id = end.builds[0].artifact_disk_id
+            assert artifact_id is not None
+            artifact = self.client.disks.get(artifact_id).show()
+            assert artifact.backing_image is not None
+            assert artifact.backing_image.id == parent_id
+            path = shlex.quote(artifact.placements[0].file_path)
+            info = json.loads(
+                self.node.run(f"qemu-img info --output=json {path}").stdout
+            )
+            assert info["backing-filename"] == parent_info.placements[0].file_path
+            assert not info.get("snapshots")
+            assert self.node.run(f"sha256sum {parent_path}").stdout == before
+            clone = self.client.disks.clone(artifact_id, f"{prefix}-clone")
+            assert clone.show().backing_image is None
+            clone_info = json.loads(
+                self.node.run(
+                    f"qemu-img info --output=json {shlex.quote(clone.show().placements[0].file_path)}"
+                ).stdout
+            )
+            assert "backing-filename" not in clone_info
+            end, _ = self._run([{"build": recipe}])
+            assert end.builds[0].artifact_disk_id == artifact_id
+            # A failed publication must preserve the previous image and tags.
+            self.client.disks.get(artifact_id).tag("stable")
+            failed = dict(
+                recipe,
+                target=dict(
+                    target, path=artifact.placements[0].file_path, ifExists="overwrite"
+                ),
+            )
+            end, _ = self._run([{"build": failed}])
+            assert end.builds[0].error_message, end
+            assert (
+                self.client.disks.get(f"{prefix}-child:stable", by_name=True).show().id
+                == artifact_id
+            )
+            assert (
+                self.client.disks.get(f"{prefix}-child", by_name=True).show().id
+                == artifact_id
+            )
+            assert not self.node.run(
+                f"find {shlex.quote(str(PurePosixPath(artifact.placements[0].file_path).parent))} -name '.corvus-image*.part*' -print"
+            ).stdout.strip()
+            target["rebase"] = True
+            end, _ = self._run([{"build": recipe}])
+            assert not end.builds[0].error_message, end
+            assert end.builds[0].artifact_disk_id != artifact_id
+            flat_id = end.builds[0].artifact_disk_id
+            assert flat_id is not None
+            assert self.client.disks.get(flat_id).show().backing_image is None
+            del target["rebase"]
+            end, _ = self._run([{"build": recipe}])
+            assert end.builds[0].artifact_disk_id == flat_id
+            self.client.templates.get(template, by_name=True).delete()
+            with pytest.raises(DiskHasOverlays):
+                parent_disk.delete()
+            overlay = f"{prefix}-verify"
+            self.client.disks.create_overlay(overlay, artifact_id, ephemeral=True)
+            vm = self.client.vms.create(
+                f"{prefix}-verify",
+                cpu_count=1,
+                ram=536870912,
+                headless=True,
+                guest_agent=True,
+            )
+            vm.attach_disk(disk_ref=overlay, interface="virtio")
+            vm.start(wait=True)
+            result = vm.guest_exec(
+                "/bin/sh -c 'test $(cat /etc/rebase-inherited) = inherited && test $(cat /etc/rebase-change) = new && dd if=/dev/zero bs=4096 count=1 | cmp - /etc/rebase-zero'"
+            )
+            assert result.exit_code == 0, result
+            vm.stop(wait=True)
+            vm.delete()

@@ -153,7 +153,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                           then pure $ RespError "Source and destination paths are the same"
                           else do
                             logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
-                            copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format
+                            copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format Nothing False
                             case copyResult of
                               ImageSuccess -> registerImportedFile state reservedId nid basePath safeName format destPath ephemeral
                               ImageError err -> do

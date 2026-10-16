@@ -39,6 +39,23 @@ firstBuild cfg = case pcSteps cfg of
 
 spec :: Spec
 spec = describe "Schema.Build" $ do
+  describe "target.rebase" $ do
+    let parse strategy target = decodePipeline ("pipeline: [{build: {name: x, template: t, strategy: " <> strategy <> (if strategy == "offline-overlay" then ", sourceImage: base" else "") <> ", target: {" <> target <> "}}}]")
+    it "defaults to true and supports both overlay strategies" $ do
+      mapM_
+        ( \strategy ->
+            mapM_
+              ( \(fields, expected) -> case parse strategy fields of
+                  Left err -> expectationFailure err
+                  Right config -> btRebase (buildTarget (firstBuild config)) `shouldBe` expected
+              )
+              [("", True), ("rebase: true", True), ("rebase: false", False)]
+        )
+        ["overlay", "offline-overlay"]
+    it "rejects explicit flags on other strategies" $
+      mapM_ (\strategy -> mapM_ (\flag -> parse strategy ("rebase: " <> flag) `shouldSatisfy` isLeft) ["true", "false", "null"]) ["installer", "from-scratch"]
+    it "rejects retained raw overlays" $
+      mapM_ (\strategy -> parse strategy "rebase: false, format: raw" `shouldSatisfy` isLeft) ["overlay", "offline-overlay"]
   describe "offline-overlay" $ do
     it "requires a source only for offline-overlay" $ do
       let parse fields = decodePipeline ("pipeline: [{build: {name: x, template: t, target: {}, " <> fields <> "}}]")

@@ -99,13 +99,16 @@ envelopeValue b =
 --   * @ifExists@  — what to do when an artifact with the same name
 --                   already exists (error / skip / overwrite / update)
 --
--- Compaction is recorded separately at the manifest top level.
+-- Rebase is recorded for overlay strategies because it changes backing
+-- dependencies. Compaction is recorded separately at the manifest top level.
 targetValue :: BuildStrategy -> BuildTarget -> Value
 targetValue strategy t =
   obj
-    [ ("format", String (enumToText (btFormat t)))
-    , ("size", if strategy == BuildStrategyOfflineOverlay then maybe Null intValue (btSize t) else intValue (fromMaybe 10737418240 (btSize t)))
-    ]
+    ( [("rebase", Bool (btRebase t)) | strategy `elem` [BuildStrategyOverlay, BuildStrategyOfflineOverlay]]
+        ++ [ ("format", String (enumToText (btFormat t)))
+           , ("size", if strategy == BuildStrategyOfflineOverlay then maybe Null intValue (btSize t) else intValue (fromMaybe 10737418240 (btSize t)))
+           ]
+    )
 
 buildVmValue :: BuildVm -> Value
 buildVmValue v =

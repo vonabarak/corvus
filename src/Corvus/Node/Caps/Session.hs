@@ -174,8 +174,13 @@ instance CGNA.Session'server_ SessionServer where
         { CGNA.sourcePath = src
         , CGNA.destPath = dst
         , CGNA.destFormat = destFormat
+        , CGNA.backingPath = backingPath
+        , CGNA.backingFormat = backingFormat
+        , CGNA.hasBacking = hasBacking
+        , CGNA.compact = compact
         } -> do
-          result <- NI.cloneImage (T.unpack src) (T.unpack dst) destFormat
+          let backing = if hasBacking then Just (T.unpack backingPath, backingFormat) else Nothing
+          result <- NI.cloneImage (T.unpack src) (T.unpack dst) destFormat backing compact
           pure
             CGNA.Session'diskClone'results
               { CGNA.result = encodeDiskOpResult result

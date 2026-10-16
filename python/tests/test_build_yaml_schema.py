@@ -114,3 +114,25 @@ def test_valid_authoring_documents(validator: Draft7Validator, document: str) ->
 )
 def test_invalid_authoring_documents(validator: Draft7Validator, document: str) -> None:
     assert not validator.is_valid(yaml.safe_load(document))
+
+
+@pytest.mark.parametrize(
+    "strategy", ["overlay", "offline-overlay", "installer", "from-scratch"]
+)
+@pytest.mark.parametrize("rebase", [True, False, None])
+@pytest.mark.parametrize("format", ["qcow2", "raw"])
+def test_target_rebase(
+    validator: Draft7Validator, strategy: str, rebase: bool | None, format: str
+) -> None:
+    build = {
+        "name": "x",
+        "template": "t",
+        "strategy": strategy,
+        "target": {"rebase": rebase, "format": format},
+    }
+    if strategy == "offline-overlay":
+        build["sourceImage"] = "base"
+    valid = strategy in {"overlay", "offline-overlay"} and not (
+        rebase is False and format == "raw"
+    )
+    assert validator.is_valid({"pipeline": [{"build": build}]}) == valid

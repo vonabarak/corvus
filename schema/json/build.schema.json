@@ -2069,9 +2069,54 @@
             }
           ],
           "description": "Publication policy for an existing image: error, skip, overwrite, or update."
+        },
+        "rebase": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "default": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Publish a standalone image. Only supported for overlay and offline-overlay; false retains backing and requires qcow2."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "rebase": {
+                "const": false
+              }
+            },
+            "required": [
+              "rebase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "format": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[qQ][cC][oO][wW]2$"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": ".*\\{\\{.*"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
     },
     "buildVm": {
       "type": "object",
@@ -3295,6 +3340,30 @@
                 "required": [
                   "sourceImage"
                 ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": {
+                "type": "string",
+                "pattern": "^(?:[iI][nN][sS][tT][aA][lL][lL][eE][rR]|[fF][rR][oO][mM]-[sS][cC][rR][aA][tT][cC][hH])$"
+              }
+            },
+            "required": [
+              "strategy"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "not": {
+                  "required": [
+                    "rebase"
+                  ]
+                }
               }
             }
           }

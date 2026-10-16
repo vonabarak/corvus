@@ -102,6 +102,16 @@ spec = describe "build input identity" $ do
     fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 1" ShellPowerShell 300)
     fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 0" ShellSh 300)
     fingerprint (probe "inline: exit 0" ShellPowerShell 300) `shouldNotBe` fingerprint (probe "inline: exit 0" ShellPowerShell 900)
+  it "includes the effective rebase flag only for overlay strategies" $ do
+    mapM_
+      ( \strategy -> do
+          let b = build {buildStrategy = strategy}
+              changed = b {buildTarget = (buildTarget b) {btRebase = False}}
+          if strategy `elem` [BuildStrategyOverlay, BuildStrategyOfflineOverlay]
+            then fingerprint b `shouldNotBe` fingerprint changed
+            else fingerprint b `shouldBe` fingerprint changed
+      )
+      [BuildStrategyOverlay, BuildStrategyOfflineOverlay, BuildStrategyInstaller, BuildStrategyFromScratch]
   it "pins offline-overlay identity to the resolved image version" $ do
     let offline = build {buildStrategy = BuildStrategyOfflineOverlay, buildSourceImage = Just (ImageTag "base" "latest"), buildResolvedSourceImage = Just 7}
     fingerprint offline `shouldBe` fingerprint (offline {buildSourceImage = Just (ImageId 7)})
@@ -112,7 +122,7 @@ spec = describe "build input identity" $ do
     fingerprint build `shouldBe` fingerprint (build {buildTarget = (buildTarget build) {btSize = Just 10737418240}})
   it "stores valid deterministic JSON and a SHA-256 fingerprint" $ do
     identity build `shouldBe` identity build
-    biFingerprint (identity build) `shouldBe` "c14bccf6d1da66150cfc8a865c0a4a012055a6c88ba63a20ae32713aa23f7e77"
+    biFingerprint (identity build) `shouldBe` "fc55a16edb59fb58bfbd92bc3b13e21a32266addc947cdc910edfb2e4c32574b"
     (Aeson.eitherDecodeStrict' (TE.encodeUtf8 (biInputs (identity build))) :: Either String Aeson.Value) `shouldSatisfy` either (const False) (const True)
   it "includes inherited and overridden startup timeout budgets" $ do
     fingerprint build `shouldNotBe` fingerprint (template sampleDetails {tvdStartupTimeoutSec = 1200})

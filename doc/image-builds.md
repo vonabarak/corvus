@@ -16,8 +16,9 @@ A `build:` step:
 5. Stops the VM gracefully.
 6. Publishes the artifact: `qemu-img convert`-clones the bake VM's
    chosen drive into a fresh `DiskImage`, persistent by default and named by
-   the build's `name:` field (optionally compacted). The clone is flat by
-   construction — `qemu-img convert` does NOT carry over the source's
+   the build's `name:` field (optionally compacted). The clone is standalone
+   by default. `rebase: false` retains backing images
+   for overlay strategies. `qemu-img convert` does NOT carry over the source's
    internal qcow2 snapshot table, so the published image is
    guaranteed to have zero snapshots.
 7. Tears down the bake VM and any other ephemeral resources according to
@@ -351,6 +352,29 @@ accepts `error`, `skip`, and `overwrite`. Disk overwrite publishes a new version
 a pipeline `apply:` step inside `crv build` (which has no
 `--skip-existing` flag) can opt into skip-existing via the YAML.
 
+### `target.rebase`
+
+For `overlay` and `offline-overlay`, `build.target.rebase` defaults to `true`: the
+published image is independent of its backing image. Set `rebase: false` to retain
+the immediate backing image and publish only the build's changes:
+
+```yaml
+target:
+  format: qcow2
+  rebase: false
+  compact: true
+```
+
+Corvus records the backing dependency and prevents deleting it while the published
+overlay uses it. The temporary bake disk is still removed normally. Internal
+snapshots are never published, and `compact: true` compresses the overlay without
+flattening it. If the bake artifact has no backing image, publication remains
+standalone.
+
+`rebase: false` requires `format: qcow2`. Supplying `rebase` for `installer` or
+`from-scratch` is an error, even when set to `true`. Changing the effective flag
+invalidates `ifExists: update`; omitting it is equivalent to `true`.
+
 ### `target.ephemeral`
 
 `ephemeral` is a boolean, defaulting to `false`. It controls the published disk
@@ -520,8 +544,8 @@ The bake VM boots from the disks the template defines (typically a
 clone or overlay of the template's source). The build picks the **first
 attached drive** as the artifact: after provisioners run, that drive is
 the source of the publish-time clone (`qemu-img convert` into a fresh
-flat qcow2 named by `build.name`). The original ephemeral drive stays
-attached to the bake VM until cleanup.
+qcow2 named by `build.name`, standalone by default). The original ephemeral
+drive stays attached to the bake VM until cleanup.
 
 Use this when you want a self-contained derivative of an existing
 image — install some packages on top of `debian-12-cloud`, save the
@@ -565,7 +589,8 @@ same version by another label does not.
 Omitting `target.size` inherits the source's virtual size. An explicit size may
 match or exceed it; shrinking fails. Growing the disk does not grow partitions
 or filesystems. The temporary disk is always qcow2; `target.format` selects the
-published, flat image format. Publication excludes backing chains and snapshots.
+published image format. Publication excludes snapshots and, by default, backing
+chains. Set `target.rebase: false` to retain the source image as backing.
 
 The helper needs filesystem drivers and any mounting, partitioning, or chroot
 tools your scripts use. Corvus does not mount or chroot automatically. Identify

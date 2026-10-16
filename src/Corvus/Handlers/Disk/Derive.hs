@@ -158,7 +158,7 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral requestedNo
                       ext = takeExtension srcFileName
                       cloneFileName = T.unpack safeName <> ext
                   destPath <- liftIO $ resolveDiskFilePath reservedId basePath optionalPath cloneFileName
-                  result <- liftIO $ cloneImageViaAgent state nid srcPath destPath (diskImageFormat baseDisk)
+                  result <- liftIO $ cloneImageViaAgent state nid srcPath destPath (diskImageFormat baseDisk) Nothing False
                   case result of
                     ImageError err -> do
                       logWarnN $ "Failed to clone image: " <> err
@@ -185,7 +185,7 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral requestedNo
                                           , diskImageFormat = diskImageFormat baseDisk
                                           , diskImageSize = actualSize
                                           , diskImageCreatedAt = now
-                                          , diskImageBackingImageId = diskImageBackingImageId baseDisk
+                                          , diskImageBackingImageId = Nothing
                                           , diskImageEphemeral = ephemeral
                                           }
                                     recordDiskImageNode dId nid storedDest

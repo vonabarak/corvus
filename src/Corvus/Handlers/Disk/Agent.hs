@@ -182,10 +182,12 @@ cloneImageViaAgent
   -- ^ destination format — drives the @qemu-img convert -O@ flag so
   -- a qcow2-source-to-raw-destination clone produces a raw file (not
   -- a qcow2 file masquerading as raw in the DB row).
+  -> Maybe (FilePath, DriveFormat)
+  -> Bool
   -> IO NI.ImageResult
-cloneImageViaAgent state nid src dest destFormat =
+cloneImageViaAgent state nid src dest destFormat backing compact =
   withDiskOp state nid $ \nac ->
-    NOA.diskClone nac (T.pack src) (T.pack dest) (enumToText destFormat)
+    NOA.diskClone nac (T.pack src) (T.pack dest) (enumToText destFormat) (fmap (bimap T.pack enumToText) backing) compact
 
 getImageInfoViaAgent
   :: ServerState -> M.NodeId -> FilePath -> IO (Either Text NI.ImageInfo)

@@ -398,9 +398,11 @@ rollbackSnapshot path name = do
 -- 1. The destination contains only the source's active state — no
 --    internal snapshots, no vmstate. The
 --    'Corvus.Handlers.Build.publishArtifactByClone' caller relies
---    on this: a published artifact must be a flat standalone image
---    with an empty snapshot table (@qemu-img snapshot -l@ returning
+--    on this: a published artifact must have an empty snapshot table (@qemu-img snapshot -l@ returning
 --    empty).
+-- An optional backing image preserves a differential output; compression
+-- applies during conversion without flattening that backing chain.
+--
 -- 2. The output format is selectable. A @qcow2 -> raw@ clone (e.g.
 --    the installer-strategy bake whose target is @format: raw@)
 --    physically converts the bytes; the destination file then
@@ -418,11 +420,11 @@ rollbackSnapshot path name = do
 -- 2× that to land the destination atomically and routinely hit
 -- @ENOSPC@ on the publish step even when the active state was
 -- only a few GB.
-cloneImage :: FilePath -> FilePath -> Text -> IO ImageResult
-cloneImage src dest destFormat = withNewImagePath dest $ \temporary -> cloneImageRaw src temporary destFormat
+cloneImage :: FilePath -> FilePath -> Text -> Maybe (FilePath, Text) -> Bool -> IO ImageResult
+cloneImage src dest destFormat backing compact = withNewImagePath dest $ \temporary -> cloneImageRaw src temporary destFormat backing compact
 
-cloneImageRaw :: FilePath -> FilePath -> Text -> IO ImageResult
-cloneImageRaw src dest destFormat = do
+cloneImageRaw :: FilePath -> FilePath -> Text -> Maybe (FilePath, Text) -> Bool -> IO ImageResult
+cloneImageRaw src dest destFormat backing compact = do
   createDirectoryIfMissing True (takeDirectory dest)
   exists <- doesFileExist src
   if not exists
@@ -432,7 +434,8 @@ cloneImageRaw src dest destFormat = do
       if destExists
         then pure $ ImageError "Destination file already exists"
         else do
-          let args = ["convert", "-O", T.unpack destFormat, src, dest]
+          let backingArgs = maybe [] (\(path, format) -> ["-B", path, "-F", T.unpack format]) backing
+              args = ["convert", "-O", T.unpack destFormat] ++ backingArgs ++ ["-c" | compact] ++ [src, dest]
           result <-
             try $ readProcessWithExitCode qemuImgBinary args ""
           case result of
