@@ -101,23 +101,45 @@ The first build can take substantially longer than subsequent builds. Bake
 commands disable Portage’s `userfetch` and `userpriv` features: downloads and
 ebuild phases run as guest root, including live-package Git fetches during
 `src_unpack`. Root can write through the share even when the host cannot map
-the guest `portage` UID. These overrides apply only while building images; installed
-images retain their normal Portage privilege settings.
+the guest `portage` UID. The development image also retains these overrides so
+operators can write to the same shared caches; other installed images retain
+their normal Portage privilege settings.
 Native build dependencies also receive these settings in the bake host's
 `make.conf`; Portage resolves them separately from packages installed into the
 target root. Build environments explicitly set `DISTDIR` and `PKGDIR` to
 `/mnt/corvus-cache/distfiles` and `/mnt/corvus-cache/binpkgs`, so selecting another
-ROOT or SYSROOT does not redirect the caches. The target's distfiles and package cache directories stay empty during the
-build; the shared caches are not mounted inside SYSROOT. This fetch override is
-not saved in the runtime image’s Portage configuration.
+ROOT or SYSROOT does not redirect the caches. The from-scratch target's
+distfiles and package cache directories stay empty during the build; those
+shared caches are not mounted inside SYSROOT.
 
 The intermediate builder retains `/var/db/repos` on its filesystem so the
 from-scratch build can use it. The new headless root has an empty repository
-directory. Cloud-init and development-image overlay builds mount that directory
+directory. Cloud-init and development-image builds mount that directory
 as tmpfs before syncing, including additional development overlays, so their
-published disks contain no Portage tree. The bake host exposes caches at `/mnt/corvus-cache` and temporary `/var/cache`
-bind mounts; runtime templates have no shared directories or cache mounts in fstab.
+published disks contain no Portage tree. The bake host exposes caches at
+`/mnt/corvus-cache` and temporary `/var/cache` bind mounts. The development VM also receives the cache share, with optional
+systemd automounts at `/mnt/corvus-cache` and dependent bind automounts at
+`/var/cache/distfiles`, `/var/cache/binpkgs`, and `/var/cache/binhost`.
+Other runtime templates do not attach caches.
 The external host cache survives both `clean` and `cache-clean`.
+
+The development recipe uses `offline-overlay` with `gentoo-headless-cloudinit`
+as its artifact source. A separate 40 GB helper boots the same base and waits
+for Cloud-init to grow its filesystem. Package compilation uses the helper's
+`/var/tmp/portage`; the artifact keeps the base image's size (currently 20 GB).
+The artifact never boots during provisioning, preserving Cloud-init first-boot
+state. PostgreSQL is initialized with a temporary local-only server inside the
+chroot; runtime services are enabled for the first real boot.
+
+Development images contain no Portage repositories. After boot, run
+`sudo emerge --sync` once before testing package reinstalls or changing USE flags;
+the synchronized repositories then persist on the VM's writable disk. Distfiles,
+local binary packages, and downloaded binhost packages reuse the writable host
+cache. For example, `sudo emerge --ask --oneshot app-emulation/corvus` reinstalls
+Corvus using the configured caches. Changing USE flags can require recompilation.
+The final apply keeps `ifExists: skip`: an existing `gentoo-corvus-test` VM is
+preserved. Remove and recreate it explicitly to adopt a rebuilt artifact and
+its shared-directory configuration.
 
 Published systems retain the systemd no-multilib profile, official binhost,
 runtime NFS tools, and UTF-8 locales. Cloud-init uses `locale: false` because
@@ -205,6 +227,19 @@ artifacts above.
 | `debian-nginx` | `yaml/debian-nginx/` | `debian-12-nginx`, an example Debian 12 nginx derivative built from the multi-OS Debian base. |
 | `ubuntu-nginx` | `yaml/ubuntu-nginx/` | `ubuntu26-nginx`, an example Ubuntu 26.04 nginx derivative built from the multi-OS Ubuntu base. |
 | `monitor` | `yaml/corvus-monitor/` | `corvus-monitor`, a Debian 12 Prometheus and Grafana image. Set `CORVUS_WEB_TARGET=host:port` when building to bake a Corvus metrics endpoint into its dashboard configuration. |
+
+The test-node image build uses the same Gentoo cache as the headless and
+development images. Run `make image IMAGE=node GENTOO_CACHE_DIR=/srv/corvus-cache`
+to override the default `/data/corvus-cache` throughout its dependency chain.
+The dedicated `corvus-test-node-bake` template attaches this directory through
+virtiofs; downloads, built packages, and official binaries use its `distfiles`,
+`binpkgs`, and `binhost` subdirectories. The recipe checks directory creation and
+file writes, disables `userfetch` and `userpriv` only during provisioning, and
+keeps saved `emerge-webrsync -k` snapshots in the distfiles cache. Gentoo and
+additional Git repositories are populated on tmpfs without using host repositories.
+Published nodes contain neither repository trees nor cache mounts; their normal
+Portage configuration remains suitable for local package installation. The runtime
+template and integration harness do not attach the build cache.
 
 The test-node exposes the host `~/VMs/BaseImages` tree to the inner daemon.
 The harness snapshots the outer daemon's `latest` catalogue once per test

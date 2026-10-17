@@ -853,10 +853,15 @@ once before building):
   Debian 12 with nginx preinstalled (`debian12` template).
 - [yaml/ubuntu-nginx/ubuntu-nginx.yml](../yaml/ubuntu-nginx/ubuntu-nginx.yml) —
   Ubuntu 26.04 LTS with nginx preinstalled (`ubuntu26` template).
+
+Offline-overlay builds:
+
 - [yaml/gentoo/gentoo-test.yml](../yaml/gentoo/gentoo-test.yml) —
-  Gentoo image preloaded with the full Corvus build/test toolchain
-  (`gentoo-headless` image), with a persistent virtiofs package cache and
-  repositories on tmpfs during the bake.
+  Gentoo development image built with `offline-overlay` from
+  `gentoo-headless-cloudinit`, using a separate 40 GB helper. The artifact keeps
+  its base size and first-boot state. Writable virtiofs package caches are shared
+  during the bake and automounted in the runtime VM; repositories use tmpfs
+  during the bake and must be synchronized once after boot.
 
 From-scratch builds:
 

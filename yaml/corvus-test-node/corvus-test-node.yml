@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
 vars:
   image_if_exists: update
+  cache_dir: /data/corvus-cache
 
 _wait_for_network: &wait_for_network
   shell:
@@ -14,10 +15,32 @@ _wait_for_network: &wait_for_network
     timeoutSec: 130
 
 pipeline:
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: corvus-test-node-bake
+          description: Gentoo test-node bake host with shared package caches
+          cpuCount: 8
+          ram: 8G
+          cloudInit: false
+          guestAgent: true
+          headless: true
+          drives:
+            - diskImage: gentoo-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+          sharedDirs:
+            - path: "{{ cache_dir }}"
+              tag: corvus-cache
+          networkInterfaces:
+            - network: corvus
+
   - build:
       name: corvus-test-node
       description: Corvus integration-test target; runs the freshly built daemon over vsock
-      template: gentoo-headless
+      template: corvus-test-node-bake
 
       target:
         ifExists: "{{ image_if_exists }}"
@@ -33,64 +56,60 @@ pipeline:
 
       shellDefaults:
         preamble: "set -eux"
+        env:
+          FEATURES: "-userfetch -userpriv"
+          DISTDIR: /mnt/corvus-cache/distfiles
+          PKGDIR: /mnt/corvus-cache/binpkgs
 
       provisioners:
         - *wait_for_network
 
         - shell:
             inline: |
-              # /var/db/repos: read-only NFS mount of the host portage
-              # tree — portage only reads from this.
-              # /var/cache/distfiles needs writes for portage lockfiles
-              # and source-fallback fetches, so it's an overlayfs: the
-              # NFS RO mount at /run/distfiles-host is the lower layer,
-              # an ephemeral upperdir on the bake VM's local rootfs
-              # absorbs any new tarballs portage fetches.
-              # /var/cache/binpkgs is RW — it points at the host's
-              # binpkgs_corvus export (all_squash,anonuid=1000,
-              # anongid=1000) so portage can write back binpkgs the
-              # bake produces. FEATURES=buildpkg in step 3 turns the
-              # write-back on; the cache survives across bakes.
-              mkdir -p /var/db/repos /var/cache/binpkgs \
-                       /var/cache/distfiles /run/distfiles-host \
-                       /var/tmp/distfiles-upper /var/tmp/distfiles-work
-              mount -t nfs4 -o rw,vers=4.2 192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs
-              mount -oro 192.168.72.1:/var/db/repos /var/db/repos
-              mount -oro 192.168.72.1:/data/portage/distfiles /run/distfiles-host
-              mount -t overlay overlay \
-                -o lowerdir=/run/distfiles-host,upperdir=/var/tmp/distfiles-upper,workdir=/var/tmp/distfiles-work \
-                /var/cache/distfiles
-            timeoutSec: 60
+              mkdir -p /mnt/corvus-cache
+              mount -t virtiofs corvus-cache /mnt/corvus-cache
+              for cache in distfiles binpkgs binhost; do
+                mkdir -p "/mnt/corvus-cache/$cache"
+                probe=$(mktemp -d "/mnt/corvus-cache/$cache/.corvus-write-test.XXXXXX") || {
+                  echo "Cannot create directories in cache $cache; check host cache permissions for the virtiofsd user." >&2
+                  exit 1
+                }
+                if ! (umask 077; : > "$probe/package"); then
+                  rmdir "$probe"
+                  echo "Cannot write files in cache $cache; check host cache permissions." >&2
+                  exit 1
+                fi
+                rm "$probe/package"
+                rmdir "$probe"
+              done
+              install -d /etc/portage/binrepos.conf
+              cat > /etc/portage/binrepos.conf/zz-corvus-cache.conf <<'EOF'
+              [binhost]
+              location = /mnt/corvus-cache/binhost/binhost
+              EOF
+              mkdir -p /var/db/repos
+              mount -t tmpfs tmpfs /var/db/repos
+              emerge-webrsync -k
+            timeoutSec: 180
 
         - shell:
             inline: |
-              # Enable the host-shared overlays that carry the
-              # non-main-tree packages this test image needs:
-              # `vonabarak` ships dev-python/pycapnp,
-              # dev-python/fastapi, and the corvus ebuilds;
-              # `haskell` ships dev-haskell/*. The actual repo
-              # trees are NFS-mounted under /var/db/repos in step 2;
-              # we just need repos.conf entries so portage discovers
-              # them.
+              emerge --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git
               install -d /etc/portage/repos.conf
               cat > /etc/portage/repos.conf/vonabarak.conf <<'EOF'
               [vonabarak]
               location = /var/db/repos/vonabarak
+              sync-type = git
+              sync-uri = https://github.com/vonabarak/gentoo.git
               EOF
               cat > /etc/portage/repos.conf/haskell.conf <<'EOF'
               [haskell]
               location = /var/db/repos/haskell
+              sync-type = git
+              sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git
               EOF
-
-              # Cache binpkgs back to the host's binpkgs_corvus export
-              # so subsequent corvus-test-node bakes reuse them instead
-              # of rebuilding from source. Mirrors what gentoo-headless
-              # does in its own step 1; same NFS export, same UID
-              # squash. The base image's make.conf (set up by
-              # gentoo-headless step 4) already has the binhost knobs
-              # — we just need the buildpkg flag here.
-              grep -q 'FEATURES=.*buildpkg' /etc/portage/make.conf 2>/dev/null \
-                || echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf
+              emaint sync -r vonabarak
+              emaint sync -r haskell
 
               cat > /etc/portage/package.use/corvus <<'EOF'
               app-emulation/qemu spice pipewire pulseaudio usb usbredir virtfs passt vde
@@ -111,7 +130,7 @@ pipeline:
               dev-haskell/zenhack-prelude **
               EOF
 
-              emerge --noreplace --usepkg --quiet-build \
+              emerge --noreplace --usepkg --buildpkg --quiet-build \
                 net-misc/socat \
                 app-emulation/qemu \
                 media-video/pipewire \
@@ -494,6 +513,15 @@ pipeline:
               } > /etc/corvus-image-info
               cat /etc/corvus-image-info
             timeoutSec: 30
+
+        # Build cache settings must not survive in the runtime image.
+        - shell:
+            inline: |
+              rm /etc/portage/binrepos.conf/zz-corvus-cache.conf
+              sync
+              umount /var/db/repos
+              umount /mnt/corvus-cache
+            timeoutSec: 60
 
         # ── Reset machine-id so every clone gets a fresh one ─────────────
         # Must be the LAST disk-mutating provisioner step: gentoo-headless

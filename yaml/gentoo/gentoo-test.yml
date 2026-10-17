@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
-# `make build` updates the headless chain before evaluating this build.
+# Build dependencies through the Gentoo Makefile before running this recipe.
 vars:
   image_if_exists: update
   cache_dir: /data/corvus-cache
@@ -11,279 +11,48 @@ pipeline:
         - name: gentoo-test-builder
           cpuCount: 8
           ram: 16G
-          cloudInit: false
+          cloudInit: true
           guestAgent: true
           headless: true
-          description: "Gentoo test VM builder"
+          description: Gentoo test VM builder
           drives:
-            - diskImage: gentoo-headless
+            - diskImage: gentoo-headless-cloudinit
               interface: virtio
               strategy: overlay
               cacheType: writeback
               discard: true
               size: 40G
-          sharedDirs: 
-            - path: "{{ cache_dir }}"
+          sharedDirs:
+            - path: '{{ cache_dir }}'
               tag: corvus-cache
           networkInterfaces:
             - network: corvus
-          sshKeys: 
+          sshKeys:
             - name: corvus
 
   - build:
       name: gentoo-corvus-test
       description: Gentoo image preloaded with everything Corvus builds against
       template: gentoo-test-builder
-      strategy: overlay
-
+      strategy: offline-overlay
+      sourceImage: gentoo-headless-cloudinit
       target:
-        ifExists: "{{ image_if_exists }}"
+        ifExists: '{{ image_if_exists }}'
         compact: true
-
       shellDefaults:
-        preamble: "set -eux"
-        # The host share supports guest root, but may not map the portage UID.
-        env:
-          FEATURES: "-userfetch -userpriv"
-          DISTDIR: /mnt/corvus-cache/distfiles
-          PKGDIR: /mnt/corvus-cache/binpkgs
-
+        preamble: set -eux
       provisioners:
+        - file:
+            from: ./scripts/provision-test-root.sh
+            to: /tmp/provision-test-root.sh
+            mode: '0755'
+        - file:
+            from: ./scripts/build-test-offline.sh
+            to: /tmp/build-test-offline.sh
+            mode: '0755'
         - shell:
-            inline: |
-              growpart /dev/vda 2
-              resize2fs /dev/vda2
-        
-        - shell:
-            inline: |
-              for i in $(seq 1 60); do
-                getent hosts distfiles.gentoo.org >/dev/null && break
-                sleep 2
-              done
-              getent hosts distfiles.gentoo.org >/dev/null \
-                || { echo "network never came up after 120s" >&2; exit 1; }
-            timeoutSec: 130
-
-        - shell:
-            inline: |
-              set -eu
-              mkdir -p /mnt/corvus-cache
-              mountpoint -q /mnt/corvus-cache || mount -t virtiofs corvus-cache /mnt/corvus-cache
-              for cache in distfiles binpkgs binhost; do
-                mkdir -p "/mnt/corvus-cache/$cache" "/var/cache/$cache"
-                mountpoint -q "/var/cache/$cache" || mount --bind "/mnt/corvus-cache/$cache" "/var/cache/$cache"
-                # Check directory creation and file writes, as binary packages need both.
-                probe=$(mktemp -d "/var/cache/$cache/.corvus-write-test.XXXXXX") || {
-                  echo "Cache /var/cache/$cache is not writable through virtiofs. Fix ownership and permissions of $cache on the execution node for the user running virtiofsd." >&2
-                  exit 1
-                }
-                if ! (umask 077; : > "$probe/package"); then
-                  rmdir "$probe"
-                  echo "Cannot write files in cache /var/cache/$cache; check host cache permissions." >&2
-                  exit 1
-                fi
-                rm "$probe/package"
-                rmdir "$probe"
-              done
-              mkdir -p /var/db/repos
-              mount -t tmpfs tmpfs /var/db/repos
-            timeoutSec: 60
-
-        - shell:
-            inline: |
-              emerge-webrsync -k 
-              emerge --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git
-            timeoutSec: 600
-
-        - shell:
-            inline: |
-              cat > /etc/portage/package.use/corvus <<'EOF'
-              app-emulation/qemu spice usb usbredir virtfs passt vde
-              net-libs/gnutls pkcs11 tools
-              EOF
-              
-              cat > /etc/portage/package.accept_keywords/corvus <<'EOF'
-              app-emulation/corvus **
-              dev-python/pycapnp **
-              dev-python/fastapi **
-              dev-haskell/* ~amd64
-              dev-lang/ghc ~amd64
-              dev-util/ghcup-bin ~amd64
-              app-admin/haskell-updater ~amd64
-              EOF
-
-              install -d /etc/portage/repos.conf
-              cat > /etc/portage/repos.conf/corvus.conf <<'EOF'
-              [vonabarak]
-              location = /var/db/repos/vonabarak
-              sync-type = git
-              sync-uri = https://github.com/vonabarak/gentoo.git
-
-              [haskell]
-              location = /var/db/repos/haskell
-              sync-type = git
-              sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git
-              EOF
-            timeoutSec: 60
-
-
-        - shell:
-            inline: |
-              emerge --sync
-              emerge --usepkg --buildpkg --quiet-build --onlydeps app-emulation/corvus
-              emerge --verbose app-emulation/corvus
-            timeoutSec: 14400  # 4 hours
-
-        - shell:
-            inline: |
-              eselect postgresql set 18 || true
-              emerge --config dev-db/postgresql:18 || true
-              systemctl enable postgresql-18.service
-              
-              systemctl start postgresql-18.service
-              for i in $(seq 1 30); do
-                sudo -u postgres psql -c '\q' 2>/dev/null && break
-                sleep 1
-              done
-              
-              sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-              CREATE USER corvus SUPERUSER;
-              CREATE DATABASE corvus OWNER corvus;
-              SQL
-            timeoutSec: 300
-
-        - shell:
-            inline: |
-              install -d /etc/systemd/system
-              cat > /etc/systemd/system/vde-switch.service <<'EOF'
-              [Unit]
-              Description=VDE virtual switch for Corvus test VMs
-              After=network-pre.target
-              Before=network.target
-              Wants=network-pre.target
-
-              [Service]
-              Type=forking
-              ExecStartPre=/bin/mkdir -p /run/vde2
-              ExecStart=/usr/bin/vde_switch \
-                  --sock /run/vde2/switch.ctl \
-                  --mgmt /run/vde2/switch.mgmt \
-                  -tap vde0 \
-                  -m 666 \
-                  -group kvm \
-                  --daemon \
-                  --pidfile /run/vde2/vde_switch.pid
-              PIDFile=/run/vde2/vde_switch.pid
-              Restart=on-failure
-
-              [Install]
-              WantedBy=multi-user.target
-              EOF
-              systemctl enable vde-switch.service
-
-              install -d /etc/systemd/network
-              cat > /etc/systemd/network/30-vde0.network <<'EOF'
-              [Match]
-              Name=vde0
-
-              [Network]
-              Address=192.168.92.1/24
-              ConfigureWithoutCarrier=yes
-              EOF
-
-              install -d /etc/sysctl.d
-              cat > /etc/sysctl.d/30-corvus-vde-forward.conf <<'EOF'
-              net.ipv4.ip_forward = 1
-              EOF
-
-              cat > /etc/nftables.conf <<'EOF'
-              #!/usr/sbin/nft -f
-              flush ruleset
-
-              table ip nat {
-                  chain postrouting {
-                      type nat hook postrouting priority srcnat
-                      policy accept
-                      ip saddr 192.168.92.0/24 oifname != "vde0" masquerade
-                  }
-              }
-              EOF
-
-              cat > /etc/dnsmasq.conf <<'EOF'
-              interface=vde0
-              bind-dynamic
-              dhcp-range=192.168.92.10,192.168.92.200,12h
-              dhcp-option=option:router,192.168.92.1
-              dhcp-option=option:dns-server,192.168.92.1
-              domain-needed
-              bogus-priv
-              EOF
-
-              install -d /etc/systemd/system/dnsmasq.service.d
-              cat > /etc/systemd/system/dnsmasq.service.d/wait-vde.conf <<'EOF'
-              [Unit]
-              After=vde-switch.service systemd-networkd.service
-              Wants=systemd-networkd.service
-              EOF
-
-              systemctl enable nftables.service dnsmasq.service
-            timeoutSec: 60
-
-        - shell:
-            script: ./scripts/install-cloud-init.sh
-            env:
-              IMAGE_ROOT: /
-            timeoutSec: 1800
-
-        - shell:
-            inline: |
-              cloud-init clean --logs
-            timeoutSec: 30
-
-        - shell:
-            inline: |
-              cat > /etc/issue <<'EOF'
-              Gentoo Linux with Corvus installed
-
-              Log in as corvus. Passwordless sudo is available.
-              Set up Corvus:
-                corvus-admin quickstart      Configure and start a local node
-
-              Corvus commands after setup:
-                crv node list                List registered nodes
-                crv vm list                  List virtual machines
-                crv vm start NAME            Start a virtual machine
-                crv vm stop NAME             Stop a virtual machine
-                crv --help                   Show commands and options
-                corvus-admin --help          Show administration commands
-
-              EOF
-              # Gentoo PAM displays /etc/motd; suppress duplicate SSH banners.
-              install -d /etc/ssh/sshd_config.d
-              cat > /etc/ssh/sshd_config.d/90-corvus-banner.conf <<'EOF'
-              Banner none
-              PrintMotd no
-              EOF
-              # Share the console banner with the PAM login message.
-              ln -sf /etc/issue /etc/motd
-              sshd -t
-              cat /etc/issue
-            timeoutSec: 30
-
-        - shell:
-            inline: |
-              {
-                echo "image: gentoo-corvus-test"
-                echo "baked: $(date -Iseconds)"
-                echo "kernel: $(uname -r)"
-                ghc --version
-                qemu-system-x86_64 --version | head -1
-                psql --version
-                vde_switch --version 2>&1 | head -1 || true
-              } > /etc/corvus-test-info
-              cat /etc/corvus-test-info
-            timeoutSec: 60
-
+            inline: unshare --mount --propagation private /bin/bash /tmp/build-test-offline.sh
+            timeoutSec: 18000
       cleanup: onSuccess
 
   - apply:
@@ -295,7 +64,7 @@ pipeline:
           cloudInit: true
           guestAgent: true
           headless: true
-          description: "Test Gentoo VM for Corvus"
+          description: Test Gentoo VM for Corvus
           drives:
             - disk: gentoo-corvus-test
               interface: virtio
@@ -308,9 +77,12 @@ pipeline:
           cloudInitConfig:
             userData:
               runcmd:
-                  - [ passwd, -d, root ]
+                - [passwd, -d, root]
               users:
                 - name: corvus
                   groups: [kvm]
-                  sudo: "ALL=(ALL) NOPASSWD:ALL"
+                  sudo: ALL=(ALL) NOPASSWD:ALL
                   shell: /bin/bash
+          sharedDirs:
+            - path: '{{ cache_dir }}'
+              tag: corvus-cache

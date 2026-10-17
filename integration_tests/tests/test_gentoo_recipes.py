@@ -66,11 +66,12 @@ class TestGentooRecipes:
         ]
         assert scripts == ["bootstrap-system", "build-kernel", "configure-system"]
 
+    @pytest.mark.parametrize("recipe", ["gentoo", "corvus-test-node"])
     @pytest.mark.parametrize("cache_dir", ["/data/corvus-cache", "/srv/build cache"])
     def test_cache_directory_forwarded(
-        self, recipes: RecipeRunner, cache_dir: str
+        self, recipes: RecipeRunner, recipe: str, cache_dir: str
     ) -> None:
-        result = recipes.run("gentoo", "build", (f"GENTOO_CACHE_DIR={cache_dir}",))
+        result = recipes.run(recipe, "build", (f"GENTOO_CACHE_DIR={cache_dir}",))
         assert result.returncode == 0, result.stdout + result.stderr
         calls = [call for call in recipes.calls() if call.command == "crv"]
         assert len(calls) == 3
@@ -119,6 +120,84 @@ class TestGentooRecipes:
                 assert (recipes.root / "cache" / cache).is_dir()
                 assert (recipes.root / "guest" / cache).is_dir()
 
+    @pytest.mark.parametrize("failure", [None, "mount", "directory", "file"])
+    def test_node_cache_permissions(
+        self, recipes: RecipeRunner, failure: str | None
+    ) -> None:
+        doc = yaml.safe_load(
+            (recipes.root / "yaml/corvus-test-node/corvus-test-node.yml").read_text()
+        )
+        script = doc["pipeline"][1]["build"]["provisioners"][1]["shell"]["inline"]
+        script = script.split("install -d /etc/portage/binrepos.conf")[0]
+        script = script.replace("/mnt/corvus-cache", str(recipes.root / "cache"))
+        commands = {"mount": "exit 7" if failure == "mount" else "exit 0"}
+        if failure == "directory":
+            commands["mktemp"] = "exit 1"
+        if failure == "file":
+            # /proc exists but does not permit creating arbitrary probe files.
+            commands["mktemp"] = "echo /proc"
+            commands["rmdir"] = "exit 0"
+        for command, body in commands.items():
+            executable = recipes.bin / command
+            executable.write_text("#!/bin/sh\n" + body + "\n")
+            executable.chmod(0o755)
+        result = subprocess.run(
+            ["sh", "-ec", script],
+            env={**os.environ, "PATH": f"{recipes.bin}:{os.environ['PATH']}"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if failure is None:
+            assert result.returncode == 0, result.stderr
+            for cache in ("distfiles", "binpkgs", "binhost"):
+                assert list((recipes.root / "cache" / cache).iterdir()) == []
+        else:
+            assert result.returncode != 0
+            if failure != "mount":
+                assert "check host cache permissions" in result.stderr
+
+    def test_node_build_cache_is_temporary(self, recipes: RecipeRunner) -> None:
+        source = recipes.root / "yaml/corvus-test-node/corvus-test-node.yml"
+        doc = yaml.safe_load(preprocess_build_yaml(str(source)))
+        bake = doc["pipeline"][0]["apply"]["templates"][0]
+        runtime = doc["pipeline"][-1]["apply"]["templates"][0]
+        assert bake["sharedDirs"] == [
+            {"path": "/data/corvus-cache", "tag": "corvus-cache"}
+        ]
+        assert not runtime.get("sharedDirs")
+        build = doc["pipeline"][1]["build"]
+        assert build["template"] == bake["name"]
+        env = build["shellDefaults"]["env"]
+        assert {"-userfetch", "-userpriv"} <= set(env["FEATURES"].split())
+        assert env["DISTDIR"] == "/mnt/corvus-cache/distfiles"
+        assert env["PKGDIR"] == "/mnt/corvus-cache/binpkgs"
+        shell = "\n".join(
+            item["shell"]["inline"] for item in build["provisioners"] if "shell" in item
+        )
+        assert "mount -t nfs" not in shell
+        assert "192.168.72.1" not in shell
+        assert shell.index("mount -t tmpfs tmpfs /var/db/repos") < shell.index(
+            "emerge-webrsync -k"
+        )
+        assert shell.index("--quiet-build dev-vcs/git") < shell.index(
+            "emaint sync -r vonabarak"
+        )
+        assert (
+            "sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git" in shell
+        )
+        assert "location = /mnt/corvus-cache/binhost/binhost" in shell
+        assert shell.index(
+            "rm /etc/portage/binrepos.conf/zz-corvus-cache.conf"
+        ) > shell.index("--reinstall-atoms=dev-python/pycapnp")
+        assert "umount /var/db/repos" in shell
+        assert "umount /mnt/corvus-cache" in shell
+        assert "/etc/portage/make.conf" not in shell
+        commands = shell.replace("\\\n", " ")
+        for line in commands.splitlines():
+            if line.strip().startswith("emerge ") and "--config" not in line:
+                assert "--buildpkg" in line
+
     def test_repository_storage_policy(self, recipes: RecipeRunner) -> None:
         for recipe in ("gentoo-headless", "gentoo-test"):
             source = recipes.root / f"yaml/gentoo/{recipe}.yml"
@@ -139,6 +218,18 @@ class TestGentooRecipes:
                 if "build" not in step:
                     continue
                 build = step["build"]
+                if build["strategy"] == "offline-overlay":
+                    helper = (
+                        source.parent / "scripts/build-test-offline.sh"
+                    ).read_text()
+                    target = (
+                        source.parent / "scripts/provision-test-root.sh"
+                    ).read_text()
+                    assert 'mount_at "$root/var/db/repos" -t tmpfs tmpfs' in helper
+                    assert 'mount_at "$root/var/cache/$cache" --bind' in helper
+                    assert "-userfetch -userpriv" in target
+                    assert "emerge-webrsync -k" in target
+                    continue
                 env = build["shellDefaults"]["env"]
                 assert env["DISTDIR"] == "/mnt/corvus-cache/distfiles"
                 assert env["PKGDIR"] == "/mnt/corvus-cache/binpkgs"
