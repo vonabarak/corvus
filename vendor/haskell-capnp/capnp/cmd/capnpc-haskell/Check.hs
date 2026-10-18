@@ -16,29 +16,29 @@ reportIssues :: Parsed CodeGeneratorRequest -> IO ()
 reportIssues CodeGeneratorRequest {nodes} =
   let problemFields =
         [ (displayName, name)
-          | Node {displayName, union' = Node'struct Node'struct' {fields}} <- nodes,
-            Field
-              { name,
-                union' = Field'slot Field'slot' {hadExplicitDefault, defaultValue}
-              } <-
-              fields,
-            hadExplicitDefault && isPtrValue defaultValue
+        | Node {displayName, union' = Node'struct Node'struct' {fields}} <- nodes
+        , Field
+            { name
+            , union' = Field'slot Field'slot' {hadExplicitDefault, defaultValue}
+            } <-
+            fields
+        , hadExplicitDefault && isPtrValue defaultValue
         ]
    in for_ problemFields $ \(displayName, name) ->
         hPutStrLn stderr $
           concat
-            [ "WARNING: the field ",
-              show name,
-              " in ",
-              show displayName,
-              "\n",
-              " has a custom default value, but haskell-capnp does not\n",
-              " support this for pointer-valued fields. The custom\n",
-              " default will be ignored; please be careful. See:\n",
-              "\n",
-              "https://codeberg.org/zenhack/haskell-capnp/issues/28\n",
-              "\n",
-              "for more information.\n"
+            [ "WARNING: the field "
+            , show name
+            , " in "
+            , show displayName
+            , "\n"
+            , " has a custom default value, but haskell-capnp does not\n"
+            , " support this for pointer-valued fields. The custom\n"
+            , " default will be ignored; please be careful. See:\n"
+            , "\n"
+            , "https://codeberg.org/zenhack/haskell-capnp/issues/28\n"
+            , "\n"
+            , "for more information.\n"
             ]
 
 isPtrValue :: Parsed Value -> Bool

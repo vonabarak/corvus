@@ -20,15 +20,15 @@ type NodeMap = M.Map Word64 Flat.Node
 cgrToCgr :: Stage1.CodeGenReq -> Flat.CodeGenReq
 cgrToCgr Stage1.CodeGenReq {allFiles, reqFiles = inFiles} =
   Flat.CodeGenReq
-    { reqFiles = outFiles,
-      allNodes
+    { reqFiles = outFiles
+    , allNodes
     }
   where
     outFiles = map (reqFileToFile fileMap) inFiles
     fileMap =
       M.fromList
         [ (fileId, fileToNodes nodeMap file)
-          | file@Stage1.File {fileId} <- allFiles
+        | file@Stage1.File {fileId} <- allFiles
         ]
     allNodes = concatMap snd (M.toList fileMap)
     nodeMap = M.fromList [(nodeId, node) | node@Flat.Node {nodeId} <- allNodes]
@@ -44,19 +44,19 @@ fileToNodes nodeMap Stage1.File {fileNodes, fileId} =
 reqFileToFile :: M.Map Word64 [Flat.Node] -> Stage1.ReqFile -> Flat.File
 reqFileToFile fileMap Stage1.ReqFile {fileName, file = Stage1.File {fileId}} =
   Flat.File
-    { nodes = fileMap M.! fileId,
-      fileName,
-      fileId
+    { nodes = fileMap M.! fileId
+    , fileName
+    , fileId
     }
 
 paramsToParams :: NodeMap -> Word64 -> [Name.UnQ] -> [C.TypeParamRef Flat.Node]
 paramsToParams nodeMap nodeId names =
   [ C.TypeParamRef
-      { paramName = name,
-        paramIndex = i,
-        paramScope = nodeMap M.! nodeId
-      }
-    | (i, name) <- zip [0 ..] names
+    { paramName = name
+    , paramIndex = i
+    , paramScope = nodeMap M.! nodeId
+    }
+  | (i, name) <- zip [0 ..] names
   ]
 
 applyBrandNode :: C.MapBrand Flat.Node -> Flat.Node -> C.ListBrand Flat.Node
@@ -65,10 +65,10 @@ applyBrandNode m Flat.Node {typeParams} = applyBrandParams typeParams m
 applyBrandParams :: [C.TypeParamRef Flat.Node] -> C.MapBrand Flat.Node -> C.ListBrand Flat.Node
 applyBrandParams params m = C.ListBrand $ map (`applyBrandParam` m) params
 
-applyBrandParam ::
-  C.TypeParamRef Flat.Node ->
-  C.MapBrand Flat.Node ->
-  C.PtrType (C.ListBrand Flat.Node) Flat.Node
+applyBrandParam
+  :: C.TypeParamRef Flat.Node
+  -> C.MapBrand Flat.Node
+  -> C.PtrType (C.ListBrand Flat.Node) Flat.Node
 applyBrandParam param@C.TypeParamRef {paramIndex, paramScope = Flat.Node {nodeId}} (C.MapBrand m) =
   case M.lookup nodeId m of
     Nothing -> C.PtrParam param
@@ -79,8 +79,8 @@ applyBrandParam param@C.TypeParamRef {paramIndex, paramScope = Flat.Node {nodeId
             C.BoundType ty -> applyBrandPtrType ty
 
 type ApplyBrandFn f =
-  f (C.MapBrand Flat.Node) Flat.Node ->
-  f (C.ListBrand Flat.Node) Flat.Node
+  f (C.MapBrand Flat.Node) Flat.Node
+  -> f (C.ListBrand Flat.Node) Flat.Node
 
 applyBrandCompositeType :: ApplyBrandFn C.CompositeType
 applyBrandCompositeType (C.StructType n b) = C.StructType n (applyBrandNode b n)
@@ -123,8 +123,8 @@ nestedToNodes
   thisMod
   localName
   Stage1.Node
-    { nodeCommon = Stage1.NodeCommon {nodeId, nodeNested, nodeParams},
-      nodeUnion
+    { nodeCommon = Stage1.NodeCommon {nodeId, nodeNested, nodeParams}
+    , nodeUnion
     }
   typeParams =
     mine ++ kids
@@ -139,16 +139,16 @@ nestedToNodes
           nodeNested
       name =
         Name.CapnpQ
-          { local = localName,
-            fileId = thisMod
+          { local = localName
+          , fileId = thisMod
           }
       mine = case nodeUnion of
         Stage1.NodeEnum enumerants ->
           [ Flat.Node
-              { name,
-                nodeId,
-                typeParams = myParams,
-                union_ = Flat.Enum enumerants
+              { name
+              , nodeId
+              , typeParams = myParams
+              , union_ = Flat.Enum enumerants
               }
           ]
         Stage1.NodeStruct struct ->
@@ -159,27 +159,27 @@ nestedToNodes
           [ Flat.Node
               { name =
                   Name.CapnpQ
-                    { local = Name.unQToLocal $ Name.valueName localName,
-                      fileId = thisMod
-                    },
-                nodeId,
-                union_ =
+                    { local = Name.unQToLocal $ Name.valueName localName
+                    , fileId = thisMod
+                    }
+              , nodeId
+              , union_ =
                   Flat.Constant
                     { value =
                         applyBrandValue $
                           C.bothMap
-                            (\Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId}} -> nodeMap M.! nodeId)
+                            (\Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId = referencedNodeId}} -> nodeMap M.! referencedNodeId)
                             value
-                    },
-                typeParams = myParams
+                    }
+              , typeParams = myParams
               }
           ]
         Stage1.NodeOther ->
           [ Flat.Node
-              { name,
-                nodeId,
-                union_ = Flat.Other,
-                typeParams = myParams
+              { name
+              , nodeId
+              , union_ = Flat.Other
+              , typeParams = myParams
               }
           ]
 
@@ -187,29 +187,29 @@ interfaceToNodes :: NodeMap -> Word64 -> Word64 -> Name.CapnpQ -> Name.NS -> Sta
 interfaceToNodes nodeMap thisMod nodeId name kidsNS Stage1.Interface {methods, supers} typeParams =
   let translateSuper =
         applyBrandInterfaceType
-          . C.bothMap (\Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId}} -> nodeMap M.! nodeId)
+          . C.bothMap (\Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId = referencedNodeId}} -> nodeMap M.! referencedNodeId)
       prType =
         applyBrandCompositeType
           . C.bothMap
-            ( \Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId}} ->
-                nodeMap M.! nodeId
+            ( \Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId = referencedNodeId}} ->
+                nodeMap M.! referencedNodeId
             )
    in Flat.Node
-        { name,
-          nodeId,
-          union_ =
+        { name
+        , nodeId
+        , union_ =
             Flat.Interface
               { methods =
                   [ Flat.Method
-                      { name,
-                        paramType = prType paramType,
-                        resultType = prType resultType
-                      }
-                    | Stage1.Method {name, paramType, resultType} <- methods
-                  ],
-                supers = map translateSuper supers
-              },
-          typeParams
+                    { name = methodName
+                    , paramType = prType paramType
+                    , resultType = prType resultType
+                    }
+                  | Stage1.Method {name = methodName, paramType, resultType} <- methods
+                  ]
+              , supers = map translateSuper supers
+              }
+        , typeParams
         }
         : concatMap (\method -> methodToNodes nodeMap thisMod kidsNS method typeParams) methods
 
@@ -221,57 +221,57 @@ structToNodes
   name
   kidsNS
   Stage1.Struct
-    { fields,
-      isGroup,
-      dataWordCount,
-      pointerCount,
-      tagOffset
+    { fields
+    , isGroup
+    , dataWordCount
+    , pointerCount
+    , tagOffset
     }
   typeParams =
     let mkField fieldUnQ locType =
           Flat.Field
-            { fieldName = Name.mkSub name fieldUnQ,
-              fieldLocType =
+            { fieldName = Name.mkSub name fieldUnQ
+            , fieldLocType =
                 applyBrandFieldLocType $
                   C.bothMap
-                    (\Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId}} -> nodeMap M.! nodeId)
+                    (\Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeId = referencedNodeId}} -> nodeMap M.! referencedNodeId)
                     locType
             }
         variants =
           [ Flat.Variant
-              { field = mkField fieldUnQ locType,
-                tagValue
-              }
-            | Stage1.Field {name = fieldUnQ, locType, tag = Just tagValue} <- fields
+            { field = mkField fieldUnQ locType
+            , tagValue
+            }
+          | Stage1.Field {name = fieldUnQ, locType, tag = Just tagValue} <- fields
           ]
         commonFields =
           [ mkField fieldUnQ locType
-            | Stage1.Field {name = fieldUnQ, locType, tag = Nothing} <- fields
+          | Stage1.Field {name = fieldUnQ, locType, tag = Nothing} <- fields
           ]
         fieldNodes =
           concatMap (fieldToNodes nodeMap thisMod kidsNS typeParams) fields
 
         commonNode =
           Flat.Node
-            { name,
-              nodeId,
-              union_ =
+            { name
+            , nodeId
+            , union_ =
                 Flat.Struct
-                  { fields = commonFields,
-                    union =
+                  { fields = commonFields
+                  , union =
                       if null variants
                         then Nothing
                         else
                           Just
                             Flat.Union
-                              { variants,
-                                tagOffset
-                              },
-                    isGroup,
-                    dataWordCount,
-                    pointerCount
-                  },
-              typeParams
+                              { variants
+                              , tagOffset
+                              }
+                  , isGroup
+                  , dataWordCount
+                  , pointerCount
+                  }
+            , typeParams
             }
      in commonNode : fieldNodes
 

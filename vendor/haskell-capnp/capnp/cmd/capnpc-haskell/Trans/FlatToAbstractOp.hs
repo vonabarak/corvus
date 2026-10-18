@@ -13,15 +13,15 @@ import qualified IR.Flat as Flat
 import qualified IR.Name as Name
 
 cgrToFiles :: Flat.CodeGenReq -> [AO.File]
-cgrToFiles = map fileToFile . Flat.reqFiles
+cgrToFiles Flat.CodeGenReq {reqFiles} = map fileToFile reqFiles
 
 fileToFile :: Flat.File -> AO.File
 fileToFile Flat.File {fileId, fileName, nodes} =
   AO.File
-    { fileId,
-      fileName,
-      decls = concatMap nodeToDecls nodes,
-      usesRpc = not $ null [() | Flat.Node {union_ = Flat.Interface {}} <- nodes]
+    { fileId
+    , fileName
+    , decls = concatMap nodeToDecls nodes
+    , usesRpc = not $ null [() | Flat.Node {union_ = Flat.Interface {}} <- nodes]
     }
 
 mapTypes :: (Bifunctor p, Functor f) => p (f Flat.Node) Flat.Node -> p (f Name.CapnpQ) Name.CapnpQ
@@ -31,51 +31,50 @@ nodeToDecls :: Flat.Node -> [AO.Decl]
 nodeToDecls Flat.Node {nodeId, name = Name.CapnpQ {local}, typeParams, union_} =
   let mkType repr extraTypeInfo =
         AO.TypeDecl
-          { name = local,
-            nodeId,
-            params = map C.paramName typeParams,
-            repr,
-            extraTypeInfo
+          { name = local
+          , nodeId
+          , params = map C.paramName typeParams
+          , repr
+          , extraTypeInfo
           }
-      mkField field =
-        fieldToDecl local typeParams field
+      mkField = fieldToDecl local typeParams
 
       mkMethodInfo Flat.Method {name, paramType, resultType} =
         AO.MethodInfo
-          { typeParams = map C.paramName typeParams,
-            methodName = name,
-            paramType = mapTypes paramType,
-            resultType = mapTypes resultType
+          { typeParams = map C.paramName typeParams
+          , methodName = name
+          , paramType = mapTypes paramType
+          , resultType = mapTypes resultType
           }
 
       parsedStructNode fields hasUnion isGroup =
         AO.ParsedInstanceDecl
-          { typeName = local,
-            typeParams = map C.paramName typeParams,
-            parsedInstances =
+          { typeName = local
+          , typeParams = map C.paramName typeParams
+          , parsedInstances =
               AO.ParsedStruct
                 { fields =
-                    [ ( Name.getUnQ fieldName,
-                        mapTypes fieldLocType
+                    [ ( Name.getUnQ fieldName
+                      , mapTypes fieldLocType
                       )
-                      | Flat.Field {fieldName, fieldLocType} <- fields
-                    ],
-                  hasUnion,
-                  dataCtorName = dataCtorName isGroup
+                    | Flat.Field {fieldName, fieldLocType} <- fields
+                    ]
+                , hasUnion
+                , dataCtorName = dataCtorName isGroup
                 }
           }
 
       parsedUnionNode Flat.Union {variants} =
         AO.ParsedInstanceDecl
-          { typeName = local,
-            typeParams = map C.paramName typeParams,
-            parsedInstances =
+          { typeName = local
+          , typeParams = map C.paramName typeParams
+          , parsedInstances =
               AO.ParsedUnion
                 { variants =
-                    [ ( Name.getUnQ fieldName,
-                        mapTypes fieldLocType
+                    [ ( Name.getUnQ fieldName
+                      , mapTypes fieldLocType
                       )
-                      | Flat.Variant {field = Flat.Field {fieldName, fieldLocType}} <- variants
+                    | Flat.Variant {field = Flat.Field {fieldName, fieldLocType}} <- variants
                     ]
                 }
           }
@@ -87,17 +86,17 @@ nodeToDecls Flat.Node {nodeId, name = Name.CapnpQ {local}, typeParams, union_} =
       structUnionNodes Nothing = []
       structUnionNodes (Just union@Flat.Union {tagOffset, variants}) =
         [ AO.UnionDecl
-            { name = local,
-              typeParams = map C.paramName typeParams,
-              tagLoc =
+            { name = local
+            , typeParams = map C.paramName typeParams
+            , tagLoc =
                 C.DataLoc
-                  { dataIdx = fromIntegral $ tagOffset `div` 4,
-                    dataOff = fromIntegral $ (tagOffset `mod` 4) * 16,
-                    dataDef = 0
-                  },
-              variants = map variantToVariant variants
-            },
-          parsedUnionNode union
+                  { dataIdx = fromIntegral $ tagOffset `div` 4
+                  , dataOff = fromIntegral $ (tagOffset `mod` 4) * 16
+                  , dataDef = 0
+                  }
+            , variants = map variantToVariant variants
+            }
+        , parsedUnionNode union
         ]
    in case union_ of
         Flat.Other -> []
@@ -112,24 +111,24 @@ nodeToDecls Flat.Node {nodeId, name = Name.CapnpQ {local}, typeParams, union_} =
                 (R.Ptr (Just R.Cap))
                 ( Just
                     AO.InterfaceTypeInfo
-                      { methods = methodInfos,
-                        supers = superTypes
+                      { methods = methodInfos
+                      , supers = superTypes
                       }
                 )
                 : [ AO.SuperDecl
-                      { subName = local,
-                        typeParams = map C.paramName typeParams,
-                        superType = superType
-                      }
-                    | superType <- superTypes
+                    { subName = local
+                    , typeParams = map C.paramName typeParams
+                    , superType = superType
+                    }
+                  | superType <- superTypes
                   ]
                 ++ [ AO.MethodDecl
-                       { interfaceName = local,
-                         interfaceId = nodeId,
-                         methodId,
-                         methodInfo
-                       }
-                     | (methodId, methodInfo) <- zip [0 ..] methodInfos
+                    { interfaceName = local
+                    , interfaceId = nodeId
+                    , methodId
+                    , methodInfo
+                    }
+                   | (methodId, methodInfo) <- zip [0 ..] methodInfos
                    ]
         Flat.Struct {isGroup, fields, union, dataWordCount = nWords, pointerCount = nPtrs} ->
           mkType (R.Ptr (Just R.Struct)) (Just AO.StructTypeInfo {nWords, nPtrs})
@@ -139,16 +138,16 @@ nodeToDecls Flat.Node {nodeId, name = Name.CapnpQ {local}, typeParams, union_} =
 fieldToDecl :: Name.LocalQ -> [C.TypeParamRef Flat.Node] -> Flat.Field -> AO.Decl
 fieldToDecl containerType typeParams Flat.Field {fieldName, fieldLocType} =
   AO.FieldDecl
-    { containerType,
-      typeParams = map C.paramName typeParams,
-      fieldName = Name.getUnQ fieldName,
-      fieldLocType = mapTypes fieldLocType
+    { containerType
+    , typeParams = map C.paramName typeParams
+    , fieldName = Name.getUnQ fieldName
+    , fieldLocType = mapTypes fieldLocType
     }
 
 variantToVariant :: Flat.Variant -> AO.UnionVariant
 variantToVariant Flat.Variant {tagValue, field = Flat.Field {fieldName, fieldLocType}} =
   AO.UnionVariant
-    { variantName = Name.getUnQ fieldName,
-      tagValue,
-      fieldLocType = mapTypes fieldLocType
+    { variantName = Name.getUnQ fieldName
+    , tagValue
+    , fieldLocType = mapTypes fieldLocType
     }

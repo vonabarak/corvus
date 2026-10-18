@@ -1,1 +1,1 @@
-*.hs
+# Generated fixtures are tracked; regenerate with scripts/regen-vendor-schemas.sh.

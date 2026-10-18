@@ -99,7 +99,6 @@ throwWireError code message = throwFailed (renderWireError (WireErrorInfo code m
 -- teardown through other channels.
 handleParsed
   :: ( C.Parse p pp
-     , R.IsStruct p
      , C.Parse r pr
      , R.IsStruct r
      )
@@ -137,7 +136,6 @@ handleParsed handler param fulfiller =
 -- that some handlers rely on.
 handleParsedAsync
   :: ( C.Parse p pp
-     , R.IsStruct p
      , C.Parse r pr
      , R.IsStruct r
      )

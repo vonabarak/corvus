@@ -1,17 +1,19 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 -- | Module: Internal.Rpc.Breaker
 --
 -- This module serves to break a dependency cycle between the rpc
 -- system and the serialization code; see Note [Breaker] in
 -- "Capnp.Rpc.Untyped" for details.
 module Internal.Rpc.Breaker
-  ( Client (..),
-    Pipeline (..),
-    nullClient,
-    invalidClient,
+  ( Client (..)
+  , Pipeline (..)
+  , nullClient
+  , invalidClient
     -- | ** Internals
-    Opaque,
-    makeOpaque,
-    reflectOpaque,
+  , Opaque
+  , makeOpaque
+  , reflectOpaque
   )
 where
 
@@ -21,7 +23,7 @@ import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 -- or elsewhere. Holding a client affords making method calls on a capability
 -- or modifying the local vat's reference count to it.
 newtype Client = Client Opaque
-  deriving (Eq)
+  deriving stock (Eq)
 
 instance Show Client where
   show client@(Client opaque) =
@@ -40,7 +42,7 @@ nullClient :: Client
 nullClient = Client $ makeOpaque ()
 
 newtype InvalidClient = InvalidClient String
-  deriving (Show, Read, Eq, Typeable)
+  deriving stock (Show, Read, Eq, Typeable)
 
 -- | Returns a client which is "invalid;" it behaves like 'nullClient',
 -- but can be given a custom error message that is displayed by 'show'.
@@ -48,15 +50,15 @@ invalidClient :: String -> Client
 invalidClient = Client . makeOpaque . InvalidClient
 
 data Opaque = Opaque
-  { opDyn :: Dynamic,
-    opEq :: Opaque -> Bool
+  { opDyn :: Dynamic
+  , opEq :: Opaque -> Bool
   }
 
 makeOpaque :: (Typeable a, Eq a) => a -> Opaque
 makeOpaque v =
   Opaque
-    { opDyn = toDyn v,
-      opEq = \o -> fromDynamic (opDyn o) == Just v
+    { opDyn = toDyn v
+    , opEq = \o -> fromDynamic (opDyn o) == Just v
     }
 
 reflectOpaque :: Opaque -> Dynamic

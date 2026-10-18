@@ -6,30 +6,27 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Capnp.Rpc.Server
-  ( CallHandler,
-    MethodHandler,
-    UntypedMethodHandler,
-    CallInfo (..),
-    ServerOps (..),
-    Export (..),
-    exportToServerOps,
-    findMethod,
-    SomeServer (..),
-    runServer,
-    castHandler,
+  ( CallHandler
+  , MethodHandler
+  , UntypedMethodHandler
+  , CallInfo (..)
+  , ServerOps (..)
+  , Export (..)
+  , exportToServerOps
+  , findMethod
+  , SomeServer (..)
+  , runServer
 
     -- * Helpers for writing method handlers
-    handleParsed,
-    handleRaw,
-    methodUnimplemented,
-    toUntypedMethodHandler,
+  , handleParsed
+  , methodUnimplemented
+  , toUntypedMethodHandler
 
     -- * Internals; exposed only for use by generated code.
-    MethodHandlerTree (..),
+  , MethodHandlerTree (..)
   )
 where
 
@@ -38,16 +35,17 @@ import qualified Capnp.Classes as C
 import Capnp.Convert (parsedToRaw)
 import Capnp.Message (Mutability (..))
 import qualified Capnp.Repr as R
+
 -- import Capnp.Repr.Methods (Client (..))
 import Capnp.Rpc.Errors
-  ( eFailed,
-    eMethodUnimplemented,
-    wrapException,
+  ( eFailed
+  , eMethodUnimplemented
+  , wrapException
   )
 import Capnp.Rpc.Promise
-  ( Fulfiller,
-    breakPromise,
-    fulfill,
+  ( Fulfiller
+  , breakPromise
+  , fulfill
   )
 import Capnp.TraversalLimit (defaultLimit, evalLimitT)
 import qualified Capnp.Untyped as U
@@ -68,27 +66,27 @@ import qualified Internal.TCloseQ as TCloseQ
 
 -- | A 'CallInfo' contains information about a method call.
 data CallInfo = CallInfo
-  { -- | The id of the interface whose method is being called.
-    interfaceId :: !Word64,
-    -- | The method id of the method being called.
-    methodId :: !Word16,
-    -- | The arguments to the method call.
-    arguments :: Maybe (U.Ptr 'Const),
-    -- | A 'Fulfiller' which accepts the method's return value.
-    response :: Fulfiller (Maybe (U.Ptr 'Const))
+  { interfaceId :: !Word64
+  -- ^ The id of the interface whose method is being called.
+  , methodId :: !Word16
+  -- ^ The method id of the method being called.
+  , arguments :: Maybe (U.Ptr 'Const)
+  -- ^ The arguments to the method call.
+  , response :: Fulfiller (Maybe (U.Ptr 'Const))
+  -- ^ A 'Fulfiller' which accepts the method's return value.
   }
 
 -- | The operations necessary to receive and handle method calls, i.e.
 -- to implement an object.
 data ServerOps = ServerOps
-  { -- | Handle a method call; takes the interface and method id and returns
-    -- a handler for the specific method.
-    handleCall :: Word64 -> Word16 -> UntypedMethodHandler,
-    -- | Handle shutting-down the receiver; this is called when the last
-    -- reference to the capability is dropped.
-    handleStop :: IO (),
-    -- | used to unwrap the server when reflecting on a local client.
-    handleCast :: forall a. Typeable a => Maybe a
+  { handleCall :: Word64 -> Word16 -> UntypedMethodHandler
+  -- ^ Handle a method call; takes the interface and method id and returns
+  -- a handler for the specific method.
+  , handleStop :: IO ()
+  -- ^ Handle shutting-down the receiver; this is called when the last
+  -- reference to the capability is dropped.
+  , handleCast :: forall a. (Typeable a) => Maybe a
+  -- ^ used to unwrap the server when reflecting on a local client.
   }
 
 -- | A handler for arbitrary RPC calls. Maps (interfaceId, methodId) pairs to
@@ -97,16 +95,9 @@ type CallHandler = M.Map Word64 (V.Vector UntypedMethodHandler)
 
 -- | Type alias for a handler for a particular rpc method.
 type MethodHandler p r =
-  R.Raw p 'Const ->
-  Fulfiller (R.Raw r 'Const) ->
-  IO ()
-
-castHandler ::
-  forall p q r s.
-  (R.ReprFor p ~ R.ReprFor q, R.ReprFor r ~ R.ReprFor s) =>
-  MethodHandler p r ->
-  MethodHandler q s
-castHandler = coerce
+  R.Raw p 'Const
+  -> Fulfiller (R.Raw r 'Const)
+  -> IO ()
 
 -- | Type alias for a handler for an untyped RPC method.
 type UntypedMethodHandler = MethodHandler (Maybe B.AnyPointer) (Maybe B.AnyPointer)
@@ -125,7 +116,7 @@ class SomeServer a where
   -- needn't be the case -- a server may wish to allow local peers to
   -- unwrap some value that is not exactly the data the server has access
   -- to.
-  unwrap :: Typeable b => a -> Maybe b
+  unwrap :: (Typeable b) => a -> Maybe b
   unwrap _ = Nothing
 
 -- | Generated interface types have instances of 'Export', which allows a server
@@ -141,7 +132,7 @@ class (R.IsCap i, C.HasTypeId i) => Export i where
   -- 'MethodHandler's for the interface. This is really only exported for use
   -- by generated code; users of the library will generally prefer to use
   -- 'export'.
-  methodHandlerTree :: Server i s => Proxy i -> s -> MethodHandlerTree
+  methodHandlerTree :: (Server i s) => Proxy i -> s -> MethodHandlerTree
 
 -- NB: the proxy helps disambiguate types; for some reason TypeApplications
 -- doesn't seem to be enough in the face of a type alias of kind 'Constraint'.
@@ -152,13 +143,13 @@ class (R.IsCap i, C.HasTypeId i) => Export i where
 -- | Lazily computed tree of the method handlers exposed by an interface. Only
 -- of interest to generated code.
 data MethodHandlerTree = MethodHandlerTree
-  { -- | type id for the primary interface
-    mhtId :: Word64,
-    -- | method handlers for methods of the primary interface.
-    mhtHandlers :: [UntypedMethodHandler],
-    -- | Trees for parent interfaces. In the case of diamond dependencies,
-    -- there may be duplicates, which are eliminated by 'mhtToCallHandler'.
-    mhtParents :: [MethodHandlerTree]
+  { mhtId :: Word64
+  -- ^ type id for the primary interface
+  , mhtHandlers :: [UntypedMethodHandler]
+  -- ^ method handlers for methods of the primary interface.
+  , mhtParents :: [MethodHandlerTree]
+  -- ^ Trees for parent interfaces. In the case of diamond dependencies,
+  -- there may be duplicates, which are eliminated by 'mhtToCallHandler'.
   }
 
 mhtToCallHandler :: MethodHandlerTree -> CallHandler
@@ -178,29 +169,25 @@ findMethod interfaceId methodId handler = do
 
 -- | Convert a typed method handler to an untyped one. Mostly intended for
 -- use by generated code.
-toUntypedMethodHandler ::
-  forall p r.
-  (R.IsStruct p, R.IsStruct r) =>
-  MethodHandler p r ->
-  UntypedMethodHandler
+toUntypedMethodHandler
+  :: forall p r
+   . (R.IsStruct p, R.IsStruct r)
+  => MethodHandler p r
+  -> UntypedMethodHandler
 toUntypedMethodHandler h =
   \case
-    R.Raw (Just (U.PtrStruct param)) -> \ret ->
-      h
-        (R.Raw param)
-        ( contramap
-            (\(R.Raw s) -> R.Raw $ Just $ U.PtrStruct s)
-            ret
-        )
+    R.Raw (Just (U.PtrStruct param)) ->
+      h (R.Raw param)
+        . contramap (\(R.Raw s) -> R.Raw $ Just $ U.PtrStruct s)
     _ ->
       \ret -> breakPromise ret (eFailed "Parameter was not a struct")
 
-someServerToServerOps :: SomeServer a => a -> CallHandler -> ServerOps
+someServerToServerOps :: (SomeServer a) => a -> CallHandler -> ServerOps
 someServerToServerOps srv callHandler =
   ServerOps
-    { handleStop = shutdown srv,
-      handleCast = unwrap srv,
-      handleCall = \interfaceId methodId ->
+    { handleStop = shutdown srv
+    , handleCast = unwrap srv
+    , handleCall = \interfaceId methodId ->
         findMethod interfaceId methodId callHandler
           & fromMaybe methodUnimplemented
     }
@@ -214,14 +201,13 @@ exportToServerOps proxy srv =
 
 -- | Handle a method, working with the parsed form of parameters and
 -- results.
-handleParsed ::
-  ( C.Parse p pp,
-    R.IsStruct p,
-    C.Parse r pr,
-    R.IsStruct r
-  ) =>
-  (pp -> IO pr) ->
-  MethodHandler p r
+handleParsed
+  :: ( C.Parse p pp
+     , C.Parse r pr
+     , R.IsStruct r
+     )
+  => (pp -> IO pr)
+  -> MethodHandler p r
 handleParsed handler param = propagateExceptions $ \f -> do
   p <- evalLimitT defaultLimit $ C.parse param
   r <- handler p
@@ -232,12 +218,6 @@ handleParsed handler param = propagateExceptions $ \f -> do
 
 -- | Handle a method, working with the raw (unparsed) form of
 -- parameters and results.
-handleRaw ::
-  (R.IsStruct p, R.IsStruct r) =>
-  (R.Raw p 'Const -> IO (R.Raw r 'Const)) ->
-  MethodHandler p r
-handleRaw handler param = propagateExceptions $ \f ->
-  handler param >>= fulfill f
 
 -- Helper for handle*; breaks the promise if the handler throws.
 propagateExceptions :: (Fulfiller a -> IO b) -> Fulfiller a -> IO b

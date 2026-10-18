@@ -157,7 +157,7 @@ Additional checks cover incomplete matches and record updates, missing fields an
 methods, partial record selectors, deriving strategies, module export lists,
 unused packages, and partial list operations. The shared options in
 `package.yaml` apply to the library, executables, and tests; the tools package
-enables the same checks. Generated Cap'n Proto
+and maintained vendor packages enable the same checks. Generated Cap'n Proto
 modules retain narrow warning exceptions emitted by the vendored generator.
 Tagged internal responses and errors use positional constructor arguments to
 avoid partial record selectors.
@@ -167,7 +167,7 @@ Formatting edits files; checks do not modify tracked files. Fix all diagnostics
 before committing. `make check` replaces the former `lint` target and includes:
 
 - Existing HLint, formatter, Ruff, mypy, and optional frontend checks.
-- A separate Haskell build in `.stack-work/quality`, with both database backends,
+- A separate Haskell build in `.stack-work-quality`, with both database backends,
   HPC instrumentation, and HIE files. Normal builds remain uninstrumented.
 - Code metrics, coverage checking, and their unit tests live in the separate
   `tools/package.yaml` package. `tools/stack.yaml` pins Weeder 2.10.0 and
@@ -185,21 +185,38 @@ before committing. `make check` replaces the former `lint` target and includes:
 
 Coverage includes every compiled authored library module under `src/`, including
 modules absent from the runtime trace (counted as uncovered). Generated code,
-vendor code, executables, and tests are excluded. The baseline in
-`coverage-baseline.json` is **35909 / 98136 expressions (36.591057%)**, the lowest
-of three full SQLite runs with one worker and seed `20261010` after the coverage
-improvements. All three runs produced the same ratio. Parser coverage is 93.84%
-and wire coverage is 98.15%. In addition to the overall baseline, the gate requires
+executables, and tests are excluded. Authored library modules in
+`vendor/haskell-capnp/capnp/lib/` and `vendor/lifetimes/src/` are included; traces
+from the Corvus, capnp-tests, and lifetimes suites are merged by package unit
+and module, with missing modules counted as uncovered. The overall minimum in
+`coverage-baseline.json` is **51%**, represented as the exact ratio **51 / 100**.
+In addition to the overall minimum, the gate requires
 at least **80%** across `Corvus.Client` and its submodules, and **80%** in each
 nonempty `Corvus.Client.Commands` module and submodule. New command modules enter
 the gate automatically; unexecuted modules count as zero coverage. The CLI limits
 are recorded in `coverage-baseline.json`. The gate compares exact integer ratios,
 so display rounding cannot hide a decrease. Missing, malformed, stale, or
 incompatible artifacts fail the check. HTML reports are written to
-`.stack-work/quality/authored-coverage/hpc_index.html`, including module details.
+`.stack-work-quality/authored-coverage/hpc_index.html`, including module details.
 Review baseline increases explicitly; never lower it automatically to make a
 change pass. Coverage changes should be addressed with useful tests or removal
 of unreachable code.
+
+The `capnp`, `capnp-tests`, and `lifetimes` directories are local Stack packages.
+`make unit-tests` runs their upstream Haskell suites alongside Corvus tests.
+Only the calculator client/server are included as test support; standalone
+examples and benchmarks remain outside the project. C++ interoperability tests
+remain opt-in through the environment variables documented in the vendor tests.
+`make format` and `make check` use the root formatter and HLint configuration for
+authored vendor sources, including the generator and test support. Code metrics
+apply the same 1000-line module and 300-line definition limits. Weeder analyzes
+all application and vendor components together without rooting unused public
+vendor APIs. Development tools retain their separate dependency graph.
+
+Regenerate vendored schema fixtures with `scripts/regen-vendor-schemas.sh`.
+The script builds the local generator and regenerates the core, test, and
+calculator and Echo schemas. Generated bindings are excluded from formatting, metrics,
+and authored coverage; their warning exceptions are emitted by the generator.
 
 CLI unit tests use a strict in-process Cap'n Proto peer over temporary Unix
 sockets. They invoke the command dispatcher, decode and check requests, script

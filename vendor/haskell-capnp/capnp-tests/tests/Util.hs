@@ -1,18 +1,19 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Util
-  ( MsgMetaData (..),
-    capnpEncode,
-    capnpDecode,
-    capnpCompile,
-    capnpCanonicalize,
-    decodeValue,
-    encodeValue,
-    aircraftSchemaSrc,
-    schemaSchemaSrc,
+  ( MsgMetaData (..)
+  , capnpEncode
+  , capnpDecode
+  , capnpCompile
+  , capnpCanonicalize
+  , decodeValue
+  , encodeValue
+  , aircraftSchemaSrc
+  , schemaSchemaSrc
   )
 where
 
@@ -37,12 +38,12 @@ schemaSchemaSrc = [there|tests/data/schema.capnp|]
 -- | Information about the contents of a capnp message. This is enough
 -- to encode/decode both textual and binary forms.
 data MsgMetaData = MsgMetaData
-  { -- | The source of the schema
-    msgSchema :: String,
-    -- | The name of the root struct's type
-    msgType :: String
+  { msgSchema :: String
+  -- ^ The source of the schema
+  , msgType :: String
+  -- ^ The name of the root struct's type
   }
-  deriving (Show)
+  deriving stock (Show)
 
 capnpCanonicalize :: LBS.ByteString -> IO LBS.ByteString
 capnpCanonicalize stdInBytes = do
@@ -55,10 +56,10 @@ capnpCanonicalize stdInBytes = do
     ExitFailure code ->
       fail $
         concat
-          [ "capnp convert binary:canonical failed with exit code ",
-            show code,
-            ":\n",
-            show stdErr
+          [ "capnp convert binary:canonical failed with exit code "
+          , show code
+          , ":\n"
+          , show stdErr
           ]
 
 -- | @capnpEncode msg meta@ runs @capnp encode@ on the message, providing
@@ -86,10 +87,10 @@ capnpDecode encodedMsg meta = do
 -- | @capnpCompile msg meta@ runs @capnp compile@ on the schema, providing
 -- the needed metadata and returning the output
 capnpCompile :: String -> String -> IO BS.ByteString
-capnpCompile msgSchema outputArg = do
+capnpCompile schemaText outputArg = do
   (exitStatus, stdOut, stdErr) <-
     runResourceT $
-      interactCapnpWithSchema "compile" msgSchema LBSC8.empty ["-o", outputArg]
+      interactCapnpWithSchema "compile" schemaText LBSC8.empty ["-o", outputArg]
   case exitStatus of
     ExitSuccess -> return (LBS.toStrict stdOut)
     ExitFailure code -> fail ("`capnp compile` failed with exit code " ++ show code ++ ":\n" ++ show stdErr)
@@ -100,13 +101,13 @@ capnpCompile msgSchema outputArg = do
 -- ResourceT, and sets the handles up to be closed and the process to be reaped
 -- when the ResourceT exits.
 interactCapnpWithSchema :: String -> String -> LBS.ByteString -> [String] -> ResourceT IO (ExitCode, LBS.ByteString, LBS.ByteString)
-interactCapnpWithSchema subCommand msgSchema stdInBytes args = do
+interactCapnpWithSchema subCommand schemaText stdInBytes args = do
   let writeTempFile = runResourceT $ do
         (_, (path, hndl)) <-
           allocate
             (openTempFile "/tmp" "schema.capnp")
             (\(_, hndl) -> hClose hndl)
-        lift $ hPutStr hndl msgSchema
+        lift $ hPutStr hndl schemaText
         return path
   schemaFile <- snd <$> allocate writeTempFile removeFile
   lift $ readCreateProcessWithExitCode (proc "capnp" ([subCommand, schemaFile] ++ args)) stdInBytes

@@ -22,17 +22,17 @@ tests = do
     constTest
       "lists"
       constList
-      [ Zdate {year = 2015, month = 8, day = 27},
-        Zdate {year = 2015, month = 8, day = 28}
+      [ Zdate {year = 2015, month = 8, day = 27}
+      , Zdate {year = 2015, month = 8, day = 28}
       ]
 
 defTest :: (Default a, Eq a, Show a) => String -> a -> Spec
-defTest name expected =
-  it ("should parse the default for " ++ name ++ " correctly") $ do
+defTest description expected =
+  it ("should parse the default for " ++ description ++ " correctly") $ do
     def `shouldBe` expected
 
 constTest :: (Parse a (Parsed a), Show (Parsed a), Eq (Parsed a)) => String -> Raw a 'Const -> Parsed a -> Spec
-constTest name input expected =
-  it ("should parse " ++ name ++ " correctly") $ do
+constTest description input expected =
+  it ("should parse " ++ description ++ " correctly") $ do
     actual <- evalLimitT maxBound $ parse input
     actual `shouldBe` expected

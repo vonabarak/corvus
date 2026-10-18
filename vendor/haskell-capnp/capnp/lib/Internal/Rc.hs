@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
@@ -9,12 +10,12 @@
 -- value and a finalizer. When the reference count reaches zero, the value is
 -- dropped and the finalizer is run.
 module Internal.Rc
-  ( Rc,
-    new,
-    get,
-    incr,
-    decr,
-    release,
+  ( Rc
+  , new
+  , get
+  , incr
+  , decr
+  , release
   )
 where
 
@@ -23,12 +24,12 @@ import Control.Concurrent.STM
 -- | A reference-counted container for a value of type @a@.
 newtype Rc a
   = Rc (TVar (Maybe (RcState a)))
-  deriving (Eq)
+  deriving stock (Eq)
 
 data RcState a = RcState
-  { refCount :: !Int,
-    value :: a,
-    finalizer :: STM ()
+  { refCount :: !Int
+  , value :: a
+  , finalizer :: STM ()
   }
 
 -- | @'new' val finalizer@ creates a new 'Rc' containing the value @val@, with
@@ -40,9 +41,9 @@ new value finalizer =
     newTVar $
       Just
         RcState
-          { refCount = 1,
-            value,
-            finalizer
+          { refCount = 1
+          , value
+          , finalizer
           }
 
 -- | Increment the reference count.

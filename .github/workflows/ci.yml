@@ -84,7 +84,10 @@ jobs:
         with:
           path: |
             .stack-work
+            .stack-work-quality
             tools/.stack-work
+            vendor/**/.stack-work
+            vendor/**/.stack-work-quality
           key: stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml', 'tools/package.yaml', 'tools/stack.yaml') }}-${{ github.sha }}
           restore-keys: |
             stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml', 'tools/package.yaml', 'tools/stack.yaml') }}-

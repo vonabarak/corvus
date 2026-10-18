@@ -3,10 +3,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 
--- Things used by both RawToHaskell and PureToHaskell.
-module Trans.ToHaskellCommon where
+-- Shared helpers for translating generator IR to Haskell.
+module Trans.ToHaskellCommon (HasGNames (..), std_, eStd_, tStd_, gName, egName, euName, tgName, puName, tuName, idToModule, makeModName, fixImports, toTVars, makePtrBytes) where
 
-import qualified Capnp as Capnp
+import qualified Capnp
 import qualified Capnp.Basics as B
 import Capnp.Classes (encode)
 import Capnp.Repr.Parsed (Parsed)
@@ -17,7 +17,6 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import Data.Word
 import GHC.Exts (fromList)
-import qualified IR.Common as C
 import IR.Haskell
 import qualified IR.Name as Name
 import System.FilePath (splitDirectories)
@@ -31,17 +30,14 @@ std_ name = gName ["Std_"] (Name.mkLocal Name.emptyNS name)
 eStd_ :: Name.UnQ -> Exp
 eStd_ = EGName . std_
 
-ePureUnit :: Exp
-ePureUnit = EApp (eStd_ "pure") [ETup []]
-
 tStd_ :: Name.UnQ -> Type
 tStd_ = TGName . std_
 
 gName :: [T.Text] -> Name.LocalQ -> Name.GlobalQ
 gName parts local =
   Name.GlobalQ
-    { globalNS = Name.NS parts,
-      local
+    { globalNS = Name.NS parts
+    , local
     }
 
 egName :: [T.Text] -> Name.LocalQ -> Exp
@@ -53,64 +49,15 @@ euName = ELName . Name.mkLocal Name.emptyNS
 tgName :: [T.Text] -> Name.LocalQ -> Type
 tgName parts local = TGName $ gName parts local
 
-pgName :: [T.Text] -> Name.LocalQ -> [Pattern] -> Pattern
-pgName parts local = PGCtor (gName parts local)
-
 puName :: Name.UnQ -> [Pattern] -> Pattern
 puName = PLCtor . Name.unQToLocal
 
 tuName :: Name.UnQ -> Type
 tuName = TLName . Name.unQToLocal
 
-iValue :: Name.UnQ -> [Pattern] -> Exp -> InstanceDef
-iValue name params value = IdValue DfValue {name, params, value}
-
-iType :: Name.UnQ -> [Type] -> Type -> InstanceDef
-iType name params value = IdType $ TypeAlias name params value
-
-readCtx :: T.Text -> T.Text -> Type
-readCtx m msg =
-  TApp
-    (tgName ["Untyped"] "ReadCtx")
-    [ TVar m,
-      TVar msg
-    ]
-
-rwCtx :: T.Text -> T.Text -> Type
-rwCtx m s =
-  TApp
-    (tgName ["Untyped"] "RWCtx")
-    [ TVar m,
-      TVar s
-    ]
-
-eGetWordField :: Exp -> C.DataLoc -> Exp
-eGetWordField struct C.DataLoc {dataIdx, dataOff, dataDef} =
-  EApp
-    (egName ["GenHelpers"] "getWordField")
-    [ struct,
-      EInt $ fromIntegral dataIdx,
-      EInt $ fromIntegral dataOff,
-      EInt $ fromIntegral dataDef
-    ]
-
 idToModule :: Word64 -> [Name.UnQ]
 idToModule fileId =
   ["Capnp", "Gen", "ById", Name.UnQ $ T.pack $ printf "X%x" fileId]
-
-instance_ :: [Type] -> [T.Text] -> Name.LocalQ -> [Type] -> [InstanceDef] -> Decl
-instance_ ctx [] className tys defs =
-  DcInstance
-    { ctx,
-      typ = TApp (TLName className) tys,
-      defs
-    }
-instance_ ctx classNS className tys defs =
-  DcInstance
-    { ctx,
-      typ = TApp (tgName classNS className) tys,
-      defs
-    }
 
 -- | Transform the file path into a valid haskell module name.
 -- TODO: this is a best-effort transformation; it gives good
@@ -127,7 +74,7 @@ makeModName fileName =
   where
     mangleSegment "c++.capnp" = "Cxx"
     mangleSegment "" = error "Unexpected empty file name"
-    mangleSegment (c : cs) = go (toUpper c : cs)
+    mangleSegment (first : rest) = go (toUpper first : rest)
       where
         go ('-' : c : cs) = toUpper c : go cs
         go ".capnp" = ""
@@ -145,14 +92,14 @@ fixImports m@Module {modImports} =
         S.toList $
           S.fromList -- deduplicate
             [ nsParts
-              | Name.GlobalQ
-                  { globalNS = Name.NS nsParts@(map T.unpack -> "Capnp" : "Gen" : _)
-                  } <-
-                  S.toList (findGNames m)
+            | Name.GlobalQ
+                { globalNS = Name.NS nsParts@(map T.unpack -> "Capnp" : "Gen" : _)
+                } <-
+                S.toList (findGNames m)
             ]
       neededImports =
         [ ImportQual {parts = map Name.UnQ nsParts}
-          | nsParts <- namespaces
+        | nsParts <- namespaces
         ]
    in m {modImports = modImports ++ neededImports}
 
@@ -196,9 +143,9 @@ instance HasGNames Decl where
   findGNames DcValue {typ, def} = findGNames typ `S.union` findGNames def
   findGNames DcInstance {ctx, typ, defs} =
     S.unions
-      [ S.unions $ map findGNames ctx,
-        findGNames typ,
-        S.unions $ map findGNames defs
+      [ S.unions $ map findGNames ctx
+      , findGNames typ
+      , S.unions $ map findGNames defs
       ]
   findGNames (DcTypeInstance alias orig) = findGNames alias `S.union` findGNames orig
   findGNames (DcDeriveInstance ctx typ) = findGNames (TCtx ctx typ)
@@ -248,9 +195,9 @@ instance HasGNames Exp where
   findGNames (ETup es) = S.unions $ map findGNames es
   findGNames (ECase e arms) =
     S.unions
-      [ findGNames e,
-        S.unions $ map (findGNames . fst) arms,
-        S.unions $ map (findGNames . snd) arms
+      [ findGNames e
+      , S.unions $ map (findGNames . fst) arms
+      , S.unions $ map (findGNames . snd) arms
       ]
   findGNames (ETypeAnno e t) = findGNames e `S.union` findGNames t
   findGNames (ELambda ps e) = S.unions $ findGNames e : map findGNames ps

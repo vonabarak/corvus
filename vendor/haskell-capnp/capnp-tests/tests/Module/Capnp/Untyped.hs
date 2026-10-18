@@ -8,23 +8,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
--- The tests have a number of cases where we do stuff like:
---
--- let 4 = ...
---
--- Letting pattern-match failure fail the test. GHC warns about this,
--- let's shut off that warning:
-{-# OPTIONS_GHC -Wno-unused-pattern-binds #-}
 
 module Module.Capnp.Untyped (untypedTests) where
 
 import Capnp
-  ( createPure,
-    def,
-    encode,
-    msgToParsed,
-    newRoot,
-    setField,
+  ( createPure
+  , def
+  , encode
+  , msgToParsed
+  , newRoot
+  , setField
   )
 import Capnp.Gen.Capnp.Schema
 import qualified Capnp.Message as M
@@ -38,7 +31,6 @@ import qualified Data.ByteString as BS
 import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Text (Text)
-import qualified Data.Vector as V
 import Data.Word
 import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import Instances ()
@@ -55,6 +47,15 @@ untypedTests = describe "low-level untyped API tests" $ do
   modifyTests
   farPtrTest
   otherMessageTest
+  it "round-trips void-list pointers and supplies an empty null default" $ do
+    (actualLength, emptyLength) <- evalLimitT 128 $ do
+      msg <- M.newMessage Nothing
+      list <- allocList0 msg 7
+      let repr = toPtr @('Just ('R.List ('Just ('R.ListNormal ('R.NormalListData 'R.Sz0))))) list
+      decoded <- fromPtr @('Just ('R.List ('Just ('R.ListNormal ('R.NormalListData 'R.Sz0))))) msg repr
+      empty <- fromPtr @('Just ('R.List ('Just ('R.ListNormal ('R.NormalListData 'R.Sz0))))) msg Nothing
+      pure (length decoded, length empty)
+    (actualLength, emptyLength) `shouldBe` (7, 0)
 
 readTests :: Spec
 readTests = describe "read tests" $
@@ -75,19 +76,19 @@ readTests = describe "read tests" $
       root <- rootPtr msg
       -- Aircraft just has the union tag, nothing else in it's data
       -- section.
-      let 1 = structWordCount root
+      1 <- pure $ structWordCount root
       3 <- getData 0 root -- tag for F16
-      let 1 = structPtrCount root
+      1 <- pure $ structPtrCount root
       Just (PtrStruct f16) <- getPtr 0 root
-      let 0 = structWordCount f16
-      let 0 = structByteCount f16
-      let 1 = structPtrCount f16
+      0 <- pure $ structWordCount f16
+      0 <- pure $ structByteCount f16
+      1 <- pure $ structPtrCount f16
       Just (PtrStruct base) <- getPtr 0 f16
-      let 4 = structWordCount base -- Except canFly, each field is 1 word, and
+      4 <- pure $ structWordCount base -- Except canFly, each field is 1 word, and
       -- canFly is aligned such that it ends up
       -- consuming a whole word.
-      let 32 = structByteCount base -- 32 = 4 * 8
-      let 2 = structPtrCount base -- name, homes
+      32 <- pure $ structByteCount base -- 32 = 4 * 8
+      2 <- pure $ structPtrCount base -- name, homes
 
       -- Walk the data section:
       7 <- getData 0 base -- rating
@@ -102,22 +103,22 @@ readTests = describe "read tests" $
       -- included in the length reported to the caller, but that needs
       -- to be dealt with by schema-aware code, so this is the length of
       -- "bob\0"
-      let 4 = length name
+      4 <- pure $ length name
 
       forM_ (zip [0 .. 3] (BS.unpack "bob\0")) $ \(i, c) -> do
         c' <- index i name
         when (c /= c') $
           error ("index " ++ show i ++ ": " ++ show c ++ " /= " ++ show c')
       Just (PtrList (List16 homes)) <- getPtr 1 base
-      let 0 = length homes
+      0 <- pure $ length homes
       return ()
     endQuota `shouldBe` 117
 
 data ModTest = ModTest
-  { testIn :: String,
-    testMod :: Struct ('M.Mut RealWorld) -> LimitT IO (),
-    testOut :: String,
-    testType :: String
+  { testIn :: String
+  , testMod :: Struct ('M.Mut RealWorld) -> LimitT IO ()
+  , testOut :: String
+  , testType :: String
   }
 
 modifyTests :: Spec
@@ -127,111 +128,111 @@ modifyTests =
       testCase
       -- tests for setIndex
       [ ModTest
-          { testIn = "(year = 2018, month = 6, day = 20)\n",
-            testType = "Zdate",
-            testOut = "(year = 0, month = 0, day = 0)\n",
-            testMod = setData 0 0
-          },
-        ModTest
-          { testIn = "(text = \"Hello, World!\")\n",
-            testType = "Z",
-            testOut = "(text = \"hEllo, world!\")\n",
-            testMod = \struct -> do
+          { testIn = "(year = 2018, month = 6, day = 20)\n"
+          , testType = "Zdate"
+          , testOut = "(year = 0, month = 0, day = 0)\n"
+          , testMod = setData 0 0
+          }
+      , ModTest
+          { testIn = "(text = \"Hello, World!\")\n"
+          , testType = "Z"
+          , testOut = "(text = \"hEllo, world!\")\n"
+          , testMod = \struct -> do
               Just (PtrList (List8 list)) <- getPtr 0 struct
               setIndex (fromIntegral (fromEnum 'h')) 0 list
               setIndex (fromIntegral (fromEnum 'E')) 1 list
               setIndex (fromIntegral (fromEnum 'w')) 7 list
-          },
-        ModTest
-          { testIn = "(boolvec = [true, true, false, true])\n",
-            testType = "Z",
-            testOut = "( boolvec = [false, true, true, false] )\n",
-            testMod = \struct -> do
+          }
+      , ModTest
+          { testIn = "(boolvec = [true, true, false, true])\n"
+          , testType = "Z"
+          , testOut = "( boolvec = [false, true, true, false] )\n"
+          , testMod = \struct -> do
               Just (PtrList (List1 list)) <- getPtr 0 struct
               setIndex False 0 list
               setIndex True 2 list
               setIndex False 3 list
-          },
-        ModTest
-          { testIn = "(f64 = 2.0)\n",
-            testType = "Z",
-            testOut = "(f64 = 7.2)\n",
-            testMod = setData (castDoubleToWord64 7.2) 1
-          },
-        ModTest
+          }
+      , ModTest
+          { testIn = "(f64 = 2.0)\n"
+          , testType = "Z"
+          , testOut = "(f64 = 7.2)\n"
+          , testMod = setData (castDoubleToWord64 7.2) 1
+          }
+      , ModTest
           { testIn =
               unlines
-                [ "( size = 4,",
-                  "  words = \"Hello, World!\",",
-                  "  wordlist = [\"apples\", \"oranges\"] )"
-                ],
-            testType = "Counter",
-            testOut =
+                [ "( size = 4,"
+                , "  words = \"Hello, World!\","
+                , "  wordlist = [\"apples\", \"oranges\"] )"
+                ]
+          , testType = "Counter"
+          , testOut =
               unlines
-                [ "( size = 4,",
-                  "  words = \"oranges\",",
-                  "  wordlist = [\"apples\", \"Hello, World!\"] )"
-                ],
-            testMod = \struct -> do
+                [ "( size = 4,"
+                , "  words = \"oranges\","
+                , "  wordlist = [\"apples\", \"Hello, World!\"] )"
+                ]
+          , testMod = \struct -> do
               Just (PtrList (ListPtr list)) <- getPtr 1 struct
               helloWorld <- getPtr 0 struct
               oranges <- index 1 list
               setPtr oranges 0 struct
               setIndex helloWorld 1 list
-          },
-        ModTest
+          }
+      , ModTest
           { testIn =
               unlines
-                [ "( aircraftvec = [",
-                  "    ( f16 = (",
-                  "        base = (",
-                  "          name = \"alice\",",
-                  "          homes = [],",
-                  "          rating = 7,",
-                  "          canFly = true,",
-                  "          capacity = 4,",
-                  "          maxSpeed = 100 ) ) ),",
-                  "    ( b737 = (",
-                  "        base = (",
-                  "          name = \"bob\",",
-                  "          homes = [],",
-                  "          rating = 2,",
-                  "          canFly = false,",
-                  "          capacity = 9,",
-                  "          maxSpeed = 50 ) ) ) ] )"
-                ],
-            testType = "Z",
-            testOut =
+                [ "( aircraftvec = ["
+                , "    ( f16 = ("
+                , "        base = ("
+                , "          name = \"alice\","
+                , "          homes = [],"
+                , "          rating = 7,"
+                , "          canFly = true,"
+                , "          capacity = 4,"
+                , "          maxSpeed = 100 ) ) ),"
+                , "    ( b737 = ("
+                , "        base = ("
+                , "          name = \"bob\","
+                , "          homes = [],"
+                , "          rating = 2,"
+                , "          canFly = false,"
+                , "          capacity = 9,"
+                , "          maxSpeed = 50 ) ) ) ] )"
+                ]
+          , testType = "Z"
+          , testOut =
               unlines
-                [ "( aircraftvec = [",
-                  "    ( f16 = (",
-                  "        base = (",
-                  "          name = \"alice\",",
-                  "          homes = [],",
-                  "          rating = 7,",
-                  "          canFly = true,",
-                  "          capacity = 4,",
-                  "          maxSpeed = 100 ) ) ),",
-                  "    ( f16 = (",
-                  "        base = (",
-                  "          name = \"alice\",",
-                  "          homes = [],",
-                  "          rating = 7,",
-                  "          canFly = true,",
-                  "          capacity = 4,",
-                  "          maxSpeed = 100 ) ) ) ] )"
-                ],
-            testMod = \struct -> do
+                [ "( aircraftvec = ["
+                , "    ( f16 = ("
+                , "        base = ("
+                , "          name = \"alice\","
+                , "          homes = [],"
+                , "          rating = 7,"
+                , "          canFly = true,"
+                , "          capacity = 4,"
+                , "          maxSpeed = 100 ) ) ),"
+                , "    ( f16 = ("
+                , "        base = ("
+                , "          name = \"alice\","
+                , "          homes = [],"
+                , "          rating = 7,"
+                , "          canFly = true,"
+                , "          capacity = 4,"
+                , "          maxSpeed = 100 ) ) ) ] )"
+                ]
+          , testMod = \struct -> do
               Just (PtrList (ListStruct list)) <- getPtr 0 struct
               src <- index 0 list
               setIndex src 1 list
-          },
-        -- tests for allocation functions
+          }
+      , -- tests for allocation functions
         ModTest
-          { testIn = "()",
-            testType = "StackingRoot",
-            testOut = "( aWithDefault = (num = 6400),\n  a = (num = 65, b = (num = 90000)) )\n",
-            testMod = \struct -> do
+          { testIn = "()"
+          , testType = "StackingRoot"
+          , testOut = "( aWithDefault = (num = 6400),\n  a = (num = 65, b = (num = 90000)) )\n"
+          , testMod = \struct -> do
               when (structPtrCount struct /= 2) $
                 error "struct's pointer section is unexpedly small"
 
@@ -245,26 +246,26 @@ modifyTests =
               setData 65 0 a
               setData 6400 0 aWithDefault
               setData 90000 0 b
-          },
-        ModTest
-          { testIn = "()",
-            testType = "HoldsVerTwoTwoList",
-            testOut = "( mylist = [(val = 0, duo = 70), (val = 0, duo = 71), (val = 0, duo = 72), (val = 0, duo = 73)] )\n",
-            testMod = \struct -> do
+          }
+      , ModTest
+          { testIn = "()"
+          , testType = "HoldsVerTwoTwoList"
+          , testOut = "( mylist = [(val = 0, duo = 70), (val = 0, duo = 71), (val = 0, duo = 72), (val = 0, duo = 73)] )\n"
+          , testMod = \struct -> do
               mylist <- allocCompositeList (message @Struct struct) 2 2 4
               forM_ [0 .. 3] $ \i ->
                 index i mylist >>= setData (70 + fromIntegral i) 1
               setPtr (Just $ PtrList $ ListStruct mylist) 0 struct
-          },
-        allocNormalListTest "u64vec" 21 allocList64 List64,
-        allocNormalListTest "u32vec" 22 allocList32 List32,
-        allocNormalListTest "u16vec" 23 allocList16 List16,
-        allocNormalListTest "u8vec" 24 allocList8 List8,
-        ModTest
-          { testIn = "()",
-            testType = "Z",
-            testOut = "( boolvec = [true, false, true] )\n",
-            testMod = \struct -> do
+          }
+      , allocNormalListTest "u64vec" 21 allocList64 List64
+      , allocNormalListTest "u32vec" 22 allocList32 List32
+      , allocNormalListTest "u16vec" 23 allocList16 List16
+      , allocNormalListTest "u8vec" 24 allocList8 List8
+      , ModTest
+          { testIn = "()"
+          , testType = "Z"
+          , testOut = "( boolvec = [true, false, true] )\n"
+          , testMod = \struct -> do
               setData 39 0 struct -- Set the union tag.
               boolvec <- allocList1 (message @Struct struct) 3
               forM_ [0 .. 2] $ \i ->
@@ -282,19 +283,19 @@ modifyTests =
     -- \* allocList - the allocation function
     -- \* dataCon   - the data constructor for 'List' to use.
     --
-    allocNormalListTest ::
-      (ListItem ('Data sz), Num (UntypedData sz)) =>
-      String ->
-      Word64 ->
-      (M.Message ('M.Mut RealWorld) -> Int -> LimitT IO (ListOf ('Data sz) ('M.Mut RealWorld))) ->
-      (ListOf ('Data sz) ('M.Mut RealWorld) -> List ('M.Mut RealWorld)) ->
-      ModTest
+    allocNormalListTest
+      :: (ListItem ('Data sz), Num (UntypedData sz))
+      => String
+      -> Word64
+      -> (M.Message ('M.Mut RealWorld) -> Int -> LimitT IO (ListOf ('Data sz) ('M.Mut RealWorld)))
+      -> (ListOf ('Data sz) ('M.Mut RealWorld) -> List ('M.Mut RealWorld))
+      -> ModTest
     allocNormalListTest tagname tagvalue allocList dataCon =
       ModTest
-        { testIn = "()",
-          testType = "Z",
-          testOut = "(" ++ tagname ++ " = [0, 1, 2, 3, 4])\n",
-          testMod = \struct -> do
+        { testIn = "()"
+        , testType = "Z"
+        , testOut = "(" ++ tagname ++ " = [0, 1, 2, 3, 4])\n"
+        , testMod = \struct -> do
             setData tagvalue 0 struct
             vec <- allocList (message @Struct struct) 5
             forM_ [0 .. 4] $ \i -> setIndex (fromIntegral i) i vec
@@ -338,9 +339,9 @@ otherMessageTest = describe "Setting pointers in other messages" $
       propertyIO $ do
         let expected =
               def
-                { name = name,
-                  implicitParameters = params,
-                  paramBrand = brand
+                { name = name
+                , implicitParameters = params
+                , paramBrand = brand
                 }
         msg :: M.Message 'M.Const <- createPure maxBound $ do
           methodMsg <- M.newMessage Nothing

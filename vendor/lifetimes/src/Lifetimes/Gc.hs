@@ -1,3 +1,6 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE NamedFieldPuns #-}
+
 -- | Module: Lifetimes.Gc
 -- Description: Attach garbage-collector managed finalizers to resources.
 --
@@ -25,19 +28,18 @@
 -- to end up with the finalizer being run sooner than you intended. This
 -- module provides a 'Cell' type for finalizable values which is easier
 -- to reason about.
-{-# LANGUAGE NamedFieldPuns #-}
 module Lifetimes.Gc
-    ( Cell
-    , readCell
-    , acquireCell
-    , moveToGc
-    , newCell
-    , addFinalizer
-    ) where
+  ( Cell
+  , readCell
+  , acquireCell
+  , moveToGc
+  , newCell
+  , addFinalizer
+  ) where
 
 import Control.Concurrent.MVar (MVar, mkWeakMVar, newEmptyMVar)
 import Control.Concurrent.STM
-import Control.Exception       (mask)
+import Control.Exception (mask)
 import Control.Monad.STM.Class
 import Lifetimes
 import Zhp
@@ -46,8 +48,8 @@ import Zhp
 -- from 'Resource' in that getting the underlying value cannot fail, since
 -- cleanup is controlled by the garbage collector.
 newtype Cell a
-    = Cell (TVar (CellData a))
-    deriving(Eq)
+  = Cell (TVar (CellData a))
+  deriving stock (Eq)
 
 -----------------------------------------------------------------------
 -- Implementation notes:
@@ -67,11 +69,17 @@ newtype Cell a
 --
 -- So instead, we provide a 'Cell' type, which:
 --
+
 -- * Wraps simple value
+
 -- * Can be created and read inside STM, and
+
 -- * May safely have finalizers, using the 'addFinalizer' function in
+
 --   this module.
+
 -- * Ensures that the finalizers will not be run before any transaction that
+
 --   reads data is complete.
 --
 -- Note that it is *not* safe to use the primitives from "Sys.Mem.Weak" to
@@ -83,15 +91,14 @@ newtype Cell a
 -- reachable, thus preventing them from running before the completion of any
 -- transaction that examines the value.
 data CellData a = CellData
-    { value      :: a
-    -- ^ The value wrapped by the cell.
-
-    , finalizers :: [MVar ()]
-    -- ^ Experimentally, TVars appear not to be safe for finalizers, so
-    -- instead we create MVars for the finalizers, and store them in this
-    -- list so that we maintain a reference to them.
-    }
-    deriving(Eq)
+  { value :: a
+  -- ^ The value wrapped by the cell.
+  , finalizers :: [MVar ()]
+  -- ^ Experimentally, TVars appear not to be safe for finalizers, so
+  -- instead we create MVars for the finalizers, and store them in this
+  -- list so that we maintain a reference to them.
+  }
+  deriving stock (Eq)
 
 -- | Get the value from a cell. The value will not be collected until after
 -- the all transactions which read it complete.
@@ -103,30 +110,29 @@ readCell :: Cell a -> STM a
 readCell (Cell state) = value <$> readTVar state
 
 -- | Create  a new cell, initially with no finalizers.
-newCell :: MonadSTM m => a -> m (Cell a)
-newCell value = liftSTM $ Cell <$> newTVar CellData { value, finalizers = [] }
+newCell :: (MonadSTM m) => a -> m (Cell a)
+newCell value = liftSTM $ Cell <$> newTVar CellData {value, finalizers = []}
 
 -- | Add a new finalizer to the cell. Cells may have many finalizers
 -- attached.
 addFinalizer :: Cell a -> IO () -> IO ()
 addFinalizer (Cell stateVar) fin = do
-    mvar <- newEmptyMVar
-    _ <- mkWeakMVar mvar fin
-    atomically $ modifyTVar' stateVar $ \state@CellData{finalizers} ->
-        state { finalizers = mvar : finalizers }
+  mvar <- newEmptyMVar
+  _ <- mkWeakMVar mvar fin
+  atomically $ modifyTVar' stateVar $ \state@CellData {finalizers} ->
+    state {finalizers = mvar : finalizers}
 
 -- | Move a resource to the garbage collector, detaching it from its
 -- original lifetime.
 moveToGc :: Resource a -> IO (Cell a)
 moveToGc r =
-    mask $ \_ -> join $ atomically $ do
-        value <- mustGetResource r
-        fin <- detach r
-        cell <- newCell value
-        pure $ do
-            addFinalizer cell fin
-            pure cell
-
+  mask $ \_ -> join $ atomically $ do
+    value <- mustGetResource r
+    fin <- detach r
+    cell <- newCell value
+    pure $ do
+      addFinalizer cell fin
+      pure cell
 
 -- | Acquire a reference to the underlying value. This keeps the finalizer
 -- from being run before the acquired reference is dropped.
@@ -135,10 +141,11 @@ moveToGc r =
 -- reference to it. If you only need to use it in 'STM', 'readCell'
 -- may be more ergonomic.
 acquireCell :: Cell a -> Acquire a
-acquireCell (Cell var) = mkAcquire
+acquireCell (Cell var) =
+  mkAcquire
     (atomically $ value <$> readTVar var)
-    (\_ -> atomically $ do
+    ( \_ -> atomically $ do
         -- Touch the contents of the cell, to make sure it stays alive.
-        CellData{} <- readTVar var
+        CellData {} <- readTVar var
         pure ()
     )

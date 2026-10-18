@@ -15,15 +15,15 @@
 module Module.Capnp.Gen.Capnp.Schema.Pure (pureSchemaTests) where
 
 import Capnp
-  ( IsStruct,
-    Mutability (..),
-    Parse (..),
-    Raw (..),
-    defaultLimit,
-    evalLimitT,
-    hGetParsed,
-    hPutParsed,
-    msgToParsed,
+  ( IsStruct
+  , Mutability (..)
+  , Parse (..)
+  , Raw (..)
+  , defaultLimit
+  , evalLimitT
+  , hGetParsed
+  , hPutParsed
+  , msgToParsed
   )
 import Capnp.Gen.Capnp.Schema
 import qualified Capnp.Message as M
@@ -39,10 +39,10 @@ import Data.Proxy
 import Instances ()
 import System.Directory (removeFile)
 import System.IO
-  ( IOMode (ReadMode, WriteMode),
-    hClose,
-    openBinaryTempFile,
-    withBinaryFile,
+  ( IOMode (ReadMode, WriteMode)
+  , hClose
+  , openBinaryTempFile
+  , withBinaryFile
   )
 import Test.Hspec
 import Test.QuickCheck (Arbitrary, Property, property)
@@ -63,21 +63,21 @@ encodeTests :: Spec
 encodeTests =
   describe "schema encode tests" $
     testCase
-      ( "Node.Parameter",
-        Node'Parameter {name = "Bob"},
-        "(name = \"Bob\")\n"
+      ( "Node.Parameter"
+      , Node'Parameter {name = "Bob"}
+      , "(name = \"Bob\")\n"
       )
   where
-    testCase ::
-      ( IsStruct a,
-        Parse a pa,
-        Show pa,
-        Eq pa
-      ) =>
-      (String, pa, String) ->
-      Spec
-    testCase (name, expectedValue, expectedText) = describe "cerialize" $
-      it ("Should agree with capnp decode (with name = " ++ name ++ ")") $ do
+    testCase
+      :: ( IsStruct a
+         , Parse a pa
+         , Show pa
+         , Eq pa
+         )
+      => (String, pa, String)
+      -> Spec
+    testCase (typeName, expectedValue, expectedText) = describe "cerialize" $
+      it ("Should agree with capnp decode (with name = " ++ typeName ++ ")") $ do
         msg <- evalLimitT maxBound $ do
           -- TODO: add some helpers for all this.
           msg <- M.newMessage Nothing
@@ -88,7 +88,7 @@ encodeTests =
         actualText <-
           capnpDecode
             (LBS.toStrict $ BB.toLazyByteString builder)
-            (MsgMetaData schemaSchemaSrc name)
+            (MsgMetaData schemaSchemaSrc typeName)
         actualText `shouldBe` expectedText
         actualValue <- evalLimitT maxBound $ msgToParsed msg
         actualValue `shouldBe` expectedValue
@@ -97,9 +97,10 @@ decodeTests :: Spec
 decodeTests =
   describe "schema decode tests" $
     sequence_ $
-      [ decodeTests
+      [ decodeCases
           "CodeGeneratorRequest"
-          [ ( [here|
+          [
+            ( [here|
                 ( capnpVersion = (major = 0, minor = 6, micro = 1)
                 , nodes = []
                 , requestedFiles =
@@ -111,21 +112,21 @@ decodeTests =
                       )
                     ]
                 )
-            |],
-              CodeGeneratorRequest
-                { capnpVersion = CapnpVersion {major = 0, minor = 6, micro = 1},
-                  nodes = [],
-                  requestedFiles =
+            |]
+            , CodeGeneratorRequest
+                { capnpVersion = CapnpVersion {major = 0, minor = 6, micro = 1}
+                , nodes = []
+                , requestedFiles =
                     [ CodeGeneratorRequest'RequestedFile
                         4
                         "hello.capnp"
                         [CodeGeneratorRequest'RequestedFile'Import 2 "std"]
-                    ],
-                  sourceInfo = []
+                    ]
+                , sourceInfo = []
                 }
             )
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Node"
           [ ( [here|
                 ( id = 7
@@ -140,8 +141,8 @@ decodeTests =
                 ++ unionText
                 ++ [here|
                 )
-            |],
-              Node
+            |]
+            , Node
                 7
                 "foo:MyType"
                 4
@@ -152,9 +153,10 @@ decodeTests =
                 True
                 unionVal
             )
-            | (unionText, unionVal) <-
-                [ ("file = void", Node'file),
-                  ( [here| struct =
+          | (unionText, unionVal) <-
+              [ ("file = void", Node'file)
+              ,
+                ( [here| struct =
                     ( dataWordCount = 3
                     , pointerCount = 2
                     , preferredListEncoding = inlineComposite
@@ -171,40 +173,44 @@ decodeTests =
                           )
                         ]
                     )
-                |],
-                    Node'struct
-                      Node'struct'
-                        { dataWordCount = 3,
-                          pointerCount = 2,
-                          preferredListEncoding = ElementSize'inlineComposite,
-                          isGroup = False,
-                          discriminantCount = 4,
-                          discriminantOffset = 2,
-                          fields =
-                            [ Field
-                                "fieldName"
-                                3
-                                [ Annotation
-                                    2
-                                    (Value $ Value'bool True)
-                                    (Brand [])
-                                ]
-                                7
-                                (Field'ordinal' Field'ordinal'implicit)
-                                (Field'group $ Field'group' 4)
-                            ]
-                        }
-                  ),
-                  ( "enum = (enumerants = [(name = \"blue\", codeOrder = 2, annotations = [])])",
-                    Node'enum $ Node'enum' [Enumerant "blue" 2 []]
-                  ),
-                  ( "interface = (methods = [], superclasses = [(id = 0, brand = (scopes = []))])",
-                    Node'interface $ Node'interface' [] [Superclass 0 (Brand [])]
-                  ),
-                  ( "const = (type = (bool = void), value = (bool = false))",
-                    Node'const $ Node'const' (Type Type'bool) (Value $ Value'bool False)
-                  ),
-                  ( [here| annotation =
+                |]
+                , Node'struct
+                    Node'struct'
+                      { dataWordCount = 3
+                      , pointerCount = 2
+                      , preferredListEncoding = ElementSize'inlineComposite
+                      , isGroup = False
+                      , discriminantCount = 4
+                      , discriminantOffset = 2
+                      , fields =
+                          [ Field
+                              "fieldName"
+                              3
+                              [ Annotation
+                                  2
+                                  (Value $ Value'bool True)
+                                  (Brand [])
+                              ]
+                              7
+                              (Field'ordinal' Field'ordinal'implicit)
+                              (Field'group $ Field'group' 4)
+                          ]
+                      }
+                )
+              ,
+                ( "enum = (enumerants = [(name = \"blue\", codeOrder = 2, annotations = [])])"
+                , Node'enum $ Node'enum' [Enumerant "blue" 2 []]
+                )
+              ,
+                ( "interface = (methods = [], superclasses = [(id = 0, brand = (scopes = []))])"
+                , Node'interface $ Node'interface' [] [Superclass 0 (Brand [])]
+                )
+              ,
+                ( "const = (type = (bool = void), value = (bool = false))"
+                , Node'const $ Node'const' (Type Type'bool) (Value $ Value'bool False)
+                )
+              ,
+                ( [here| annotation =
                     ( type = (bool = void)
                     , targetsFile = true
                     , targetsConst = false
@@ -219,73 +225,75 @@ decodeTests =
                     , targetsParam = true
                     , targetsAnnotation = false
                     )
-                |],
-                    Node'annotation $
-                      Node'annotation'
-                        (Type Type'bool)
-                        True
-                        False
-                        False
-                        True
-                        True
-                        True
-                        False
-                        False
-                        True
-                        False
-                        True
-                        False
-                  )
-                ]
-          ],
-        decodeTests
+                |]
+                , Node'annotation $
+                    Node'annotation'
+                      (Type Type'bool)
+                      True
+                      False
+                      False
+                      True
+                      True
+                      True
+                      False
+                      False
+                      True
+                      False
+                      True
+                      False
+                )
+              ]
+          ]
+      , decodeCases
           "Node.Parameter"
           [ ("(name = \"theName\")", Node'Parameter "theName")
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Node.NestedNode"
           [ ("(name = \"theName\", id = 321)", Node'NestedNode "theName" 321)
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Value"
-          [ ("(bool = true)", Value'bool True),
-            ("(bool = false)", Value'bool False),
-            ("(int8 = -4)", Value'int8 (-4)),
-            ("(int8 = -128)", Value'int8 (-128)),
-            ("(int8 = 127)", Value'int8 127),
-            ("(uint8 = 23)", Value'uint8 23),
-            ("(uint8 = 255)", Value'uint8 255),
-            ("(int16 = 1012)", Value'int16 1012),
-            ("(uint16 = 40000)", Value'uint16 40000),
-            ("(uint32 = 1000100)", Value'uint32 1000100),
-            ("(int32 = 1000100)", Value'int32 1000100),
-            ("(uint64 = 1234567890123456)", Value'uint64 1234567890123456),
-            ("(int64 = 12345678901234567)", Value'int64 12345678901234567),
-            ("(float32 = 17.32)", Value'float32 17.32),
-            ("(float64 = 13.99)", Value'float64 13.99),
-            ("(data = \"beep boop.\")", Value'data_ "beep boop."),
-            ("(text = \"Hello, World!\")", Value'text "Hello, World!"),
-            ("(enum = 2313)", Value'enum 2313),
-            ("(interface = void)", Value'interface)
-            -- TODO: It would be nice to test list, struct, and anyPointer
-            -- variants, but I(zenhack) haven't figured out how to specify
-            -- an AnyPointer in the input to capnp encode. Maybe capnp eval
-            -- can do something like this? will have to investigate.
-          ],
-        decodeTests
+          [ ("(bool = true)", Value'bool True)
+          , ("(bool = false)", Value'bool False)
+          , ("(int8 = -4)", Value'int8 (-4))
+          , ("(int8 = -128)", Value'int8 (-128))
+          , ("(int8 = 127)", Value'int8 127)
+          , ("(uint8 = 23)", Value'uint8 23)
+          , ("(uint8 = 255)", Value'uint8 255)
+          , ("(int16 = 1012)", Value'int16 1012)
+          , ("(uint16 = 40000)", Value'uint16 40000)
+          , ("(uint32 = 1000100)", Value'uint32 1000100)
+          , ("(int32 = 1000100)", Value'int32 1000100)
+          , ("(uint64 = 1234567890123456)", Value'uint64 1234567890123456)
+          , ("(int64 = 12345678901234567)", Value'int64 12345678901234567)
+          , ("(float32 = 17.32)", Value'float32 17.32)
+          , ("(float64 = 13.99)", Value'float64 13.99)
+          , ("(data = \"beep boop.\")", Value'data_ "beep boop.")
+          , ("(text = \"Hello, World!\")", Value'text "Hello, World!")
+          , ("(enum = 2313)", Value'enum 2313)
+          , ("(interface = void)", Value'interface)
+          -- TODO: It would be nice to test list, struct, and anyPointer
+          -- variants, but I(zenhack) haven't figured out how to specify
+          -- an AnyPointer in the input to capnp encode. Maybe capnp eval
+          -- can do something like this? will have to investigate.
+          ]
+      , decodeCases
           "Annotation"
-          [ ( "(id = 323, brand = (scopes = []), value = (bool = true))",
-              Annotation 323 (Value $ Value'bool True) (Brand [])
+          [
+            ( "(id = 323, brand = (scopes = []), value = (bool = true))"
+            , Annotation 323 (Value $ Value'bool True) (Brand [])
             )
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "CapnpVersion"
-          [ ("(major = 0, minor = 5, micro = 3)", CapnpVersion 0 5 3),
-            ("(major = 1, minor = 0, micro = 2)", CapnpVersion 1 0 2)
-          ],
-        decodeTests
+          [ ("(major = 0, minor = 5, micro = 3)", CapnpVersion 0 5 3)
+          , ("(major = 1, minor = 0, micro = 2)", CapnpVersion 1 0 2)
+          ]
+      , decodeCases
           "Field"
-          [ ( [here|
+          [
+            ( [here|
                 ( name = "fieldName"
                 , codeOrder = 3
                 , annotations = [ (id = 2, brand = (scopes = []), value = (bool = true)) ]
@@ -293,15 +301,16 @@ decodeTests =
                 , group = (typeId = 4)
                 , ordinal = (implicit = void)
                 )
-            |],
-              Field
+            |]
+            , Field
                 "fieldName"
                 3
                 [Annotation 2 (Value $ Value'bool True) (Brand [])]
                 3
                 (Field'ordinal' Field'ordinal'implicit)
                 (Field'group $ Field'group' 4)
-            ),
+            )
+          ,
             ( [here|
                 ( name = "fieldName"
                 , codeOrder = 3
@@ -315,8 +324,8 @@ decodeTests =
                     )
                 , ordinal = (explicit = 7)
                 )
-            |],
-              Field
+            |]
+            , Field
                 "fieldName"
                 3
                 [Annotation 2 (Value $ Value'bool True) (Brand [])]
@@ -330,97 +339,109 @@ decodeTests =
                       True
                 )
             )
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Enumerant"
-          [ ( [here|
+          [
+            ( [here|
                 ( name = "red"
                 , codeOrder = 4
                 , annotations =
                     [ (id = 23, brand = (scopes = []), value = (uint8 = 3))
                     ]
                 )
-            |],
-              Enumerant "red" 4 [Annotation 23 (Value $ Value'uint8 3) (Brand [])]
+            |]
+            , Enumerant "red" 4 [Annotation 23 (Value $ Value'uint8 3) (Brand [])]
             )
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Superclass"
           [ ("(id = 34, brand = (scopes = []))", Superclass 34 (Brand []))
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Type"
-          [ ("(bool = void)", Type Type'bool),
-            ("(int8 = void)", Type Type'int8),
-            ("(int16 = void)", Type Type'int16),
-            ("(int32 = void)", Type Type'int32),
-            ("(int64 = void)", Type Type'int64),
-            ("(uint8 = void)", Type Type'uint8),
-            ("(uint16 = void)", Type Type'uint16),
-            ("(uint32 = void)", Type Type'uint32),
-            ("(uint64 = void)", Type Type'uint64),
-            ("(float32 = void)", Type Type'float32),
-            ("(float64 = void)", Type Type'float64),
-            ("(text = void)", Type Type'text),
-            ("(data = void)", Type Type'data_),
-            ( "(list = (elementType = (list = (elementType = (text = void)))))",
-              Type $ Type'list $ Type'list' $ Type $ Type'list $ Type'list' $ Type Type'text
-            ),
-            ( "(enum = (typeId = 4, brand = (scopes = [])))",
-              Type $ Type'enum $ Type'enum' 4 (Brand [])
-            ),
-            ( "(struct = (typeId = 7, brand = (scopes = [])))",
-              Type $ Type'struct $ Type'struct' 7 (Brand [])
-            ),
-            ( "(interface = (typeId = 1, brand = (scopes = [])))",
-              Type $ Type'interface $ Type'interface' 1 (Brand [])
-            ),
-            ( "(anyPointer = (unconstrained = (anyKind = void)))",
-              Type $
+          [ ("(bool = void)", Type Type'bool)
+          , ("(int8 = void)", Type Type'int8)
+          , ("(int16 = void)", Type Type'int16)
+          , ("(int32 = void)", Type Type'int32)
+          , ("(int64 = void)", Type Type'int64)
+          , ("(uint8 = void)", Type Type'uint8)
+          , ("(uint16 = void)", Type Type'uint16)
+          , ("(uint32 = void)", Type Type'uint32)
+          , ("(uint64 = void)", Type Type'uint64)
+          , ("(float32 = void)", Type Type'float32)
+          , ("(float64 = void)", Type Type'float64)
+          , ("(text = void)", Type Type'text)
+          , ("(data = void)", Type Type'data_)
+          ,
+            ( "(list = (elementType = (list = (elementType = (text = void)))))"
+            , Type $ Type'list $ Type'list' $ Type $ Type'list $ Type'list' $ Type Type'text
+            )
+          ,
+            ( "(enum = (typeId = 4, brand = (scopes = [])))"
+            , Type $ Type'enum $ Type'enum' 4 (Brand [])
+            )
+          ,
+            ( "(struct = (typeId = 7, brand = (scopes = [])))"
+            , Type $ Type'struct $ Type'struct' 7 (Brand [])
+            )
+          ,
+            ( "(interface = (typeId = 1, brand = (scopes = [])))"
+            , Type $ Type'interface $ Type'interface' 1 (Brand [])
+            )
+          ,
+            ( "(anyPointer = (unconstrained = (anyKind = void)))"
+            , Type $
                 Type'anyPointer $
                   Type'anyPointer' $
                     Type'anyPointer'unconstrained $
                       Type'anyPointer'unconstrained' Type'anyPointer'unconstrained'anyKind
-            ),
-            ( "(anyPointer = (unconstrained = (struct = void)))",
-              Type $
+            )
+          ,
+            ( "(anyPointer = (unconstrained = (struct = void)))"
+            , Type $
                 Type'anyPointer $
                   Type'anyPointer' $
                     Type'anyPointer'unconstrained $
                       Type'anyPointer'unconstrained' Type'anyPointer'unconstrained'struct
-            ),
-            ( "(anyPointer = (unconstrained = (list = void)))",
-              Type $
+            )
+          ,
+            ( "(anyPointer = (unconstrained = (list = void)))"
+            , Type $
                 Type'anyPointer $
                   Type'anyPointer' $
                     Type'anyPointer'unconstrained $
                       Type'anyPointer'unconstrained' Type'anyPointer'unconstrained'list
-            ),
-            ( "(anyPointer = (unconstrained = (capability = void)))",
-              Type $
+            )
+          ,
+            ( "(anyPointer = (unconstrained = (capability = void)))"
+            , Type $
                 Type'anyPointer $
                   Type'anyPointer' $
                     Type'anyPointer'unconstrained $
                       Type'anyPointer'unconstrained' Type'anyPointer'unconstrained'capability
-            ),
-            ( "(anyPointer = (parameter = (scopeId = 4, parameterIndex = 2)))",
-              Type $
+            )
+          ,
+            ( "(anyPointer = (parameter = (scopeId = 4, parameterIndex = 2)))"
+            , Type $
                 Type'anyPointer $
                   Type'anyPointer' $
                     Type'anyPointer'parameter $
                       Type'anyPointer'parameter' 4 2
-            ),
-            ( "(anyPointer = (implicitMethodParameter = (parameterIndex = 7)))",
-              Type $
+            )
+          ,
+            ( "(anyPointer = (implicitMethodParameter = (parameterIndex = 7)))"
+            , Type $
                 Type'anyPointer $
                   Type'anyPointer' $
                     Type'anyPointer'implicitMethodParameter $
                       Type'anyPointer'implicitMethodParameter' 7
             )
-          ],
-        decodeTests
+          ]
+      , decodeCases
           "Brand"
-          [ ("(scopes = [])", Brand []),
+          [ ("(scopes = [])", Brand [])
+          ,
             ( [here|
                 ( scopes =
                     [ (scopeId = 32, inherit = void)
@@ -431,13 +452,13 @@ decodeTests =
                       )
                     ]
                 )
-            |],
-              Brand
-                [ Brand'Scope 32 Brand'Scope'inherit,
-                  Brand'Scope 23 $
+            |]
+            , Brand
+                [ Brand'Scope 32 Brand'Scope'inherit
+                , Brand'Scope 23 $
                     Brand'Scope'bind
-                      [ Brand'Binding Brand'Binding'unbound,
-                        Brand'Binding $ Brand'Binding'type_ $ Type Type'bool
+                      [ Brand'Binding Brand'Binding'unbound
+                      , Brand'Binding $ Brand'Binding'type_ $ Type Type'bool
                       ]
                 ]
             )
@@ -445,18 +466,16 @@ decodeTests =
       ]
         `asProxyTypeOf` (Proxy :: Proxy [Spec])
   where
-    -- TODO: rename this: it's confusing to have both the top level and helper
-    -- have the same name; not sure how that happened in the first place.
-    decodeTests ::
-      ( IsStruct a,
-        Parse a pa,
-        Eq pa,
-        Show pa
-      ) =>
-      String ->
-      [(String, pa)] ->
-      Spec
-    decodeTests typename cases =
+    decodeCases
+      :: ( IsStruct a
+         , Parse a pa
+         , Eq pa
+         , Show pa
+         )
+      => String
+      -> [(String, pa)]
+      -> Spec
+    decodeCases typename cases =
       describe ("Decode " ++ typename) $ traverse_ (testCase typename) cases
 
     testCase typename (capnpText, expected) =
@@ -471,16 +490,16 @@ decodeDefaultTests = describe "Decoding default values" $ do
   decodeDefault @Value "Value"
   decodeDefault @Node "Node"
 
-decodeDefault ::
-  forall a pa.
-  ( IsStruct a,
-    Parse a pa,
-    Show pa,
-    Eq pa,
-    Default pa
-  ) =>
-  String ->
-  Spec
+decodeDefault
+  :: forall a pa
+   . ( IsStruct a
+     , Parse a pa
+     , Show pa
+     , Eq pa
+     , Default pa
+     )
+  => String
+  -> Spec
 decodeDefault typename =
   specify ("The empty struct decodes to the default value for " ++ typename) $ do
     actual <- evalLimitT defaultLimit (msgToParsed @a M.empty)
@@ -516,31 +535,31 @@ propTests = describe "Various quickcheck properties" $ do
     "CodeGeneratorRequest.RequestedFile.Import"
     (Proxy :: Proxy CodeGeneratorRequest'RequestedFile'Import)
 
-propCase ::
-  ( IsStruct a,
-    Parse a pa,
-    Arbitrary pa,
-    Show pa,
-    Eq pa
-  ) =>
-  String ->
-  Proxy a ->
-  Spec
-propCase name proxy = describe ("...for " ++ name) $ do
+propCase
+  :: ( IsStruct a
+     , Parse a pa
+     , Arbitrary pa
+     , Show pa
+     , Eq pa
+     )
+  => String
+  -> Proxy a
+  -> Spec
+propCase typeName proxy = describe ("...for " ++ typeName) $ do
   specify "cerialize and decerialize are inverses." $
     property (prop_encodeParseInverses proxy)
   specify "hPutValue and hGetValue are inverses." $
     property (prop_hGetPutInverses proxy)
 
-prop_hGetPutInverses ::
-  ( IsStruct a,
-    Parse a pa,
-    Show pa,
-    Eq pa
-  ) =>
-  Proxy a ->
-  pa ->
-  Property
+prop_hGetPutInverses
+  :: ( IsStruct a
+     , Parse a pa
+     , Show pa
+     , Eq pa
+     )
+  => Proxy a
+  -> pa
+  -> Property
 prop_hGetPutInverses _proxy expected = propertyIO $ do
   -- This is a little more complicated than I'd like due to resource
   -- management issues. We create a temporary file, then immediately
@@ -550,30 +569,30 @@ prop_hGetPutInverses _proxy expected = propertyIO $ do
   actual <-
     bracket
       ( do
-          (filename, handle) <- openBinaryTempFile "/tmp" "hPutParsed-output"
+          (tempPath, handle) <- openBinaryTempFile "/tmp" "hPutParsed-output"
           hClose handle
-          pure filename
+          pure tempPath
       )
       removeFile
-      ( \filename -> do
+      ( \tempPath -> do
           withBinaryFile
-            filename
+            tempPath
             WriteMode
             (`hPutParsed` expected)
-          withBinaryFile filename ReadMode $ \h ->
+          withBinaryFile tempPath ReadMode $ \h ->
             hGetParsed h defaultLimit
       )
   ppAssertEqual actual expected
 
-prop_encodeParseInverses ::
-  ( IsStruct a,
-    Parse a pa,
-    Eq pa,
-    Show pa
-  ) =>
-  Proxy a ->
-  pa ->
-  Property
+prop_encodeParseInverses
+  :: ( IsStruct a
+     , Parse a pa
+     , Eq pa
+     , Show pa
+     )
+  => Proxy a
+  -> pa
+  -> Property
 prop_encodeParseInverses _proxy expected = propertyIO $ do
   actual <- evalLimitT maxBound $ do
     -- TODO: add some helpers for all this.

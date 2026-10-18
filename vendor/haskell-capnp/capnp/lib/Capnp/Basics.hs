@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE EmptyDataDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -9,6 +10,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- Parse has bidirectional functional dependencies; its built-in mappings to
+-- external Text, ByteString and Client types necessarily form orphan instances.
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module: Capnp.Basics
@@ -18,12 +22,7 @@
 -- types, analogous to the phantom types generated for structs
 -- by the code generator. It also defines applicable type class
 -- instances.
-module Capnp.Basics where
-
--- XXX: I(zenhack) don't know how to supply an explicit
--- export list here, since we have instances of data families
--- and I don't know what to call the instances to get all of the
--- constructors.
+module Capnp.Basics (Text, Data, AnyPointer, AnyList, AnyStruct, Capability, C.Parsed (..), textBuffer, textBytes) where
 
 import qualified Capnp.Classes as C
 import qualified Capnp.Errors as E
@@ -34,7 +33,7 @@ import Control.Monad (when)
 import Control.Monad.Catch (MonadThrow, throwM)
 import qualified Data.ByteString as BS
 import Data.Default (Default (..))
-import Data.Foldable (foldl', for_)
+import Data.Foldable (foldl')
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
@@ -78,7 +77,7 @@ data instance C.Parsed AnyPointer
   = PtrStruct (C.Parsed AnyStruct)
   | PtrList (C.Parsed AnyList)
   | PtrCap M.Client
-  deriving (Show, Eq, Generic)
+  deriving stock (Show, Eq, Generic)
 
 instance C.Parse (Maybe AnyPointer) (Maybe (C.Parsed AnyPointer)) where
   parse (R.Raw ptr) = case ptr of
@@ -104,21 +103,16 @@ instance C.Parse AnyPointer (C.Parsed AnyPointer) where
       PtrList list -> Just . U.PtrList . R.fromRaw <$> C.encode msg list
       PtrStruct struct -> Just . U.PtrStruct . R.fromRaw <$> C.encode msg struct
 
-instance C.AllocateList AnyPointer where
-  type ListAllocHint AnyPointer = Int
-
-instance C.EstimateListAlloc AnyPointer (C.Parsed AnyPointer)
-
 instance C.AllocateList (Maybe AnyPointer) where
   type ListAllocHint (Maybe AnyPointer) = Int
 
 instance C.EstimateListAlloc (Maybe AnyPointer) (Maybe (C.Parsed AnyPointer))
 
 data instance C.Parsed AnyStruct = Struct
-  { structData :: V.Vector Word64,
-    structPtrs :: V.Vector (Maybe (C.Parsed AnyPointer))
+  { structData :: V.Vector Word64
+  , structPtrs :: V.Vector (Maybe (C.Parsed AnyPointer))
   }
-  deriving (Show, Generic)
+  deriving stock (Show, Generic)
 
 instance Eq (C.Parsed AnyStruct) where
   -- We define equality specially (rather than just deriving), such that
@@ -129,9 +123,9 @@ instance Eq (C.Parsed AnyStruct) where
       sectionEq l r = go 0
         where
           go i
-            | i >= length = True
+            | i >= listLength = True
             | otherwise = indexDef i l == indexDef i r && go (i + 1)
-          length = max (V.length l) (V.length r)
+          listLength = max (V.length l) (V.length r)
           indexDef i vec
             | i < V.length vec = vec V.! i
             | otherwise = def
@@ -158,8 +152,8 @@ instance C.EstimateListAlloc AnyStruct (C.Parsed AnyStruct) where
 
 instance C.EstimateAlloc AnyStruct (C.Parsed AnyStruct) where
   estimateAlloc s =
-    ( fromIntegral $ V.length $ structData s,
-      fromIntegral $ V.length $ structPtrs s
+    ( fromIntegral $ V.length $ structData s
+    , fromIntegral $ V.length $ structPtrs s
     )
 
 instance C.Marshal AnyStruct (C.Parsed AnyStruct) where
@@ -179,7 +173,7 @@ data instance C.Parsed AnyList
   | List16 [Word16]
   | List32 [Word32]
   | List64 [Word64]
-  deriving (Show, Eq, Generic)
+  deriving stock (Show, Eq, Generic)
 
 instance C.Parse AnyList (C.Parsed AnyList) where
   parse (R.Raw list) = case list of
@@ -268,7 +262,7 @@ instance C.Marshal Data BS.ByteString where
   -- byte-by-byte through 'U.setIndex'. The byte-by-byte version
   -- dominated wall-clock for multi-MiB 'Data' fields — see the
   -- comment on 'U.marshalBytes' for why.
-  marshalInto (R.Raw list) bytes = U.marshalBytes list bytes
+  marshalInto (R.Raw list) = U.marshalBytes list
 
 -- Instances for AnyStruct
 instance C.Allocate AnyStruct where
@@ -277,12 +271,12 @@ instance C.Allocate AnyStruct where
 
 -- | Return the underlying buffer containing the text. This does not include the
 -- null terminator.
-textBuffer :: MonadThrow m => R.Raw Text mut -> m (R.Raw Data mut)
+textBuffer :: (MonadThrow m) => R.Raw Text mut -> m (R.Raw Data mut)
 textBuffer (R.Raw list) = R.Raw <$> U.take (U.length list - 1) list
 
 -- | Convert a 'Text' to a 'BS.ByteString', comprising the raw bytes of the text
 -- (not counting the NUL terminator).
-textBytes :: U.ReadCtx m 'M.Const => R.Raw Text 'M.Const -> m BS.ByteString
+textBytes :: (U.ReadCtx m 'M.Const) => R.Raw Text 'M.Const -> m BS.ByteString
 textBytes text = do
   R.Raw raw <- textBuffer text
   U.rawBytes raw

@@ -9,24 +9,27 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+-- Typed client adapters bridge the representation and RPC layers.
+-- Phantom schema constraints restrict casts and pipeline operations; GHC does
+-- not count their role in rejecting invalid calls as a use.
+{-# OPTIONS_GHC -Wno-orphans -Wno-redundant-constraints #-}
 
 -- | Module: Capnp.Repr.Methods
 -- Description: Support for working with methods
 module Capnp.Repr.Methods
-  ( Method (..),
-    HasMethod (..),
-    Pipeline (..),
-    Client (..),
-    pipe,
-    pipelineClient,
-    waitPipeline,
-    AsClient (..),
-    upcast,
+  ( Method (..)
+  , HasMethod (..)
+  , Pipeline (..)
+  , Client (..)
+  , pipe
+  , pipelineClient
+  , waitPipeline
+  , AsClient (..)
 
     -- * Calling methods.
-    callB,
-    callR,
-    callP,
+  , callR
+  , callP
   )
 where
 
@@ -46,16 +49,14 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.STM.Class (MonadSTM (..))
 import Data.Word
 import GHC.OverloadedLabels (IsLabel (..))
-import GHC.Prim (coerce)
 import GHC.TypeLits (Symbol)
-import GHC.Types (Coercible)
-import Internal.BuildPure (PureBuilder, createPure)
+import Internal.BuildPure (createPure)
 
 -- | Represents a method on the interface type @c@ with parameter
 -- type @p@ and return type @r@.
 data Method c p r = Method
-  { interfaceId :: !Word64,
-    methodId :: !Word16
+  { interfaceId :: !Word64
+  , methodId :: !Word16
   }
 
 -- | An instance @'HasMethod' name c p r@ indicates that the interface
@@ -65,14 +66,14 @@ data Method c p r = Method
 class (R.IsCap c, R.IsStruct p, R.IsStruct r) => HasMethod (name :: Symbol) c p r | name c -> p r where
   methodByLabel :: Method c p r
 
-instance HasMethod name c p r => IsLabel name (Method c p r) where
+instance (HasMethod name c p r) => IsLabel name (Method c p r) where
   fromLabel = methodByLabel @name @c @p @r
 
 -- | The 'AsClient' class allows callers of rpc methods to abstract over 'Client's
 -- and 'Pipeline's. @'asClient'@ converts either of those to a client so that
 -- methods can be invoked on it.
 class AsClient f where
-  asClient :: MonadSTM m => R.IsCap c => f c -> m (Client c)
+  asClient :: (MonadSTM m) => (R.IsCap c) => f c -> m (Client c)
 
 instance AsClient Pipeline where
   asClient = pipelineClient
@@ -80,63 +81,48 @@ instance AsClient Pipeline where
 instance AsClient Client where
   asClient = liftSTM . pure
 
--- | Upcast is a (safe) cast from an interface to one of its superclasses.
-upcast :: (AsClient f, Coercible (f p) (f c), C.Super p c) => f c -> f p
-upcast = coerce
-
--- | Call a method. Use the provided 'PureBuilder' to construct the parameters.
-callB ::
-  (AsClient f, R.IsCap c, R.IsStruct p, MonadIO m) =>
-  Method c p r ->
-  (forall s. PureBuilder s (R.Raw p ('Mut s))) ->
-  f c ->
-  m (Pipeline r)
-callB method buildRaw c = liftIO $ do
-  (params :: R.Raw a 'Const) <- R.Raw <$> createPure maxBound (R.fromRaw <$> buildRaw)
-  callR method params c
-
 -- | Call a method, supplying the parameters as a 'Raw' struct.
-callR ::
-  (AsClient f, R.IsCap c, R.IsStruct p, MonadIO m) =>
-  Method c p r ->
-  R.Raw p 'Const ->
-  f c ->
-  m (Pipeline r)
+callR
+  :: (AsClient f, R.IsCap c, R.IsStruct p, MonadIO m)
+  => Method c p r
+  -> R.Raw p 'Const
+  -> f c
+  -> m (Pipeline r)
 callR method arg c = liftIO $ do
   p <- atomically (startCallR method arg c)
   Pipeline <$> wait p
 
-startCallR ::
-  (AsClient f, R.IsCap c, R.IsStruct p) =>
-  Method c p r ->
-  R.Raw p 'Const ->
-  f c ->
-  STM (Promise Rpc.Pipeline)
+startCallR
+  :: (AsClient f, R.IsCap c, R.IsStruct p)
+  => Method c p r
+  -> R.Raw p 'Const
+  -> f c
+  -> STM (Promise Rpc.Pipeline)
 startCallR Method {interfaceId, methodId} (R.Raw arg) c = do
   Client client <- asClient c
   (_, f) <- newPromise
   Rpc.call
     Server.CallInfo
-      { interfaceId,
-        methodId,
-        arguments = Just (U.PtrStruct arg),
-        response = f
+      { interfaceId
+      , methodId
+      , arguments = Just (U.PtrStruct arg)
+      , response = f
       }
     client
 
 -- | Call a method, supplying the parmaeters in parsed form.
-callP ::
-  forall c p r f m pp.
-  ( AsClient f,
-    R.IsCap c,
-    R.IsStruct p,
-    C.Parse p pp,
-    MonadIO m
-  ) =>
-  Method c p r ->
-  pp ->
-  f c ->
-  m (Pipeline r)
+callP
+  :: forall c p r f m pp
+   . ( AsClient f
+     , R.IsCap c
+     , R.IsStruct p
+     , C.Parse p pp
+     , MonadIO m
+     )
+  => Method c p r
+  -> pp
+  -> f c
+  -> m (Pipeline r)
 callP method parsed client = liftIO $ do
   struct <- createPure maxBound $ do
     msg <- newMessage Nothing
@@ -144,13 +130,11 @@ callP method parsed client = liftIO $ do
   callR method (R.Raw struct) client
 
 -- | Project a pipeline to a struct onto one of its pointer fields.
-pipe ::
-  ( R.IsStruct a,
-    R.ReprFor b ~ 'R.Ptr pr
-  ) =>
-  F.Field k a b ->
-  Pipeline a ->
-  Pipeline b
+pipe
+  :: (R.IsStruct a, R.ReprFor b ~ 'R.Ptr pr)
+  => F.Field k a b
+  -> Pipeline a
+  -> Pipeline b
 pipe (F.Field field) (Pipeline p) =
   case field of
     F.GroupField -> Pipeline p
@@ -162,14 +146,14 @@ pipelineClient (Pipeline p) =
   liftSTM $ Client <$> Rpc.pipelineClient p
 
 -- | Wait for the result of a pipeline, and return its value.
-waitPipeline ::
-  forall a m pr.
-  ( 'R.Ptr pr ~ R.ReprFor a,
-    R.IsPtrRepr pr,
-    MonadSTM m
-  ) =>
-  Pipeline a ->
-  m (R.Raw a 'Const)
+waitPipeline
+  :: forall a m pr
+   . ( 'R.Ptr pr ~ R.ReprFor a
+     , R.IsPtrRepr pr
+     , MonadSTM m
+     )
+  => Pipeline a
+  -> m (R.Raw a 'Const)
 waitPipeline (Pipeline p) =
   -- We need an instance of MonadLimit for IsPtrRepr's ReadCtx requirement,
   -- but none of the relevant instances do a lot of reading, so we just
@@ -178,6 +162,6 @@ waitPipeline (Pipeline p) =
     ptr <- Rpc.waitPipeline p
     R.Raw <$> R.fromPtr @pr M.empty ptr
 
-instance R.ReprFor a ~ 'R.Ptr ('Just 'R.Cap) => Rpc.IsClient (Client a) where
+instance (R.ReprFor a ~ 'R.Ptr ('Just 'R.Cap)) => Rpc.IsClient (Client a) where
   toClient (Client c) = c
   fromClient = Client

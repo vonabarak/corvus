@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
@@ -9,13 +10,13 @@
 --
 -- This is a low level module that very few users will need to use directly.
 module Capnp.Address
-  ( WordAddr (..),
-    CapAddr (..),
-    Addr (..),
-    OffsetError (..),
-    computeOffset,
-    pointerFrom,
-    resolveOffset,
+  ( WordAddr (..)
+  , CapAddr (..)
+  , Addr (..)
+  , OffsetError (..)
+  , computeOffset
+  , pointerFrom
+  , resolveOffset
   )
 where
 
@@ -27,15 +28,15 @@ import Data.Word
 
 -- | The address of a word within a message
 data WordAddr = WordAt
-  { -- | Segment number
-    segIndex :: !Int,
-    -- | offset in words from the start of the segment.
-    wordIndex :: !WordCount
+  { segIndex :: !Int
+  -- ^ Segment number
+  , wordIndex :: !WordCount
+  -- ^ offset in words from the start of the segment.
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | The "address" of a capability
-newtype CapAddr = Cap Word32 deriving (Show, Eq)
+newtype CapAddr = Cap Word32 deriving stock (Show, Eq)
 
 -- | An address, i.e. a location that a pointer may point at.
 data Addr
@@ -43,7 +44,7 @@ data Addr
     WordAddr !WordAddr
   | -- | The "address" of a capability.
     CapAddr !CapAddr
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | An error returned by 'computeOffset'; this describes the reason why a
 -- value cannot be directly addressed from a given location.

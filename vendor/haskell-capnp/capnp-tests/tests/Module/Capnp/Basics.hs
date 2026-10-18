@@ -1,17 +1,16 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-error=deprecations #-}
 
 module Module.Capnp.Basics (basicsTests) where
 
 import Capnp
-  ( List,
-    Mutability (..),
-    Raw (..),
-    encode,
-    evalLimitT,
-    length,
-    newMessage,
+  ( List
+  , Mutability (..)
+  , Raw (..)
+  , encode
+  , evalLimitT
+  , length
+  , newMessage
   )
 import Capnp.Basics
 import Capnp.Mutability (freeze)
@@ -25,8 +24,6 @@ import Test.QuickCheck
 import Test.QuickCheck.IO (propertyIO)
 import Test.QuickCheck.Instances ()
 import Prelude hiding (length)
-
--- import Data.Mutable (freeze)
 
 basicsTests :: Spec
 basicsTests =

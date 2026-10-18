@@ -2,16 +2,15 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Module: Capnp.Repr
@@ -24,83 +23,79 @@
 -- Recommended reading: https://capnproto.org/encoding.html
 module Capnp.Repr
   ( -- * Type-level descriptions of wire representations.
-    Repr (..),
-    PtrRepr (..),
-    ListRepr (..),
-    NormalListRepr (..),
-    DataSz (..),
+    Repr (..)
+  , PtrRepr (..)
+  , ListRepr (..)
+  , NormalListRepr (..)
+  , DataSz (..)
 
     -- * Mapping representations to value types from "Capnp.Untyped"
-    Untyped,
-    UntypedData,
-    UntypedPtr,
-    UntypedSomePtr,
-    UntypedList,
-    UntypedSomeList,
+  , Untyped
+  , UntypedData
+  , UntypedPtr
+  , UntypedSomePtr
+  , UntypedList
+  , UntypedSomeList
 
     -- * Mapping types to their wire representations.
-    ReprFor,
-    PtrReprFor,
+  , ReprFor
+  , PtrReprFor
 
     -- * Relating the representations of lists & their elements.
-    Element (..),
-    ElemRepr,
-    ListReprFor,
+  , Element (..)
+  , ElemRepr
+  , ListReprFor
 
     -- * Working with pointers
-    IsPtrRepr (..),
-    IsListPtrRepr (..),
+  , IsPtrRepr (..)
+  , IsListPtrRepr (..)
 
     -- * Working with wire-encoded values
-    Raw (..),
+  , Raw (..)
 
     -- * Working with lists
-    List,
-    length,
-    index,
-    setIndex,
+  , List
+  , length
+  , index
+  , setIndex
 
     -- * Allocating values
-    Allocate (..),
+  , Allocate (..)
 
     -- * Shorthands for types
-    IsStruct,
-    IsCap,
-    IsPtr,
+  , IsStruct
+  , IsCap
+  , IsPtr
   )
 where
 
 import qualified Capnp.Message as M
-import Capnp.Mutability (MaybeMutable (..), Mutability (..))
+import Capnp.Mutability (Mutability (..))
 import Capnp.TraversalLimit (evalLimitT)
 import Capnp.Untyped
-  ( Allocate (..),
-    DataSz (..),
-    ElemRepr,
-    Element (..),
-    IsListPtrRepr (..),
-    IsPtrRepr (..),
-    ListRepr (..),
-    ListReprFor,
-    MaybePtr (..),
-    NormalListRepr (..),
-    PtrRepr (..),
-    Repr (..),
-    Untyped,
-    UntypedData,
-    UntypedList,
-    UntypedPtr,
-    UntypedSomeList,
-    UntypedSomePtr,
-    Unwrapped,
+  ( Allocate (..)
+  , DataSz (..)
+  , ElemRepr
+  , Element (..)
+  , IsListPtrRepr (..)
+  , IsPtrRepr (..)
+  , ListRepr (..)
+  , ListReprFor
+  , NormalListRepr (..)
+  , PtrRepr (..)
+  , Repr (..)
+  , Untyped
+  , UntypedData
+  , UntypedList
+  , UntypedPtr
+  , UntypedSomeList
+  , UntypedSomePtr
   )
 import qualified Capnp.Untyped as U
-import Control.Monad.Primitive (PrimMonad, PrimState)
 import Data.Default (Default (..))
 import Data.Int
 import Data.Kind (Type)
 import Data.Maybe (fromJust)
-import Data.Traversable (for)
 import Data.Word
 import GHC.Generics (Generic)
 import Prelude hiding (length)
@@ -132,15 +127,15 @@ type instance ReprFor Float = 'Data 'Sz32
 
 type instance ReprFor Double = 'Data 'Sz64
 
-type instance ReprFor (U.Struct mut) = 'Ptr ('Just 'Struct)
+type instance ReprFor (U.Struct _mut) = 'Ptr ('Just 'Struct)
 
-type instance ReprFor (U.Cap mut) = 'Ptr ('Just 'Cap)
+type instance ReprFor (U.Cap _mut) = 'Ptr ('Just 'Cap)
 
-type instance ReprFor (U.Ptr mut) = 'Ptr 'Nothing
+type instance ReprFor (U.Ptr _mut) = 'Ptr 'Nothing
 
-type instance ReprFor (U.List mut) = 'Ptr ('Just ('List 'Nothing))
+type instance ReprFor (U.List _mut) = 'Ptr ('Just ('List 'Nothing))
 
-type instance ReprFor (U.ListOf r mut) = 'Ptr ('Just ('List ('Just (ListReprFor r))))
+type instance ReprFor (U.ListOf r _mut) = 'Ptr ('Just ('List ('Just (ListReprFor r))))
 
 type instance ReprFor (List a) = 'Ptr ('Just ('List ('Just (ListReprFor (ReprFor a)))))
 
@@ -153,37 +148,37 @@ type family PtrReprFor (r :: Repr) :: Maybe PtrRepr where
 -- @mut@.
 newtype Raw (a :: Type) (mut :: Mutability) = Raw {fromRaw :: U.Unwrapped (Untyped (ReprFor a) mut)}
 
-deriving instance Show (U.Unwrapped (Untyped (ReprFor a) mut)) => Show (Raw a mut)
+deriving stock instance (Show (U.Unwrapped (Untyped (ReprFor a) mut))) => Show (Raw a mut)
 
-deriving instance Read (U.Unwrapped (Untyped (ReprFor a) mut)) => Read (Raw a mut)
+deriving stock instance (Read (U.Unwrapped (Untyped (ReprFor a) mut))) => Read (Raw a mut)
 
-deriving instance Eq (U.Unwrapped (Untyped (ReprFor a) mut)) => Eq (Raw a mut)
+deriving stock instance (Eq (U.Unwrapped (Untyped (ReprFor a) mut))) => Eq (Raw a mut)
 
-deriving instance Generic (U.Unwrapped (Untyped (ReprFor a) mut)) => Generic (Raw a mut)
+deriving stock instance Generic (Raw a mut)
 
 -- | A phantom type denoting capnproto lists of type @a@.
 data List a
 
 type ListElem a =
-  ( U.Element (ReprFor a),
-    U.ListItem (ElemRepr (ListReprFor (ReprFor a)))
+  ( U.Element (ReprFor a)
+  , U.ListItem (ElemRepr (ListReprFor (ReprFor a)))
   )
 
 -- | Get the length of a capnproto list.
-length :: ListElem a => Raw (List a) mut -> Int
+length :: (ListElem a) => Raw (List a) mut -> Int
 {-# INLINE length #-}
 length (Raw l) = U.length l
 
 -- | @'index' i list@ gets the @i@th element of the list.
-index ::
-  forall a m mut.
-  ( U.ReadCtx m mut,
-    U.HasMessage (U.ListOf (ElemRepr (ListReprFor (ReprFor a)))),
-    ListElem a
-  ) =>
-  Int ->
-  Raw (List a) mut ->
-  m (Raw a mut)
+index
+  :: forall a m mut
+   . ( U.ReadCtx m mut
+     , U.HasMessage (U.ListOf (ElemRepr (ListReprFor (ReprFor a))))
+     , ListElem a
+     )
+  => Int
+  -> Raw (List a) mut
+  -> m (Raw a mut)
 {-# INLINE index #-}
 index i (Raw l) =
   Raw <$> do
@@ -196,92 +191,27 @@ index i (Raw l) =
       elt
 
 -- | @'setIndex' value i list@ sets the @i@th element of @list@ to @value@.
-setIndex ::
-  forall a m s.
-  ( U.RWCtx m s,
-    U.ListItem (ElemRepr (ListReprFor (ReprFor a))),
-    U.Element (ReprFor a)
-  ) =>
-  Raw a ('Mut s) ->
-  Int ->
-  Raw (List a) ('Mut s) ->
-  m ()
+setIndex
+  :: forall a m s
+   . ( U.RWCtx m s
+     , U.ListItem (ElemRepr (ListReprFor (ReprFor a)))
+     , U.Element (ReprFor a)
+     )
+  => Raw a ('Mut s)
+  -> Int
+  -> Raw (List a) ('Mut s)
+  -> m ()
 {-# INLINE setIndex #-}
 setIndex (Raw v) i (Raw l) = U.setIndex (toElement @(ReprFor a) @('Mut s) v) i l
 
-instance U.HasMessage (Untyped (ReprFor a)) => U.HasMessage (Raw a) where
+instance (U.HasMessage (Untyped (ReprFor a))) => U.HasMessage (Raw a) where
   message (Raw r) = U.message @(Untyped (ReprFor a)) r
 
-instance U.MessageDefault (Untyped (ReprFor a)) => U.MessageDefault (Raw a) where
+instance (U.MessageDefault (Untyped (ReprFor a))) => U.MessageDefault (Raw a) where
   messageDefault msg = Raw <$> U.messageDefault @(Untyped (ReprFor a)) msg
 
-instance U.MessageDefault (Raw a) => Default (Raw a 'Const) where
+instance (U.MessageDefault (Raw a)) => Default (Raw a 'Const) where
   def = fromJust $ evalLimitT maxBound $ U.messageDefault @(Raw a) M.empty
-
-instance ReprMaybeMutable (ReprFor a) => MaybeMutable (Raw a) where
-  thaw (Raw v) = Raw <$> rThaw @(ReprFor a) v
-  freeze (Raw v) = Raw <$> rFreeze @(ReprFor a) v
-  unsafeThaw (Raw v) = Raw <$> rUnsafeThaw @(ReprFor a) v
-  unsafeFreeze (Raw v) = Raw <$> rUnsafeFreeze @(ReprFor a) v
-  {-# INLINE thaw #-}
-  {-# INLINE freeze #-}
-  {-# INLINE unsafeThaw #-}
-  {-# INLINE unsafeFreeze #-}
-
--- | Like MaybeMutable, but defined on the repr. Helper for implementing
--- MaybeMutable (Raw a)
-class ReprMaybeMutable (r :: Repr) where
-  rThaw :: (PrimMonad m, PrimState m ~ s) => Unwrapped (Untyped r 'Const) -> m (Unwrapped (Untyped r ('Mut s)))
-  rUnsafeThaw :: (PrimMonad m, PrimState m ~ s) => Unwrapped (Untyped r 'Const) -> m (Unwrapped (Untyped r ('Mut s)))
-  rFreeze :: (PrimMonad m, PrimState m ~ s) => Unwrapped (Untyped r ('Mut s)) -> m (Unwrapped (Untyped r 'Const))
-  rUnsafeFreeze :: (PrimMonad m, PrimState m ~ s) => Unwrapped (Untyped r ('Mut s)) -> m (Unwrapped (Untyped r 'Const))
-
-instance ReprMaybeMutable ('Ptr 'Nothing) where
-  rThaw p = do
-    MaybePtr p' <- thaw (MaybePtr p)
-    pure p'
-  rFreeze p = do
-    MaybePtr p' <- freeze (MaybePtr p)
-    pure p'
-  rUnsafeThaw p = do
-    MaybePtr p' <- unsafeThaw (MaybePtr p)
-    pure p'
-  rUnsafeFreeze p = do
-    MaybePtr p' <- unsafeFreeze (MaybePtr p)
-    pure p'
-
-do
-  let types =
-        [ [t|'Just 'Struct|],
-          [t|'Just 'Cap|],
-          [t|'Just ('List 'Nothing)|],
-          [t|'Just ('List ('Just 'ListComposite))|],
-          [t|'Just ('List ('Just ('ListNormal 'NormalListPtr)))|]
-        ]
-  concat
-    <$> for
-      types
-      ( \t -> do
-          [d|
-            instance ReprMaybeMutable ('Ptr $t) where
-              rThaw = thaw
-              rFreeze = freeze
-              rUnsafeThaw = thaw
-              rUnsafeFreeze = freeze
-            |]
-      )
-
-instance ReprMaybeMutable ('Ptr ('Just ('List ('Just ('ListNormal ('NormalListData sz)))))) where
-  rThaw = thaw
-  rFreeze = freeze
-  rUnsafeThaw = thaw
-  rUnsafeFreeze = freeze
-
-instance ReprMaybeMutable ('Data sz) where
-  rThaw = pure
-  rFreeze = pure
-  rUnsafeThaw = pure
-  rUnsafeFreeze = pure
 
 -- | Constraint that @a@ is a struct type.
 type IsStruct a = ReprFor a ~ 'Ptr ('Just 'Struct)
@@ -291,11 +221,11 @@ type IsCap a = ReprFor a ~ 'Ptr ('Just 'Cap)
 
 -- | Constraint that @a@ is a pointer type.
 type IsPtr a =
-  ( ReprFor a ~ 'Ptr (PtrReprFor (ReprFor a)),
-    -- N.B. prior to ghc 9.2.x, this next constraint wasn't necessary,
+  ( ReprFor a ~ 'Ptr (PtrReprFor (ReprFor a))
+  , -- N.B. prior to ghc 9.2.x, this next constraint wasn't necessary,
     -- because it could be inferred from the first. I(zenhack) don't
     -- fully understand what changed, but some call sites need this
     -- extra help now...
-    Untyped (ReprFor a) ~ UntypedPtr (PtrReprFor (ReprFor a)),
-    IsPtrRepr (PtrReprFor (ReprFor a))
+    Untyped (ReprFor a) ~ UntypedPtr (PtrReprFor (ReprFor a))
+  , IsPtrRepr (PtrReprFor (ReprFor a))
   )

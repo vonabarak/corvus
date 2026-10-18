@@ -11,14 +11,14 @@
 module WalkSchemaCodeGenRequest (walkSchemaCodeGenRequestTest) where
 
 import Capnp
-  ( Raw,
-    bsToRaw,
-    hasField,
-    index,
-    length,
-    parseField,
-    readField,
-    textBytes,
+  ( Raw
+  , bsToRaw
+  , hasField
+  , index
+  , length
+  , parseField
+  , readField
+  , textBytes
   )
 import qualified Capnp.Gen.Capnp.Schema as Schema
 import qualified Capnp.Message as M
@@ -34,10 +34,10 @@ import Prelude hiding (length)
 nodeNames :: V.Vector BS.ByteString
 nodeNames =
   V.fromList
-    [ "Import",
-      "annotation",
-      "Value",
-      "Type"
+    [ "Import"
+    , "annotation"
+    , "Value"
+    , "Type"
     ]
 
 -- TODO: This contains a bit of copypasta from some of the untyped tests; should

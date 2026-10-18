@@ -5,60 +5,52 @@
 -- This module exposes the most commonly used parts of the RPC subsystem.
 module Capnp.Rpc
   ( -- * Establishing connections
-    Conn,
-    ConnConfig (..),
-    acquireConn,
-    handleConn,
-    withConn,
-    requestBootstrap,
+    Conn
+  , ConnConfig (..)
+  , acquireConn
+  , handleConn
+  , withConn
+  , requestBootstrap
 
-    -- * throwing errors
-    throwFailed,
+    -- * Throwing errors
+  , throwFailed
 
     -- * Transmitting messages
-    Transport (..),
-    socketTransport,
-    handleTransport,
-    tracingTransport,
+  , Transport (..)
+  , socketTransport
 
     -- * Promises
-    module Capnp.Rpc.Promise,
+  , module Capnp.Rpc.Promise
 
     -- * Clients
-    Client,
-    IsClient (..),
-    newPromiseClient,
-    waitClient,
+  , Client
+  , IsClient (..)
+  , newPromiseClient
 
     -- ** Reflection
-    Untyped.unwrapServer,
+  , Untyped.unwrapServer
 
     -- * Supervisors
-    module Supervisors,
-
-    -- * Misc.
+  , module Supervisors
   )
 where
 
 import Capnp.Rpc.Errors (throwFailed)
 import Capnp.Rpc.Promise
 import Capnp.Rpc.Transport
-  ( Transport (..),
-    handleTransport,
-    socketTransport,
-    tracingTransport,
+  ( Transport (..)
+  , socketTransport
   )
 import Capnp.Rpc.Untyped
-  ( Client,
-    Conn,
-    ConnConfig (..),
-    IsClient (..),
-    acquireConn,
-    handleConn,
-    newPromiseClient,
-    requestBootstrap,
-    waitClient,
-    withConn,
+  ( Client
+  , Conn
+  , ConnConfig (..)
+  , IsClient (..)
+  , acquireConn
+  , handleConn
+  , newPromiseClient
+  , requestBootstrap
+  , withConn
   )
 import qualified Capnp.Rpc.Untyped as Untyped
 import Supervisors

@@ -36,8 +36,8 @@ handleCGR =
     >>> Trans.FlatToAbstractOp.cgrToFiles
     >>> concatMap Trans.AbstractOpToHaskell.fileToModules
     >>> map
-      ( \mod ->
-          ( Haskell.modFilePath mod,
-            Trans.HaskellToText.moduleToText mod
+      ( \hsModule ->
+          ( Haskell.modFilePath hsModule
+          , Trans.HaskellToText.moduleToText hsModule
           )
       )

@@ -30,51 +30,51 @@ nodesToNodes inMap = outMap
   where
     outMap = M.map translate inMap
 
-    translate Schema.Node {scopeId, id, nestedNodes, union', parameters} =
+    translate Schema.Node {scopeId, id = nodeIdentifier, nestedNodes, union', parameters} =
       Stage1.Node
         { nodeCommon =
             Stage1.NodeCommon
-              { nodeId = id,
-                nodeNested =
+              { nodeId = nodeIdentifier
+              , nodeNested =
                   [ (Name.UnQ name, node)
-                    | Schema.Node'NestedNode {name, id} <- nestedNodes,
-                      Just node <- [M.lookup id outMap]
-                  ],
-                nodeParent =
+                  | Schema.Node'NestedNode {name, id = nestedIdentifier} <- nestedNodes
+                  , Just node <- [M.lookup nestedIdentifier outMap]
+                  ]
+              , nodeParent =
                   if scopeId == 0
                     then Nothing
-                    else Just (outMap M.! id),
-                nodeParams =
+                    else Just (outMap M.! nodeIdentifier)
+              , nodeParams =
                   [ Name.UnQ name
-                    | Schema.Node'Parameter {name} <- parameters
+                  | Schema.Node'Parameter {name} <- parameters
                   ]
-              },
-          nodeUnion = case union' of
+              }
+        , nodeUnion = case union' of
             Schema.Node'enum Schema.Node'enum' {enumerants} ->
               Stage1.NodeEnum $ map enumerantToName enumerants
             Schema.Node'struct
               Schema.Node'struct'
-                { dataWordCount,
-                  pointerCount,
-                  isGroup,
-                  discriminantOffset,
-                  fields
+                { dataWordCount
+                , pointerCount
+                , isGroup
+                , discriminantOffset
+                , fields
                 } ->
                 Stage1.NodeStruct
                   Stage1.Struct
-                    { dataWordCount,
-                      pointerCount,
-                      isGroup,
-                      tagOffset = discriminantOffset,
-                      fields = map (fieldToField outMap) fields
+                    { dataWordCount
+                    , pointerCount
+                    , isGroup
+                    , tagOffset = discriminantOffset
+                    , fields = map (fieldToField outMap) fields
                     }
             Schema.Node'interface Schema.Node'interface' {methods, superclasses} ->
               Stage1.NodeInterface
                 Stage1.Interface
-                  { methods = map (methodToMethod outMap) methods,
-                    supers =
-                      [ C.InterfaceType (outMap M.! id) (brandToBrand outMap brand)
-                        | Schema.Superclass {id, brand} <- superclasses
+                  { methods = map (methodToMethod outMap) methods
+                  , supers =
+                      [ C.InterfaceType (outMap M.! superclassIdentifier) (brandToBrand outMap brand)
+                      | Schema.Superclass {id = superclassIdentifier, brand} <- superclasses
                       ]
                   }
             Schema.Node'const Schema.Node'const' {type_ = Schema.Type type_, value = Schema.Value value} ->
@@ -172,8 +172,8 @@ brandToBrand nodeMap Schema.Brand {scopes} =
       Schema.Brand'Scope'inherit -> Nothing
       Schema.Brand'Scope'bind bindings ->
         Just
-          ( scopeId,
-            C.Bind $
+          ( scopeId
+          , C.Bind $
               bindings
                 & map
                   ( \(Schema.Brand'Binding b) -> case b of
@@ -195,16 +195,16 @@ methodToMethod :: NodeMap Stage1.Node -> Parsed Schema.Method -> Stage1.Method
 methodToMethod
   nodeMap
   Schema.Method
-    { name,
-      paramStructType,
-      paramBrand,
-      resultStructType,
-      resultBrand
+    { name
+    , paramStructType
+    , paramBrand
+    , resultStructType
+    , resultBrand
     } =
     Stage1.Method
-      { name = Name.UnQ name,
-        paramType = structTypeToType nodeMap paramStructType paramBrand,
-        resultType = structTypeToType nodeMap resultStructType resultBrand
+      { name = Name.UnQ name
+      , paramType = structTypeToType nodeMap paramStructType paramBrand
+      , resultType = structTypeToType nodeMap resultStructType resultBrand
       }
 
 enumerantToName :: Parsed Schema.Enumerant -> Name.UnQ
@@ -213,21 +213,21 @@ enumerantToName Schema.Enumerant {name} = Name.UnQ name
 fieldToField :: NodeMap Stage1.Node -> Parsed Schema.Field -> Stage1.Field
 fieldToField nodeMap Schema.Field {name, discriminantValue, union'} =
   Stage1.Field
-    { name = Name.UnQ name,
-      tag =
+    { name = Name.UnQ name
+    , tag =
         if discriminantValue == Schema.field'noDiscriminant
           then Nothing
-          else Just discriminantValue,
-      locType = getFieldLocType nodeMap union'
+          else Just discriminantValue
+    , locType = getFieldLocType nodeMap union'
     }
 
 getFieldLocType :: NodeMap Stage1.Node -> Parsed (Which Schema.Field) -> C.FieldLocType Stage1.Brand Stage1.Node
 getFieldLocType nodeMap = \case
   Schema.Field'slot
     Schema.Field'slot'
-      { type_ = Schema.Type type_,
-        defaultValue = Schema.Value defaultValue,
-        offset
+      { type_ = Schema.Type type_
+      , defaultValue = Schema.Value defaultValue
+      , offset
       } ->
       case typeToType nodeMap type_ of
         C.VoidType ->
@@ -262,9 +262,9 @@ dataLoc :: Word32 -> C.WordType Stage1.Node -> Word64 -> C.DataLoc
 dataLoc offset ty defaultVal =
   let bitsOffset = fromIntegral offset * C.dataFieldSize ty
    in C.DataLoc
-        { dataIdx = bitsOffset `div` 64,
-          dataOff = bitsOffset `mod` 64,
-          dataDef = defaultVal
+        { dataIdx = bitsOffset `div` 64
+        , dataOff = bitsOffset `mod` 64
+        , dataDef = defaultVal
         }
 
 -- | Return the raw bit-level representation of a value that is stored
@@ -288,14 +288,14 @@ valueBits = \case
   _ -> Nothing -- some non-word type.
 
 reqFileToReqFile :: NodeMap Stage1.Node -> Parsed Schema.CodeGeneratorRequest'RequestedFile -> Stage1.ReqFile
-reqFileToReqFile nodeMap Schema.CodeGeneratorRequest'RequestedFile {id, filename} =
-  let Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeNested}} = nodeMap M.! id
+reqFileToReqFile nodeMap Schema.CodeGeneratorRequest'RequestedFile {id = fileIdentifier, filename} =
+  let Stage1.Node {nodeCommon = Stage1.NodeCommon {nodeNested}} = nodeMap M.! fileIdentifier
    in Stage1.ReqFile
-        { fileName = T.unpack filename,
-          file =
+        { fileName = T.unpack filename
+        , file =
             Stage1.File
-              { fileNodes = nodeNested,
-                fileId = id
+              { fileNodes = nodeNested
+              , fileId = fileIdentifier
               }
         }
 
@@ -303,27 +303,27 @@ cgrToCgr :: Parsed Schema.CodeGeneratorRequest -> Stage1.CodeGenReq
 cgrToCgr Schema.CodeGeneratorRequest {nodes, requestedFiles} =
   Stage1.CodeGenReq {allFiles, reqFiles}
   where
-    nodeMap = nodesToNodes $ M.fromList [(id, node) | node@Schema.Node {id} <- nodes]
+    nodeMap = nodesToNodes $ M.fromList [(nodeIdentifier, node) | node@Schema.Node {id = nodeIdentifier} <- nodes]
     reqFiles = map (reqFileToReqFile nodeMap) requestedFiles
     allFiles =
       [ let fileNodes =
-              [ (Name.UnQ name, nodeMap M.! id)
-                | Schema.Node'NestedNode {name, id} <- nestedNodes,
-                  -- If the file is an import (i.e. not part of requestedFiles), then
-                  -- the code generator will sometimes omit parts of it that are not
-                  -- used. We need to check that the nestedNodes are actually included;
-                  -- if not, we omit them from the otuput as well.
-                  M.member id nodeMap
+              [ (Name.UnQ name, nodeMap M.! nestedIdentifier)
+              | Schema.Node'NestedNode {name, id = nestedIdentifier} <- nestedNodes
+              , -- If the file is an import (i.e. not part of requestedFiles), then
+              -- the code generator will sometimes omit parts of it that are not
+              -- used. We need to check that the nestedNodes are actually included;
+              -- if not, we omit them from the otuput as well.
+              M.member nestedIdentifier nodeMap
               ]
          in Stage1.File {fileId, fileNodes}
-        | Schema.Node {union' = Schema.Node'file, id = fileId, nestedNodes} <- nodes
+      | Schema.Node {union' = Schema.Node'file, id = fileId, nestedNodes} <- nodes
       ]
 
-structTypeToType ::
-  NodeMap Stage1.Node ->
-  Word64 ->
-  Parsed Schema.Brand ->
-  C.CompositeType Stage1.Brand Stage1.Node
+structTypeToType
+  :: NodeMap Stage1.Node
+  -> Word64
+  -> Parsed Schema.Brand
+  -> C.CompositeType Stage1.Brand Stage1.Node
 structTypeToType nodeMap typeId brand =
   C.StructType (nodeMap M.! typeId) (brandToBrand nodeMap brand)
 
@@ -360,9 +360,9 @@ typeToType nodeMap = \case
          in C.PtrType $
               C.PtrParam
                 C.TypeParamRef
-                  { paramScope,
-                    paramIndex = fromIntegral parameterIndex,
-                    paramName = Stage1.nodeParams (Stage1.nodeCommon paramScope) !! fromIntegral parameterIndex
+                  { paramScope
+                  , paramIndex = fromIntegral parameterIndex
+                  , paramName = Stage1.nodeParams (Stage1.nodeCommon paramScope) !! fromIntegral parameterIndex
                   }
       Schema.Type'anyPointer'unconstrained
         (Schema.Type'anyPointer'unconstrained' unconstrained) ->

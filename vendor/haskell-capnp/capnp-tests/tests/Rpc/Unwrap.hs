@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -6,9 +7,9 @@
 module Rpc.Unwrap (unwrapTests) where
 
 import Capnp
-  ( SomeServer (..),
-    export,
-    methodUnimplemented,
+  ( SomeServer (..)
+  , export
+  , methodUnimplemented
   )
 import qualified Capnp.Gen.Aircraft as Aircraft
 import qualified Capnp.Rpc as Rpc
@@ -18,7 +19,7 @@ import qualified Supervisors
 import Test.Hspec
 
 data OpaqueEcho = OpaqueEcho
-  deriving (Show, Read, Eq, Ord, Enum, Bounded)
+  deriving stock (Show, Read, Eq, Ord, Enum, Bounded)
 
 instance SomeServer OpaqueEcho
 
@@ -26,7 +27,7 @@ instance Aircraft.Echo'server_ OpaqueEcho where
   echo'echo _ = methodUnimplemented
 
 newtype TransparentEcho = TransparentEcho Int
-  deriving (Show, Read, Eq, Ord, Bounded, Typeable)
+  deriving stock (Show, Read, Eq, Ord, Bounded, Typeable)
 
 instance SomeServer TransparentEcho where
   unwrap = Typeable.cast

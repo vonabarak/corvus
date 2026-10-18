@@ -1,13 +1,12 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Capnp.Mutability
-  ( Mutability (..),
-    MaybeMutable (..),
-    create,
-    createT,
+  ( Mutability (..)
+  , MaybeMutable (..)
+  , createT
   )
 where
 
@@ -43,13 +42,6 @@ class MaybeMutable (f :: Mutability -> Type) where
   -- ensure that the original value is not used after this call.
   unsafeFreeze :: (PrimMonad m, PrimState m ~ s) => f ('Mut s) -> m (f 'Const)
   unsafeFreeze = freeze
-
--- | Create and freeze a mutable value, safely, without doing a full copy.
--- internally, 'create' calls unsafeFreeze, but it cannot be directly used to
--- violate referential transparency, as the value is not available to the
--- caller after freezing.
-create :: MaybeMutable f => (forall s. ST s (f ('Mut s))) -> f 'Const
-create st = runST (st >>= unsafeFreeze)
 
 -- | Like 'create', but the result is wrapped in an instance of 'Traversable'.
 createT :: (Traversable t, MaybeMutable f) => (forall s. ST s (t (f ('Mut s)))) -> t (f 'Const)

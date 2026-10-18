@@ -18,9 +18,9 @@ import Test.Hspec
 import Util (decodeValue, schemaSchemaSrc)
 
 data BuildTest = BuildTest
-  { typeName :: String,
-    expected :: String,
-    builder :: M.Message ('M.Mut RealWorld) -> LimitT IO ()
+  { typeName :: String
+  , expected :: String
+  , builder :: M.Message ('M.Mut RealWorld) -> LimitT IO ()
   }
 
 schemaTests :: Spec
@@ -29,15 +29,15 @@ schemaTests =
     traverse_
       testCase
       [ BuildTest
-          { typeName = "Field",
-            expected =
+          { typeName = "Field"
+          , expected =
               concat
-                [ "( codeOrder = 4,\n",
-                  "  discriminantValue = 6,\n",
-                  "  group = (typeId = 322),\n",
-                  "  ordinal = (explicit = 22) )\n"
-                ],
-            builder = \msg -> do
+                [ "( codeOrder = 4,\n"
+                , "  discriminantValue = 6,\n"
+                , "  group = (typeId = 322),\n"
+                , "  ordinal = (explicit = 22) )\n"
+                ]
+          , builder = \msg -> do
               field <- C.newRoot @S.Field () msg
               field & encodeField #codeOrder 4
               field & encodeField #discriminantValue 6

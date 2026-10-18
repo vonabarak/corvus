@@ -1,6 +1,8 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 module Capnp.Rpc.Common
-  ( Client (..),
-    Pipeline (..),
+  ( Client (..)
+  , Pipeline (..)
   )
 where
 
@@ -11,4 +13,4 @@ import qualified Internal.Rpc.Breaker as Rpc
 newtype Pipeline a = Pipeline Rpc.Pipeline
 
 newtype Client a = Client Rpc.Client
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)

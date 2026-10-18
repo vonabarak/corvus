@@ -1,3 +1,6 @@
+-- Test generators necessarily define instances for library types.
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Module.Capnp.Pointer (ptrTests) where
 
 import Capnp.Pointer
@@ -10,8 +13,8 @@ import Test.QuickCheck
 instance Arbitrary EltSpec where
   arbitrary =
     oneof
-      [ EltNormal <$> arbitrary <*> arbitraryU29,
-        EltComposite <$> arbitraryI29
+      [ EltNormal <$> arbitrary <*> arbitraryU29
+      , EltComposite <$> arbitraryI29
       ]
 
 instance Arbitrary ElementSize where
@@ -19,13 +22,13 @@ instance Arbitrary ElementSize where
     oneof $
       map
         return
-        [ Sz0,
-          Sz1,
-          Sz8,
-          Sz16,
-          Sz32,
-          Sz64,
-          SzPtr
+        [ Sz0
+        , Sz1
+        , Sz8
+        , Sz16
+        , Sz32
+        , Sz64
+        , SzPtr
         ]
 
 -- | arbitraryIN is an arbitrary N bit signed integer as an Int32.
@@ -45,15 +48,15 @@ instance Arbitrary Ptr where
       [ StructPtr
           <$> arbitraryI30
           <*> arbitrary
-          <*> arbitrary,
-        ListPtr
+          <*> arbitrary
+      , ListPtr
           <$> arbitraryI30
-          <*> arbitrary,
-        FarPtr
+          <*> arbitrary
+      , FarPtr
           <$> arbitrary
           <*> arbitraryU29
-          <*> arbitrary,
-        CapPtr <$> arbitrary
+          <*> arbitrary
+      , CapPtr <$> arbitrary
       ]
 
 ptrTests :: Spec

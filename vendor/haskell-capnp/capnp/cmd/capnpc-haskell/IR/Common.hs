@@ -2,9 +2,10 @@
 -- See also IR.Name, which defines identifiers, which are also
 -- used in more than one IR.
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 
-module IR.Common where
+module IR.Common (TypeId (..), IntType (..), Sign (..), IntSize (..), ListBrand (..), MapBrand (..), BrandScope (..), Binding (..), TypeParamRef (..), Type (..), CompositeType (..), InterfaceType (..), WordType (..), PtrType (..), PrimWord (..), PrimPtr (..), AnyPtr (..), FieldLocType (..), DataLoc (..), Value (..), sizeBits, dataFieldSize, bothMap) where
 
 import qualified Capnp.Basics as B
 import Capnp.Repr.Parsed (Parsed)
@@ -14,22 +15,22 @@ import Data.Word
 import qualified IR.Name as Name
 
 newtype TypeId = TypeId Word64
-  deriving (Show, Read, Eq, Ord)
+  deriving stock (Show, Read, Eq, Ord)
 
 data IntType = IntType !Sign !IntSize
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Sign
   = Signed
   | Unsigned
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data IntSize
   = Sz8
   | Sz16
   | Sz32
   | Sz64
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 sizeBits :: IntSize -> Int
 sizeBits Sz8 = 8
@@ -54,43 +55,43 @@ bothMap :: (Bifunctor p, Functor f) => (a -> b) -> p (f a) a -> p (f b) b
 bothMap f = bimap (fmap f) f
 
 newtype ListBrand r = ListBrand [PtrType (ListBrand r) r]
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 instance Functor ListBrand where
   fmap f (ListBrand ps) = ListBrand (fmap (bothMap f) ps)
 
 newtype MapBrand r = MapBrand (M.Map Word64 (BrandScope r))
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 instance Functor MapBrand where
   fmap f (MapBrand m) = MapBrand $ fmap (fmap f) m
 
 newtype BrandScope r = Bind [Binding r]
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 instance Functor BrandScope where
   fmap f (Bind bs) = Bind $ fmap (fmap f) bs
 
 data Binding r = Unbound | BoundType (PtrType (MapBrand r) r)
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 instance Functor Binding where
   fmap _ Unbound = Unbound
   fmap f (BoundType ty) = BoundType $ bothMap f ty
 
 data TypeParamRef r = TypeParamRef
-  { paramScope :: r,
-    paramIndex :: !Int,
-    paramName :: Name.UnQ
+  { paramScope :: r
+  , paramIndex :: !Int
+  , paramName :: Name.UnQ
   }
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 data Type b r
   = CompositeType (CompositeType b r)
   | VoidType
   | WordType (WordType r)
   | PtrType (PtrType b r)
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 instance Bifunctor Type where
   second = fmap
@@ -102,7 +103,7 @@ instance Bifunctor Type where
 
 data CompositeType b r
   = StructType r b
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 instance Bifunctor CompositeType where
   second = fmap
@@ -110,7 +111,7 @@ instance Bifunctor CompositeType where
 
 data InterfaceType b r
   = InterfaceType r b
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 instance Bifunctor InterfaceType where
   second = fmap
@@ -119,7 +120,7 @@ instance Bifunctor InterfaceType where
 data WordType r
   = EnumType r
   | PrimWord PrimWord
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 data PtrType b r
   = ListOf (Type b r)
@@ -127,7 +128,7 @@ data PtrType b r
   | PtrComposite (CompositeType b r)
   | PtrInterface (InterfaceType b r)
   | PtrParam (TypeParamRef r)
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 instance Bifunctor PtrType where
   second = fmap
@@ -143,20 +144,20 @@ data PrimWord
   | PrimFloat32
   | PrimFloat64
   | PrimBool
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data PrimPtr
   = PrimText
   | PrimData
   | PrimAnyPtr AnyPtr
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data AnyPtr
   = Struct
   | List
   | Cap
   | Ptr
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 -- | The type and location of a field.
 data FieldLocType b r
@@ -169,7 +170,7 @@ data FieldLocType b r
     HereField (CompositeType b r)
   | -- | The field is of type void (and thus is zero-size).
     VoidField
-  deriving (Show, Read, Eq, Functor)
+  deriving stock (Show, Read, Eq, Functor)
 
 instance Bifunctor FieldLocType where
   second = fmap
@@ -181,22 +182,22 @@ instance Bifunctor FieldLocType where
 
 -- | The location of a field within a struct's data section.
 data DataLoc = DataLoc
-  { -- | The index of the 64-bit word containing the field.
-    dataIdx :: !Int,
-    -- | The bit offset inside the 64-bit word.
-    dataOff :: !Int,
-    -- | The value is stored xor-ed with this value. This is used
-    -- to allow for encoding default values. Note that this is xor-ed
-    -- with the bits representing the value, not the whole word.
-    dataDef :: !Word64
+  { dataIdx :: !Int
+  -- ^ The index of the 64-bit word containing the field.
+  , dataOff :: !Int
+  -- ^ The bit offset inside the 64-bit word.
+  , dataDef :: !Word64
+  -- ^ The value is stored xor-ed with this value. This is used
+  -- to allow for encoding default values. Note that this is xor-ed
+  -- with the bits representing the value, not the whole word.
   }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Value b r
   = VoidValue
   | WordValue (WordType r) !Word64
   | PtrValue (PtrType b r) (Maybe (Parsed B.AnyPointer))
-  deriving (Show, Eq, Functor)
+  deriving stock (Show, Eq, Functor)
 
 instance Bifunctor Value where
   second = fmap
@@ -206,8 +207,3 @@ instance Bifunctor Value where
     PtrValue t v -> PtrValue (first f t) v
 
 -- | Extract the type from a 'FildLocType'.
-fieldType :: FieldLocType r b -> Type r b
-fieldType (DataField _ ty) = WordType ty
-fieldType (PtrField _ ty) = PtrType ty
-fieldType (HereField ty) = CompositeType ty
-fieldType VoidField = VoidType

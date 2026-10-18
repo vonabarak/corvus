@@ -16,7 +16,7 @@ import qualified Text.PrettyPrint.Leijen.Text as PP
 import Trans.ToHaskellCommon (eStd_)
 
 moduleToText :: Module -> LT.Text
-moduleToText mod = PP.displayT $ PP.renderPretty 0.4 80 (format mod)
+moduleToText hsModule = PP.displayT $ PP.renderPretty 0.4 80 (format hsModule)
 
 -- | Types which can be rendered as haskell source code.
 --
@@ -33,46 +33,47 @@ class Format a where
 instance Format Module where
   format Module {modName, modLangPragmas, modDecls, modExports, modImports} =
     vcat
-      [ vcat ["{-# LANGUAGE " <> PP.textStrict ext <> " #-}" | ext <- modLangPragmas],
-        -- The generated code sometimes triggers these warnings, but they're nothing to
+      [ vcat ["{-# LANGUAGE " <> PP.textStrict ext <> " #-}" | ext <- modLangPragmas]
+      , -- The generated code sometimes triggers these warnings, but they're nothing to
         -- worry about.
         --
         -- Dodgy-exports comes up when we don't actaully generate any definitions to
         -- export, in which case GHC complains in the machine readable module alias that
         -- we're trying to re-export everything from a module with no-exports. This
         -- happens with e.g. c++.capnp, which only defines annotations.
-        "{-# OPTIONS_GHC -Wno-unused-imports #-}",
-        "{-# OPTIONS_GHC -Wno-dodgy-exports #-}",
-        "{-# OPTIONS_GHC -Wno-unused-matches #-}",
-        "{-# OPTIONS_GHC -Wno-orphans #-}",
-        "{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}",
-        "{-# OPTIONS_GHC -Wno-name-shadowing #-}",
-        -- Generated modules expose their schema declarations and derive ordinary instances.
-        "{-# OPTIONS_GHC -Wno-missing-export-lists #-}",
-        "{-# OPTIONS_GHC -Wno-missing-deriving-strategies #-}",
-        hcat
-          [ "module ",
-            PP.textStrict $ mconcat $ intersperse "." $ map Name.renderUnQ modName,
-            case modExports of
+        "{-# OPTIONS_GHC -Wno-unused-imports #-}"
+      , "{-# OPTIONS_GHC -Wno-dodgy-exports #-}"
+      , "{-# OPTIONS_GHC -Wno-unused-matches #-}"
+      , "{-# OPTIONS_GHC -Wno-unused-type-patterns #-}"
+      , "{-# OPTIONS_GHC -Wno-orphans #-}"
+      , "{-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}"
+      , "{-# OPTIONS_GHC -Wno-name-shadowing #-}"
+      , -- Generated modules expose their schema declarations and derive ordinary instances.
+        "{-# OPTIONS_GHC -Wno-missing-export-lists #-}"
+      , "{-# OPTIONS_GHC -Wno-missing-deriving-strategies #-}"
+      , hcat
+          [ "module "
+          , PP.textStrict $ mconcat $ intersperse "." $ map Name.renderUnQ modName
+          , case modExports of
               Nothing -> ""
               Just exports ->
-                PP.tupled (map format exports),
-            " where"
-          ],
-        vcat $ map format modImports,
-        -- We import many things, including the prelude, qualified under the
+                PP.tupled (map format exports)
+          , " where"
+          ]
+      , vcat $ map format modImports
+      , -- We import many things, including the prelude, qualified under the
         -- "Std_" namespace, so that they don't collide with names in the
         -- generated code; see issue #58.
         vcat $
           map
             format
-            [ ImportAs {importAs = "Std_", parts = ["Prelude"]},
-              ImportAs {importAs = "Std_", parts = ["Data", "Word"]},
-              ImportAs {importAs = "Std_", parts = ["Data", "Int"]}
-            ],
-        -- ...but there are a couple operators we still want unqaulified:
-        "import Prelude ((<$>), (<*>), (>>=))",
-        vcat $ map format modDecls
+            [ ImportAs {importAs = "Std_", parts = ["Prelude"]}
+            , ImportAs {importAs = "Std_", parts = ["Data", "Word"]}
+            , ImportAs {importAs = "Std_", parts = ["Data", "Int"]}
+            ]
+      , -- ...but there are a couple operators we still want unqaulified:
+        "import Prelude ((<$>), (<*>), (>>=))"
+      , vcat $ map format modDecls
       ]
 
 instance Format Export where
@@ -87,58 +88,58 @@ instance Format Decl where
   format (DcData d) = format d
   format DcValue {typ, def = def@DfValue {name}} =
     vcat
-      [ hcat [format name, " :: ", format typ],
-        format def
+      [ hcat [format name, " :: ", format typ]
+      , format def
       ]
   format DcInstance {ctx, typ, defs} =
     hcat
-      [ "instance ",
-        format (TCtx ctx typ),
-        whereBlock defs
+      [ "instance "
+      , format (TCtx ctx typ)
+      , whereBlock defs
       ]
   format (DcTypeInstance alias orig) =
     hcat
-      [ "type instance ",
-        format alias,
-        " = ",
-        format orig
+      [ "type instance "
+      , format alias
+      , " = "
+      , format orig
       ]
   format (DcDeriveInstance ctx typ) =
     hcat
-      [ "deriving instance ",
-        format $ TCtx ctx typ
+      [ "deriving instance "
+      , format $ TCtx ctx typ
       ]
   format DcClass {ctx, name, params, funDeps, decls} =
     hcat
-      [ "class ",
-        format $
+      [ "class "
+      , format $
           TCtx ctx $
             TApp
               (TLName name)
-              [TLName (Name.unQToLocal p) | p <- params],
-        formatFunDeps funDeps,
-        whereBlock decls
+              [TLName (Name.unQToLocal p) | p <- params]
+      , formatFunDeps funDeps
+      , whereBlock decls
       ]
 
 formatFunDeps :: [(T.Text, T.Text)] -> PP.Doc
 formatFunDeps [] = ""
 formatFunDeps deps =
   mconcat
-    [ " | ",
-      mconcat $
+    [ " | "
+    , mconcat $
         intersperse
           ", "
           [ PP.textStrict a <> " -> " <> PP.textStrict b
-            | (a, b) <- deps
+          | (a, b) <- deps
           ]
     ]
 
-whereBlock :: Format a => [a] -> PP.Doc
+whereBlock :: (Format a) => [a] -> PP.Doc
 whereBlock [] = ""
 whereBlock xs =
   vcat
-    [ " where",
-      indent $ vcat $ map format xs
+    [ " where"
+    , indent $ vcat $ map format xs
     ]
 
 instance Format ClassDecl where
@@ -146,9 +147,9 @@ instance Format ClassDecl where
   format (CdValueDef def) = format def
   format (CdMinimal names) =
     hcat
-      [ "{-# MINIMAL ",
-        hcat $ PP.punctuate PP.comma (map format names),
-        " #-}"
+      [ "{-# MINIMAL "
+      , hcat $ PP.punctuate PP.comma (map format names)
+      , " #-}"
       ]
 
 instance Format InstanceDef where
@@ -159,12 +160,12 @@ instance Format InstanceDef where
 instance Format TypeAlias where
   format (TypeAlias name params value) =
     hcat
-      [ "type ",
-        format name,
-        " ",
-        mconcat $ intersperse " " (map format params),
-        " = ",
-        format value
+      [ "type "
+      , format name
+      , " "
+      , mconcat $ intersperse " " (map format params)
+      , " = "
+      , format value
       ]
 
 instance Format DataDecl where
@@ -173,47 +174,47 @@ instance Format DataDecl where
       [ hcat
           [ if dataNewtype
               then "newtype "
-              else "data ",
-            if dataInstance
+              else "data "
+          , if dataInstance
               then "instance "
-              else "",
-            format dataName,
-            " ",
-            mconcat $ intersperse " " $ map format typeArgs
-          ],
-        indent $
+              else ""
+          , format dataName
+          , " "
+          , mconcat $ intersperse " " $ map format typeArgs
+          ]
+      , indent $
           vcat
             [ case dataVariants of
                 (d : ds) -> vcat $ ("= " <> format d) : map (("| " <>) . format) ds
-                [] -> "",
-              formatDerives derives
+                [] -> ""
+            , formatDerives derives
             ]
       ]
 
 instance Format ValueDef where
   format DfValue {name, value, params} =
     hcat
-      [ format name,
-        " ",
-        hcat $ intersperse " " $ map format params,
-        " = ",
-        format value
+      [ format name
+      , " "
+      , hcat $ intersperse " " $ map format params
+      , " = "
+      , format value
       ]
 
 instance Format Exp where
   format (EApp e []) = format e
   format (EApp e es) =
     hcat
-      [ "(",
-        hcat $ intersperse " " $ map format (e : es),
-        ")"
+      [ "("
+      , hcat $ intersperse " " $ map format (e : es)
+      , ")"
       ]
   format (EFApp e []) = format (EApp (eStd_ "pure") [e])
   format (EFApp e es) =
     hcat
-      [ "(",
-        format e,
-        PP.encloseSep " <$> " ")" " <*> " $ map format es
+      [ "("
+      , format e
+      , PP.encloseSep " <$> " ")" " <*> " $ map format es
       ]
   format (EGName e) = format e
   format (ELName e) = format e
@@ -221,39 +222,39 @@ instance Format Exp where
   format (EInt n) = fromString (show n)
   format (EDo ds ex) =
     vcat
-      [ "(do",
-        indent $ vcat (map format ds ++ [format ex, ")"])
+      [ "(do"
+      , indent $ vcat (map format ds ++ [format ex, ")"])
       ]
   format (EBind x f) = PP.parens (format x <> " >>= " <> format f)
   format (ETup es) = PP.tupled (map format es)
   format (EList es) = PP.list (map format es)
   format (ECase ex arms) =
     vcat
-      [ hcat ["case ", format ex, " of"],
-        indent $
+      [ hcat ["case ", format ex, " of"]
+      , indent $
           vcat
             [ vcat
-                [ hcat [format p, " ->"],
-                  indent (format e)
-                ]
-              | (p, e) <- arms
+              [ hcat [format p, " ->"]
+              , indent (format e)
+              ]
+            | (p, e) <- arms
             ]
       ]
   format (ETypeAnno e ty) =
     PP.parens $
       hcat
-        [ format e,
-          " :: ",
-          format ty
+        [ format e
+        , " :: "
+        , format ty
         ]
   format (EBytes bytes) = fromString (show bytes)
   format (ELambda params body) =
     PP.parens $
       hcat
-        [ "\\",
-          hcat (PP.punctuate " " (map format params)),
-          " -> ",
-          format body
+        [ "\\"
+        , hcat (PP.punctuate " " (map format params))
+        , " -> "
+        , format body
         ]
   format (ERecord old updates) =
     format old
@@ -262,7 +263,7 @@ instance Format Exp where
         "}"
         ","
         [ hcat [format name, " = ", format value]
-          | (name, value) <- updates
+        | (name, value) <- updates
         ]
   format (ETypeApp e ts) =
     hcat ("(" : format e : [" @(" <> format t <> ")" | t <- ts] ++ [")"])
@@ -276,15 +277,15 @@ instance Format Pattern where
   format (PVar v) = PP.textStrict v
   format (PLCtor c ps) =
     hcat
-      [ "(",
-        mconcat $ intersperse " " (format c : map format ps),
-        ")"
+      [ "("
+      , mconcat $ intersperse " " (format c : map format ps)
+      , ")"
       ]
   format (PGCtor c ps) =
     hcat
-      [ "(",
-        mconcat $ intersperse " " (format c : map format ps),
-        ")"
+      [ "("
+      , mconcat $ intersperse " " (format c : map format ps)
+      , ")"
       ]
   format (PInt n) = fromString (show n)
   format (PLRecordWildCard name) = format name <> "{..}"
@@ -331,9 +332,9 @@ instance Format Type where
 instance Format Name.GlobalQ where
   format Name.GlobalQ {local, globalNS = Name.NS parts} =
     mconcat
-      [ mconcat $ intersperse "." (map PP.textStrict parts),
-        ".",
-        format local
+      [ mconcat $ intersperse "." (map PP.textStrict parts)
+      , "."
+      , format local
       ]
 
 instance Format Name.LocalQ where
@@ -345,15 +346,15 @@ instance Format Name.UnQ where
 instance Format Import where
   format ImportAs {importAs, parts} =
     hcat
-      [ "import qualified ",
-        implodeNS parts,
-        " as ",
-        format importAs
+      [ "import qualified "
+      , implodeNS parts
+      , " as "
+      , format importAs
       ]
   format ImportQual {parts} = hcat ["import qualified ", implodeNS parts]
   format ImportAll {parts} = hcat ["import ", implodeNS parts]
 
-implodeNS :: Format a => [a] -> PP.Doc
+implodeNS :: (Format a) => [a] -> PP.Doc
 implodeNS parts = mconcat $ intersperse "." (map format parts)
 
 instance Format C.PrimWord where

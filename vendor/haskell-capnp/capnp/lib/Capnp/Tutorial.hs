@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
 -- |
@@ -170,7 +171,7 @@ import System.IO (stdout)
 -- >         , phones :: RP.Parsed (R.List Person'PhoneNumber)
 -- >         , employment :: RP.Parsed Person'employment
 -- >         }
--- >     deriving(Generic, Show, EQ)
+-- >     deriving stock (Generic, Show, EQ)
 -- >
 -- > instance HasField "id" Slot Person Std_.Word32 where { ... }
 -- > instance HasField "name" Slot Person Basics.Text where { ... }
@@ -188,7 +189,7 @@ import System.IO (stdout)
 -- >     = Person'employment'
 -- >         { union' :: C.Parsed (GH.Which Person'employment)
 -- >         }
--- >     deriving(Generic, Show, Eq)
+-- >     deriving stock (Generic, Show, Eq)
 -- >
 -- > instance (GH.HasUnion Person'employment) where
 -- >     unionField = ...
@@ -211,7 +212,7 @@ import System.IO (stdout)
 -- >     | Person'employment'school (RP.Parsed Basics.Text)
 -- >     | Person'employment'selfEmployed
 -- >     | Person'employment'unknown' Std_.Word16
--- >     deriving(Generic, Show, Eq)
+-- >     deriving stock (Generic, Show, Eq)
 -- >
 -- > instance C.Parse (GH.Which Person'employment) (C.Parsed (GH.Which Person'employment)) where
 -- >     ...
@@ -227,7 +228,7 @@ import System.IO (stdout)
 -- >     | Person'PhoneNumber'Type'home
 -- >     | Person'PhoneNumber'Type'work
 -- >     | Person'PhoneNumber'Type'unknown' Std_.Word16
--- >     deriving(Generic, Eq, Show)
+-- >     deriving stock (Generic, Eq, Show)
 -- >
 -- > type instance R.ReprFor Person'PhoneNumber'Type = R.Data R.Sz16
 -- >
@@ -438,10 +439,9 @@ import System.IO (stdout)
 -- >   -- lists), this may be something more meaningful.
 -- >   addressbook <- C.newRoot @AddressBook () msg
 -- >
--- >   -- newField can be used to allocate the value of a field, for pointer
--- >   -- types like lists. The number is the allocation hint, as used by newRoot.
--- >   -- We can use the OverloadedLabels extension to pass in fields by name.
--- >   people <- C.newField #people 2 addressbook
+-- >   -- Allocate a list and attach it to the parent struct.
+-- >   people <- C.new @(C.List Person) 2 msg
+-- >   C.setField #people people addressbook
 -- >
 -- >   -- Index gets an object at a specified location in a list. Cap'N Proto
 -- >   -- lists are flat arrays, and in the case of structs the structs are
@@ -451,14 +451,13 @@ import System.IO (stdout)
 -- >   -- encodeField takes the parsed form of a value and marshals it into
 -- >   -- the specified field. For basic types like integers & booleans, this
 -- >   -- is almost always what you want. For larger values, you may want to
--- >   -- use newField as above, or separately create the value and use setField,
+-- >   -- separately create the value and use setField,
 -- >   -- as shown below.
 -- >   C.encodeField #id 123 alice
 -- >   C.encodeField #name (T.pack "Alice") alice
 -- >   C.encodeField #email (T.pack "alice@example.com") alice
 -- >
--- >   -- We would probably use newField here, but to demonstrate, we can allocate
--- >   -- the value separately with new, and then set it with setField.
+-- >   -- Allocate the value with new, and attach it with setField.
 -- >   phones <- C.new @(C.List Person'PhoneNumber) 1 msg
 -- >   C.setField #phones phones alice
 -- >
@@ -482,7 +481,8 @@ import System.IO (stdout)
 -- >   bob & C.encodeField #name (T.pack "Bob")
 -- >   bob & C.encodeField #email (T.pack "bob@example.com")
 -- >
--- >   phones <- bob & C.newField #phones 2
+-- >   phones <- C.new @(C.List Person'PhoneNumber) 2 msg
+-- >   bob & C.setField #phones phones
 -- >   homePhone <- phones & C.index 0
 -- >   homePhone & C.encodeField #number (T.pack "555-4567")
 -- >   homePhone & C.encodeField #type_ Person'PhoneNumber'Type'home
@@ -582,7 +582,7 @@ import System.IO (stdout)
 -- So a @'Client' Echo@ allows you to call methods on an @Echo@ interface.
 --
 -- Actually invoking methods uses the functions in "Capnp.Repr.Methods",
--- re-exported by "Capnp". 'callP', 'callB', and 'callR' provide different
+-- re-exported by "Capnp". 'callP' and 'callR' provide different
 -- ways of supplying arguments to a call, but all are intended to be used with
 -- the OverloadedLabels extension for specifying the method name.
 --

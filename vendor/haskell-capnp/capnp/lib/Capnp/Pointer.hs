@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+
 -- |
 -- Module: Capnp.Pointer
 -- Description: Support for parsing/serializing capnproto pointers
@@ -5,15 +7,15 @@
 -- This module provides support for parsing and serializing capnproto pointers.
 -- This is a low-level module; most users will not need to call it directly.
 module Capnp.Pointer
-  ( Ptr (..),
-    ElementSize (..),
-    EltSpec (..),
-    parsePtr,
-    parsePtr',
-    serializePtr,
-    serializePtr',
-    parseEltSpec,
-    serializeEltSpec,
+  ( Ptr (..)
+  , ElementSize (..)
+  , EltSpec (..)
+  , parsePtr
+  , parsePtr'
+  , serializePtr
+  , serializePtr'
+  , parseEltSpec
+  , serializeEltSpec
   )
 where
 
@@ -46,7 +48,7 @@ data Ptr
     FarPtr !Bool !Word32 !Word32
   | -- | @'CapPtr' id@ is a pointer to the capability with the id @id@.
     CapPtr !Word32
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | The element size field in a list pointer.
 data ElementSize
@@ -57,7 +59,7 @@ data ElementSize
   | Sz32
   | Sz64
   | SzPtr
-  deriving (Show, Eq, Enum)
+  deriving stock (Show, Eq, Enum)
 
 -- | A combination of the C and D fields in a list pointer, i.e. the element
 -- size, and either the number of elements in the list, or the total number
@@ -70,7 +72,7 @@ data EltSpec
   | -- | @EltComposite len@ is a composite element (C == 7). @len@ is the
     -- length of the list in words.
     EltComposite !Int32
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | @'parsePtr' word@ parses word as a capnproto pointer. A null pointer is
 -- parsed as 'Nothing'.
@@ -163,6 +165,6 @@ serializeEltSpec :: EltSpec -> Word64
 serializeEltSpec (EltNormal sz len) =
   (fromIntegral (fromEnum sz) `shiftL` 32)
     .|. (fromIntegral len `shiftL` 35)
-serializeEltSpec (EltComposite words) =
+serializeEltSpec (EltComposite wordCount) =
   (7 `shiftL` 32)
-    .|. fromHi (fromI29 words)
+    .|. fromHi (fromI29 wordCount)

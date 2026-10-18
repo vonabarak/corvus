@@ -1,6 +1,8 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
+-- Test generators necessarily define instances for library types.
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module: Instances
@@ -11,6 +13,8 @@
 -- * "Capnp.Basics"
 -- * "Capnp.Gen.Capnp.Schema"
 module Instances () where
+
+import Prelude hiding (id)
 
 import Capnp (Which)
 import qualified Capnp.Basics as B
@@ -55,13 +59,13 @@ instance Arbitrary (Parsed (Which Node)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure Node'file,
-        Node'struct <$> arbitrary,
-        Node'enum <$> arbitrary,
-        Node'interface <$> arbitrary,
-        Node'const <$> arbitrary,
-        Node'annotation <$> arbitrary,
-        Node'unknown' <$> arbitraryTag 6
+      [ pure Node'file
+      , Node'struct <$> arbitrary
+      , Node'enum <$> arbitrary
+      , Node'interface <$> arbitrary
+      , Node'const <$> arbitrary
+      , Node'annotation <$> arbitrary
+      , Node'unknown' <$> arbitraryTag 6
       ]
 
 instance Arbitrary (Parsed Node'enum) where
@@ -128,8 +132,8 @@ instance Arbitrary (Parsed (Which Field)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ Field'slot <$> arbitrary,
-        Field'group <$> arbitrary
+      [ Field'slot <$> arbitrary
+      , Field'group <$> arbitrary
       ]
 
 instance Arbitrary (Parsed Field'slot) where
@@ -153,8 +157,8 @@ instance Arbitrary (Parsed (Which Field'ordinal)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure Field'ordinal'implicit,
-        Field'ordinal'explicit <$> arbitrary
+      [ pure Field'ordinal'implicit
+      , Field'ordinal'explicit <$> arbitrary
       ]
 
 instance Arbitrary (Parsed Enumerant) where
@@ -212,9 +216,9 @@ instance Arbitrary (Parsed (Which Brand'Scope)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ Brand'Scope'bind <$> arbitrarySmallerList,
-        pure Brand'Scope'inherit,
-        Brand'Scope'unknown' <$> arbitraryTag 2
+      [ Brand'Scope'bind <$> arbitrarySmallerList
+      , pure Brand'Scope'inherit
+      , Brand'Scope'unknown' <$> arbitraryTag 2
       ]
 
 instance Arbitrary (Parsed Brand'Binding) where
@@ -225,9 +229,9 @@ instance Arbitrary (Parsed (Which Brand'Binding)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure Brand'Binding'unbound,
-        Brand'Binding'type_ <$> arbitrary,
-        Brand'Binding'unknown' <$> arbitraryTag 2
+      [ pure Brand'Binding'unbound
+      , Brand'Binding'type_ <$> arbitrary
+      , Brand'Binding'unknown' <$> arbitraryTag 2
       ]
 
 instance Arbitrary (Parsed Value) where
@@ -238,26 +242,26 @@ instance Arbitrary (Parsed (Which Value)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure Value'void,
-        Value'bool <$> arbitrary,
-        Value'int8 <$> arbitrary,
-        Value'int16 <$> arbitrary,
-        Value'int32 <$> arbitrary,
-        Value'int64 <$> arbitrary,
-        Value'uint8 <$> arbitrary,
-        Value'uint16 <$> arbitrary,
-        Value'uint32 <$> arbitrary,
-        Value'uint64 <$> arbitrary,
-        Value'float32 <$> arbitrary,
-        Value'float64 <$> arbitrary,
-        Value'text <$> arbitrary,
-        Value'data_ <$> arbitrary,
-        Value'list <$> arbitrary,
-        Value'enum <$> arbitrary,
-        Value'struct <$> arbitrary,
-        pure Value'interface,
-        Value'anyPointer <$> arbitrary,
-        Value'unknown' <$> arbitraryTag 19
+      [ pure Value'void
+      , Value'bool <$> arbitrary
+      , Value'int8 <$> arbitrary
+      , Value'int16 <$> arbitrary
+      , Value'int32 <$> arbitrary
+      , Value'int64 <$> arbitrary
+      , Value'uint8 <$> arbitrary
+      , Value'uint16 <$> arbitrary
+      , Value'uint32 <$> arbitrary
+      , Value'uint64 <$> arbitrary
+      , Value'float32 <$> arbitrary
+      , Value'float64 <$> arbitrary
+      , Value'text <$> arbitrary
+      , Value'data_ <$> arbitrary
+      , Value'list <$> arbitrary
+      , Value'enum <$> arbitrary
+      , Value'struct <$> arbitrary
+      , pure Value'interface
+      , Value'anyPointer <$> arbitrary
+      , Value'unknown' <$> arbitraryTag 19
       ]
 
 instance Arbitrary (Parsed Annotation) where
@@ -272,15 +276,15 @@ instance Arbitrary ElementSize where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure ElementSize'empty,
-        pure ElementSize'bit,
-        pure ElementSize'byte,
-        pure ElementSize'twoBytes,
-        pure ElementSize'fourBytes,
-        pure ElementSize'eightBytes,
-        pure ElementSize'pointer,
-        pure ElementSize'inlineComposite,
-        ElementSize'unknown' <$> arbitraryTag 8
+      [ pure ElementSize'empty
+      , pure ElementSize'bit
+      , pure ElementSize'byte
+      , pure ElementSize'twoBytes
+      , pure ElementSize'fourBytes
+      , pure ElementSize'eightBytes
+      , pure ElementSize'pointer
+      , pure ElementSize'inlineComposite
+      , ElementSize'unknown' <$> arbitraryTag 8
       ]
 
 instance Arbitrary (Parsed Type'anyPointer) where
@@ -291,9 +295,9 @@ instance Arbitrary (Parsed (Which Type'anyPointer)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ Type'anyPointer'unconstrained <$> arbitrary,
-        Type'anyPointer'parameter <$> arbitrary,
-        Type'anyPointer'implicitMethodParameter <$> arbitrary
+      [ Type'anyPointer'unconstrained <$> arbitrary
+      , Type'anyPointer'parameter <$> arbitrary
+      , Type'anyPointer'implicitMethodParameter <$> arbitrary
       ]
 
 instance Arbitrary (Parsed Type'anyPointer'unconstrained) where
@@ -304,10 +308,10 @@ instance Arbitrary (Parsed (Which Type'anyPointer'unconstrained)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure Type'anyPointer'unconstrained'anyKind,
-        pure Type'anyPointer'unconstrained'struct,
-        pure Type'anyPointer'unconstrained'list,
-        pure Type'anyPointer'unconstrained'capability
+      [ pure Type'anyPointer'unconstrained'anyKind
+      , pure Type'anyPointer'unconstrained'struct
+      , pure Type'anyPointer'unconstrained'list
+      , pure Type'anyPointer'unconstrained'capability
       ]
 
 instance Arbitrary (Parsed Type'anyPointer'parameter) where
@@ -328,26 +332,26 @@ instance Arbitrary (Parsed (Which Type)) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ pure Type'void,
-        pure Type'bool,
-        pure Type'int8,
-        pure Type'int16,
-        pure Type'int32,
-        pure Type'int64,
-        pure Type'uint8,
-        pure Type'uint16,
-        pure Type'uint32,
-        pure Type'uint64,
-        pure Type'float32,
-        pure Type'float64,
-        pure Type'text,
-        pure Type'data_,
-        Type'list <$> arbitrary,
-        Type'enum <$> arbitrary,
-        Type'struct <$> arbitrary,
-        Type'interface <$> arbitrary,
-        Type'anyPointer <$> arbitrary,
-        Type'unknown' <$> arbitraryTag 21
+      [ pure Type'void
+      , pure Type'bool
+      , pure Type'int8
+      , pure Type'int16
+      , pure Type'int32
+      , pure Type'int64
+      , pure Type'uint8
+      , pure Type'uint16
+      , pure Type'uint32
+      , pure Type'uint64
+      , pure Type'float32
+      , pure Type'float64
+      , pure Type'text
+      , pure Type'data_
+      , Type'list <$> arbitrary
+      , Type'enum <$> arbitrary
+      , Type'struct <$> arbitrary
+      , Type'interface <$> arbitrary
+      , Type'anyPointer <$> arbitrary
+      , Type'unknown' <$> arbitraryTag 21
       ]
 
 instance Arbitrary (Parsed Type'list) where
@@ -390,7 +394,7 @@ instance Arbitrary (Parsed CodeGeneratorRequest'RequestedFile'Import) where
       <$> arbitrary
       <*> arbitrary
 
-arbitrarySmallerList :: Arbitrary a => Gen [a]
+arbitrarySmallerList :: (Arbitrary a) => Gen [a]
 arbitrarySmallerList = sized $ \size -> do
   -- Make sure the elements are scaled down relative to
   -- the size of the list:
@@ -401,22 +405,21 @@ arbitrarySmallerList = sized $ \size -> do
 instance Arbitrary (Parsed B.AnyStruct) where
   shrink = genericShrink
   arbitrary = sized $ \_ ->
-    B.Struct
-      <$> (V.fromList <$> arbitrarySmallerList)
+    (B.Struct . V.fromList <$> arbitrarySmallerList)
       <*> (V.fromList <$> arbitrarySmallerList)
 
 instance Arbitrary (Parsed B.AnyList) where
   shrink = genericShrink
   arbitrary =
     oneof
-      [ B.List0 <$> arbitrarySmallerList,
-        B.List1 <$> arbitrarySmallerList,
-        B.List8 <$> arbitrarySmallerList,
-        B.List16 <$> arbitrarySmallerList,
-        B.List32 <$> arbitrarySmallerList,
-        B.List64 <$> arbitrarySmallerList,
-        B.ListPtr <$> arbitrarySmallerList,
-        B.ListStruct <$> arbitrarySmallerList
+      [ B.List0 <$> arbitrarySmallerList
+      , B.List1 <$> arbitrarySmallerList
+      , B.List8 <$> arbitrarySmallerList
+      , B.List16 <$> arbitrarySmallerList
+      , B.List32 <$> arbitrarySmallerList
+      , B.List64 <$> arbitrarySmallerList
+      , B.ListPtr <$> arbitrarySmallerList
+      , B.ListStruct <$> arbitrarySmallerList
       ]
 
 instance Arbitrary (Parsed B.AnyPointer) where
@@ -425,8 +428,8 @@ instance Arbitrary (Parsed B.AnyPointer) where
   shrink (B.PtrCap _) = []
   arbitrary =
     oneof
-      [ B.PtrStruct <$> arbitrary,
-        B.PtrList <$> arbitrary
-        -- We never generate capabilites, as we can't marshal Clients back in,
-        -- so many of the invariants we check don't hold for caps.
+      [ B.PtrStruct <$> arbitrary
+      , B.PtrList <$> arbitrary
+      -- We never generate capabilites, as we can't marshal Clients back in,
+      -- so many of the invariants we check don't hold for caps.
       ]

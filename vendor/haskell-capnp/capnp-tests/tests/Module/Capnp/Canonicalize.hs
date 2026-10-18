@@ -3,7 +3,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Module.Capnp.Canonicalize
-  ( canonicalizeTests,
+  ( canonicalizeTests
   )
 where
 
@@ -38,25 +38,25 @@ canonicalizeTests =
 
 implsAgreeOn :: Parsed B.AnyStruct -> IO ()
 implsAgreeOn struct = do
-  let Just ourMsg = ourImplCanonicalize struct
+  ourMsg <- maybe (fail "Canonicalization exceeded traversal limit") pure (ourImplCanonicalize struct)
   refMsg <- refImplCanonicalize struct
   unless (ourMsg == refMsg) $
     error $
       concat
-        [ "Our implementation disagrees with the reference implementation on " ++ show struct,
-          ".\n\nWe produce:\n\n",
-          show $ LBS.unpack $ msgToLBS ourMsg,
-          "\n\n",
-          "But the reference implementation generates:\n\n",
-          show $ LBS.unpack $ msgToLBS refMsg
+        [ "Our implementation disagrees with the reference implementation on " ++ show struct
+        , ".\n\nWe produce:\n\n"
+        , show $ LBS.unpack $ msgToLBS ourMsg
+        , "\n\n"
+        , "But the reference implementation generates:\n\n"
+        , show $ LBS.unpack $ msgToLBS refMsg
         ]
 
 ourImplCanonicalize :: Parsed B.AnyStruct -> Maybe (M.Message 'M.Const)
 ourImplCanonicalize struct = createPure maxBound $ do
   msg <- M.newMessage Nothing
   Raw rawStruct <- encode msg struct
-  (msg, _) <- canonicalizeMut rawStruct
-  pure msg
+  (canonical, _) <- canonicalizeMut rawStruct
+  pure canonical
 
 refImplCanonicalize :: Parsed B.AnyStruct -> IO (M.Message 'M.Const)
 refImplCanonicalize struct = do

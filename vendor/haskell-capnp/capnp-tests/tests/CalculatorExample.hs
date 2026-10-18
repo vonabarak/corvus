@@ -37,17 +37,17 @@ getExe varName =
 
 tests :: Spec
 tests = describe "Check our example against the C++ implementation" $ do
-  clientPath <- runIO $ getExe "CXX_CALCULATOR_CLIENT"
-  serverPath <- runIO $ getExe "CXX_CALCULATOR_SERVER"
-  for_ clientPath $ \clientPath ->
+  maybeClient <- runIO $ getExe "CXX_CALCULATOR_CLIENT"
+  maybeServer <- runIO $ getExe "CXX_CALCULATOR_SERVER"
+  for_ maybeClient $ \clientPath ->
     it "Should pass when run against our server" $
       Examples.Rpc.CalculatorServer.main
         `race_` (waitForServer >> cxxClient clientPath 4000)
-  for_ serverPath $ \serverPath ->
+  for_ maybeServer $ \serverPath ->
     it "Should pass when run against our client" $
       cxxServer serverPath 4000
         `race_` (waitForServer >> Examples.Rpc.CalculatorClient.main)
-  for_ ((,) <$> clientPath <*> serverPath) $ \(clientPath, serverPath) ->
+  for_ ((,) <$> maybeClient <*> maybeServer) $ \(clientPath, serverPath) ->
     it "Should pass when run aginst the C++ server, proxied through us." $
       cxxServer serverPath 4000
         `race_` (waitForServer >> runProxy 4000 6000)
@@ -65,15 +65,15 @@ tests = describe "Check our example against the C++ implementation" $ do
     cxxClient path port = do
       (eStatus, out, err) <- readProcessWithExitCode path ["localhost:" ++ show port] ""
       (eStatus, out, err)
-        `shouldBe` ( ExitSuccess,
-                     unlines
-                       [ "Evaluating a literal... PASS",
-                         "Using add and subtract... PASS",
-                         "Pipelining eval() calls... PASS",
-                         "Defining functions... PASS",
-                         "Using a callback... PASS"
-                       ],
-                     ""
+        `shouldBe` ( ExitSuccess
+                   , unlines
+                      [ "Evaluating a literal... PASS"
+                      , "Using add and subtract... PASS"
+                      , "Pipelining eval() calls... PASS"
+                      , "Defining functions... PASS"
+                      , "Using a callback... PASS"
+                      ]
+                   , ""
                    )
 
 -- | @'runProxy' serverPort clientPort@ connects to the server listening at
@@ -89,6 +89,6 @@ runProxy serverPort clientPort =
         handleConn
           (socketTransport clientSock defaultLimit)
           def
-            { bootstrap = Just client,
-              debugMode = True
+            { bootstrap = Just client
+            , debugMode = True
             }

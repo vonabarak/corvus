@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 -- First stage IR. This models the data structures in schema.capnp more closely
 -- than the other intermediate forms. Differences:
 --
@@ -9,17 +10,17 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
 module IR.Stage1
-  ( File (..),
-    ReqFile (..),
-    Interface (..),
-    Method (..),
-    Node (..),
-    NodeCommon (..),
-    NodeUnion (..),
-    Struct (..),
-    Field (..),
-    CodeGenReq (..),
-    Brand,
+  ( File (..)
+  , ReqFile (..)
+  , Interface (..)
+  , Method (..)
+  , Node (..)
+  , NodeCommon (..)
+  , NodeUnion (..)
+  , Struct (..)
+  , Field (..)
+  , CodeGenReq (..)
+  , Brand
   )
 where
 
@@ -30,34 +31,34 @@ import qualified IR.Name as Name
 type Brand = Common.MapBrand Node
 
 data CodeGenReq = CodeGenReq
-  { reqFiles :: [ReqFile],
-    allFiles :: [File]
+  { reqFiles :: [ReqFile]
+  , allFiles :: [File]
   }
 
 data ReqFile = ReqFile
-  { file :: File,
-    fileName :: FilePath
+  { file :: File
+  , fileName :: FilePath
   }
 
 data File = File
-  { fileNodes :: [(Name.UnQ, Node)],
-    fileId :: !Word64
+  { fileNodes :: [(Name.UnQ, Node)]
+  , fileId :: !Word64
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data Node = Node
-  { nodeCommon :: NodeCommon,
-    nodeUnion :: NodeUnion
+  { nodeCommon :: NodeCommon
+  , nodeUnion :: NodeUnion
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data NodeCommon = NodeCommon
-  { nodeNested :: [(Name.UnQ, Node)],
-    nodeParent :: Maybe Node,
-    nodeId :: !Word64,
-    nodeParams :: [Name.UnQ]
+  { nodeNested :: [(Name.UnQ, Node)]
+  , nodeParent :: Maybe Node
+  , nodeId :: !Word64
+  , nodeParams :: [Name.UnQ]
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data NodeUnion
   = NodeEnum [Name.UnQ]
@@ -65,33 +66,33 @@ data NodeUnion
   | NodeInterface Interface
   | NodeConstant (Common.Value Brand Node)
   | NodeOther
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data Interface = Interface
-  { methods :: [Method],
-    supers :: [Common.InterfaceType Brand Node]
+  { methods :: [Method]
+  , supers :: [Common.InterfaceType Brand Node]
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data Method = Method
-  { name :: Name.UnQ,
-    paramType :: Common.CompositeType Brand Node,
-    resultType :: Common.CompositeType Brand Node
+  { name :: Name.UnQ
+  , paramType :: Common.CompositeType Brand Node
+  , resultType :: Common.CompositeType Brand Node
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data Struct = Struct
-  { dataWordCount :: !Word16,
-    pointerCount :: !Word16,
-    isGroup :: !Bool,
-    tagOffset :: !Word32,
-    fields :: [Field]
+  { dataWordCount :: !Word16
+  , pointerCount :: !Word16
+  , isGroup :: !Bool
+  , tagOffset :: !Word32
+  , fields :: [Field]
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data Field = Field
-  { name :: Name.UnQ,
-    tag :: Maybe Word16,
-    locType :: Common.FieldLocType Brand Node
+  { name :: Name.UnQ
+  , tag :: Maybe Word16
+  , locType :: Common.FieldLocType Brand Node
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)

@@ -9,7 +9,7 @@ root-modules = ["^Capnp\\.Gen\\."]
 # Generated RPC and Persistent instances are selected by framework machinery.
 # Standard deriving/serialization instances describe the supported data APIs.
 root-instances = [
-  { module = '^src-generated/Capnp/Gen/' },
+  { module = '^(src-generated|gen/lib|gen/tests)/Capnp/Gen/' },
   { module = '^src/Corvus/Model\.hs$' },
   { class = '\.(Eq|Show|Read|Ord|Enum|Bounded|Generic|Exception|FromJSON|ToJSON|HumanJSON|IsString|IsList)$' },
 ]

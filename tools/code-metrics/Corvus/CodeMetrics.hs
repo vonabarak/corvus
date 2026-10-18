@@ -42,7 +42,7 @@ import GHC.Types.SrcLoc
   )
 import Language.Haskell.Extension (Extension (DisableExtension, EnableExtension, UnknownExtension))
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
-import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (</>))
+import System.FilePath (addTrailingPathSeparator, makeRelative, normalise, takeDirectory, takeExtension, (</>))
 import System.Process (readProcess)
 
 data ModuleMetric = ModuleMetric
@@ -122,7 +122,14 @@ limitViolations Report {reportModules, reportBindings} = moduleViolations <> bin
 
 loadComponentSettings :: FilePath -> IO (Either String [ComponentSettings])
 loadComponentSettings projectRoot = do
-  results <- mapM loadPackageSettings [projectRoot </> "corvus.cabal", projectRoot </> "tools/corvus-tools.cabal"]
+  results <-
+    mapM
+      (loadPackageSettings . (projectRoot </>))
+      [ "corvus.cabal"
+      , "tools/corvus-tools.cabal"
+      , "vendor/haskell-capnp/capnp/capnp.cabal"
+      , "vendor/lifetimes/lifetimes.cabal"
+      ]
   pure (concat <$> sequence results)
 
 loadPackageSettings :: FilePath -> IO (Either String [ComponentSettings])
@@ -153,7 +160,7 @@ extensionFlag = \case
   UnknownExtension extension -> "-X" <> extension
 
 authoredHaskellFiles :: FilePath -> IO [FilePath]
-authoredHaskellFiles projectRoot = concat <$> mapM (findHaskellFiles . (projectRoot </>)) ["src", "app", "tools/code-metrics", "tools/code-metrics-cli", "tools/coverage-check", "tools/coverage-check-cli"]
+authoredHaskellFiles projectRoot = concat <$> mapM (findHaskellFiles . (projectRoot </>)) ["src", "app", "tools/code-metrics", "tools/code-metrics-cli", "tools/coverage-check", "tools/coverage-check-cli", "vendor/haskell-capnp/capnp/lib", "vendor/haskell-capnp/capnp/cmd/capnpc-haskell", "vendor/lifetimes/src"]
 
 findHaskellFiles :: FilePath -> IO [FilePath]
 findHaskellFiles directory = do
@@ -175,7 +182,7 @@ settingsFor settings path = maximumBy compareRoots (filter matchesPath settings)
     matchesPath settings' = any (`isPathPrefixOf` normalizedPath) (componentRoots settings')
     compareRoots left right = compare (maximumRootLength left) (maximumRootLength right)
     maximumRootLength = maximum . map length . componentRoots
-    isPathPrefixOf root candidate = normalise root `isPrefixOf` candidate
+    isPathPrefixOf root candidate = addTrailingPathSeparator (normalise root) `isPrefixOf` candidate
 
 analyzeFile :: FilePath -> FilePath -> [FilePath] -> [String] -> FilePath -> IO (Either String (ModuleMetric, [BindingMetric]))
 analyzeFile projectRoot ghcLibDir includePaths flags path = do

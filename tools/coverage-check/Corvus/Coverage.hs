@@ -7,19 +7,20 @@ module Corvus.Coverage
   , cliCoverage
   , meetsBaseline
   , isAuthoredSource
+  , mergeTraces
   , loadCoverage
   , readBaseline
   ) where
 
-import Control.Monad (forM, unless, when)
+import Control.Monad (foldM, forM, unless, when)
 import Data.Aeson (eitherDecodeFileStrict', withObject, (.:))
 import Data.Aeson.Types (Parser, parseEither)
 import Data.List (isPrefixOf, sort)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Version (showVersion)
-import System.Directory (doesDirectoryExist, getModificationTime, listDirectory)
-import System.FilePath (isRelative, normalise, splitDirectories, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
+import System.Directory (doesDirectoryExist, getCurrentDirectory, getModificationTime, listDirectory)
+import System.FilePath (isRelative, makeRelative, normalise, splitDirectories, takeBaseName, takeExtension, takeFileName, (</>))
 import System.Info (compilerVersion)
 import Text.Read (readMaybe)
 import Trace.Hpc.Mix (BoxLabel (ExpBox), Mix (..))
@@ -70,9 +71,10 @@ isAuthoredSource :: FilePath -> Bool
 isAuthoredSource path =
   isRelative path
     && takeExtension path `elem` [".hs", ".lhs"]
-    && case splitDirectories (normalise path) of
-      "src" : rest -> not (null rest) && ".." `notElem` rest
-      _ -> False
+    && ".." `notElem` splitDirectories path
+    && any
+      (`isPrefixOf` normalise path)
+      ["src/", "vendor/haskell-capnp/capnp/lib/", "vendor/lifetimes/src/"]
 
 -- Missing trace modules are unexecuted, rather than absent from the denominator.
 calculateCoverage :: [FilePath] -> [(String, Mix)] -> Tix -> Either String (Coverage, Tix)
@@ -122,6 +124,9 @@ readBaseline path = do
                 && jobs == 1
             )
             $ fail "Coverage baseline configuration does not match the canonical quality build"
+          packages <- o .: "packages" :: Parser [String]
+          unless (sort packages == ["capnp", "corvus", "lifetimes"]) $
+            fail "Coverage baseline package scope does not match the quality build"
           baseline <- Coverage <$> o .: "covered_expressions" <*> o .: "total_expressions"
           unless (meetsBaseline baseline baseline) $ fail "Invalid coverage baseline counts"
           cliPercent <- o .: "cli_minimum_percent"
@@ -131,34 +136,57 @@ readBaseline path = do
       )
       value
 
-loadCoverage :: FilePath -> FilePath -> IO (Coverage, Tix, Coverage, [(String, Coverage)])
-loadCoverage mixDirectory tracePath = do
-  sources <- filter isAuthoredSource <$> filesUnder "src"
-  paths <- filter ((== ".mix") . takeExtension) <$> filesUnder mixDirectory
-  when (null paths) $ fail "No coverage metadata found"
-  traceTime <- getModificationTime tracePath
-  mixes <- forM paths $ \path -> do
-    mix <- readArtifact path
-    let Mix source _ _ _ _ = mix
-    whenAuthored source $ do
-      modified <- getModificationTime source
-      compiled <- getModificationTime path
-      -- Formatters can touch unchanged sources without GHC rebuilding them.
-      -- The fresh suite trace must postdate both source and compiled metadata;
-      -- Stack checks source contents before the canonical test run.
-      unless (traceTime >= compiled && traceTime >= modified) $
-        fail ("Stale coverage artifact: " ++ path)
-    pure (takeFileName (takeDirectory path) ++ "/" ++ takeBaseName path, mix)
-  Tix traces <- readArtifact tracePath
-  -- The suite trace also contains executable and test modules. Only this
-  -- library unit is in scope, including its generated modules for validation.
-  let unitPrefix = takeFileName mixDirectory ++ "/"
-      trace = Tix [t | t@(TixModule name _ _ _) <- traces, unitPrefix `isPrefixOf` name]
+-- Every suite can exercise multiple libraries. Validate each trace before
+-- summing, retaining package unit IDs so equal module names never collide.
+mergeTraces :: [Tix] -> Either String Tix
+mergeTraces traces = Tix . Map.elems <$> foldM addTrace Map.empty traces
+  where
+    addTrace accumulated (Tix modules) = do
+      unless (length modules == Set.size (Set.fromList [name | TixModule name _ _ _ <- modules])) $
+        Left "Duplicate coverage modules within a suite trace"
+      foldM addModule accumulated modules
+    addModule accumulated entry@(TixModule name hash count values) = do
+      unless (count == length values && all (>= 0) values) $
+        Left ("Malformed coverage trace: " ++ name)
+      case Map.lookup name accumulated of
+        Nothing -> pure (Map.insert name entry accumulated)
+        Just (TixModule _ previousHash previousCount previousValues) -> do
+          unless (hash == previousHash && count == previousCount) $
+            Left ("Incompatible suite coverage traces: " ++ name)
+          pure (Map.insert name (TixModule name hash count (zipWith (+) previousValues values)) accumulated)
+
+-- Package roots and metadata directories are paired explicitly because GHC
+-- records package-relative source filenames in vendored .mix files.
+loadCoverage :: [(FilePath, FilePath)] -> [FilePath] -> IO (Coverage, Tix, Coverage, [(String, Coverage)], [(String, Mix)])
+loadCoverage packages tracePaths = do
+  when (null packages || null tracePaths) $ fail "Missing coverage packages or suite traces"
+  traces <- mapM readArtifact tracePaths
+  traceTimes <- mapM getModificationTime tracePaths
+  sources <- concatMap (filter isAuthoredSource) <$> mapM (filesUnder . sourceRoot . fst) packages
+  mixes <- concat <$> mapM (loadPackage (minimum traceTimes)) packages
+  let units = Set.fromList [takeWhile (/= '/') name | (name, _) <- mixes]
+      libraryTrace (Tix modules) = Tix [entry | entry@(TixModule name _ _ _) <- modules, Set.member (takeWhile (/= '/') name) units]
+  trace <- either fail pure (mergeTraces (map libraryTrace traces))
   (actual, authoredTrace) <- either fail pure (calculateCoverage sources mixes trace)
   (clients, commands) <- either fail pure (cliCoverage authoredTrace mixes)
-  pure (actual, authoredTrace, clients, commands)
+  pure (actual, authoredTrace, clients, commands, mixes)
   where
-    whenAuthored source = when (isAuthoredSource source)
+    sourceRoot root = normalise (root </> if normalise root == "vendor/haskell-capnp/capnp" then "lib" else "src")
+    loadPackage traceTime (root, mixDirectory) = do
+      paths <- filter ((== ".mix") . takeExtension) <$> filesUnder mixDirectory
+      when (null paths) $ fail ("No coverage metadata found: " ++ mixDirectory)
+      current <- getCurrentDirectory
+      forM paths $ \path -> do
+        Mix source stamp hash tab entries <- readArtifact path
+        let resolved = normalise (if isRelative source then root </> source else makeRelative current source)
+        when (not (isRelative resolved) || ".." `elem` splitDirectories resolved) $
+          fail ("Coverage source escapes repository: " ++ source)
+        when (isAuthoredSource resolved) $ do
+          modified <- getModificationTime resolved
+          compiled <- getModificationTime path
+          unless (traceTime >= compiled && traceTime >= modified) $
+            fail ("Stale coverage artifact: " ++ path)
+        pure (takeFileName mixDirectory ++ "/" ++ takeBaseName path, Mix resolved stamp hash tab entries)
 
 readArtifact :: (Read a) => FilePath -> IO a
 readArtifact path = readFile path >>= maybe (fail ("Malformed coverage artifact: " ++ path)) pure . readMaybe

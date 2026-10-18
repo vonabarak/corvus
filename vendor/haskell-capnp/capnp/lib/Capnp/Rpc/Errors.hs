@@ -1,5 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+-- The Exception instance adapts the generated protocol exception to Haskell.
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module: Capnp.Rpc.Errors
@@ -10,14 +12,14 @@
 -- Cap'n Proto's 'Exception'.
 module Capnp.Rpc.Errors
   ( -- * Converting arbitrary exceptions to capnproto exceptions
-    wrapException,
+    wrapException
 
     -- * Helpers for constructing exceptions
-    eMethodUnimplemented,
-    eUnimplemented,
-    eDisconnected,
-    eFailed,
-    throwFailed,
+  , eMethodUnimplemented
+  , eUnimplemented
+  , eDisconnected
+  , eFailed
+  , throwFailed
   )
 where
 
@@ -31,18 +33,18 @@ import Data.Text (Text)
 -- | Construct an exception with a type field of failed and the
 -- given text as its reason.
 eFailed :: Text -> Parsed Exception
-eFailed reason =
+eFailed explanation =
   def
-    { type_ = Exception'Type'failed,
-      reason = reason
+    { type_ = Exception'Type'failed
+    , reason = explanation
     }
 
 -- | An exception with type = disconnected
 eDisconnected :: Parsed Exception
 eDisconnected =
   def
-    { type_ = Exception'Type'disconnected,
-      reason = "Disconnected"
+    { type_ = Exception'Type'disconnected
+    , reason = "Disconnected"
     }
 
 -- | An exception indicating an unimplemented method.
@@ -52,10 +54,10 @@ eMethodUnimplemented =
 
 -- | An @unimplemented@ exception with a custom reason message.
 eUnimplemented :: Text -> Parsed Exception
-eUnimplemented reason =
+eUnimplemented explanation =
   def
-    { type_ = Exception'Type'unimplemented,
-      reason = reason
+    { type_ = Exception'Type'unimplemented
+    , reason = explanation
     }
 
 instance E.Exception (Parsed Exception)
@@ -68,8 +70,8 @@ wrapException :: Bool -> E.SomeException -> Parsed Exception
 wrapException debugMode e =
   fromMaybe
     def
-      { type_ = Exception'Type'failed,
-        reason =
+      { type_ = Exception'Type'failed
+      , reason =
           if debugMode
             then "Unhandled exception: " <> fromString (show e)
             else "Unhandled exception"
@@ -78,5 +80,5 @@ wrapException debugMode e =
 
 -- | Throw an exception with a type field of 'Exception'Type'failed' and
 -- the argument as a reason.
-throwFailed :: E.MonadThrow m => Text -> m a
+throwFailed :: (E.MonadThrow m) => Text -> m a
 throwFailed = E.throwM . eFailed

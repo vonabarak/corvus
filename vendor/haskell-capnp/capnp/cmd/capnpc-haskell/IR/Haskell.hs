@@ -1,6 +1,10 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoFieldSelectors #-}
+-- Records are used only through constructor patterns; no partial selectors are generated.
+{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 -- A last-leg intermediate form, before emitting actually Haskell source code.
 --
@@ -14,22 +18,22 @@
 --    #32), and I(zenhack) don't see a good way to do that with the libraries
 --    I looked at.
 module IR.Haskell
-  ( modFilePath,
-    DataArgs (..),
-    DataDecl (..),
-    DataVariant (..),
-    ClassDecl (..),
-    Decl (..),
-    Do (..),
-    Exp (..),
-    Export (..),
-    Import (..),
-    InstanceDef (..),
-    Module (..),
-    Pattern (..),
-    Type (..),
-    TypeAlias (..),
-    ValueDef (..),
+  ( modFilePath
+  , DataArgs (..)
+  , DataDecl (..)
+  , DataVariant (..)
+  , ClassDecl (..)
+  , Decl (..)
+  , Do (..)
+  , Exp (..)
+  , Export (..)
+  , Import (..)
+  , InstanceDef (..)
+  , Module (..)
+  , Pattern (..)
+  , Type (..)
+  , TypeAlias (..)
+  , ValueDef (..)
   )
 where
 
@@ -41,19 +45,19 @@ import qualified IR.Name as Name
 
 -- | A Haskell module
 data Module = Module
-  { -- | The parts of the module path
-    modName :: [Name.UnQ],
-    -- | The language extensions enabled in this module.
-    modLangPragmas :: [T.Text],
-    -- | The export list. If it is 'Nothing' that means there is no export
-    -- list (and therefore everything is exported).
-    modExports :: Maybe [Export],
-    -- | The declarations in the module.
-    modDecls :: [Decl],
-    -- | Modules to import.
-    modImports :: [Import]
+  { modName :: [Name.UnQ]
+  -- ^ The parts of the module path
+  , modLangPragmas :: [T.Text]
+  -- ^ The language extensions enabled in this module.
+  , modExports :: Maybe [Export]
+  -- ^ The export list. If it is 'Nothing' that means there is no export
+  -- list (and therefore everything is exported).
+  , modDecls :: [Decl]
+  -- ^ The declarations in the module.
+  , modImports :: [Import]
+  -- ^ Modules to import.
   }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Export
   = ExportMod [Name.UnQ] -- module Foo.Bar
@@ -61,12 +65,12 @@ data Export
   | ExportLCtors Name.LocalQ -- Baz(..)
   | ExportGName Name.GlobalQ -- Foo.Bar.Baz
   | ExportLName Name.LocalQ -- Baz
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Import
   = ImportAs -- import qualified Foo.Bar as Bar
-      { importAs :: Name.UnQ,
-        parts :: [Name.UnQ]
+      { importAs :: Name.UnQ
+      , parts :: [Name.UnQ]
       }
   | ImportQual -- import qualified Foo.Bar
       { parts :: [Name.UnQ]
@@ -74,86 +78,86 @@ data Import
   | ImportAll -- import Foo.Bar
       { parts :: [Name.UnQ]
       }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 -- | A declaration.
 data Decl
   = DcData DataDecl
   | DcValue
-      { typ :: Type,
-        def :: ValueDef
+      { typ :: Type
+      , def :: ValueDef
       }
   | DcInstance
-      { ctx :: [Type],
-        typ :: Type,
-        defs :: [InstanceDef]
+      { ctx :: [Type]
+      , typ :: Type
+      , defs :: [InstanceDef]
       }
   | DcTypeInstance Type Type
   | DcDeriveInstance
-      { ctx :: [Type],
-        typ :: Type
+      { ctx :: [Type]
+      , typ :: Type
       }
   | DcClass
-      { ctx :: [Type],
-        name :: Name.LocalQ,
-        params :: [Name.UnQ],
-        funDeps :: [(T.Text, T.Text)],
-        decls :: [ClassDecl]
+      { ctx :: [Type]
+      , name :: Name.LocalQ
+      , params :: [Name.UnQ]
+      , funDeps :: [(T.Text, T.Text)]
+      , decls :: [ClassDecl]
       }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data DataDecl = Data
-  { -- | The name of the declared type.
-    dataName :: Name.UnQ,
-    typeArgs :: [Type],
-    -- | The variants/data constructors for the type.
-    dataVariants :: [DataVariant],
-    -- | A list of type classes to include in the deriving clause.
-    derives :: [Name.UnQ],
-    -- | Whether the declarationis a "newtype" or "data" declaration.
-    dataNewtype :: !Bool,
-    -- | If true, this is actually an instance of a data family, rather
-    -- than a stand-alone type.
-    dataInstance :: !Bool
+  { dataName :: Name.UnQ
+  -- ^ The name of the declared type.
+  , typeArgs :: [Type]
+  , dataVariants :: [DataVariant]
+  -- ^ The variants/data constructors for the type.
+  , derives :: [Name.UnQ]
+  -- ^ A list of type classes to include in the deriving clause.
+  , dataNewtype :: !Bool
+  -- ^ Whether the declarationis a "newtype" or "data" declaration.
+  , dataInstance :: !Bool
+  -- ^ If true, this is actually an instance of a data family, rather
+  -- than a stand-alone type.
   }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data ClassDecl
   = CdValueDecl Name.UnQ Type
   | CdValueDef ValueDef
   | -- | A MINIMAL pragma.
     CdMinimal [Name.UnQ]
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data InstanceDef
   = IdValue ValueDef
   | IdData DataDecl
   | IdType TypeAlias
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data TypeAlias = TypeAlias Name.UnQ [Type] Type
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data ValueDef = DfValue
-  { name :: Name.UnQ,
-    value :: Exp,
-    params :: [Pattern]
+  { name :: Name.UnQ
+  , value :: Exp
+  , params :: [Pattern]
   }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 -- | A data constructor
 data DataVariant = DataVariant
-  { -- | The name of the constructor.
-    dvCtorName :: Name.UnQ,
-    dvArgs :: DataArgs
+  { dvCtorName :: Name.UnQ
+  -- ^ The name of the constructor.
+  , dvArgs :: DataArgs
   }
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 -- | Arguments to a data constructor
 data DataArgs
   = APos [Type]
   | ARec [(Name.UnQ, Type)]
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Type
   = TGName Name.GlobalQ
@@ -166,7 +170,7 @@ data Type
   | TUnit
   | TKindAnnotated Type Type
   | TString T.Text -- type-level string literal
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Exp
   = EVar T.Text
@@ -188,12 +192,12 @@ data Exp
   | ELabel Name.UnQ
   | EList [Exp]
   | ETypeApp Exp [Type] -- TypeApplications; f @x @y @z
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Do
   = DoBind Name.UnQ Exp
   | DoE Exp
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 data Pattern
   = PVar T.Text
@@ -202,7 +206,7 @@ data Pattern
   | PInt Integer
   | -- | Name{..}
     PLRecordWildCard Name.LocalQ
-  deriving (Show, Read, Eq)
+  deriving stock (Show, Read, Eq)
 
 -- | Get the file path for a module. For example, the module @Foo.Bar.Baz@ will
 -- have a file path of @Foo/Bar/Baz.hs@.

@@ -4,10 +4,10 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Capnp.GenHelpers.Rpc
-  ( module Capnp.Rpc.Server,
-    module Capnp.Repr.Methods,
-    parseCap,
-    encodeCap,
+  ( module Capnp.Rpc.Server
+  , module Capnp.Repr.Methods
+  , parseCap
+  , encodeCap
   )
 where
 

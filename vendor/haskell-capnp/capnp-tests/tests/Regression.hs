@@ -27,8 +27,8 @@ regressionTests = describe "Regression tests" $ do
               { reason =
                   "Your vat sent an 'unimplemented' message for an abort "
                     <> "message that its remote peer never sent. This is likely "
-                    <> "a bug in your capnproto library.",
-                type_ = Exception'Type'failed
+                    <> "a bug in your capnproto library."
+              , type_ = Exception'Type'failed
               }
         )
   it "Should decode negative default values correctly (issue #55)" $ do

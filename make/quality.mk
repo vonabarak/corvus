@@ -7,6 +7,10 @@
 MYPY ?= .venv/bin/python -m mypy
 RUFF ?= .venv/bin/python -m ruff
 
+# Authored sources in maintained packages; generated bindings remain excluded.
+HASKELL_SOURCE_DIRS := src app test tools vendor/haskell-capnp/capnp/lib vendor/haskell-capnp/capnp/cmd vendor/haskell-capnp/capnp-tests/tests vendor/lifetimes/src vendor/lifetimes/tests
+HASKELL_SOURCES = $(shell find $(HASKELL_SOURCE_DIRS) \( -name '*.hs' -o -name '*.hs-boot' \) -not -path '*/.stack-work/*' -not -path '*/.stack-work-quality/*') vendor/haskell-capnp/capnp-examples/lib/Examples/Rpc/CalculatorClient.hs vendor/haskell-capnp/capnp-examples/lib/Examples/Rpc/CalculatorServer.hs
+
 # Build the pinned Haskell formatter and linter in the tools project.
 haskell-format-tools:
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml build hlint fourmolu
@@ -19,7 +23,7 @@ haskell-format-tools:
 format: haskell-format-tools
 	$(RUFF) format python integration_tests
 	$(RUFF) check --fix python integration_tests
-	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode inplace $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode inplace $(HASKELL_SOURCES)
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-format ; \
 	fi
@@ -31,8 +35,8 @@ format: haskell-format-tools
 # Frontend lint piggybacks on `frontend/node_modules/` being present;
 # CI runs `make web-build` (which `npm ci`s) before `make check`.
 check: haskell-format-tools
-	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- hlint $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
-	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode check $(shell find src app test tools -name '*.hs' -not -path '*/.stack-work/*')
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- hlint --hint=.hlint.yaml $(HASKELL_SOURCES)
+	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode check $(HASKELL_SOURCES)
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MAKE) typecheck-core

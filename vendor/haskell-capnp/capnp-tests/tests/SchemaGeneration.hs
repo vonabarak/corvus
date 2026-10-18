@@ -1,11 +1,13 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module SchemaGeneration
-  ( Schema (..),
-    genSchema,
+  ( Schema (..)
+  , genSchema
   )
 where
 
+import Control.Monad (replicateM)
 import Control.Monad.State.Strict
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
@@ -44,7 +46,7 @@ data BuiltIn
   | Float64
   | Text
   | Data
-  deriving (Show, Enum)
+  deriving stock (Show, Enum)
 
 data FieldType
   = BasicType BuiltIn
@@ -59,34 +61,34 @@ instance Show FieldType where
 instance Show Field where
   show (FieldDef name order entryType) =
     concat
-      [ show name,
-        " @",
-        show order,
-        " :",
-        show entryType,
-        ";\n"
+      [ show name
+      , " @"
+      , show order
+      , " :"
+      , show entryType
+      , ";\n"
       ]
   show (StructDef name content) =
     concat
-      [ "struct ",
-        show name,
-        " {\n",
-        concatMap (('\t' :) . show) content,
-        "}\n\n"
+      [ "struct "
+      , show name
+      , " {\n"
+      , concatMap (('\t' :) . show) content
+      , "}\n\n"
       ]
 
 data Schema = Schema
-  { schemaId :: String,
-    schemaContent :: [Field]
+  { schemaId :: String
+  , schemaContent :: [Field]
   }
 
 instance Show Schema where
   show s =
     concat
-      [ "@0x",
-        schemaId s,
-        ";\n\n",
-        concatMap show (schemaContent s)
+      [ "@0x"
+      , schemaId s
+      , ";\n\n"
+      , concatMap show (schemaContent s)
       ]
 
 -- Helper generators
@@ -102,7 +104,7 @@ genSafeHexChar = QC.elements (['0' .. '9'] ++ ['a' .. 'f'])
 
 newtype FieldGen a
   = FieldGen (StateT (NonEmpty (Int, Int)) QC.Gen a)
-  deriving (Functor, Applicative, Monad)
+  deriving newtype (Functor, Applicative, Monad)
 
 liftGen :: QC.Gen a -> FieldGen a
 liftGen m = FieldGen (lift m)
@@ -172,7 +174,7 @@ genStructDef depth = do
   structDefs <- replicateM structNum (genStructDef (depth - 1))
 
   -- extract the available struct types
-  let structTypes = map (\(StructDef sn _) -> StructType sn) structDefs
+  let structTypes = [StructType sn | StructDef sn _ <- structDefs]
 
   -- generate the fields using available struct types
   fieldNum <- liftGen (QC.sized (\n -> QC.choose (1, 1 `max` n)))

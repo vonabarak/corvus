@@ -3,7 +3,7 @@
 -- | Module: Capnp.Rpc.Revoke
 -- Description: support for revocable capababilities
 module Capnp.Rpc.Revoke
-  ( makeRevocable,
+  ( makeRevocable
   )
 where
 

@@ -9,24 +9,24 @@
 module Examples.Rpc.CalculatorServer (main) where
 
 import Capnp
-  ( Client,
-    Pipeline,
-    SomeServer,
-    callP,
-    def,
-    defaultLimit,
-    export,
-    getField,
-    handleParsed,
-    waitPipeline,
+  ( Client
+  , Pipeline
+  , SomeServer
+  , callP
+  , def
+  , defaultLimit
+  , export
+  , getField
+  , handleParsed
+  , waitPipeline
   )
 import Capnp.Gen.Calculator
 import Capnp.Rpc
-  ( ConnConfig (..),
-    handleConn,
-    socketTransport,
-    throwFailed,
-    toClient,
+  ( ConnConfig (..)
+  , handleConn
+  , socketTransport
+  , throwFailed
+  , toClient
   )
 import Control.Concurrent.STM (atomically)
 import Control.Monad (when)
@@ -58,8 +58,8 @@ instance Function'server_ OpFunc where
         throwFailed "Wrong number of parameters."
 
 data ExprFunc = ExprFunc
-  { paramCount :: !Int32,
-    body :: Parsed Expression
+  { paramCount :: !Int32
+  , body :: Parsed Expression
   }
 
 instance SomeServer ExprFunc
@@ -74,11 +74,11 @@ instance Function'server_ ExprFunc where
         <&> Function'call'results
 
 data MyCalc = MyCalc
-  { add :: Client Function,
-    subtract :: Client Function,
-    multiply :: Client Function,
-    divide :: Client Function,
-    sup :: Supervisor
+  { add :: Client Function
+  , subtract :: Client Function
+  , multiply :: Client Function
+  , divide :: Client Function
+  , sup :: Supervisor
   }
 
 instance SomeServer MyCalc
@@ -125,7 +125,7 @@ waitResult (CallResult p) = getField #value <$> waitPipeline p
 waitResult (ReadResult p) = getField #value <$> waitPipeline p
 
 eval :: [Double] -> Parsed Expression -> IO EvalResult
-eval outerParams (Expression exp) = go outerParams exp
+eval outerParams (Expression expression) = go outerParams expression
   where
     go _ (Expression'literal lit) =
       pure $ Immediate lit
@@ -138,8 +138,8 @@ eval outerParams (Expression exp) = go outerParams exp
           throwFailed "Parameter index out of bounds"
       | otherwise =
           pure $ Immediate $ args !! fromIntegral idx
-    go outerParams (Expression'call Expression'call' {function, params = innerParams}) = do
-      argPipelines <- traverse (eval outerParams) innerParams
+    go callParams (Expression'call Expression'call' {function, params = innerParams}) = do
+      argPipelines <- traverse (eval callParams) innerParams
       argValues <- traverse waitResult argPipelines
       function
         & callP #call Function'call'params {params = argValues}
@@ -154,6 +154,6 @@ main = withSupervisor $ \sup -> do
     handleConn
       (socketTransport sock defaultLimit)
       def
-        { debugMode = True,
-          bootstrap = Just (toClient boot)
+        { debugMode = True
+        , bootstrap = Just (toClient boot)
         }

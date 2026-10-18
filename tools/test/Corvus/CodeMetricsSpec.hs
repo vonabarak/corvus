@@ -16,6 +16,8 @@ spec = do
         Right Report {reportModules, reportBindings} -> do
           let paths = map modulePath reportModules
           paths `shouldContain` ["src/Corvus/Database.hs"]
+          mapM_ (\path -> paths `shouldContain` [path]) ["vendor/lifetimes/src/Lifetimes.hs", "vendor/haskell-capnp/capnp/lib/Capnp/Message.hs", "vendor/haskell-capnp/capnp/cmd/capnpc-haskell/Main.hs"]
+          mapM_ (\path -> paths `shouldNotContain` [path]) ["vendor/haskell-capnp/capnp-tests/tests/Main.hs", "vendor/haskell-capnp/capnp/gen/lib/Capnp/Gen/Capnp/Schema.hs"]
           paths `shouldContain` ["tools/code-metrics/Corvus/CodeMetrics.hs"]
           paths `shouldNotContain` ["test/Spec.hs"]
           paths `shouldNotContain` ["tools/test/Spec.hs"]

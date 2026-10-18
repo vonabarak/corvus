@@ -8,6 +8,7 @@ import Capnp.Convert (bsToParsed)
 import Capnp.Errors (Error)
 import qualified Capnp.Gen.Capnp.Schema as Schema
 import Capnp.TraversalLimit (defaultLimit, evalLimitT)
+
 -- Testing framework imports
 
 -- Schema generation imports

@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- |
@@ -10,26 +11,26 @@
 -- This is mostly an implementation detail; users are unlikely to need
 -- to use this module directly.
 module Capnp.Bits
-  ( BitCount (..),
-    ByteCount (..),
-    WordCount (..),
-    Word1 (..),
-    bitsToBytesCeil,
-    bytesToWordsCeil,
-    bytesToWordsFloor,
-    wordsToBytes,
-    lo,
-    hi,
-    i32,
-    i30,
-    i29,
-    fromLo,
-    fromHi,
-    fromI32,
-    fromI30,
-    fromI29,
-    bitRange,
-    replaceBits,
+  ( BitCount (..)
+  , ByteCount (..)
+  , WordCount (..)
+  , Word1 (..)
+  , bitsToBytesCeil
+  , bytesToWordsCeil
+  , bytesToWordsFloor
+  , wordsToBytes
+  , lo
+  , hi
+  , i32
+  , i30
+  , i29
+  , fromLo
+  , fromHi
+  , fromI32
+  , fromI30
+  , fromI29
+  , bitRange
+  , replaceBits
   )
 where
 
@@ -40,15 +41,18 @@ import Data.Word
 -- | Wrapper type for a quantity of bits. This along with 'ByteCount' and
 -- 'WordCount' are helpful for avoiding mixing up units
 newtype BitCount = BitCount Int
-  deriving (Num, Real, Integral, Bits, Ord, Eq, Enum, Show, Bounded)
+  deriving stock (Ord, Eq, Show, Bounded)
+  deriving newtype (Enum, Num, Real, Integral)
 
 -- | A quantity of bytes
 newtype ByteCount = ByteCount Int
-  deriving (Num, Real, Integral, Bits, Ord, Eq, Enum, Show, Bounded)
+  deriving stock (Ord, Eq, Show, Bounded)
+  deriving newtype (Enum, Num, Real, Integral)
 
 -- | A quantity of 64-bit words
 newtype WordCount = WordCount Int
-  deriving (Num, Real, Integral, Bits, Ord, Eq, Enum, Show, Bounded)
+  deriving stock (Ord, Eq, Show, Bounded)
+  deriving newtype (Enum, Num, Real, Integral, Bits)
 
 -- | Convert bits to bytes. Rounds up.
 bitsToBytesCeil :: BitCount -> ByteCount
@@ -103,28 +107,29 @@ fromI29 w = fromI32 (w `shiftL` 3)
 
 -- | @bitRange word lo hi@ is the unsigned integer represented by the
 -- bits of @word@ in the range [lo, hi)
-bitRange :: (Integral a => Word64 -> Int -> Int -> a)
-bitRange word lo hi =
+bitRange :: ((Integral a) => Word64 -> Int -> Int -> a)
+bitRange word lower upper =
   fromIntegral $
-    (word .&. ((1 `shiftL` hi) - 1)) `shiftR` lo
+    (word .&. ((1 `shiftL` upper) - 1)) `shiftR` lower
 
 -- | @replaceBits new orig shift@ replaces the bits [shift, shift+N) in
 -- @orig@ with the N bit integer @new@.
-replaceBits ::
-  (Bounded a, Integral a) =>
-  a ->
-  Word64 ->
-  Int ->
-  Word64
-replaceBits new orig shift =
-  (orig .&. mask) .|. (fromIntegral new `shiftL` shift)
+replaceBits
+  :: (Bounded a, Integral a)
+  => a
+  -> Word64
+  -> Int
+  -> Word64
+replaceBits new orig offset =
+  (orig .&. mask) .|. (fromIntegral new `shiftL` offset)
   where
-    mask = complement $ fromIntegral (maxBound `asTypeOf` new) `shiftL` shift
+    mask = complement $ fromIntegral (maxBound `asTypeOf` new) `shiftL` offset
 {-# INLINE replaceBits #-}
 
 -- | 1 bit datatype, in the tradition of Word8, Word16 et al.
 newtype Word1 = Word1 {word1ToBool :: Bool}
-  deriving (Ord, Eq, Enum, Bounded, Bits, FiniteBits)
+  deriving stock (Ord, Eq, Bounded)
+  deriving newtype (Enum, Bits, FiniteBits)
 
 instance Num Word1 where
   (+) = w1ThruEnum (+)

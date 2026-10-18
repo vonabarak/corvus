@@ -4,6 +4,7 @@
 .qwen/
 .idea/
 .stack-work/
+.stack-work-quality/
 *.tix
 dist-newstyle/
 dist/

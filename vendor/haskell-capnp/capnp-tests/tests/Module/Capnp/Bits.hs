@@ -1,10 +1,10 @@
 module Module.Capnp.Bits (bitsTests) where
 
 import Capnp.Bits
-import Data.Bits
+import Data.Bits hiding (bit, shift)
 import Data.Foldable (traverse_)
 import Data.Word
-import Test.Hspec
+import Test.Hspec hiding (after, before)
 
 bitsTests :: Spec
 bitsTests = do
@@ -20,30 +20,30 @@ bitRangeExamples = do
       (0x0000000200000000, 32, 48, 2)
   where
     bitRangeTest :: (Word64, Int, Int, Word64) -> IO ()
-    bitRangeTest (word, lo, hi, expected) =
-      bitRange word lo hi `shouldBe` expected
+    bitRangeTest (word, lowBit, highBit, expected) =
+      bitRange word lowBit highBit `shouldBe` expected
     ones = map (\bit -> (1 `shiftL` bit, bit, bit + 1, 1)) [0 .. 63]
 
 replaceBitsExamples :: Spec
 replaceBitsExamples =
   it "Should work with several examples" $
     sequence_
-      [ replaceTest (0xf :: Word8) 0 0 0xf,
-        replaceTest (0x1 :: Word8) 0xf 0 0x1,
-        replaceTest (0x2 :: Word8) 0x1 0 0x2,
-        replaceTest (0x1 :: Word8) 0xf 0 0x1,
-        replaceTest (0x2 :: Word8) 0x10 4 0x20,
-        replaceTest (0x1 :: Word8) 0x10 8 0x0110,
-        replaceTest (0xa :: Word8) 0xffff 8 0x0aff,
-        replaceTest (0x0 :: Word1) 0xff 4 0xef
+      [ replaceTest (0xf :: Word8) 0 0 0xf
+      , replaceTest (0x1 :: Word8) 0xf 0 0x1
+      , replaceTest (0x2 :: Word8) 0x1 0 0x2
+      , replaceTest (0x1 :: Word8) 0xf 0 0x1
+      , replaceTest (0x2 :: Word8) 0x10 4 0x20
+      , replaceTest (0x1 :: Word8) 0x10 8 0x0110
+      , replaceTest (0xa :: Word8) 0xffff 8 0x0aff
+      , replaceTest (0x0 :: Word1) 0xff 4 0xef
       ]
   where
-    replaceTest ::
-      (Bounded a, Integral a, Show a) =>
-      a ->
-      Word64 ->
-      Int ->
-      Word64 ->
-      Expectation
+    replaceTest
+      :: (Bounded a, Integral a)
+      => a
+      -> Word64
+      -> Int
+      -> Word64
+      -> Expectation
     replaceTest new orig shift expected =
       replaceBits new orig shift `shouldBe` expected

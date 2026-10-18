@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -19,23 +18,18 @@
 --
 -- Note that not all conversions exist or necessarily make sense.
 module Capnp.Convert
-  ( msgToBuilder,
-    msgToLBS,
-    msgToBS,
-    bsToMsg,
-    lbsToMsg,
-    -- new API
-    msgToRaw,
-    msgToParsed,
-    bsToRaw,
-    bsToParsed,
-    lbsToRaw,
-    lbsToParsed,
-    parsedToRaw,
-    parsedToMsg,
-    parsedToBuilder,
-    parsedToBS,
-    parsedToLBS,
+  ( msgToBuilder
+  , msgToLBS
+  , bsToMsg
+  , lbsToMsg
+  -- new API
+  , msgToRaw
+  , msgToParsed
+  , bsToRaw
+  , bsToParsed
+  , parsedToRaw
+  , parsedToMsg
+  , parsedToBuilder
   )
 where
 
@@ -81,17 +75,12 @@ msgToBuilder = M.encode
 msgToLBS :: M.Message 'Const -> LBS.ByteString
 msgToLBS = BB.toLazyByteString . msgToBuilder
 
--- | Convert an immutable message to a strict 'BS.ByteString'.
--- To convert a mutable message, 'freeze' it first.
-msgToBS :: M.Message 'Const -> BS.ByteString
-msgToBS = LBS.toStrict . msgToLBS
-
 -- | Convert a strict 'BS.ByteString' to a message.
-bsToMsg :: MonadThrow m => BS.ByteString -> m (M.Message 'Const)
+bsToMsg :: (MonadThrow m) => BS.ByteString -> m (M.Message 'Const)
 bsToMsg = M.decode
 
 -- | Convert a lazy 'LBS.ByteString' to a message.
-lbsToMsg :: MonadThrow m => LBS.ByteString -> m (M.Message 'Const)
+lbsToMsg :: (MonadThrow m) => LBS.ByteString -> m (M.Message 'Const)
 lbsToMsg = bsToMsg . LBS.toStrict
 
 -- | Get the root pointer of a message, wrapped as a 'R.Raw'.
@@ -109,14 +98,6 @@ bsToRaw bs = bsToMsg bs >>= msgToRaw
 -- | Like 'msgToParsed', but takes a (strict) bytestring.
 bsToParsed :: forall a pa m. (U.ReadCtx m 'Const, R.IsStruct a, Parse a pa) => BS.ByteString -> m pa
 bsToParsed bs = bsToRaw bs >>= parse
-
--- | Like 'msgToRaw', but takes a (lazy) bytestring.
-lbsToRaw :: forall a m. (U.ReadCtx m 'Const, R.IsStruct a) => LBS.ByteString -> m (R.Raw a 'Const)
-lbsToRaw = bsToRaw . LBS.toStrict
-
--- | Like 'msgToParsed', but takes a (lazzy) bytestring.
-lbsToParsed :: forall a pa m. (U.ReadCtx m 'Const, R.IsStruct a, Parse a pa) => LBS.ByteString -> m pa
-lbsToParsed = bsToParsed . LBS.toStrict
 
 -- | Serialize the parsed form of a struct into its 'R.Raw' form, and make it the root
 -- of its message.
@@ -137,11 +118,3 @@ parsedToMsg p = do
 -- | Serialize the parsed form of a struct and return it as a 'BB.Builder'
 parsedToBuilder :: forall a m pa s. (U.RWCtx m s, R.IsStruct a, Parse a pa) => pa -> m BB.Builder
 parsedToBuilder p = msgToBuilder <$> (parsedToMsg p >>= freeze)
-
--- | Serialize the parsed form of a struct and return it as a lazy 'LBS.ByteString'
-parsedToLBS :: forall a m pa s. (U.RWCtx m s, R.IsStruct a, Parse a pa) => pa -> m LBS.ByteString
-parsedToLBS = fmap BB.toLazyByteString . parsedToBuilder
-
--- | Serialize the parsed form of a struct and return it as a strict 'BS.ByteString'
-parsedToBS :: forall a m pa s. (U.RWCtx m s, R.IsStruct a, Parse a pa) => pa -> m BS.ByteString
-parsedToBS = fmap LBS.toStrict . parsedToLBS

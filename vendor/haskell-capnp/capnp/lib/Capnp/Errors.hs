@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -5,7 +6,7 @@
 -- Module: Capnp.Errors
 -- Description: Error handling utilities
 module Capnp.Errors
-  ( Error (..),
+  ( Error (..)
   )
 where
 
@@ -15,16 +16,8 @@ import Data.Text.Encoding.Error (UnicodeException)
 -- | An error that may occur when processing a capnproto message.
 data Error
   = -- | A 'BoundsError' indicates an attempt to access an illegal
-    -- index 'index' within a sequence of length 'maxIndex'.
-    BoundsError
-      { index :: !Int,
-        maxIndex :: !Int
-        -- TODO: choose a better name than maxIndex; this is confusing
-        -- since it's supposed to be the length, rather than the maximum
-        -- legal index. The latter would make it impossible to represent
-        -- an error for an empty sequence. I(zenhack) also think there may
-        -- be places in the library where we are misusing this field.
-      }
+    -- index within a sequence of the given length.
+    BoundsError !Int !Int
   | -- | A 'RecursionLimitError' indicates that the recursion depth limit
     -- was exceeded.
     RecursionLimitError
@@ -49,6 +42,6 @@ data Error
     -- Note well: Most parts of the library don't actually check for valid
     -- utf8 -- don't assume the check is made unless an interface says it is.
     InvalidUtf8Error UnicodeException
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 instance Exception Error

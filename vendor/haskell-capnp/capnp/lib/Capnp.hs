@@ -1,57 +1,53 @@
 -- | Module: Capnp
 -- Description: Re-export commonly used things from elsewhere in the library.
 module Capnp
-  ( module X,
-    Parsed,
+  ( module X
+  , Parsed
 
     -- * Working with raw values
-    R.Raw (..),
+  , R.Raw (..)
 
     -- ** Working with raw lists
-    R.List,
-    R.index,
-    R.setIndex,
-    R.length,
+  , R.List
+  , R.index
+  , R.setIndex
+  , R.length
 
     -- * Working with fields
-    F.Field,
-    F.FieldKind,
-    F.HasField (..),
-    F.HasUnion (..),
-    F.HasVariant (..),
+  , F.Field
+  , F.FieldKind
+  , F.HasField (..)
+  , F.HasUnion (..)
+  , F.HasVariant (..)
 
     -- * Working with messages
-    Message.Message,
-    Message.Segment,
-    Message.Mutability (..),
-    Message.MonadReadMessage (..),
-    Message.newMessage,
-    Message.fromByteString,
-    Message.toByteString,
+  , Message.Message
+  , Message.Segment
+  , Message.Mutability (..)
+  , Message.MonadReadMessage (..)
+  , Message.newMessage
+  , Message.fromByteString
+  , Message.toByteString
 
     -- * Building messages in pure code
-    PureBuilder,
-    createPure,
-
-    -- * Canonicalizing messages
-    canonicalize,
+  , PureBuilder
+  , createPure
 
     -- * Implementing RPC servers
-    MethodHandler,
-    SomeServer (..),
-    Export (Server),
-    export,
-    handleParsed,
-    handleRaw,
-    methodUnimplemented,
+  , MethodHandler
+  , SomeServer (..)
+  , Export (Server)
+  , export
+  , handleParsed
+  , methodUnimplemented
 
     -- * Shorthands for types
-    R.IsStruct,
-    R.IsCap,
-    R.IsPtr,
+  , R.IsStruct
+  , R.IsCap
+  , R.IsPtr
 
     -- * Re-exported from "Data.Default", for convienence.
-    def,
+  , def
   )
 where
 
@@ -60,7 +56,6 @@ where
 
 import Capnp.Accessors as X
 import Capnp.Basics as X hiding (Parsed)
-import Capnp.Canonicalize (canonicalize)
 import Capnp.Classes as X hiding (Parsed)
 import Capnp.Constraints as X
 import Capnp.Convert as X

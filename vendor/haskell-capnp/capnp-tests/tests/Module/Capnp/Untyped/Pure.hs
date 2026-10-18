@@ -44,13 +44,13 @@ pureUntypedTests =
                   [ Just $
                       PtrStruct $
                         Struct
-                          [ 7,
-                            1,
-                            5173,
-                            castDoubleToWord64 12.0
+                          [ 7
+                          , 1
+                          , 5173
+                          , castDoubleToWord64 12.0
                           ]
-                          [ Just $ PtrList $ List8 $ map (fromIntegral . fromEnum) "bob\0",
-                            Just $ PtrList $ List16 []
+                          [ Just $ PtrList $ List8 $ map (fromIntegral . fromEnum) "bob\0"
+                          , Just $ PtrList $ List16 []
                           ]
                   ]
           ]

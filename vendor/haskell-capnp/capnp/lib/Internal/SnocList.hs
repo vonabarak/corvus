@@ -1,11 +1,12 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Internal.SnocList
-  ( SnocList,
-    fromList,
-    empty,
-    snoc,
-    singleton,
+  ( SnocList
+  , fromList
+  , empty
+  , snoc
+  , singleton
   )
 where
 
@@ -20,7 +21,8 @@ import Data.Hashable (Hashable)
 -- the list, and then reverse the list before processing. A SnocList
 -- just packages up this trick so you can't forget to do the reverse.
 newtype SnocList a = SnocList [a]
-  deriving (Eq, Hashable)
+  deriving stock (Eq)
+  deriving newtype (Hashable)
 
 -- | Convert a list to a 'SnocList'. O(n)
 fromList :: [a] -> SnocList a

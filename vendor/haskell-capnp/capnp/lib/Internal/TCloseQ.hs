@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -8,12 +9,12 @@
 -- This module provides a thin layer over 'TQueue', which affords "closing"
 -- queues. Reading from a closed queue returns 'Nothing'.
 module Internal.TCloseQ
-  ( Q,
-    ErrClosed (..),
-    new,
-    read,
-    write,
-    close,
+  ( Q
+  , ErrClosed (..)
+  , new
+  , read
+  , write
+  , close
   )
 where
 
@@ -25,13 +26,13 @@ import Prelude hiding (read)
 
 -- | A Queue with a close operation, with element type @a@.
 data Q a = Q
-  { q :: TQueue (Maybe a),
-    isClosed :: TVar Bool
+  { q :: TQueue (Maybe a)
+  , isClosed :: TVar Bool
   }
 
 -- | An exception which is thrown if a caller tries to write to a closed queue.
 data ErrClosed = ErrClosed
-  deriving (Show)
+  deriving stock (Show)
 
 instance Exception ErrClosed
 

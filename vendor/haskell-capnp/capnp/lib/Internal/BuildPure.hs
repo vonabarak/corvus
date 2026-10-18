@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -10,8 +11,8 @@
 -- This module provides some helpers for building capnproto messages and values
 -- in pure code, using the low-level API.
 module Internal.BuildPure
-  ( PureBuilder,
-    createPure,
+  ( PureBuilder
+  , createPure
   )
 where
 
@@ -27,7 +28,7 @@ import Internal.STE
 -- manipulate mutable messages. @'PureBuilder' s a@ is morally equivalent
 -- to @'LimitT' ('CatchT' ('ST' s)) a@
 newtype PureBuilder s a = PureBuilder (LimitT (STE SomeException s) a)
-  deriving (Functor, Applicative, Monad, MonadThrow, MonadLimit)
+  deriving newtype (MonadLimit, Functor, Applicative, Monad, MonadThrow)
 
 instance PrimMonad (PureBuilder s) where
   type PrimState (PureBuilder s) = s

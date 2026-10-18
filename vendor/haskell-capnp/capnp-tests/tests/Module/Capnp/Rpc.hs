@@ -8,31 +8,29 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wno-error=missing-methods #-}
 
 module Module.Capnp.Rpc (rpcTests) where
 
 import Capnp
-  ( Client,
-    IsCap,
-    Parse (..),
-    Pipeline,
-    SomeServer,
-    TypeParam,
-    Which,
-    callP,
-    callR,
-    createPure,
-    def,
-    defaultLimit,
-    evalLimitT,
-    export,
-    handleParsed,
-    lbsToMsg,
-    msgToParsed,
-    parsedToMsg,
-    pipe,
-    waitPipeline,
+  ( Client
+  , Parse (..)
+  , Pipeline
+  , SomeServer
+  , Which
+  , callP
+  , callR
+  , createPure
+  , def
+  , defaultLimit
+  , evalLimitT
+  , export
+  , handleParsed
+  , lbsToMsg
+  , methodUnimplemented
+  , msgToParsed
+  , parsedToMsg
+  , pipe
+  , waitPipeline
   )
 import Capnp.Bits (WordCount)
 import Capnp.Gen.Aircraft hiding (Left, Right)
@@ -54,7 +52,6 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Builder as BB
 import Data.Foldable (for_)
 import Data.Function ((&))
-import Data.Functor ((<&>))
 import qualified Data.Text as T
 import Data.Traversable (for)
 import Data.Word
@@ -81,8 +78,8 @@ echoTests =
         (\sup -> export @E.Echo sup TestEchoServer)
         ( \_sup echoSrv -> do
             let msgs =
-                  [ def {E.query = "Hello #1"},
-                    def {E.query = "Hello #2"}
+                  [ def {E.query = "Hello #1"}
+                  , def {E.query = "Hello #2"}
                   ]
             rets <- for msgs $ \arg ->
               echoSrv
@@ -91,8 +88,8 @@ echoTests =
                 >>= evalLimitT defaultLimit . parse
             liftIO $
               rets
-                `shouldBe` [ def {E.reply = "Hello #1"},
-                             def {E.reply = "Hello #2"}
+                `shouldBe` [ def {E.reply = "Hello #1"}
+                           , def {E.reply = "Hello #2"}
                            ]
         )
 
@@ -135,12 +132,12 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           for firsts $
             waitPipeline >=> evalLimitT defaultLimit . parse
         firstsResolved
-          `shouldBe` [ def {n = 1},
-                       def {n = 2}
+          `shouldBe` [ def {n = 1}
+                     , def {n = 2}
                      ]
         nexts
-          `shouldBe` [ def {n = 3},
-                       def {n = 4}
+          `shouldBe` [ def {n = 3}
+                     , def {n = 4}
                      ]
   it "Should propogate server-side exceptions to client method calls" $
     runVatPair
@@ -149,8 +146,8 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           expectException
             (callR #getNumber def)
             def
-              { type_ = Exception'Type'failed,
-                reason = "Something went sideways."
+              { type_ = Exception'Type'failed
+              , reason = "Something went sideways."
               }
       )
   it "Should receive unimplemented when calling a method on a null cap." $
@@ -160,8 +157,8 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           expectException
             (callR #getNumber def)
             def
-              { type_ = Exception'Type'unimplemented,
-                reason = "Method unimplemented"
+              { type_ = Exception'Type'unimplemented
+              , reason = "Method unimplemented"
               }
       )
   it "Should throw an unimplemented exception if the server doesn't implement a method" $
@@ -171,8 +168,8 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           expectException
             (callR #getNumber def)
             def
-              { type_ = Exception'Type'unimplemented,
-                reason = "Method unimplemented"
+              { type_ = Exception'Type'unimplemented
+              , reason = "Method unimplemented"
               }
       )
   it "Should throw an opaque exception when the server throws a non-rpc exception" $
@@ -182,8 +179,8 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           expectException
             (callR #getNumber def)
             def
-              { type_ = Exception'Type'failed,
-                reason = "Unhandled exception"
+              { type_ = Exception'Type'failed
+              , reason = "Unhandled exception"
               }
       )
   it "A counter should maintain state" $
@@ -193,10 +190,10 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           results <- bumpN ctr 4
           liftIO $
             results
-              `shouldBe` [ def {n = 1},
-                           def {n = 2},
-                           def {n = 3},
-                           def {n = 4}
+              `shouldBe` [ def {n = 1}
+                         , def {n = 2}
+                         , def {n = 3}
+                         , def {n = 4}
                          ]
       )
   it "Methods returning interfaces work" $
@@ -217,17 +214,17 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           r1 <- bumpN ctrA 4
           liftIO $
             r1
-              `shouldBe` [ def {n = 3},
-                           def {n = 4},
-                           def {n = 5},
-                           def {n = 6}
+              `shouldBe` [ def {n = 3}
+                         , def {n = 4}
+                         , def {n = 5}
+                         , def {n = 6}
                          ]
 
           r2 <- bumpN ctrB 2
           liftIO $
             r2
-              `shouldBe` [ def {n = 1},
-                           def {n = 2}
+              `shouldBe` [ def {n = 1}
+                         , def {n = 2}
                          ]
 
           ctrC <- newCounter 30
@@ -235,9 +232,9 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
           r3 <- bumpN ctrA 3
           liftIO $
             r3
-              `shouldBe` [ def {n = 7},
-                           def {n = 8},
-                           def {n = 9}
+              `shouldBe` [ def {n = 7}
+                         , def {n = 8}
+                         , def {n = 9}
                          ]
 
           r4 <- bumpN ctrC 1
@@ -261,7 +258,7 @@ aircraftTests = describe "aircraft.capnp rpc tests" $ do
               [ctrA, ctrB, ctrC]
           liftIO $ r `shouldBe` [7, 5, 35]
       )
-  describe "revokers" $ revokerTests
+  describe "revokers" revokerTests
 
 -- | Tests for revokers.
 revokerTests :: Spec
@@ -271,10 +268,9 @@ revokerTests = do
       factory <- export @CounterFactory sup (TestCtrFactory sup)
       (mfactory, _revoke) <- makeRevocable sup factory
       CallSequence'getNumber'results {n} <-
-        mfactory
-          & callP #newCounter def {start = 0}
-          <&> pipe #counter
-          >>= callP #getNumber def
+        ( (mfactory & callP #newCounter def {start = 0})
+            >>= callP #getNumber def . pipe #counter
+          )
           >>= waitPipeline
           >>= evalLimitT defaultLimit . parse
       n `shouldBe` 1
@@ -321,10 +317,10 @@ instance CounterAcceptor'server_ TestCtrAcceptor where
       r <- bumpN counter 4
       liftIO $
         r
-          `shouldBe` [ def {n = start + 1},
-                       def {n = start + 2},
-                       def {n = start + 3},
-                       def {n = start + 4}
+          `shouldBe` [ def {n = start + 1}
+                     , def {n = start + 2}
+                     , def {n = start + 3}
+                     , def {n = start + 4}
                      ]
       pure def
 
@@ -366,8 +362,8 @@ instance CallSequence'server_ ExnCtrServer where
   callSequence'getNumber _ = handleParsed $ \_ ->
     throwM
       def
-        { type_ = Exception'Type'failed,
-          reason = "Something went sideways."
+        { type_ = Exception'Type'failed
+        , reason = "Something went sideways."
         }
 
 -- a 'CallSequence' which doesn't implement its methods.
@@ -375,7 +371,8 @@ data NoImplServer = NoImplServer
 
 instance SomeServer NoImplServer
 
-instance CallSequence'server_ NoImplServer -- TODO: can we silence the warning somehow?
+instance CallSequence'server_ NoImplServer where
+  callSequence'getNumber _ = methodUnimplemented
 
 -- Server that throws some non-rpc exception.
 data NonRpcExnServer = NonRpcExnServer
@@ -401,8 +398,8 @@ unusualTests = describe "Tests for unusual message patterns" $ do
     -- the vat actually aborts.
     let exn =
           def
-            { type_ = Exception'Type'failed,
-              reason = "Testing abort"
+            { type_ = Exception'Type'failed
+            , reason = "Testing abort"
             }
     withTransportPair $ \(vatTrans, probeTrans) -> do
       ret <- try
@@ -418,22 +415,12 @@ unusualTests = describe "Tests for unusual message patterns" $ do
       <> "capnproto library."
   triggerAbort
     ( Message'call
-        ( def
-            { target = MessageTarget $ MessageTarget'importedCap 443
-            } ::
-            Parsed Call
-        )
+        (Call def (MessageTarget $ MessageTarget'importedCap 443) 0 0 def def False)
     )
     "No such export: 443"
   triggerAbort
     ( Message'call
-        ( def
-            { target =
-                MessageTarget $
-                  MessageTarget'promisedAnswer (def {questionId = 300} :: Parsed PromisedAnswer)
-            } ::
-            Parsed Call
-        )
+        (Call def (MessageTarget $ MessageTarget'promisedAnswer (PromisedAnswer 300 [])) 0 0 def def False)
     )
     "No such answer: 300"
   triggerAbort
@@ -442,8 +429,8 @@ unusualTests = describe "Tests for unusual message patterns" $ do
   it "Should respond with an abort if sent junk data" $ do
     let wantAbortExn =
           def
-            { reason = "Unhandled exception: TraversalLimitError",
-              type_ = Exception'Type'failed
+            { reason = "Unhandled exception: TraversalLimitError"
+            , type_ = Exception'Type'failed
             }
     withTransportPair $ \(vatTrans, probeTrans) ->
       concurrently_
@@ -456,11 +443,11 @@ unusualTests = describe "Tests for unusual message patterns" $ do
         ( do
             let bb =
                   mconcat
-                    [ BB.word32LE 0, -- 1 segment - 1 = 0
-                      BB.word32LE 2, -- 2 words in first segment
-                      -- a pair of structs that point to each other:
-                      BB.word64LE (P.serializePtr (Just (P.StructPtr 0 0 1))),
-                      BB.word64LE (P.serializePtr (Just (P.StructPtr (-1) 0 1)))
+                    [ BB.word32LE 0 -- 1 segment - 1 = 0
+                    , BB.word32LE 2 -- 2 words in first segment
+                    -- a pair of structs that point to each other:
+                    , BB.word64LE (P.serializePtr (Just (P.StructPtr 0 0 1)))
+                    , BB.word64LE (P.serializePtr (Just (P.StructPtr (-1) 0 1)))
                     ]
                 lbs = BB.toLazyByteString bb
             msg <- lbsToMsg lbs
@@ -496,8 +483,8 @@ unusualTests = describe "Tests for unusual message patterns" $ do
                 send $
                   Message'return
                     def
-                      { answerId = questionId,
-                        union' = Return'resultsSentElsewhere
+                      { answerId = questionId
+                      , union' = Return'resultsSentElsewhere
                       }
                 msg <- recv
                 msg `shouldBe` Message'abort wantExn
@@ -521,8 +508,8 @@ triggerAbort msg reason =
   it ("Should abort when sent the message " ++ show msg ++ " on startup") $ do
     let wantAbortExn =
           def
-            { reason = reason,
-              type_ = Exception'Type'failed
+            { reason = reason
+            , type_ = Exception'Type'failed
             }
     withTransportPair $ \(vatTrans, probeTrans) ->
       concurrently_
@@ -556,20 +543,20 @@ withSocketPair =
     (Socket.socketPair Socket.AF_UNIX Socket.Stream 0)
     (\(x, y) -> Socket.close x >> Socket.close y)
 
-withTransportPair ::
-  ( ( WordCount -> Transport,
-      WordCount -> Transport
-    ) ->
-    IO a
-  ) ->
-  IO a
+withTransportPair
+  :: ( ( WordCount -> Transport
+       , WordCount -> Transport
+       )
+       -> IO a
+     )
+  -> IO a
 withTransportPair f =
   withSocketPair $ \(x, y) -> f (socketTransport x, socketTransport y)
 
 -- | @'runVatPair' server client@ runs a pair of vats connected to one another,
 -- using 'server' as the 'offerBootstrap' field in the one vat's config, and
 -- 'client' as the 'withBootstrap' field in the other's.
-runVatPair :: IsClient c => (Supervisor -> STM c) -> (Supervisor -> c -> IO ()) -> IO ()
+runVatPair :: (IsClient c) => (Supervisor -> STM c) -> (Supervisor -> c -> IO ()) -> IO ()
 runVatPair getBootstrap withBootstrap = withTransportPair $ \(clientTrans, serverTrans) -> do
   let runClient =
         withConn (clientTrans defaultLimit) def {debugMode = True} $ \conn -> do
@@ -581,22 +568,20 @@ runVatPair getBootstrap withBootstrap = withTransportPair $ \(clientTrans, serve
           handleConn
             (serverTrans defaultLimit)
             def
-              { debugMode = True,
-                bootstrap = Just (toClient boot)
+              { debugMode = True
+              , bootstrap = Just (toClient boot)
               }
   race_ runServer runClient
 
-expectException ::
-  ( IsCap c,
-    TypeParam a,
-    Parse a pa,
-    Show pa,
-    R.ReprFor a ~ 'R.Ptr pr
-  ) =>
-  (Client c -> IO (Pipeline a)) ->
-  Parsed Exception ->
-  Client c ->
-  IO ()
+expectException
+  :: ( R.IsStruct a
+     , Parse a (Parsed a)
+     , Show (Parsed a)
+     )
+  => (Client c -> IO (Pipeline a))
+  -> Parsed Exception
+  -> Client c
+  -> IO ()
 expectException callFn wantExn cap = do
   ret <- try $ callFn cap >>= waitPipeline
   case ret of
