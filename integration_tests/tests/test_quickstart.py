@@ -378,16 +378,12 @@ def _bootstrap_node(node: TestNode) -> None:
     # wants to write `corvus.egg-info/` inside the source dir. Copy
     # to a writable scratch dir first.
     #
-    # * Target ``$HOME`` (ext4, 40 GiB free) rather than ``/tmp``
-    #   (tmpfs, 3.9 GiB total) — a full repo copy easily exceeds
-    #   the tmpfs ceiling once host build caches are dereferenced
-    #   ("cp: error writing ...: Disk quota exceeded").
-    # * ``rsync -aL`` dereferences the
-    #   ``python/corvus_client/schema -> ../../schema`` repo-level
-    #   symlink so setuptools 82's package-data copy step sees real
-    #   ``.capnp`` files. ``--exclude`` keeps host-side build
-    #   caches (``.stack-work`` ~2 GiB, ``.mypy_cache``, dev
-    #   venvs, etc.) out of the copy — pip doesn't need them.
+    # Copy only the package inputs. Host build directories can contain
+    # symlinks to paths outside the virtiofs mount; dereferencing them
+    # in the guest makes rsync fail with code 23. ``-L`` is needed for
+    # ``python/corvus_client/schema -> ../../schema`` so setuptools
+    # sees the Cap'n Proto schema files. ``--relative`` retains the
+    # package directory layout below the ``/./`` marker.
     # * ``--no-build-isolation`` reuses the node-installed
     #   setuptools instead of fetching one from pypi — the
     #   test-node has no internet, so build-env bootstrap would
@@ -403,33 +399,23 @@ def _bootstrap_node(node: TestNode) -> None:
     #   the `standard` extras' transitive deps (e.g.
     #   python-dotenv) from PyPI — which fails with "Network is
     #   unreachable" on the air-gapped test node.
-    # ``--exclude`` notes:
-    # * `.ruff_cache` / `.pytest_cache`: ruff and pytest write their
-    #   per-file caches as mode 600. ``/mnt/corvus`` is a virtiofs
-    #   passthrough share, so host UIDs reach the guest verbatim —
-    #   the harness runs rsync as ``corvus`` (guest uid 1001), which
-    #   can't open files owned by the host operator (typically uid
-    #   1000) at mode 600. Without these excludes rsync exits 23.
-    # * `integration_tests/keys/`: the harness's own SSH key trio.
-    #   ``corvus-test-key`` is intentionally mode 600 on the host and
-    #   hits the same passthrough wall. The pip install doesn't need
-    #   it (and the public key is already baked into the image at
-    #   /home/corvus/.ssh/authorized_keys).
+    # Exclude Python tool caches and generated package metadata, which
+    # can be unreadable to the guest user through the virtiofs mount.
     _shrun(
         node,
         (
             "rm -rf $HOME/corvus-src && "
-            "rsync -aL "
+            "rsync -aL --relative "
             "--exclude=.mypy_cache "
             "--exclude=.ruff_cache "
             "--exclude=.pytest_cache "
-            "--exclude=.stack-work "
-            "--exclude=.git "
             "--exclude='__pycache__' "
-            "--exclude='.venv*' "
-            "--exclude=dist-newstyle "
-            "--exclude=integration_tests/keys "
-            f"{SRC_MOUNT}/ $HOME/corvus-src/ && "
+            "--exclude='*.egg-info' "
+            f"{SRC_MOUNT}/./pyproject.toml "
+            f"{SRC_MOUNT}/./python/ "
+            f"{SRC_MOUNT}/./schema/ "
+            f"{SRC_MOUNT}/./integration_tests/corvus_test_harness/ "
+            "$HOME/corvus-src/ && "
             "python3 -m pip install --user --quiet "
             "--break-system-packages --no-build-isolation --no-deps "
             "$HOME/corvus-src"
