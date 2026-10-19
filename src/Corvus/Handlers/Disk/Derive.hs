@@ -9,6 +9,7 @@ module Corvus.Handlers.Disk.Derive
 where
 
 import Corvus.Action
+import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Images
 
 import Control.Monad (forM_)
@@ -214,6 +215,9 @@ data DiskCreateOverlay = DiskCreateOverlay
   }
 
 instance Action DiskCreateOverlay where
+  actionImageResources state a = do
+    source <- imageResources state SharedImage (dcoBaseDiskId a)
+    pure $ source ++ familyResource (dcoName a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "overlay"
   actionEntityName = Just . dcoName
@@ -229,6 +233,9 @@ data DiskClone = DiskClone
   }
 
 instance Action DiskClone where
+  actionImageResources state a = do
+    source <- imageResources state SharedImage (dclBaseDiskId a)
+    pure $ source ++ familyResource (dclName a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "clone"
   actionEntityName = Just . dclName

@@ -155,7 +155,10 @@ logTlsRejection what peerAddr why =
 -- The 'clientName' is propagated into every cap created off the
 -- daemon cap so 'runAction' calls can stamp it on the task row.
 runHandler :: ServerState -> Supervisor -> T.Text -> Transport -> IO ()
-runHandler state sup clientName transport = do
+runHandler state _ clientName transport = withSupervisor $ \sup -> do
+  -- Exported streaming capabilities must stop when this connection closes,
+  -- even when the client still retains local references to them.
+  -- In particular, upload shutdown releases its image-family reservation.
   daemonCap <- newDaemonCap state sup clientName
   bootClient <- export @CGCorvus.Daemon sup daemonCap
   handleConn

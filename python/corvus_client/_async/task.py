@@ -67,7 +67,8 @@ class AsyncTaskManager:
         """Request best-effort cancellation of a running task.
 
         This records the cancellation request; it does not wait for the
-        worker (or its active child) to reach a terminal state.
+        worker (or its active child) to reach a terminal state. Raises an
+        error if the task is no longer active in this daemon.
         """
         mgr = await self._ensure()
         await mgr.cancel(taskId=task_id)

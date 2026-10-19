@@ -97,12 +97,11 @@ recording tasks. Its removal counts are zero; `planned` outcomes show eligibilit
 and do not guarantee node availability. A missing named family is an error;
 `--all` on an empty registry succeeds. Repeated cleanup is safe.
 
-The daemon waits for active mutating operations (including builds) and holds an
-exclusive mutation lease while cleaning up. This prevents publication, tag,
-template, attachment, and backing-chain changes from racing with deletion.
-Other mutations wait until cleanup finishes; read-only queries and task
-cancellation remain available through separate connections. Cleanup snapshots
-its candidate IDs once and supports cancellation between placement deletions.
+The daemon acquires leases only for the image versions an operation uses and their backing chains. Readers (including builds cloning the same source) can run together. Writes and deletion require exclusive access to the affected version. Publishers reserve the destination image family until publication completes; different tags in that family share the reservation because publication also moves `latest`. Unrelated builds, uploads, URL imports and cleanup can proceed concurrently.
+
+Each acquisition has a 60-second deadline for its entire requested resource set. On timeout the task fails with the requested access, image version ID or family, and the blocking task. Cancellation removes waiting requests promptly. Upload reservations cover the entire stream and are released on finish, abort, cancellation or disconnect.
+
+Cleanup snapshots candidate IDs once, acquires leases separately for each eligible version, and reloads its reference graph after acquisition. Retained versions require no deletion lease. A version that times out is reported as failed while cleanup continues with the other candidates; any failure makes the cleanup task fail. Dry runs acquire no mutation leases.
 
 Both Python clients expose `disks.cleanup(name=None, *, all_images=False,
 node=None, include_tagged=False, dry_run=False)`, returning `DiskCleanupReport`.

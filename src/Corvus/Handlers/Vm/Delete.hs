@@ -15,6 +15,7 @@ import Corvus.Action
 import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import Corvus.Handlers.Vm.Db
 import Corvus.Handlers.Vm.Lifecycle (VmReset (..))
+import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
@@ -182,6 +183,18 @@ data VmDelete = VmDelete
   }
 
 instance Action VmDelete where
+  actionImageResources state a = do
+    drives <- runSqlPool (selectList [DriveVmId ==. toSqlKey (vdelVmId a)] []) (ssDbPool state)
+    concat
+      <$> mapM
+        ( \key -> do
+            disk <- runSqlPool (get key) (ssDbPool state)
+            let deleting = not (vdelKeepDisks a) && maybe False diskImageEphemeral disk
+            versions <- imageResources state (if deleting then ExclusiveImage else SharedImage) (fromSqlKey key)
+            family <- if deleting then imageFamilyResources state (fromSqlKey key) else pure []
+            pure (versions ++ family)
+        )
+        [key | Entity _ drive <- drives, Just key <- [driveDiskImageId drive]]
   actionSubsystem _ = SubVm
   actionCommand _ = "delete"
   actionEntityId = Just . fromIntegral . vdelVmId

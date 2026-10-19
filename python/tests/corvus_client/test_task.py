@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from corvus_client import AsyncClient
+from corvus_client.exceptions import CorvusError
 
 from ._helpers import with_client
 
@@ -39,8 +41,8 @@ def test_task_list_after_disk_create(daemon_socket: Path) -> None:
     run(go)
 
 
-def test_task_cancel_dispatches(daemon_socket: Path) -> None:
-    """`tasks.cancel` dispatches even when the target has already finished."""
+def test_task_cancel_reports_inactive_task(daemon_socket: Path) -> None:
+    """A finished task must not appear to accept a cancellation request."""
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
@@ -49,7 +51,10 @@ def test_task_cancel_dispatches(daemon_socket: Path) -> None:
         task = next(
             t for t in await c.tasks.list(entity_id=info.id) if t.command == "create"
         )
-        await c.tasks.cancel(task.id)  # completed tasks are a daemon-side no-op
+        with pytest.raises(
+            CorvusError, match=r"Task is not active.*cancellation was not requested"
+        ):
+            await c.tasks.cancel(task.id)
         await disk.delete()
 
     run(go)

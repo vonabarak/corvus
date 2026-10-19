@@ -19,6 +19,7 @@ module Corvus.Handlers.Template
   , handleTemplateInstantiate
 
     -- * DB helpers for inserting template YAML (used by Apply)
+  , templateImageResources
   , insertTemplateYaml
   )
 where
@@ -26,6 +27,7 @@ where
 import Corvus.Action
 import Corvus.DiskSelector
 import Corvus.Handlers.Vm (VmCreate (..))
+import Corvus.ImageOperationGuard (ImageAccess (..), ImageResource)
 import Corvus.Images
 
 import Control.Monad (forM, forM_, when)
@@ -54,7 +56,7 @@ import Corvus.Utils.Network (generateMacAddress)
 import Data.Char (isDigit)
 import Data.Int (Int64)
 import qualified Data.List as L
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -689,6 +691,9 @@ instantiateDriveIO ctx vmId guestName td = do
 newtype TemplateCreate = TemplateCreate {tcrYaml :: Text}
 
 instance Action TemplateCreate where
+  actionImageResources state a = case decodeEither' (T.encodeUtf8 (tcrYaml a)) of
+    Left _ -> pure []
+    Right ty -> templateImageResources state ty
   actionSubsystem _ = SubTemplate
   actionCommand _ = "create"
   actionExecute ctx a = handleTemplateCreate (acState ctx) (tcrYaml a)
@@ -699,6 +704,9 @@ data TemplateUpdate = TemplateUpdate
   }
 
 instance Action TemplateUpdate where
+  actionImageResources state a = case decodeEither' (T.encodeUtf8 (tupYaml a)) of
+    Left _ -> pure []
+    Right ty -> templateImageResources state ty
   actionSubsystem _ = SubTemplate
   actionCommand _ = "update"
   actionEntityId = Just . fromIntegral . tupOldId
@@ -735,6 +743,9 @@ data InstantiateDrive = InstantiateDrive
   }
 
 instance Action InstantiateDrive where
+  actionImageResources state a = case tvdiDiskImage (idDriveInfo a) of
+    Nothing -> pure []
+    Just ref -> imageResources state (if tvdiCloneStrategy (idDriveInfo a) == StrategyDirect && not (tvdiReadOnly (idDriveInfo a)) then ExclusiveImage else SharedImage) (nrId ref)
   actionSubsystem _ = SubDisk
   actionCommand _ = "instantiate"
   actionEntityName a = nrName <$> tvdiDiskImage (idDriveInfo a)
@@ -753,3 +764,8 @@ instance Action TemplateInstantiateResolved where
   actionEntityId (TemplateInstantiateResolved details _ _) = Just (fromIntegral (tvdId details))
   actionExecute ctx (TemplateInstantiateResolved details name node) =
     handleTemplateInstantiateWith ctx (tvdId details) name node (Just details)
+
+templateImageResources :: ServerState -> TemplateYaml -> IO [(ImageResource, ImageAccess)]
+templateImageResources state ty = do
+  keys <- runSqlPool (mapM resolveImage [selector | drive <- tyDrives ty, Just selector <- [tdyDiskImage drive]]) (ssDbPool state)
+  concat <$> mapM (imageResources state SharedImage . fromSqlKey) (catMaybes keys)

@@ -2,12 +2,10 @@
 
 module Corvus.DiskCleanupSpec (spec) where
 
-import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Exception (bracket)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Disk.Cleanup
 import Corvus.Handlers.Disk.CleanupGraph
-import Corvus.ImageOperationGuard
 import Corvus.Images (assignImageTag, publishImage)
 import Corvus.Model
 import Corvus.Protocol
@@ -17,28 +15,12 @@ import qualified Data.Set as Set
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (SqlPersistT, runSqlPool)
-import System.Timeout (timeout)
 import Test.DSL.When (createTestServerState)
 import qualified Test.Database as Db
 import Test.Hspec hiding (before)
 
 spec :: Spec
 spec = do
-  describe "image operation leases" $ do
-    it "waits for active operations and permits reentrant cleanup subtasks" $ do
-      guard <- newImageOperationGuard
-      entered <- newEmptyMVar
-      release <- newEmptyMVar
-      done <- newEmptyMVar
-      _ <- forkIO $ withImageOperationGuard guard False $ putMVar entered () >> takeMVar release
-      takeMVar entered
-      _ <-
-        forkIO $
-          withImageOperationGuard guard True $
-            withImageOperationGuard guard False (putMVar done ())
-      tryTakeMVar done `shouldReturn` Nothing
-      putMVar release ()
-      timeout 1000000 (takeMVar done) `shouldReturn` Just ()
   describe "cleanup selection and execution" $ do
     it "preserves the actual latest tag, previews without tasks, and prunes unplaced metadata" $
       bracket Db.setupTestDb Db.teardownTestDb $ \env -> do

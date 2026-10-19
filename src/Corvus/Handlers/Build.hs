@@ -16,7 +16,7 @@
 -- exists; on success or failure the stack is drained according to the
 -- @cleanup:@ mode in the YAML.
 module Corvus.Handlers.Build
-  ( runBuildPipeline
+  ( BuildPipelineAction (..)
 
     -- * Streaming sink
   , BuildSink
@@ -28,7 +28,7 @@ module Corvus.Handlers.Build
 where
 
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
+import Control.Monad.Logger (LoggingT (..), logInfoN, logWarnN, runLoggingT)
 import Corvus.Action
 import qualified Corvus.Build.Identity as H
 import Corvus.Handlers.Apply.Execute (ApplyAction (..))
@@ -40,13 +40,15 @@ import Corvus.Handlers.Build.Run (runBakeAndPublish)
 import Corvus.Handlers.Build.Template (instantiateBakeVm, resolveTemplateAndValidate, sanitizeNameFragment, setupTargetDisk)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (getTemplateDetails)
+import Corvus.ImageOperationGuard
 import Corvus.Images (resolveImage)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.Build
 import Corvus.Types
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe, isNothing)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, isJust, isNothing, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -57,6 +59,17 @@ import Database.Persist.Sql (runSqlPool)
 --------------------------------------------------------------------------------
 -- Pipeline entry point
 --------------------------------------------------------------------------------
+
+data BuildPipelineAction = BuildPipelineAction
+  { buildYaml :: Text
+  , buildSink :: BuildSink
+  }
+
+instance Action BuildPipelineAction where
+  actionSubsystem _ = SubBuild
+  actionCommand _ = "build"
+  actionExecute ctx action =
+    runBuildPipeline (acState ctx) (acTaskId ctx) (buildSink action) (buildYaml action)
 
 -- | Run a build pipeline, sending events to the supplied sink. Returns
 -- the same response shape as before. Per-step 'BuildEnd' events are
@@ -270,25 +283,26 @@ runOneBuildLogged state parentTaskId sink b = do
 -- down on failure. Published artifacts are preserved independently.
 runOneBuild :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO (Either Text Int64)
 runOneBuild state parentTaskId sink b = do
+  let ctx = mkActionContext state parentTaskId "system"
   stack <- liftIO newCleanupStack
-  outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody state parentTaskId sink stack b)
+  outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody ctx sink stack b)
   case outcome of
     Right inner -> pure inner
     Left ex -> pure $ Left $ "exception: " <> T.pack (show ex)
 
 runOneBuildBody
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> CleanupStack
   -> Build
   -> LoggingT IO (Either Text Int64)
-runOneBuildBody state parentTaskId sink stack b = do
-  let target = buildTarget b
+runOneBuildBody ctx sink stack b = do
+  let state = acState ctx
+      target = buildTarget b
 
   -- Error and skip retain their fast path. Update requires the resolved
   -- template and its source versions before deciding whether to bake.
-  preBake <- checkIfExistsPreBake state (buildName b) target
+  preBake <- withBuildLeases ctx (familyResource (buildName b)) $ \_ -> checkIfExistsPreBake state (buildName b) target
   case preBake of
     Left err -> pure $ Left err
     Right (Just existingId) -> pure $ Right existingId
@@ -326,30 +340,61 @@ runOneBuildBody state parentTaskId sink stack b = do
               case validation of
                 Left err -> pure (Left err)
                 Right _ -> do
-                  existing <-
-                    if btIfExists target == BuildIfExistsUpdate
-                      then checkBuildUpdate state sink (buildName b) target identity
-                      else pure Nothing
-                  case existing of
-                    Just key -> pure (Right key)
-                    Nothing -> runFreshBake state parentTaskId sink stack captured
+                  let drives = [(nrId ref, if tvdiCloneStrategy drive == StrategyDirect && not (tvdiReadOnly drive) then ExclusiveImage else SharedImage) | drive <- tvdDrives details, ref <- maybeToList (tvdiDiskImage drive)]
+                      sources = drives ++ [(key, SharedImage) | key <- maybeToList source]
+                      -- Direct ephemeral inputs are reaped by VmDelete, even when
+                      -- attached read-only. Reserve deletion access up front.
+                      snapshotResources = do
+                        inputs <- concat <$> mapM (\(key, mode) -> imageResources state mode key) sources
+                        cleanupInputs <-
+                          concat
+                            <$> mapM
+                              ( \drive -> case tvdiDiskImage drive of
+                                  Just ref | tvdiCloneStrategy drive == StrategyDirect -> do
+                                    disk <- runSqlPool (get (toSqlKey (nrId ref))) (ssDbPool state)
+                                    if maybe False diskImageEphemeral disk
+                                      then (++) <$> imageResources state ExclusiveImage (nrId ref) <*> imageFamilyResources state (nrId ref)
+                                      else pure []
+                                  _ -> pure []
+                              )
+                              (tvdDrives details)
+                        pure (inputs ++ cleanupInputs)
+                  resources <- liftIO snapshotResources
+                  withBuildLeases ctx (familyResource (buildName b) ++ resources) $ \leased -> do
+                    current <- liftIO snapshotResources
+                    present <- liftIO $ runSqlPool (and <$> mapM (fmap isJust . get . (toSqlKey :: Int64 -> DiskImageId) . fst) sources) (ssDbPool state)
+                    if not present || Map.fromListWith max current /= Map.fromListWith max resources
+                      then pure (Left "Build source images changed while waiting for access; retry the build")
+                      else do
+                        policy <- checkIfExistsPreBake state (buildName b) target
+                        case policy of
+                          Left err -> pure (Left err)
+                          Right (Just key) -> pure (Right key)
+                          Right Nothing -> do
+                            existing <- if btIfExists target == BuildIfExistsUpdate then checkBuildUpdate state sink (buildName b) target identity else pure Nothing
+                            case existing of
+                              Just key -> pure (Right key)
+                              Nothing -> do
+                                outcome <- withCleanup (buildCleanup b) stack (runFreshBake leased sink stack captured)
+                                pure $ either (Left . T.pack . show) id outcome
 
 runFreshBake
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> CleanupStack
   -> Build
   -> LoggingT IO (Either Text Int64)
-runFreshBake state parentTaskId sink stack input = do
+runFreshBake ctx sink stack input = do
+  let state = acState ctx
   placed <- liftIO $ placeBuild state input
   case placed of
     Left err -> pure $ Left err
-    Right b -> runPlacedBake state parentTaskId sink stack b
+    Right b -> runPlacedBake ctx sink stack b
 
-runPlacedBake :: ServerState -> TaskId -> BuildSink -> CleanupStack -> Build -> LoggingT IO (Either Text Int64)
-runPlacedBake state parentTaskId sink stack b = do
-  let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
+runPlacedBake :: ActionContext -> BuildSink -> CleanupStack -> Build -> LoggingT IO (Either Text Int64)
+runPlacedBake ctx sink stack b = do
+  let parentTaskId = acTaskId ctx
+      prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
       target = buildTarget b
@@ -358,17 +403,16 @@ runPlacedBake state parentTaskId sink stack b = do
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do
-      vmR <- instantiateBakeVm state parentTaskId stack (fmap (\details -> details {tvdStartupTimeoutSec = fromMaybe (tvdStartupTimeoutSec details) (bvmStartupTimeoutSec (buildVm b))}) (buildResolvedTemplate b)) templateId bakeVmName (buildNode b)
+      vmR <- instantiateBakeVm ctx stack (fmap (\details -> details {tvdStartupTimeoutSec = fromMaybe (tvdStartupTimeoutSec details) (bvmStartupTimeoutSec (buildVm b))}) (buildResolvedTemplate b)) templateId bakeVmName (buildNode b)
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do
-          tgtR <- setupTargetDisk state parentTaskId stack vmIdLong b target targetTmpName (buildNode b)
+          tgtR <- setupTargetDisk ctx stack vmIdLong b target targetTmpName (buildNode b)
           case tgtR of
             Left err -> pure $ Left err
             Right (artifactDiskId, needFlatten) ->
               runBakeAndPublish
-                state
-                parentTaskId
+                ctx
                 sink
                 vmIdLong
                 strategy
@@ -376,3 +420,14 @@ runPlacedBake state parentTaskId sink stack b = do
                 target
                 needFlatten
                 b
+
+withBuildLeases :: ActionContext -> [(ImageResource, ImageAccess)] -> (ActionContext -> LoggingT IO a) -> LoggingT IO a
+withBuildLeases ctx resources operation = LoggingT $ \logger ->
+  withImageLeases
+    (ssImageOperations (acState ctx))
+    60000000
+    ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))) <> " (build)")
+    (acImageLeases ctx)
+    resources
+    $ \leases ->
+      runLoggingT (operation (ctx {acImageLeases = leases})) logger

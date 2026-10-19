@@ -28,11 +28,12 @@ module Corvus.Handlers.Build.Cleanup
 where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, askLoggerIO, logWarnN, runLoggingT)
 import Corvus.Schema.Build (CleanupMode (..))
+import Data.Either (lefts)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -65,20 +66,25 @@ detachByTag (CleanupStack var) tag =
   modifyMVar_ var $ \xs -> pure (filter (\e -> entryTag e /= tag) xs)
 
 -- | Run every registered destructor. Failures inside individual
--- destructors are logged at @warn@ but do not stop the rest of the cleanup.
+-- destructors are logged at @warn@; all destructors run before a failure is raised.
 runCleanup :: CleanupStack -> LoggingT IO ()
 runCleanup (CleanupStack var) = do
   entries <- liftIO $ readMVar var
   -- Drain the stack so a second 'runCleanup' is a no-op.
   liftIO $ modifyMVar_ var (\_ -> pure [])
-  mapM_ runOne entries
+  failures <- lefts <$> mapM runOne entries
+  case failures of
+    [] -> pure ()
+    ex : _ -> liftIO $ throwIO ex
   where
     runOne e = do
       r <- liftIO $ try (entryAction e)
       case r of
-        Right () -> pure ()
+        Right () -> pure (Right ())
         Left (ex :: SomeException) ->
-          logWarnN $ "build cleanup: '" <> entryTag e <> "' failed: " <> T.pack (show ex)
+          do
+            logWarnN $ "build cleanup: '" <> entryTag e <> "' failed: " <> T.pack (show ex)
+            pure (Left ex)
 
 -- | Run a build body and run cleanup based on whether it succeeded.
 -- The body returns @'Either' err a@ where @'Left'@ means the build failed
@@ -91,7 +97,7 @@ runCleanup (CleanupStack var) = do
 --     @onSuccess@ leave ephemeral resources around for inspection);
 --   * never — if mode is 'CleanupNever'.
 --
--- Failures inside destructors don't stop the cleanup pass; they're logged.
+-- Destructor failures are logged and turn an otherwise successful build into a failure.
 withCleanup
   :: CleanupMode
   -> CleanupStack
@@ -107,5 +113,7 @@ withCleanup mode stack action = do
         CleanupAlways -> True
         CleanupOnSuccess -> succeeded
         CleanupNever -> False
-  when shouldCleanup $ runCleanup stack
-  pure result
+  cleanupResult <- liftIO $ try $ runLoggingT (when shouldCleanup $ runCleanup stack) logger
+  pure $ case (result, cleanupResult) of
+    (Right (Right _), Left ex) -> Left ex
+    _ -> result

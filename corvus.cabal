@@ -257,6 +257,8 @@ library
       Corvus.Node.VmSpec
       Corvus.Node.NodeStats
       Corvus.Node.StatusPoller
+      Corvus.Node.StatusFreshness
+      Corvus.Node.StatusSubscribers
       Corvus.Node.Caps.NodeAgent
       Corvus.Node.Caps.Session
       Capnp.Gen.Corvus
@@ -583,6 +585,7 @@ test-suite corvus-test
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
       Corvus.HostDnsSpec
+      Corvus.ImageOperationGuardSpec
       Corvus.ImageSpec
       Corvus.ImageTagsSpec
       Corvus.IpamSpec
@@ -609,6 +612,8 @@ test-suite corvus-test
       Corvus.SpicePortSpec
       Corvus.SshKeySpec
       Corvus.StartupShutdownSpec
+      Corvus.StatusFreshnessSpec
+      Corvus.StatusSubscribersSpec
       Corvus.SubnetSpec
       Corvus.TaskRecordingSpec
       Corvus.TemplateSpec

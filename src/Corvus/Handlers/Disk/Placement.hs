@@ -12,6 +12,7 @@ module Corvus.Handlers.Disk.Placement
 where
 
 import Corvus.Action
+import Corvus.ImageOperationGuard (ImageAccess (..))
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
@@ -448,6 +449,7 @@ data DiskCopy = DiskCopy
   }
 
 instance Action DiskCopy where
+  actionImageResources state a = imageResources state SharedImage (dcpDiskId a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "copy"
   actionEntityId = Just . fromIntegral . dcpDiskId

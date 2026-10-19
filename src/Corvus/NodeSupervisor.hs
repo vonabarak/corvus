@@ -25,7 +25,7 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.Async (Async, async, cancel, race_)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, when)
@@ -37,6 +37,7 @@ import Corvus.Handlers.Vm.Start (autostartVmsOnNode)
 import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
+import Corvus.Node.StatusFreshness (newStatusFreshness, waitForStaleStatus)
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Tls as Tls
 import Corvus.Types
@@ -53,6 +54,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
+import GHC.Clock (getMonotonicTime)
 import Supervisors (withSupervisor)
 import System.Posix.User (getRealUserID)
 import System.Timeout (timeout)
@@ -189,9 +191,14 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
             <> "; retrying in 5s"
       pure (Left ())
     onConnect (Right noac) = do
-      pingResult <- NOA.sessionPing noac
+      pingResult <- timeout 10000000 (NOA.sessionPing noac)
       case pingResult of
-        Left e -> do
+        Nothing -> do
+          runFilteredLogging (ssLogLevel state) $
+            logWarnN $
+              "node " <> nodeLabel <> " nodeagent session ping timed out; retrying in 5s"
+          pure (Left ())
+        Just (Left e) -> do
           runFilteredLogging (ssLogLevel state) $
             logWarnN $
               "node "
@@ -199,7 +206,7 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
                 <> " nodeagent session ping failed: "
                 <> T.pack (show e)
           pure (Left ())
-        Right () -> do
+        Just (Right ()) -> do
           runFilteredLogging (ssLogLevel state) $
             logInfoN $
               "node "
@@ -210,38 +217,37 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
             modifyTVar' (ssAgents state) $ \m -> case Map.lookup nodeKey m of
               Nothing -> m
               Just nc -> Map.insert nodeKey nc {ncNodeAgent = Just noac} m
-          withSupervisor $ \sup -> do
-            sinkClient <-
-              C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state nodeKey)
-            subResult <- NOA.subscribeVmStatus noac sinkClient
-            case subResult of
-              Left e ->
-                runFilteredLogging (ssLogLevel state) $
-                  logWarnN $
-                    "node "
-                      <> nodeLabel
-                      <> " subscribeVmStatus failed: "
-                      <> T.pack (show e)
-              Right () ->
-                runFilteredLogging (ssLogLevel state) $
-                  logInfoN $
-                    "node " <> nodeLabel <> " subscribed to VM status push"
-            reattachVmMonitors state
-            -- First-connect-only per-node VM autostart. Gated by
-            -- 'claimAutostartSlot' so a subsequent nodeagent flap
-            -- (reconnect on the same supervisor) does NOT re-issue
-            -- 'vm start' on VMs the operator may have stopped
-            -- between the initial autostart and the flap. The
-            -- guard is on 'NodeConns', which lives for the
-            -- supervisor's lifetime — a node delete+respawn or a
-            -- daemon restart is what resets the flag to False.
-            shouldFireVmAutostart <-
-              claimAutostartSlot state nodeKey ncVmAutostartFired
-            when shouldFireVmAutostart $
-              autostartVmsOnNode state nodeKey
-            blockUntilShutdown state
-          clearNodeConn state nodeKey
-          pure (Right ())
+          holdNodeAgentConnection state nodeKey nodeLabel noac
+            `E.finally` clearNodeConn state nodeKey
+          -- Both registration failure and stale status must back off before redial.
+          pure (Left ())
+
+-- | Missing snapshots indicate a lost subscription even if RPC pings still work.
+-- Keep the watcher active during reconciliation/autostart as well as steady state.
+holdNodeAgentConnection :: ServerState -> M.NodeId -> T.Text -> NOA.NodeAgentClient -> IO ()
+holdNodeAgentConnection state nodeKey nodeLabel noac = withSupervisor $ \sup -> do
+  freshness <- newStatusFreshness getMonotonicTime
+  sinkClient <- C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state nodeKey freshness)
+  result <- timeout 10000000 (NOA.subscribeVmStatus noac sinkClient)
+  case result of
+    Nothing -> warn "subscribeVmStatus timed out after 10s; reconnecting in 5s"
+    Just (Left err) -> warn ("subscribeVmStatus failed: " <> T.pack (show err) <> "; reconnecting in 5s")
+    Just (Right ()) -> do
+      runFilteredLogging (ssLogLevel state) $
+        logInfoN $
+          "node " <> nodeLabel <> " subscribed to VM status push"
+      race_ (watch freshness) $ do
+        reattachVmMonitors state
+        -- The lifetime guard survives reconnects; never repeat autostart on a flap.
+        shouldFire <- claimAutostartSlot state nodeKey ncVmAutostartFired
+        when shouldFire $ autostartVmsOnNode state nodeKey
+        blockUntilShutdown state
+  where
+    warn message = runFilteredLogging (ssLogLevel state) $ logWarnN $ "node " <> nodeLabel <> " " <> message
+    watch freshness = do
+      elapsed <- waitForStaleStatus freshness (readTVarIO (ssShutdownFlag state)) (threadDelay 5000000) 45
+      forM_ elapsed $ \seconds ->
+        warn ("no processed VM status snapshot for " <> T.pack (show seconds) <> "s; reconnecting in 5s")
 
 -- | Single-node netd connect-and-hold loop.
 runNetdLoop

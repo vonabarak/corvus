@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import lzma
 import secrets
 import shlex
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 from types import TracebackType
 
 import pytest
@@ -21,7 +22,7 @@ from corvus_client.types import (
     BuildStepStart,
     BuildStreamItem,
 )
-from corvus_test_harness import SingleNodeCase, SqliteDatabase, TestNode
+from corvus_test_harness import SingleNodeCase, SqliteDatabase, TestNode, Vm
 from corvus_test_harness.runner import NodeShellRunner
 from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
 
@@ -40,13 +41,18 @@ def _node_bytes(node: TestNode, path: str) -> bytes:
 class _ImportServer:
     """Host-side HTTP source specific to these disk-import scenarios."""
 
-    def __init__(self, node: TestNode, *, suffix: str = ".qcow2") -> None:
+    def __init__(
+        self, node: TestNode, *, suffix: str = ".qcow2", hold_download: bool = False
+    ) -> None:
         self.host = node.host_ip
         self.suffix = suffix
         self.url = ""
         self._body = b""
         self._requests: list[str] = []
         self._lock = Lock()
+        self._hold_download = hold_download
+        self._download_blocked = Event()
+        self._download_release = Event()
         self._server: HTTPServer | None = None
         self._thread: Thread | None = None
 
@@ -71,6 +77,13 @@ class _ImportServer:
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
+                if source._hold_download:
+                    self.wfile.write(body[:4096])
+                    self.wfile.flush()
+                    source._download_blocked.set()
+                    if not source._download_release.wait(timeout=120):
+                        return
+                    body = body[4096:]
                 self.wfile.write(body)
 
             def log_message(self, format: str, *args: object) -> None:
@@ -96,6 +109,7 @@ class _ImportServer:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        self.release_download()
         if self._server is not None:
             try:
                 self._server.shutdown()
@@ -114,6 +128,12 @@ class _ImportServer:
     def request_count(self) -> int:
         with self._lock:
             return len(self._requests)
+
+    def wait_for_download(self, timeout: float) -> bool:
+        return self._download_blocked.wait(timeout=timeout)
+
+    def release_download(self) -> None:
+        self._download_release.set()
 
 
 class TestDiskImport(SingleNodeCase):
@@ -263,6 +283,62 @@ class TestDiskImport(SingleNodeCase):
                 )
         finally:
             self._delete_versions_silent(url_name, src_name)
+
+    def test_vm_force_delete_during_download(self) -> None:
+        """An unrelated download must not occupy the nodeagent RPC dispatcher."""
+        name = _uniq("delete-during-download")
+        payload = b"corvus-import-concurrency\n" * 4096
+        try:
+            with (
+                Vm(self) as vm,
+                _ImportServer(self.node, suffix=".raw", hold_download=True) as server,
+            ):
+                server.set_payload(payload)
+                task_id = self.client.disks.import_url(
+                    name, f"{server.url}/payload.raw", format="raw"
+                )
+                try:
+                    assert server.wait_for_download(timeout=30), (
+                        "Import did not reach the blocked HTTP response"
+                    )
+                    assert self.client.tasks.get(task_id).show().result == "running"
+
+                    async def exercise() -> None:
+                        deletion = asyncio.create_task(vm.cap._a.delete(force=True))
+                        try:
+                            # Below the 45-second status watchdog: reconnection
+                            # must not rescue a blocked session and hide the bug.
+                            await asyncio.wait_for(asyncio.shield(deletion), timeout=30)
+                            assert all(
+                                info.name != vm.name
+                                for info in await self.client._a.vms.list()
+                            )
+                            assert all(
+                                info.name != vm.name
+                                for info in await self.client._a.disks.list()
+                            ), "Forced deletion left the ephemeral overlay behind"
+                            task = await self.client._a.tasks.get(task_id)
+                            assert (await task.show()).result == "running", (
+                                "Import finished before its HTTP response was released"
+                            )
+                        finally:
+                            # Drain an outstanding deletion only after unblocking
+                            # the download, including on the unfixed daemon.
+                            server.release_download()
+                            await asyncio.wait_for(deletion, timeout=60)
+
+                    self.client._rl.run(exercise())
+                finally:
+                    server.release_download()
+                    self.wait_for_task(self.client, task_id, timeout_sec=60)
+                info = self.client.disks.get(name).show()
+                assert info.placements
+                assert all(
+                    _node_bytes(self.node, placement.file_path) == payload
+                    for placement in info.placements
+                )
+        finally:
+            self._delete_versions_silent(name)
 
     def test_import_xz_auto_decompress(self) -> None:
         """An .xz URL is automatically decompressed on the nodeagent,

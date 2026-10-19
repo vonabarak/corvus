@@ -148,7 +148,7 @@ instance CGNA.Session'server_ SessionServer where
               }
 
   session'diskRebase _ =
-    handleParsed $
+    handleParsedAsync $
       \CGNA.Session'diskRebase'params
         { CGNA.overlayPath = ov
         , CGNA.newBacking = nb
@@ -169,7 +169,8 @@ instance CGNA.Session'server_ SessionServer where
               }
 
   session'diskClone _ =
-    handleParsed $
+    -- Publication can take minutes; keep status and control RPCs dispatching.
+    handleParsedAsync $
       \CGNA.Session'diskClone'params
         { CGNA.sourcePath = src
         , CGNA.destPath = dst
@@ -367,8 +368,10 @@ instance CGNA.Session'server_ SessionServer where
 
   -- ---- Download / decompress / hash ----------------------------------------
 
+  -- These operations can run for minutes. Fork them so unrelated calls on
+  -- the shared agent session (including VM deletion) can still be dispatched.
   session'diskDownload _ =
-    handleParsed $
+    handleParsedAsync $
       \CGNA.Session'diskDownload'params
         { CGNA.destPath = d
         , CGNA.url = u
@@ -389,7 +392,7 @@ instance CGNA.Session'server_ SessionServer where
               }
 
   session'diskDecompressXz _ =
-    handleParsed $ \CGNA.Session'diskDecompressXz'params {CGNA.xzPath = p} -> do
+    handleParsedAsync $ \CGNA.Session'diskDecompressXz'params {CGNA.xzPath = p} -> do
       result <- NI.decompressXz (T.unpack p)
       case result of
         Left err -> throwFailed err
@@ -400,7 +403,7 @@ instance CGNA.Session'server_ SessionServer where
               }
 
   session'diskHash _ =
-    handleParsed $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do
+    handleParsedAsync $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do
       result <- NI.hashFile a (T.unpack p)
       case result of
         Left err -> throwFailed err

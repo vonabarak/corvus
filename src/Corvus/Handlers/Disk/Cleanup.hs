@@ -12,7 +12,7 @@ import Corvus.Handlers.Disk.Agent (deleteImageViaAgent)
 import Corvus.Handlers.Disk.CleanupGraph
 import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
-import Corvus.ImageOperationGuard (withImageOperationGuard)
+import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
@@ -36,7 +36,7 @@ instance Action DiskCleanup where
   actionSubsystem _ = SubDisk
   actionCommand _ = "cleanup"
   actionEntityName = dcName
-  actionExclusiveImages _ = True
+  actionImageResources _ _ = pure []
   actionValidate = validateCleanup
   actionExecute ctx options = do
     graph <- loadGraph (acState ctx)
@@ -52,10 +52,17 @@ instance Action CleanupVersion where
   actionSubsystem _ = SubDisk
   actionCommand _ = "cleanup-version"
   actionEntityId (CleanupVersion _ key) = Just (fromIntegral (fromSqlKey key))
+  actionImageResources _ _ = pure []
   actionExecute ctx (CleanupVersion options key) = do
     graph <- loadGraph (acState ctx)
-    (_, report) <- processVersion (Just ctx) options graph key
-    pure $ RespDiskCleanup (makeReport False [report])
+    let process leased current = do
+          (_, report) <- processVersion (Just leased) options current key
+          pure $ RespDiskCleanup (makeReport False [report])
+    if not (T.null (versionReason graph (dcIncludeTagged options) key))
+      then process ctx graph
+      else do
+        resources <- (++) <$> imageResources (acState ctx) ExclusiveImage (fromSqlKey key) <*> imageFamilyResources (acState ctx) (fromSqlKey key)
+        withContextImageLeases ctx resources $ \leased -> loadGraph (acState ctx) >>= process leased
 
 executeVersion :: ActionContext -> DiskCleanup -> DiskImageId -> IO DiskCleanupVersion
 executeVersion ctx options key = do
@@ -73,7 +80,7 @@ executeVersion ctx options key = do
       pure $ DiskCleanupVersion (NamedRef (fromSqlKey key) "") [] "failed" err False []
 
 previewDiskCleanup :: ServerState -> DiskCleanup -> IO Response
-previewDiskCleanup state options = withImageOperationGuard (ssImageOperations state) False $ do
+previewDiskCleanup state options = do
   graph <- loadGraph state
   case validateGraph options graph of
     Just err -> pure err

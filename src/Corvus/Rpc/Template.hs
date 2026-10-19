@@ -31,7 +31,7 @@ import Corvus.Handlers.Template
   )
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
-import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError)
+import Corvus.Rpc.Common (capnpRefToRef, handleParsedAsync, resolveOrThrow, throwError)
 import Corvus.Rpc.Vm (VmCap (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Template (toCapnpTemplateDetails, toCapnpTemplateVmInfo)
@@ -51,7 +51,7 @@ newTemplateManagerCap st sup cn = pure (TemplateManagerCap st sup cn)
 instance SomeServer TemplateManagerCap
 
 instance CGT.TemplateManager'server_ TemplateManagerCap where
-  templateManager'list (TemplateManagerCap st _ _) = handleParsed $ \_ -> do
+  templateManager'list (TemplateManagerCap st _ _) = handleParsedAsync $ \_ -> do
     resp <- handleTemplateList st
     case resp of
       RespTemplateList templates ->
@@ -62,14 +62,14 @@ instance CGT.TemplateManager'server_ TemplateManagerCap where
       _ -> throwError resp
 
   templateManager'get (TemplateManagerCap st sup cn) =
-    handleParsed $ \CGT.TemplateManager'get'params {..} -> do
+    handleParsedAsync $ \CGT.TemplateManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
       eid <- resolveOrThrow =<< resolveTemplate ref' (ssDbPool st)
       client <- export @CGT.Template sup (TemplateCap st sup eid cn)
       pure CGT.TemplateManager'get'results {CGT.template = client}
 
   templateManager'create (TemplateManagerCap st sup cn) =
-    handleParsed $ \CGT.TemplateManager'create'params {..} -> do
+    handleParsedAsync $ \CGT.TemplateManager'create'params {..} -> do
       resp <- runAction st cn (TemplateCreate {tcrYaml = yaml})
       case resp of
         RespTemplateCreated tid -> do
@@ -87,28 +87,28 @@ data TemplateCap = TemplateCap
 instance SomeServer TemplateCap
 
 instance CGT.Template'server_ TemplateCap where
-  template'show (TemplateCap st _ eid _) = handleParsed $ \_ -> do
+  template'show (TemplateCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleTemplateShow st eid
     case resp of
       RespTemplateInfo det ->
         pure CGT.Template'show'results {CGT.details = toCapnpTemplateDetails det}
       _ -> throwError resp
 
-  template'delete (TemplateCap st _ eid cn) = handleParsed $ \_ -> do
+  template'delete (TemplateCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (TemplateDelete eid)
     case resp of
       RespTemplateDeleted -> pure CGT.Template'delete'results
       _ -> throwError resp
 
   template'update (TemplateCap st _ eid cn) =
-    handleParsed $ \CGT.Template'update'params {..} -> do
+    handleParsedAsync $ \CGT.Template'update'params {..} -> do
       resp <- runAction st cn (TemplateUpdate {tupOldId = eid, tupYaml = yaml})
       case resp of
         RespTemplateUpdated _ -> pure CGT.Template'update'results
         _ -> throwError resp
 
   template'instantiate (TemplateCap st sup eid cn) =
-    handleParsed $ \CGT.Template'instantiate'params {..} -> do
+    handleParsedAsync $ \CGT.Template'instantiate'params {..} -> do
       nodeRef' <- capnpRefToRef node
       resp <-
         runAction

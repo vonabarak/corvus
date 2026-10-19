@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
 module Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply) where
@@ -14,7 +15,7 @@ import Corvus.Handlers.Apply.Vm (ApplyVmCreate (..))
 import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..))
-import Corvus.Handlers.Template (TemplateDelete (..), insertTemplateYaml)
+import Corvus.Handlers.Template (TemplateDelete (..), insertTemplateYaml, templateImageResources)
 import Corvus.Handlers.Vm (VmDelete (..))
 import Corvus.Model
 import Corvus.Protocol
@@ -23,7 +24,7 @@ import Corvus.Schema.Template (TemplateYaml (..))
 import Corvus.Types
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
 import Database.Persist ((==.))
@@ -95,10 +96,15 @@ executeApply ctx config ifExists = do
         TaskSuccess -> maybe (pure $ Left $ name <> ": succeeded but no entity ID") (\entityId -> pure $ Right (name, fromIntegral entityId)) mId
         _ -> pure $ Left $ name <> ": " <> fromMaybe "unknown error" message
     diskEntity d m = do
+      pins <- mapM (\name -> fmap (fmap (name,)) (resolveDiskName state m name)) (catMaybes [adOverlay d, adClone d, adBacking d])
+      let pinned = Map.union (Map.fromList (catMaybes pins)) m
+      resources <- actionImageResources state (ApplyDiskCreate d pinned)
+      withContextImageLeases ctx resources $ \leased -> diskEntityLocked leased d pinned
+    diskEntityLocked leased d m = do
       found <- resolveDiskName state m $ adName d
       let policy = fromMaybe (DiskIfExistsPolicy ifExists) (adIfExists d)
           name = adName d
-          create = runActionAsSubtask ctx $ ApplyDiskCreate d m
+          create = runActionAsSubtask leased $ ApplyDiskCreate d m
           skip eid = sink (EntityStart "disks" name "skip") >> sink (EntityEnd "disks" name TaskSuccess "" eid) >> pure (Right (name, eid))
       case (policy, found) of
         (DiskIfExistsPolicy IfExistsError, Just _) -> pure $ Left $ "Disk target already exists: " <> name
@@ -144,6 +150,7 @@ executeApply ctx config ifExists = do
 
 newtype ApplyTemplateCreate = ApplyTemplateCreate {atcYaml :: TemplateYaml}
 instance Action ApplyTemplateCreate where
+  actionImageResources state a = templateImageResources state (atcYaml a)
   actionSubsystem _ = SubTemplate
   actionCommand _ = "create"
   actionEntityName = Just . tyName . atcYaml

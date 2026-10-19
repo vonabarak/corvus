@@ -74,6 +74,7 @@ data VmSnapshotCreate = VmSnapshotCreate
   }
 
 instance Action VmSnapshotCreate where
+  actionImageResources state a = vmImageResources state (vscVmId a)
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "vm-snapshot-create"
   actionEntityId = Just . fromIntegral . vscVmId
@@ -86,6 +87,7 @@ data VmSnapshotRollback = VmSnapshotRollback
   }
 
 instance Action VmSnapshotRollback where
+  actionImageResources state a = vmImageResources state (vsrVmId a)
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "vm-snapshot-rollback"
   actionEntityId = Just . fromIntegral . vsrVmId
@@ -98,6 +100,7 @@ data VmSnapshotDelete = VmSnapshotDelete
   }
 
 instance Action VmSnapshotDelete where
+  actionImageResources state a = vmImageResources state (vsdVmId a)
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "vm-snapshot-delete"
   actionEntityId = Just . fromIntegral . vsdVmId

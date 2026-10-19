@@ -57,8 +57,8 @@ interface TaskManager {
   # Request cancellation of a running task. Best-effort: flips the
   # task's cooperative cancel flag (honoured at subtask boundaries
   # and long-loop checkpoints) and cancels the task's worker thread
-  # for asynchronously-dispatched actions. A no-op for tasks that
-  # have already finished. Returns once the request is recorded, not
+  # for asynchronously-dispatched actions. Fails clearly if the task has
+  # no active cancellation token in this daemon. Returns once recorded, not
   # once the task actually stops.
   cancel @4 (taskId :Int64) -> ();
 }

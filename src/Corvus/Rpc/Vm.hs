@@ -73,7 +73,7 @@ import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
-import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, handleParsedAsync, resolveOrThrow, throwError, throwWireError)
+import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsedAsync, resolveOrThrow, throwError, throwWireError)
 import Corvus.Rpc.FileTransfer (readSource)
 import Corvus.Rpc.Streams (EmptyHandle (..))
 import Corvus.Types (ServerState (..))
@@ -121,20 +121,20 @@ newVmManagerCap st sup cn = pure (VmManagerCap st sup cn)
 instance SomeServer VmManagerCap
 
 instance CGVm.VmManager'server_ VmManagerCap where
-  vmManager'list (VmManagerCap st _ _) = handleParsed $ \_ -> do
+  vmManager'list (VmManagerCap st _ _) = handleParsedAsync $ \_ -> do
     resp <- handleVmList st
     case resp of
       RespVmList vms -> pure CGVm.VmManager'list'results {CGVm.vms = map toCapnpVmInfo vms}
       _ -> throwError resp
 
-  vmManager'get (VmManagerCap st sup cn) = handleParsed $ \CGVm.VmManager'get'params {..} -> do
+  vmManager'get (VmManagerCap st sup cn) = handleParsedAsync $ \CGVm.VmManager'get'params {..} -> do
     ref' <- capnpRefToRef ref
     eid <- resolveOrThrow =<< resolveVm ref' (ssDbPool st)
     client <- export @CGVm.Vm sup (VmCap st sup eid cn)
     pure CGVm.VmManager'get'results {CGVm.vm = client}
 
   vmManager'create (VmManagerCap st sup cn) =
-    handleParsed $ \CGVm.VmManager'create'params {params = CGVm.VmCreateParams {..}} -> do
+    handleParsedAsync $ \CGVm.VmManager'create'params {params = CGVm.VmCreateParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       parsedAudioDevices <-
         traverse
@@ -187,7 +187,7 @@ data VmCap = VmCap
 instance SomeServer VmCap
 
 instance CGVm.Vm'server_ VmCap where
-  vm'addAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'addAudioDevice'params {CGVm.params = CGVm.AudioDeviceParams {..}} -> do
+  vm'addAudioDevice (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'addAudioDevice'params {CGVm.params = CGVm.AudioDeviceParams {..}} -> do
     backend' <- enumOrThrow (fromCapnpAudioBackend backend)
     model' <- enumOrThrow (fromCapnpAudioDeviceModel model)
     resp <- runAction st cn (AudioDeviceAdd eid backend' model' options)
@@ -195,7 +195,7 @@ instance CGVm.Vm'server_ VmCap where
       RespAudioDeviceAdded aid -> pure CGVm.Vm'addAudioDevice'results {CGVm.audioDeviceId = aid}
       _ -> throwError resp
 
-  vm'editAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'editAudioDevice'params {CGVm.audioDeviceId = aid, CGVm.params = CGVm.AudioDeviceParams {..}, CGVm.setModel = setModel} -> do
+  vm'editAudioDevice (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'editAudioDevice'params {CGVm.audioDeviceId = aid, CGVm.params = CGVm.AudioDeviceParams {..}, CGVm.setModel = setModel} -> do
     backend' <- enumOrThrow (fromCapnpAudioBackend backend)
     model' <- if setModel then Just <$> enumOrThrow (fromCapnpAudioDeviceModel model) else pure Nothing
     resp <- runAction st cn (AudioDeviceEdit eid aid backend' model' options)
@@ -203,19 +203,19 @@ instance CGVm.Vm'server_ VmCap where
       RespAudioDeviceOk -> pure CGVm.Vm'editAudioDevice'results
       _ -> throwError resp
 
-  vm'removeAudioDevice (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeAudioDevice'params {CGVm.audioDeviceId = aid} -> do
+  vm'removeAudioDevice (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'removeAudioDevice'params {CGVm.audioDeviceId = aid} -> do
     resp <- runAction st cn (AudioDeviceRemove eid aid)
     case resp of
       RespAudioDeviceOk -> pure CGVm.Vm'removeAudioDevice'results
       _ -> throwError resp
 
-  vm'listAudioDevices (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'listAudioDevices (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleAudioDeviceList st eid
     case resp of
       RespAudioDeviceList devices -> pure CGVm.Vm'listAudioDevices'results {CGVm.audioDevices = map toCapnpAudioDeviceInfo devices}
       _ -> throwError resp
 
-  vm'show (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'show (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     detResp <- handleVmShow st eid
     case detResp of
       RespVmDetails det -> do
@@ -230,7 +230,7 @@ instance CGVm.Vm'server_ VmCap where
             }
       _ -> throwError detResp
 
-  vm'start (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'start'params {wait = wait'} -> do
+  vm'start (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'start'params {wait = wait'} -> do
     resp <-
       if wait'
         then runAction st cn (VmStart eid)
@@ -238,7 +238,7 @@ instance CGVm.Vm'server_ VmCap where
     status <- statusOrThrow resp
     pure CGVm.Vm'start'results {CGVm.status = status}
 
-  vm'stop (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'stop'params {wait = wait', timeoutSec = tmo} -> do
+  vm'stop (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'stop'params {wait = wait', timeoutSec = tmo} -> do
     let action = VmStop eid tmo True
     resp <-
       if wait'
@@ -247,17 +247,17 @@ instance CGVm.Vm'server_ VmCap where
     status <- statusOrThrow resp
     pure CGVm.Vm'stop'results {CGVm.status = status}
 
-  vm'pause (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'pause (VmCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (VmPause eid)
     status <- statusOrThrow resp
     pure CGVm.Vm'pause'results {CGVm.status = status}
 
-  vm'reset (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'reset (VmCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (VmReset eid)
     status <- statusOrThrow resp
     pure CGVm.Vm'reset'results {CGVm.status = status}
 
-  vm'save (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'save'params {wait = wait'} -> do
+  vm'save (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'save'params {wait = wait'} -> do
     resp <-
       if wait'
         then runAction st cn (VmSave eid)
@@ -266,7 +266,7 @@ instance CGVm.Vm'server_ VmCap where
     pure CGVm.Vm'save'results {CGVm.status = status}
 
   vm'edit (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do
+    handleParsedAsync $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do
       parsedGraphicsAdapter <-
         if hasGraphicsAdapter
           then Just <$> enumOrThrow (fromCapnpGraphicsAdapter graphicsAdapter)
@@ -295,7 +295,7 @@ instance CGVm.Vm'server_ VmCap where
         RespVmEdited -> pure CGVm.Vm'edit'results
         _ -> throwError resp
 
-  vm'delete (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'delete'params {..} -> do
+  vm'delete (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'delete'params {..} -> do
     resp <- runAction st cn (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks, vdelForce = force})
     case resp of
       RespVmDeleted -> pure CGVm.Vm'delete'results
@@ -305,7 +305,7 @@ instance CGVm.Vm'server_ VmCap where
   -- Misc read / one-shot
   -- -------------------------------------------------------------------
 
-  vm'cloudInit (VmCap st _ eid cn) = handleParsed $ \_ -> do
+  vm'cloudInit (VmCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- handleVmCloudInit st cn eid
     let emptyInfo =
           PCI.CloudInitInfo
@@ -325,7 +325,7 @@ instance CGVm.Vm'server_ VmCap where
         pure CGVm.Vm'cloudInit'results {CGVm.config = toCapnpCloudInitInfo emptyInfo}
       _ -> throwError resp
 
-  vm'viewGrant (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'viewGrant (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleVmViewGrant st eid
     case resp of
       RespVmViewGrant host port password ttl ->
@@ -356,7 +356,7 @@ instance CGVm.Vm'server_ VmCap where
       RespInvalidTransition status msg -> throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
       _ -> throwError resp
 
-  vm'guestExec (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'guestExec'params {..} -> do
+  vm'guestExec (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'guestExec'params {..} -> do
     resp <- runAction st cn (GuestExec {geVmId = eid, geCommand = command})
     case resp of
       RespGuestExecResult code outT errT ->
@@ -377,13 +377,13 @@ instance CGVm.Vm'server_ VmCap where
         throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
       _ -> throwError resp
 
-  vm'setBalloon (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'setBalloon'params {CGVm.targetBytes = target} -> do
+  vm'setBalloon (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'setBalloon'params {CGVm.targetBytes = target} -> do
     resp <- runAction st cn (VmSetBalloon eid target)
     case resp of
       RespOk -> pure CGVm.Vm'setBalloon'results
       other -> throwError other
 
-  vm'sendCtrlAltDel (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'sendCtrlAltDel (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleVmSendCtrlAltDel st eid
     case resp of
       RespOk -> pure CGVm.Vm'sendCtrlAltDel'results
@@ -399,7 +399,7 @@ instance CGVm.Vm'server_ VmCap where
   -- 'ByteSink' the client can write into to forward bytes to
   -- QEMU.
   vm'serialConsole (VmCap st _sup eid _cn) =
-    handleParsed $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
+    handleParsedAsync $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
       -- Validator first; rejections throw their structured wire
       -- error before anything touches the agent.
       resp <- handleSerialConsole st eid
@@ -417,7 +417,7 @@ instance CGVm.Vm'server_ VmCap where
   -- HMP monitor: identical shape to serialConsole but rides the
   -- per-VM monitor buffer. Same validator-first dispatch.
   vm'hmpMonitor (VmCap st _sup eid _cn) =
-    handleParsed $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
+    handleParsedAsync $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
       resp <- handleHmpMonitor st eid
       case resp of
         RespHmpMonitorOk -> do
@@ -435,14 +435,14 @@ instance CGVm.Vm'server_ VmCap where
   -- client drops it (or the sink itself), the next push attempt
   -- raises and the subscriber is pruned from the list.
   vm'subscribeGuestAgent (VmCap st sup eid _cn) =
-    handleParsed $ \CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient} -> do
+    handleParsedAsync $ \CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient} -> do
       atomically $
         modifyTVar' (ssGuestAgentSubs st) $
           Map.insertWith (++) eid [sinkClient]
       handle <- export @CGS.Handle sup EmptyHandle
       pure CGVm.Vm'subscribeGuestAgent'results {CGVm.handle = handle}
 
-  vm'serialConsoleFlush (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'serialConsoleFlush (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     -- Validator first; proxy to the agent on success.
     _ <- handleSerialConsoleFlush st eid
     r <- withVmNodeAgent st eid $ \nac -> NOA.flushSerialConsole nac eid
@@ -451,7 +451,7 @@ instance CGVm.Vm'server_ VmCap where
       Right (Left e) -> throwFailed (T.pack (show e))
       Right (Right ()) -> pure CGVm.Vm'serialConsoleFlush'results
 
-  vm'hmpMonitorFlush (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'hmpMonitorFlush (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     _ <- handleHmpMonitorFlush st eid
     r <- withVmNodeAgent st eid $ \nac -> NOA.flushHmpMonitor nac eid
     case r of
@@ -464,7 +464,7 @@ instance CGVm.Vm'server_ VmCap where
   -- -------------------------------------------------------------------
 
   vm'attachDisk (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'attachDisk'params {params = CGVm.DriveAttachParams {..}} -> do
+    handleParsedAsync $ \CGVm.Vm'attachDisk'params {params = CGVm.DriveAttachParams {..}} -> do
       diskRef' <- capnpDiskRefToRef diskRef
       diskId <- resolveOrThrow =<< resolveDisk diskRef' (ssDbPool st)
       iface <- enumOrThrow (fromCapnpDriveInterface interface)
@@ -486,7 +486,7 @@ instance CGVm.Vm'server_ VmCap where
           pure CGVm.Vm'attachDisk'results {CGVm.driveId = driveId}
         _ -> throwError resp
 
-  vm'detachDisk (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'detachDisk'params {..} -> do
+  vm'detachDisk (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'detachDisk'params {..} -> do
     -- The schema's driveId is the row id of the Drive table
     -- (i.e. a specific attachment instance). The existing
     -- DiskDetachByDisk Action operates on the disk-image id; look
@@ -527,7 +527,7 @@ instance CGVm.Vm'server_ VmCap where
   -- -------------------------------------------------------------------
 
   vm'addNetIf (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'addNetIf'params {params = CGVm.NetIfAddParams {..}} -> do
+    handleParsedAsync $ \CGVm.Vm'addNetIf'params {params = CGVm.NetIfAddParams {..}} -> do
       iface <- enumOrThrow (fromCapnpNetInterfaceType type_)
       model' <- enumOrThrow (fromCapnpNetworkDeviceModel model)
       mNetId <- case fromCapnpRefMaybe networkRef of
@@ -547,20 +547,20 @@ instance CGVm.Vm'server_ VmCap where
         RespNetIfAdded nid -> pure CGVm.Vm'addNetIf'results {CGVm.netIfId = nid}
         _ -> throwError resp
 
-  vm'removeNetIf (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeNetIf'params {..} -> do
+  vm'removeNetIf (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'removeNetIf'params {..} -> do
     resp <- runAction st cn (NetIfRemove {nirVmId = eid, nirNetIfId = netIfId})
     case resp of
       RespOk -> pure CGVm.Vm'removeNetIf'results
       _ -> throwError resp
 
-  vm'listNetIfs (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'listNetIfs (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleNetIfList st eid
     case resp of
       RespNetIfList nis ->
         pure CGVm.Vm'listNetIfs'results {CGVm.netIfs = map toCapnpNetIfInfo nis}
       _ -> throwError resp
 
-  vm'editNetIf (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'editNetIf'params {CGVm.netIfId = nid, CGVm.model = model} -> do
+  vm'editNetIf (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'editNetIf'params {CGVm.netIfId = nid, CGVm.model = model} -> do
     model' <- enumOrThrow (fromCapnpNetworkDeviceModel model)
     resp <- runAction st cn (NetIfEdit eid nid model')
     case resp of
@@ -572,7 +572,7 @@ instance CGVm.Vm'server_ VmCap where
   -- -------------------------------------------------------------------
 
   vm'addSharedDir (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'addSharedDir'params {params = CGVm.SharedDirAddParams {..}} -> do
+    handleParsedAsync $ \CGVm.Vm'addSharedDir'params {params = CGVm.SharedDirAddParams {..}} -> do
       cacheVal <- enumOrThrow (fromCapnpSharedDirCache cache)
       let act =
             SharedDirAdd
@@ -588,14 +588,14 @@ instance CGVm.Vm'server_ VmCap where
           pure CGVm.Vm'addSharedDir'results {CGVm.sharedDirId = sid}
         _ -> throwError resp
 
-  vm'removeSharedDir (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeSharedDir'params {..} -> do
+  vm'removeSharedDir (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'removeSharedDir'params {..} -> do
     resp <- runAction st cn (SharedDirRemove {sdrVmId = eid, sdrDirId = sharedDirId})
     case resp of
       RespOk -> pure CGVm.Vm'removeSharedDir'results
       RespSharedDirOk -> pure CGVm.Vm'removeSharedDir'results
       _ -> throwError resp
 
-  vm'listSharedDirs (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'listSharedDirs (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleSharedDirList st eid
     case resp of
       RespSharedDirList sds ->
@@ -606,7 +606,7 @@ instance CGVm.Vm'server_ VmCap where
   -- SSH keys attached to the VM
   -- -------------------------------------------------------------------
 
-  vm'attachSshKey (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'attachSshKey'params {..} -> do
+  vm'attachSshKey (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'attachSshKey'params {..} -> do
     keyRef' <- capnpRefToRef keyRef
     keyId <- resolveOrThrow =<< resolveSshKey keyRef' (ssDbPool st)
     resp <- runAction st cn (SshKeyAttach {skaVmId = eid, skaKeyId = keyId})
@@ -615,7 +615,7 @@ instance CGVm.Vm'server_ VmCap where
       RespOk -> pure CGVm.Vm'attachSshKey'results
       _ -> throwError resp
 
-  vm'detachSshKey (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'detachSshKey'params {..} -> do
+  vm'detachSshKey (VmCap st _ eid cn) = handleParsedAsync $ \CGVm.Vm'detachSshKey'params {..} -> do
     keyRef' <- capnpRefToRef keyRef
     keyId <- resolveOrThrow =<< resolveSshKey keyRef' (ssDbPool st)
     resp <- runAction st cn (SshKeyDetach {skdetVmId = eid, skdetKeyId = keyId})
@@ -630,7 +630,7 @@ instance CGVm.Vm'server_ VmCap where
       RespSshKeyOk -> pure CGVm.Vm'injectSshKeys'results
       _ -> throwError resp
 
-  vm'listSshKeys (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'listSshKeys (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleSshKeyListForVm st eid
     case resp of
       RespSshKeyList keys ->
@@ -638,14 +638,14 @@ instance CGVm.Vm'server_ VmCap where
       _ -> throwError resp
 
   vm'snapshotCreate (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'snapshotCreate'params {..} -> do
+    handleParsedAsync $ \CGVm.Vm'snapshotCreate'params {..} -> do
       resp <- runAction st cn (VmSnapshotCreate {vscVmId = eid, vscName = name})
       case resp of
         RespVmSnapshotCreated info ->
           pure CGVm.Vm'snapshotCreate'results {CGVm.info = toCapnpVmSnapshotInfo info}
         _ -> throwError resp
 
-  vm'snapshotList (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'snapshotList (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleVmSnapshotList st eid
     case resp of
       RespVmSnapshotList snaps ->
@@ -656,7 +656,7 @@ instance CGVm.Vm'server_ VmCap where
       _ -> throwError resp
 
   vm'snapshotRollback (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'snapshotRollback'params {..} -> do
+    handleParsedAsync $ \CGVm.Vm'snapshotRollback'params {..} -> do
       resp <- runAction st cn (VmSnapshotRollback {vsrVmId = eid, vsrName = name})
       case resp of
         RespSnapshotOk -> pure CGVm.Vm'snapshotRollback'results
@@ -664,7 +664,7 @@ instance CGVm.Vm'server_ VmCap where
         _ -> throwError resp
 
   vm'snapshotDelete (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'snapshotDelete'params {..} -> do
+    handleParsedAsync $ \CGVm.Vm'snapshotDelete'params {..} -> do
       resp <- runAction st cn (VmSnapshotDelete {vsdVmId = eid, vsdName = name})
       case resp of
         RespSnapshotOk -> pure CGVm.Vm'snapshotDelete'results
@@ -672,7 +672,7 @@ instance CGVm.Vm'server_ VmCap where
         _ -> throwError resp
 
   vm'migrate (VmCap st _ eid cn) =
-    handleParsed $ \CGVm.Vm'migrate'params {params = CGVm.VmMigrateParams {..}} -> do
+    handleParsedAsync $ \CGVm.Vm'migrate'params {params = CGVm.VmMigrateParams {..}} -> do
       nr <- capnpRefToRef toNodeRef
       destNode <- resolveOrThrow =<< resolveNode nr (ssDbPool st)
       let act = VmMigrate {vmiVmId = eid, vmiDestNodeId = destNode}
@@ -688,12 +688,12 @@ instance CGVm.Vm'server_ VmCap where
   -- DaemonVmStatusSink (Corvus.Handlers.VmStatusSink) memoises
   -- the most recent 60 samples per VM in 'ssVmStatsRing' and
   -- fans the latest out to every subscriber in 'ssVmStatsSubs'.
-  vm'getStatsHistory (VmCap st _ eid _) = handleParsed $ \_ -> do
+  vm'getStatsHistory (VmCap st _ eid _) = handleParsedAsync $ \_ -> do
     ring <- readVmStatsRing st eid
     pure CGVm.Vm'getStatsHistory'results {CGVm.samples = ring}
 
   vm'subscribeStats (VmCap st sup eid _) =
-    handleParsed $ \CGVm.Vm'subscribeStats'params {sink = sink'} -> do
+    handleParsedAsync $ \CGVm.Vm'subscribeStats'params {sink = sink'} -> do
       atomically $
         modifyTVar' (ssVmStatsSubs st) $
           Map.insertWith (++) eid [sink']

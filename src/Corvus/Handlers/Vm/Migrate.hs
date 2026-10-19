@@ -87,6 +87,7 @@ data VmMigrate = VmMigrate
   }
 
 instance Action VmMigrate where
+  actionImageResources state a = vmImageResources state (vmiVmId a)
   actionSubsystem _ = M.SubMigration
   actionCommand _ = "migrate"
   actionEntityId = Just . fromIntegral . vmiVmId

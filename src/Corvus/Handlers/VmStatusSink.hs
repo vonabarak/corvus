@@ -40,6 +40,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logWarnN)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.NodeStats as NS
+import Corvus.Node.StatusFreshness (StatusFreshness, recordStatusSnapshot)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types
@@ -70,16 +71,17 @@ import System.Timeout (timeout)
 data DaemonVmStatusSink = DaemonVmStatusSink
   { dvssState :: ServerState
   , dvssNodeId :: !M.NodeId
+  , dvssFreshness :: StatusFreshness
   }
 
-newDaemonVmStatusSink :: ServerState -> M.NodeId -> DaemonVmStatusSink
+newDaemonVmStatusSink :: ServerState -> M.NodeId -> StatusFreshness -> DaemonVmStatusSink
 newDaemonVmStatusSink = DaemonVmStatusSink
 
 instance SomeServer DaemonVmStatusSink
 
 instance CGNA.VmStatusSink'server_ DaemonVmStatusSink where
-  vmStatusSink'onSnapshot (DaemonVmStatusSink state nid) =
-    handleParsed $ \CGNA.VmStatusSink'onSnapshot'params {CGNA.snapshot = snap} -> do
+  vmStatusSink'onSnapshot (DaemonVmStatusSink state nid freshness) =
+    handleParsed $ \CGNA.VmStatusSink'onSnapshot'params {CGNA.snapshot = snap} -> recordStatusSnapshot freshness $ do
       let CGNA.VmStatusSnapshot
             { CGNA.entries = entries
             , CGNA.nodeStats = stats

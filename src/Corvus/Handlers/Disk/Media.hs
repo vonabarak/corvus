@@ -28,6 +28,7 @@ import Control.Monad.Logger (logInfoN)
 import Corvus.Action
 import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
+import Corvus.ImageOperationGuard (ImageAccess (..), ImageResource)
 import Corvus.Model
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
@@ -207,6 +208,7 @@ newtype MediaEject = MediaEject
   }
 
 instance Action MediaEject where
+  actionImageResources state a = mediaResources state (meDriveId a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "media eject"
   actionEntityId = Just . fromIntegral . meDriveId
@@ -218,7 +220,16 @@ data MediaChange = MediaChange
   }
 
 instance Action MediaChange where
+  actionImageResources state a = do
+    old <- mediaResources state (mcDriveId a)
+    new <- imageResources state SharedImage (mcDiskId a)
+    pure (old ++ new)
   actionSubsystem _ = SubDisk
   actionCommand _ = "media change"
   actionEntityId = Just . fromIntegral . mcDriveId
   actionExecute ctx a = handleMediaChange (acState ctx) (mcDriveId a) (mcDiskId a)
+
+mediaResources :: ServerState -> Int64 -> IO [(ImageResource, ImageAccess)]
+mediaResources state driveId = do
+  drive <- runSqlPool (get (toSqlKey driveId :: DriveId)) (ssDbPool state)
+  maybe (pure []) (imageResources state SharedImage . fromSqlKey) (drive >>= driveDiskImageId)

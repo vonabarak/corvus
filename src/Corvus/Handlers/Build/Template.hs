@@ -14,7 +14,7 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT)
-import Corvus.Action (mkActionContext, runActionAsSubtask)
+import Corvus.Action (ActionContext (..), runActionAsSubtask)
 import Corvus.Handlers.Build.Cleanup (CleanupStack, detachByTag, push)
 import Corvus.Handlers.Build.CleanupBakeVm (cleanupBakeVm)
 import Corvus.Handlers.Disk.Agent (getImageSizeViaAgent)
@@ -48,8 +48,7 @@ resolveTemplateAndValidate b = pure $ case buildResolvedTemplate b of
 -- | Instantiate the template into a bake VM and register
 -- its cleanup destructor immediately so a later failure tears it down.
 instantiateBakeVm
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> CleanupStack
   -> Maybe TemplateDetails
   -> Int64
@@ -59,8 +58,7 @@ instantiateBakeVm
   -> Text
   -- ^ node reference
   -> LoggingT IO (Either Text Int64)
-instantiateBakeVm state parentTaskId stack snapshot templateId bakeVmName nodeRef = do
-  let context = mkActionContext state parentTaskId "system"
+instantiateBakeVm context stack snapshot templateId bakeVmName nodeRef = do
   resp <- liftIO $ case snapshot of
     Just details -> runActionAsSubtask context (TemplateInstantiateResolved details bakeVmName nodeRef)
     Nothing -> runActionAsSubtask context (TemplateInstantiate templateId bakeVmName nodeRef)
@@ -68,7 +66,7 @@ instantiateBakeVm state parentTaskId stack snapshot templateId bakeVmName nodeRe
     RespTemplateInstantiated vmIdLong -> do
       liftIO $
         push stack "bake-vm" $
-          cleanupBakeVm state parentTaskId vmIdLong
+          cleanupBakeVm context vmIdLong
       pure $ Right vmIdLong
     RespError err -> pure $ Left $ "instantiate template: " <> err
     other ->
@@ -84,8 +82,7 @@ instantiateBakeVm state parentTaskId stack snapshot templateId bakeVmName nodeRe
 --   * fromScratch — create a new empty target disk sized from the
 --                 build's @target.size@ and attach it to the bake VM.
 setupTargetDisk
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> CleanupStack
   -> Int64
   -- ^ bake VM id
@@ -97,12 +94,13 @@ setupTargetDisk
   -- ^ build's target node (passes through to DiskCreate so the
   -- target lands on the same kernel as the bake VM)
   -> LoggingT IO (Either Text (Int64, Bool))
-setupTargetDisk state parentTaskId stack vmIdLong build target targetTmpName buildNodeRef = case buildStrategy build of
+setupTargetDisk context stack vmIdLong build target targetTmpName buildNodeRef = case buildStrategy build of
   BuildStrategyOverlay -> firstDriveAsArtifact True
   BuildStrategyInstaller -> firstDriveAsArtifact False
   BuildStrategyFromScratch -> createAndAttachTarget
   BuildStrategyOfflineOverlay -> createOverlayTarget
   where
+    state = acState context
     firstDriveAsArtifact needFlatten = do
       mDrive <-
         liftIO $
@@ -127,7 +125,7 @@ setupTargetDisk state parentTaskId stack vmIdLong build target targetTmpName bui
       diskResp <-
         liftIO $
           runActionAsSubtask
-            (mkActionContext state parentTaskId "system")
+            context
             (DiskCreate targetTmpName (btFormat target) size Nothing True buildNodeRef)
       case diskResp of
         RespDiskCreated diskIdLong -> trackAndAttach diskIdLong
@@ -151,7 +149,7 @@ setupTargetDisk state parentTaskId stack vmIdLong build target targetTmpName bui
                 resp <-
                   liftIO $
                     runActionAsSubtask
-                      (mkActionContext state parentTaskId "system")
+                      context
                       (DiskCreateOverlay targetTmpName sourceId (btSize target) Nothing True (Just nid))
                 case resp of
                   RespDiskCreated diskId -> trackAndAttach diskId
@@ -160,12 +158,12 @@ setupTargetDisk state parentTaskId stack vmIdLong build target targetTmpName bui
 
     trackAndAttach diskIdLong = do
       liftIO $ push stack "orphan-target-disk" $ do
-        _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete diskIdLong)
+        _ <- runActionAsSubtask (context {acIgnoreCancellation = True}) (DiskDelete diskIdLong)
         pure ()
       attachResp <-
         liftIO $
           runActionAsSubtask
-            (mkActionContext state parentTaskId "system")
+            context
             (DiskAttach vmIdLong diskIdLong InterfaceVirtio Nothing False False CacheWriteback)
       case attachResp of
         RespDiskAttached _ -> do

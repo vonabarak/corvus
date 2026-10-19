@@ -23,11 +23,12 @@ import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar)
-import Control.Exception (SomeException, onException, throwIO, try)
-import Control.Monad (when)
-import Corvus.Action (runAction, runActionAsyncWithId)
+import Capnp.Rpc.Server (SomeServer (..))
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, tryPutMVar)
+import Control.Exception (SomeException, finally, onException, throwIO, try)
+import Control.Monad (void, when)
+import Corvus.Action (ActionContext (acIgnoreCancellation), executeWithImageLeases, runAction, runActionAsSubtask, runActionAsyncWithId)
 import Corvus.Handlers.Disk.Cleanup (DiskCleanup (..), previewDiskCleanup)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
@@ -47,14 +48,14 @@ import Corvus.Handlers.Disk.Snapshot
   )
 import Corvus.Handlers.Disk.SnapshotAutoStop (SnapshotRollbackAutoStop (..))
 import Corvus.Handlers.Disk.Tags (DiskTag (..), DiskUntag (..))
-import Corvus.Handlers.Disk.Upload (DiskUploadFinalize (..), DiskUploadPlan (..), checkDiskUpload, prepareDiskUpload)
+import Corvus.Handlers.Disk.Upload (DiskUploadDiscard (..), DiskUploadFinalize (..), DiskUploadPlan (..), DiskUploadSession (..), checkDiskUpload, prepareDiskUpload)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNode, resolveSnapshot)
 import Corvus.Model (EnumText (enumToText))
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import Corvus.Protocol.Disk (UploadIfExists (..))
-import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
+import Corvus.Rpc.Common (capnpDiskRefToRef, capnpRefToRef, handleParsedAsync, resolveOrThrow, throwError, throwWireError)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types (ServerState (..), lookupNodeAgent)
 import Corvus.Wire.Disk (toCapnpDiskCleanupReport, toCapnpDiskImageInfo, toCapnpSnapshotInfo)
@@ -62,6 +63,7 @@ import Corvus.Wire.Enums (fromCapnpDriveFormat, fromCapnpUploadIfExists)
 import Corvus.Wire.Error (ErrorCode (..))
 import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
 import Data.Char (isHexDigit)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Database.Persist.Sql (fromSqlKey, toSqlKey)
@@ -84,7 +86,7 @@ instance SomeServer DiskManagerCap
 
 instance CGDisk.DiskManager'server_ DiskManagerCap where
   diskManager'cleanup (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'cleanup'params {params = CGDisk.DiskCleanupParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'cleanup'params {params = CGDisk.DiskCleanupParams {..}} -> do
       when (allImages == not (T.null name)) $ throwError (RespError "Select exactly one image name or allImages")
       nodeRef' <- capnpRefToRef node
       nodeId <-
@@ -97,7 +99,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         RespDiskCleanup report -> pure CGDisk.DiskManager'cleanup'results {CGDisk.report = toCapnpDiskCleanupReport report}
         _ -> throwError resp
 
-  diskManager'list (DiskManagerCap st _ _) = handleParsed $ \_ -> do
+  diskManager'list (DiskManagerCap st _ _) = handleParsedAsync $ \_ -> do
     resp <- handleDiskList st
     case resp of
       RespDiskList disks ->
@@ -105,14 +107,14 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       _ -> throwError resp
 
   diskManager'get (DiskManagerCap st sup cn) =
-    handleParsed $ \CGDisk.DiskManager'get'params {..} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'get'params {..} -> do
       ref' <- capnpDiskRefToRef ref
       eid <- resolveOrThrow =<< resolveDisk ref' (ssDbPool st)
       client <- export @CGDisk.Disk sup (DiskCap st sup eid cn)
       pure CGDisk.DiskManager'get'results {CGDisk.disk = client}
 
   diskManager'create (DiskManagerCap st sup cn) =
-    handleParsed $ \CGDisk.DiskManager'create'params {params = CGDisk.DiskCreateParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'create'params {params = CGDisk.DiskCreateParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
       nodeRef' <- capnpRefToRef node
       let act =
@@ -132,7 +134,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'register (DiskManagerCap st sup cn) =
-    handleParsed $ \CGDisk.DiskManager'register'params {params = CGDisk.DiskRegisterParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'register'params {params = CGDisk.DiskRegisterParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       mFormat <-
         if formatProvided
@@ -161,7 +163,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'createOverlay (DiskManagerCap st sup cn) =
-    handleParsed $ \CGDisk.DiskManager'createOverlay'params {params = CGDisk.DiskCreateOverlayParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'createOverlay'params {params = CGDisk.DiskCreateOverlayParams {..}} -> do
       baseRef' <- capnpDiskRefToRef backingDiskRef
       baseId <- resolveOrThrow =<< resolveDisk baseRef' (ssDbPool st)
       let act =
@@ -181,7 +183,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'clone (DiskManagerCap st sup cn) =
-    handleParsed $ \CGDisk.DiskManager'clone'params {params = CGDisk.DiskCloneParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'clone'params {params = CGDisk.DiskCloneParams {..}} -> do
       srcRef' <- capnpDiskRefToRef sourceRef
       srcId <- resolveOrThrow =<< resolveDisk srcRef' (ssDbPool st)
       -- Empty `path` means "let the daemon pick the default
@@ -205,7 +207,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'rebase (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'rebase'params {params = CGDisk.DiskRebaseParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'rebase'params {params = CGDisk.DiskRebaseParams {..}} -> do
       diskRef' <- capnpDiskRefToRef diskRef
       diskId' <- resolveOrThrow =<< resolveDisk diskRef' (ssDbPool st)
       mBackingId <-
@@ -226,7 +228,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'flatten (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'flatten'params {..} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'flatten'params {..} -> do
       diskRef' <- capnpDiskRefToRef diskRef
       diskId' <- resolveOrThrow =<< resolveDisk diskRef' (ssDbPool st)
       -- @drbNewBackingId = Nothing@ is the flatten signal in the
@@ -243,7 +245,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'import_ (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'import'params {params = CGDisk.DiskImportParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'import'params {params = CGDisk.DiskImportParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       mFormat <-
         if formatProvided
@@ -266,7 +268,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'copy (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'copy'params {params = CGDisk.DiskCopyParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'copy'params {params = CGDisk.DiskCopyParams {..}} -> do
       dr <- capnpDiskRefToRef diskRef
       diskId <- resolveOrThrow =<< resolveDisk dr (ssDbPool st)
       nr <- capnpRefToRef toNodeRef
@@ -285,7 +287,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'move (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'move'params {params = CGDisk.DiskMoveParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'move'params {params = CGDisk.DiskMoveParams {..}} -> do
       dr <- capnpDiskRefToRef diskRef
       diskId <- resolveOrThrow =<< resolveDisk dr (ssDbPool st)
       nr <- capnpRefToRef toNodeRef
@@ -304,37 +306,72 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         _ -> throwError resp
 
   diskManager'beginUpload (DiskManagerCap st sup cn) =
-    handleParsed $ \CGDisk.DiskManager'beginUpload'params {params = CGDisk.DiskUploadParams {..}} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'beginUpload'params {params = CGDisk.DiskUploadParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
       policy <- enumOrThrow (fromCapnpUploadIfExists ifExists)
       let expected = T.toLower expectedSha256
       when (policy == UploadUpdate && T.null expected) (throwFailed "update requires expectedSha256")
       when (not (T.null expected) && (T.length expected /= 64 || not (T.all isHexDigit expected))) $
         throwFailed "expectedSha256 must be a SHA-256 hex digest"
-      existing <- either throwFailed pure =<< checkDiskUpload st name fmt policy (emptyToNothing expected)
-      result <- case existing of
-        Just key -> do
+      nodeRef' <- capnpRefToRef node
+      ready <- newEmptyMVar
+      command <- newEmptyMVar
+      completed <- newEmptyMVar
+      _ <- forkIO $ do
+        response <- runAction st cn $ DiskUploadSession name $ \ctx -> do
+          existing <- either throwFailed pure =<< checkDiskUpload st name fmt policy (emptyToNothing expected)
+          case existing of
+            Just key -> do
+              putMVar ready (Right (Left key))
+              pure RespOk
+            Nothing -> do
+              plan <- either throwFailed pure =<< prepareDiskUpload ctx name fmt (emptyToNothing path) ephemeral (P.unRef nodeRef') (emptyToNothing sourcePath)
+              agent <- either throwFailed pure =<< lookupNodeAgent st (dupNodeId plan)
+              sink <- either (throwFailed . T.pack . show) pure =<< NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
+              written <- newIORef False
+              let abort = void $ try @SomeException $ callSink #abort CGS.ByteSink'abort'params sink
+              ( do
+                  putMVar ready (Right (Right sink))
+                  finish <- takeMVar command
+                  case finish of
+                    Nothing -> pure (RespError "Upload aborted")
+                    Just digest -> do
+                      callSink #end CGS.ByteSink'end'params sink
+                      writeIORef written True
+                      runActionAsSubtask ctx (DiskUploadFinalize plan digest)
+                )
+                `finally` ( do
+                              abort
+                              owned <- readIORef written
+                              when owned $ void (executeWithImageLeases (ctx {acIgnoreCancellation = True}) (DiskUploadDiscard plan))
+                          )
+        void $ tryPutMVar ready (Left response)
+        putMVar completed response
+      prepared <- takeMVar ready `onException` void (tryPutMVar command Nothing)
+      result <- case prepared of
+        Left response -> throwError response
+        Right (Left key) -> do
           disk <- export @CGDisk.Disk sup (DiskCap st sup (fromSqlKey key) cn)
           pure (CGDisk.DiskUploadResult'existing disk)
-        Nothing -> do
-          nodeRef' <- capnpRefToRef node
-          plan <- either throwFailed pure =<< prepareDiskUpload st cn name fmt (emptyToNothing path) ephemeral (P.unRef nodeRef') (emptyToNothing sourcePath)
-          agent <- either throwFailed pure =<< lookupNodeAgent st (dupNodeId plan)
-          sink <- either (throwFailed . T.pack . show) pure =<< NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
+        Right (Right sink) -> do
           context <- newMVar (Just hashInit)
-          upload <- export @CGDisk.DiskUpload sup (DiskUploadCap st sup cn plan sink context (emptyToNothing expected))
+          let finish digest = do
+                void $ tryPutMVar command (Just digest)
+                readMVar completed
+              abort = void $ tryPutMVar command Nothing
+          upload <- export @CGDisk.DiskUpload sup (DiskUploadCap st sup cn sink context (emptyToNothing expected) finish abort) `onException` abort
           pure (CGDisk.DiskUploadResult'upload upload)
       pure CGDisk.DiskManager'beginUpload'results {CGDisk.result = CGDisk.DiskUploadResult result}
 
   diskManager'mediaEject (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'mediaEject'params {..} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'mediaEject'params {..} -> do
       resp <- runAction st cn (MediaEject {meDriveId = driveId})
       case resp of
         RespDiskOk -> pure CGDisk.DiskManager'mediaEject'results
         _ -> throwError resp
 
   diskManager'mediaChange (DiskManagerCap st _ cn) =
-    handleParsed $ \CGDisk.DiskManager'mediaChange'params {..} -> do
+    handleParsedAsync $ \CGDisk.DiskManager'mediaChange'params {..} -> do
       newDiskRef' <- capnpDiskRefToRef newDiskRef
       newDiskId <- resolveOrThrow =<< resolveDisk newDiskRef' (ssDbPool st)
       resp <- runAction st cn (MediaChange {mcDriveId = driveId, mcDiskId = newDiskId})
@@ -355,17 +392,19 @@ data DiskUploadCap = DiskUploadCap
   { ducState :: !ServerState
   , ducSup :: !Supervisor
   , ducClientName :: !T.Text
-  , ducPlan :: !DiskUploadPlan
   , ducSink :: !(C.Client CGS.ByteSink)
   , ducContext :: !(MVar (Maybe (Context SHA256)))
   , ducExpected :: !(Maybe T.Text)
+  , ducFinish :: !(T.Text -> IO Response)
+  , ducAbort :: !(IO ())
   }
 
-instance SomeServer DiskUploadCap
+instance SomeServer DiskUploadCap where
+  shutdown = ducAbort
 
 instance CGDisk.DiskUpload'server_ DiskUploadCap where
   diskUpload'write cap =
-    handleParsed $ \CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} -> do
+    handleParsedAsync $ \CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} -> do
       outcome <- modifyMVar (ducContext cap) $ \case
         Nothing -> throwFailed "Upload session is closed"
         Just current -> do
@@ -376,23 +415,21 @@ instance CGDisk.DiskUpload'server_ DiskUploadCap where
               let !updated = hashUpdate current chunk
               pure (Just updated, Right ())
             Left err -> do
-              _ <- try @SomeException $ callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+              ducAbort cap
               pure (Nothing, Left err)
       either throwIO pure outcome
       pure CGDisk.DiskUpload'write'results
 
   diskUpload'finish cap =
-    handleParsed $ \_ -> do
+    handleParsedAsync $ \_ -> do
       -- Close under the same lock as writes: no chunk can race finalization.
       digest <- modifyMVar (ducContext cap) $ \case
         Nothing -> throwFailed "Upload session is closed"
         Just current -> pure (Nothing, T.pack (show (hashFinalize current :: Digest SHA256)))
       when (maybe False (/= digest) (ducExpected cap)) $ do
-        callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+        ducAbort cap
         throwFailed "Uploaded bytes do not match expectedSha256"
-      callSink #end CGS.ByteSink'end'params (ducSink cap)
-        `onException` callSink #abort CGS.ByteSink'abort'params (ducSink cap)
-      resp <- runAction (ducState cap) (ducClientName cap) (DiskUploadFinalize (ducPlan cap) digest)
+      resp <- ducFinish cap digest `onException` ducAbort cap
       case resp of
         RespDiskCreated did -> do
           disk <- export @CGDisk.Disk (ducSup cap) (DiskCap (ducState cap) (ducSup cap) did (ducClientName cap))
@@ -400,11 +437,11 @@ instance CGDisk.DiskUpload'server_ DiskUploadCap where
         _ -> throwError resp
 
   diskUpload'abort cap =
-    handleParsed $ \_ -> do
+    handleParsedAsync $ \_ -> do
       modifyMVar_ (ducContext cap) $ \context -> do
         case context of
           Nothing -> pure ()
-          Just _ -> callSink #abort CGS.ByteSink'abort'params (ducSink cap)
+          Just _ -> ducAbort cap
         pure Nothing
       pure CGDisk.DiskUpload'abort'results
 
@@ -422,27 +459,27 @@ data DiskCap = DiskCap
 instance SomeServer DiskCap
 
 instance CGDisk.Disk'server_ DiskCap where
-  disk'show (DiskCap st _ eid _) = handleParsed $ \_ -> do
+  disk'show (DiskCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleDiskShow st eid
     case resp of
       RespDiskInfo info ->
         pure CGDisk.Disk'show'results {CGDisk.info = toCapnpDiskImageInfo info}
       _ -> throwError resp
 
-  disk'delete (DiskCap st _ eid cn) = handleParsed $ \_ -> do
+  disk'delete (DiskCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (DiskDelete eid)
     case resp of
       RespDiskOk -> pure CGDisk.Disk'delete'results
       _ -> throwError resp
 
-  disk'resize (DiskCap st _ eid cn) = handleParsed $ \CGDisk.Disk'resize'params {..} -> do
+  disk'resize (DiskCap st _ eid cn) = handleParsedAsync $ \CGDisk.Disk'resize'params {..} -> do
     resp <- runAction st cn (DiskResize {drzDiskId = eid, drzNewSize = newSize})
     case resp of
       RespDiskOk -> pure CGDisk.Disk'resize'results
       _ -> throwError resp
 
   disk'snapshotCreate (DiskCap st sup eid cn) =
-    handleParsed $ \CGDisk.Disk'snapshotCreate'params {..} -> do
+    handleParsedAsync $ \CGDisk.Disk'snapshotCreate'params {..} -> do
       resp <-
         runAction
           st
@@ -459,7 +496,7 @@ instance CGDisk.Disk'server_ DiskCap where
           pure CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = client, CGDisk.snapshotId = sid}
         _ -> throwError resp
 
-  disk'snapshotList (DiskCap st _ eid _) = handleParsed $ \_ -> do
+  disk'snapshotList (DiskCap st _ eid _) = handleParsedAsync $ \_ -> do
     resp <- handleSnapshotList st eid
     case resp of
       RespSnapshotList snaps ->
@@ -467,25 +504,25 @@ instance CGDisk.Disk'server_ DiskCap where
       _ -> throwError resp
 
   disk'snapshotGet (DiskCap st sup eid cn) =
-    handleParsed $ \CGDisk.Disk'snapshotGet'params {..} -> do
+    handleParsedAsync $ \CGDisk.Disk'snapshotGet'params {..} -> do
       ref' <- capnpRefToRef ref
       sid <- resolveOrThrow =<< resolveSnapshot ref' eid (ssDbPool st)
       client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid cn)
       pure CGDisk.Disk'snapshotGet'results {CGDisk.snapshot = client}
 
-  disk'tag (DiskCap st _ eid cn) = handleParsed $ \CGDisk.Disk'tag'params {..} -> do
+  disk'tag (DiskCap st _ eid cn) = handleParsedAsync $ \CGDisk.Disk'tag'params {..} -> do
     resp <- runAction st cn (DiskTag eid tag)
     case resp of
       RespDiskOk -> pure CGDisk.Disk'tag'results
       _ -> throwError resp
 
-  disk'untag (DiskCap st _ eid cn) = handleParsed $ \CGDisk.Disk'untag'params {..} -> do
+  disk'untag (DiskCap st _ eid cn) = handleParsedAsync $ \CGDisk.Disk'untag'params {..} -> do
     resp <- runAction st cn (DiskUntag eid tag)
     case resp of
       RespDiskOk -> pure CGDisk.Disk'untag'results
       _ -> throwError resp
 
-  disk'registerPlacement (DiskCap st _ eid cn) = handleParsed $ \CGDisk.Disk'registerPlacement'params {..} -> do
+  disk'registerPlacement (DiskCap st _ eid cn) = handleParsedAsync $ \CGDisk.Disk'registerPlacement'params {..} -> do
     nodeRef <- capnpRefToRef node
     nid <- resolveOrThrow =<< resolveNode nodeRef (ssDbPool st)
     resp <- runAction st cn (DiskRegisterPlacement eid nid path)
@@ -493,7 +530,7 @@ instance CGDisk.Disk'server_ DiskCap where
       RespDiskOk -> pure CGDisk.Disk'registerPlacement'results
       _ -> throwError resp
 
-  disk'refresh (DiskCap st _ eid cn) = handleParsed $ \_ -> do
+  disk'refresh (DiskCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (DiskRefresh eid)
     case resp of
       RespDiskInfo info ->
@@ -521,7 +558,7 @@ data SnapshotCap = SnapshotCap
 instance SomeServer SnapshotCap
 
 instance CGDisk.Snapshot'server_ SnapshotCap where
-  snapshot'show (SnapshotCap st diskId sid _) = handleParsed $ \_ -> do
+  snapshot'show (SnapshotCap st diskId sid _) = handleParsedAsync $ \_ -> do
     resp <- handleSnapshotList st diskId
     case resp of
       RespSnapshotList snaps ->
@@ -530,13 +567,13 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
             pure CGDisk.Snapshot'show'results {CGDisk.info = toCapnpSnapshotInfo s}
           [] -> throwError RespSnapshotNotFound
       _ -> throwError resp
-  snapshot'delete (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
+  snapshot'delete (SnapshotCap st diskId sid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (SnapshotDelete {sdelDiskId = diskId, sdelSnapRef = P.Ref (T.pack (show sid))})
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'delete'results
       _ -> throwError resp
   snapshot'rollback (SnapshotCap st diskId sid cn) =
-    handleParsed $ \CGDisk.Snapshot'rollback'params {..} -> do
+    handleParsedAsync $ \CGDisk.Snapshot'rollback'params {..} -> do
       let snapRefT = P.Ref (T.pack (show sid))
       resp <-
         if autoStop
@@ -553,7 +590,7 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
       case resp of
         RespSnapshotOk -> pure CGDisk.Snapshot'rollback'results
         _ -> throwError resp
-  snapshot'merge (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
+  snapshot'merge (SnapshotCap st diskId sid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (SnapshotMerge {smrDiskId = diskId, smrSnapRef = P.Ref (T.pack (show sid))})
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'merge'results

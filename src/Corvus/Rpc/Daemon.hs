@@ -36,7 +36,7 @@ import Control.Monad (void)
 import Corvus.Action (Action (..), acApplySink, classifyResponse, createTaskRecord, mkActionContext, runAndFinalize)
 import Corvus.Handlers.Apply.Execute (ApplyAction (..))
 import Corvus.Handlers.Apply.Validation (handleApplyValidate)
-import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
+import Corvus.Handlers.Build (BuildPipelineAction (..), BuildSink)
 import Corvus.Handlers.Core (handlePing, handleShutdown, handleStatus)
 import Corvus.Model
 import Corvus.Protocol (Response (..))
@@ -61,7 +61,7 @@ import Corvus.Wire.Common (toCapnpStatusInfo)
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (insert, update, (=.))
+import Database.Persist (insert)
 import Database.Persist.Sql (runSqlPool)
 import Supervisors (Supervisor)
 
@@ -187,27 +187,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
         { CGCorvus.yaml = yamlText
         , CGCorvus.sink = sinkClient
         } -> do
-          startedAt <- getCurrentTime
-          let pool = ssDbPool st
-          taskKey <-
-            runSqlPool
-              ( insert
-                  Task
-                    { taskParent = Nothing
-                    , taskStartedAt = startedAt
-                    , taskFinishedAt = Nothing
-                    , taskSubsystem = SubBuild
-                    , taskEntityId = Nothing
-                    , taskEntityName = Nothing
-                    , taskCommand = "build"
-                    , taskResult = TaskRunning
-                    , taskMessage = Nothing
-                    , taskClientName = cn
-                    }
-              )
-              pool
-          let tid = fromSqlKey taskKey
-              pushEvent ev = do
+          let pushEvent ev = do
                 let cev = toCapnpBuildEvent ev
                     params = CGS.BuildEventSink'push'params {CGS.event = cev}
                 _ <- try (callSink #push params sinkClient) :: IO (Either SomeException ())
@@ -218,42 +198,22 @@ instance CGCorvus.Daemon'server_ DaemonCap where
                   try (callSink #end CGS.BuildEventSink'end'params sinkClient)
                     :: IO (Either SomeException ())
                 pure ()
+              sink :: BuildSink
+              sink = pushEvent
+              action = BuildPipelineAction yamlText sink
+          taskKey <- createTaskRecord st cn action Nothing
+          let tid = fromSqlKey taskKey
+              ctx = mkActionContext st taskKey cn
+          _ <- newTaskCancelToken st tid
           void $ async $ do
-            let sink :: BuildSink
-                sink = pushEvent
-            resp <- try (runBuildPipeline st taskKey sink yamlText) :: IO (Either SomeException Response)
-            finishedAt <- getCurrentTime
+            myThreadId >>= registerTaskThread st tid
+            resp <- runAndFinalize st ctx action
             case resp of
-              Right r -> do
-                let (taskRes, taskMsg) = classifyResponse r
-                runSqlPool
-                  ( update
-                      taskKey
-                      [ TaskFinishedAt =. Just finishedAt
-                      , TaskResult =. taskRes
-                      , TaskMessage =. taskMsg
-                      ]
-                  )
-                  pool
-                case r of
-                  RespBuildResult br -> finalize (PB.PipelineEnd br)
-                  RespError msg -> do
-                    pushEvent (PB.BuildLogLine ("build error: " <> msg))
-                    finalize (PB.PipelineEnd (PB.BuildResult []))
-                  _ -> finalize (PB.PipelineEnd (PB.BuildResult []))
-              Left e -> do
-                let txt = T.pack (show e)
-                runSqlPool
-                  ( update
-                      taskKey
-                      [ TaskFinishedAt =. Just finishedAt
-                      , TaskResult =. TaskError
-                      , TaskMessage =. Just txt
-                      ]
-                  )
-                  pool
-                pushEvent (PB.BuildLogLine ("internal error: " <> txt))
+              RespBuildResult br -> finalize (PB.PipelineEnd br)
+              RespError msg -> do
+                pushEvent (PB.BuildLogLine ("build error: " <> msg))
                 finalize (PB.PipelineEnd (PB.BuildResult []))
+              _ -> finalize (PB.PipelineEnd (PB.BuildResult []))
           pure CGCorvus.Daemon'build'results {CGCorvus.taskId = tid}
 
 -- | Synchronous apply path. Blocks until the pipeline completes

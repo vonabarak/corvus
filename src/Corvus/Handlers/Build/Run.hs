@@ -12,7 +12,7 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT)
-import Corvus.Action (mkActionContext, runActionAsSubtask)
+import Corvus.Action (ActionContext (..), mkActionContext, runActionAsSubtask)
 import Corvus.Handlers.Build.Artifact (publishArtifact)
 import Corvus.Handlers.Build.Installer (runInstallerPhase)
 import Corvus.Handlers.Build.Provisioner (runProvisioners)
@@ -29,8 +29,7 @@ import qualified Data.Text as T
 -- (installer wait OR QGA-driven provisioners + clean stop), then
 -- publish the artifact.
 runBakeAndPublish
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> Int64
   -- ^ bake VM id
@@ -42,13 +41,15 @@ runBakeAndPublish
   -- ^ needs flatten?
   -> Build
   -> LoggingT IO (Either Text Int64)
-runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId target needFlatten b = do
+runBakeAndPublish ctx sink vmIdLong strategy artifactDiskId target needFlatten b = do
+  let state = acState ctx
+      parentTaskId = acTaskId ctx
   -- For QGA-driven strategies VmStart blocks until the guest agent
   -- first-pings; for the installer strategy the template has
   -- guestAgent:false so VmStart returns as soon as QEMU is up.
   startResp <-
     liftIO $
-      runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStart vmIdLong)
+      runActionAsSubtask ctx (VmStart vmIdLong)
   case classifyStartResp startResp of
     Left err -> pure $ Left $ "start bake VM: " <> err
     Right () -> case strategy of

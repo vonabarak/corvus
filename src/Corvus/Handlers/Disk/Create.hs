@@ -11,6 +11,7 @@ where
 import qualified Control.Monad.IO.Class
 import qualified Control.Monad.Logger
 import Corvus.Action
+import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Images
 
 import Control.Monad (void)
@@ -178,6 +179,9 @@ data DiskRegister = DiskRegister
   }
 
 instance Action DiskRegister where
+  actionImageResources state a = do
+    source <- maybe (pure []) (imageResources state SharedImage) (drgBackingDiskId a)
+    pure $ source ++ familyResource (drgName a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "register"
   actionEntityName = Just . drgName

@@ -45,7 +45,7 @@ spec = describe "Build.Cleanup" $ do
       push stack "first" (modifyIORef ref (1 :))
       push stack "boom" (throwIO (ErrorCall "destructor failed"))
       push stack "last" (modifyIORef ref (2 :))
-      runQuiet (runCleanup stack)
+      runQuiet (runCleanup stack) `shouldThrow` anyErrorCall
       result <- readIORef ref
       -- last runs first (top), then 'boom' fails (logged), then first runs
       result `shouldBe` [1, 2]
@@ -73,6 +73,14 @@ spec = describe "Build.Cleanup" $ do
             stack
             (pure (Right ()) :: LoggingT IO (Either String ()))
       readIORef ref `shouldReturn` 1
+
+    it "reports cleanup failure after a successful build" $ do
+      stack <- newCleanupStack
+      push stack "boom" (throwIO (ErrorCall "cleanup failed"))
+      result <- runQuiet $ withCleanup CleanupAlways stack (pure (Right ()) :: LoggingT IO (Either String ()))
+      case result of
+        Left ex -> show ex `shouldContain` "cleanup failed"
+        Right _ -> expectationFailure "cleanup failure was hidden"
 
     it "runs cleanup on failure when mode=always" $ do
       ref <- newIORef (0 :: Int)

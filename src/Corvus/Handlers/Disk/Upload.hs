@@ -5,6 +5,8 @@
 module Corvus.Handlers.Disk.Upload
   ( DiskUploadPlan (..)
   , DiskUploadFinalize (..)
+  , DiskUploadSession (..)
+  , DiskUploadDiscard (..)
   , checkDiskUpload
   , prepareDiskUpload
   )
@@ -27,7 +29,7 @@ import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist.Sql (runSqlPool)
+import Database.Persist.Sql (get, runSqlPool)
 
 -- | Read-only policy decision, before reserving an ID or opening a writer.
 -- A tagged publication checks that tag, not the family's latest version.
@@ -63,33 +65,34 @@ data DiskUploadPlan = DiskUploadPlan
   }
 
 prepareDiskUpload
-  :: ServerState -> Text -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> Maybe Text -> IO (Either Text DiskUploadPlan)
-prepareDiskUpload state clientName name format mPath ephemeral nodeRefText sourcePath =
-  case sanitizeDiskName name of
-    Left err -> pure (Left err)
-    Right safeName -> do
-      let placeOn nid = do
-            basePath <- nodeBasePathFor state nid
-            reserved <- runAction state clientName (DiskUploadReserveId safeName)
-            case reserved of
-              RespDiskCreated rawId -> do
-                let imageId = M.toSqlKey rawId
-                defaultPath <- resolveDiskFilePath imageId basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
-                pure (Right (DiskUploadPlan imageId safeName format ephemeral nid defaultPath sourcePath (makeRelativeToBase basePath defaultPath)))
-              _ -> pure (Left "Failed to reserve an image ID for upload")
-      -- Empty text or capnp's unset-EntityRef default ('byId 0')
-      -- both mean "no explicit placement" — defer to the scheduler.
-      if T.null nodeRefText || nodeRefText == "0"
-        then do
-          eNid <- pickNodeForDisk state
-          case eNid of
-            Left err -> pure (Left err)
-            Right nid -> placeOn nid
-        else do
-          r <- resolveNode (Ref nodeRefText) (ssDbPool state)
-          case r of
-            Left re -> pure (Left (resolveErrorMessage re))
-            Right nidRaw -> placeOn (M.toSqlKey nidRaw)
+  :: ActionContext -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> Maybe Text -> IO (Either Text DiskUploadPlan)
+prepareDiskUpload ctx name format mPath ephemeral nodeRefText sourcePath =
+  let state = acState ctx
+   in case sanitizeDiskName name of
+        Left err -> pure (Left err)
+        Right safeName -> do
+          let placeOn nid = do
+                basePath <- nodeBasePathFor state nid
+                reserved <- runActionAsSubtask ctx (DiskUploadReserveId safeName)
+                case reserved of
+                  RespDiskCreated rawId -> do
+                    let imageId = M.toSqlKey rawId
+                    defaultPath <- resolveDiskFilePath imageId basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
+                    pure (Right (DiskUploadPlan imageId safeName format ephemeral nid defaultPath sourcePath (makeRelativeToBase basePath defaultPath)))
+                  _ -> pure (Left "Failed to reserve an image ID for upload")
+          -- Empty text or capnp's unset-EntityRef default ('byId 0')
+          -- both mean "no explicit placement" — defer to the scheduler.
+          if T.null nodeRefText || nodeRefText == "0"
+            then do
+              eNid <- pickNodeForDisk state
+              case eNid of
+                Left err -> pure (Left err)
+                Right nid -> placeOn nid
+            else do
+              r <- resolveNode (Ref nodeRefText) (ssDbPool state)
+              case r of
+                Left re -> pure (Left (resolveErrorMessage re))
+                Right nidRaw -> placeOn (M.toSqlKey nidRaw)
 
 -- Reserving an upload ID is a mutation even though no image is exposed yet.
 newtype DiskUploadReserveId = DiskUploadReserveId Text
@@ -145,3 +148,28 @@ handleDiskUploadFinalize state plan digest = runServerLogging state $ do
     discard err = do
       _ <- liftIO $ deleteImageViaAgent state (dupNodeId plan) (dupFilePath plan)
       pure (RespError err)
+
+-- | The upload worker owns the family reservation until finish or abort.
+data DiskUploadSession = DiskUploadSession Text (ActionContext -> IO Response)
+
+instance Action DiskUploadSession where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "upload"
+  actionEntityName (DiskUploadSession name _) = Just name
+  actionExecute ctx (DiskUploadSession _ operation) = operation ctx
+
+-- | Remove an unpublished completed file as well as abandoned partial writes.
+newtype DiskUploadDiscard = DiskUploadDiscard DiskUploadPlan
+
+instance Action DiskUploadDiscard where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "upload-discard"
+  actionEntityName (DiskUploadDiscard plan) = Just (dupName plan)
+  actionExecute ctx (DiskUploadDiscard plan) = do
+    let state = acState ctx
+    published <- runSqlPool (get (dupImageId plan)) (ssDbPool state)
+    case published of
+      Just _ -> pure RespOk
+      Nothing -> do
+        _ <- deleteImageViaAgent state (dupNodeId plan) (dupFilePath plan)
+        pure RespOk

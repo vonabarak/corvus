@@ -35,7 +35,6 @@ import Corvus.Wire.Enums
 import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.Errors (showWireError)
 import Corvus.Wire.Task (toCapnpTaskInfo)
-import Data.Foldable (for_)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Supervisors (Supervisor)
@@ -122,13 +121,19 @@ instance CGT.TaskManager'server_ TaskManagerCap where
   -- blocked in an in-flight RPC, hard-interrupt it with a
   -- 'TaskCancelledException'. The throwTo is forked so this RPC
   -- returns once the request is recorded, not once the task stops.
-  -- A no-op for tasks that already finished (no registry entry).
+  -- Report tasks without an active cancellation token instead of
+  -- claiming that an untracked or already-finished task was cancelled.
   taskManager'cancel (TaskManagerCap st _) =
     handleParsed $ \CGT.TaskManager'cancel'params {CGT.taskId = tid} -> do
       mTok <- lookupTaskCancelToken st tid
-      for_ mTok $ \tok -> atomically (writeTVar tok True)
+      tok <- case mTok of
+        Just active -> pure active
+        Nothing -> throwWireError InvalidTransition "Task is not active in this daemon; cancellation was not requested"
+      atomically (writeTVar tok True)
       mTh <- lookupTaskThread st tid
-      for_ mTh $ \th -> void $ forkIO $ throwTo th TaskCancelledException
+      case mTh of
+        Just th -> void $ forkIO $ throwTo th TaskCancelledException
+        Nothing -> pure ()
       pure CGT.TaskManager'cancel'results
 
 data TaskCap = TaskCap

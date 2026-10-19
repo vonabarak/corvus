@@ -12,6 +12,12 @@
 module Corvus.Action
   ( -- * Context
     ActionContext (..)
+  , withContextImageLeases
+  , executeWithImageLeases
+  , vmImageResources
+  , imageResources
+  , imageFamilyResources
+  , familyResource
   , mkActionContext
 
     -- * Cancellation
@@ -50,7 +56,9 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (Exception, SomeException, fromException, throwIO, try)
 import Control.Monad (when)
 import qualified Control.Monad.Catch as MC
-import Corvus.ImageOperationGuard (withImageOperationGuard)
+import Corvus.DiskSelector (publicationSelector)
+import Corvus.Handlers.Disk.Db (getBackingChainIds)
+import Corvus.ImageOperationGuard
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -91,6 +99,9 @@ data ActionContext = ActionContext
   , acTaskId :: !TaskId
   , acClientName :: !Text
   , acApplySink :: !ApplySink
+  , acImageLeases :: ![ImageLease]
+  , acIgnoreCancellation :: !Bool
+  -- ^ Cleanup must finish releasing resources after the root is cancelled.
   , acRootTaskId :: !TaskId
   -- ^ The top-level task of this action's tree. Set once when the
   -- root context is built and preserved across subtask contexts
@@ -112,6 +123,8 @@ mkActionContext state taskId clientName =
     , acTaskId = taskId
     , acClientName = clientName
     , acApplySink = silentApplySink
+    , acImageLeases = []
+    , acIgnoreCancellation = False
     , acRootTaskId = taskId
     }
 
@@ -128,6 +141,7 @@ instance Exception TaskCancelledException
 -- Resolves the token from the registry by the root task id, so it
 -- is correct for subtasks too.
 isCancelled :: ActionContext -> IO Bool
+isCancelled ctx | acIgnoreCancellation ctx = pure False
 isCancelled ctx = do
   mTok <- lookupTaskCancelToken (acState ctx) (fromSqlKey (acRootTaskId ctx))
   maybe (pure False) readTVarIO mTok
@@ -149,8 +163,12 @@ throwIfCancelled ctx = do
 -- Each handler is a data type that implements this class.
 class Action a where
   -- | Which subsystem this action belongs to (vm, disk, network, etc.)
-  actionExclusiveImages :: a -> Bool
-  actionExclusiveImages _ = False
+  actionImageResources :: ServerState -> a -> IO [(ImageResource, ImageAccess)]
+  actionImageResources state action
+    | actionSubsystem action `elem` [SubDisk, SubSnapshot] = do
+        versions <- maybe (pure []) (\key -> (++) <$> imageResources state ExclusiveImage (fromIntegral key) <*> imageFamilyResources state (fromIntegral key)) (actionEntityId action)
+        pure $ versions ++ if actionSubsystem action == SubDisk then maybe [] familyResource (actionEntityName action) else []
+    | otherwise = pure []
 
   actionSubsystem :: a -> TaskSubsystem
 
@@ -311,7 +329,7 @@ runAndFinalizeResult :: (Action a) => ServerState -> ActionContext -> a -> IO (E
 runAndFinalizeResult state ctx action = do
   let taskKey = acTaskId ctx
       pool = ssDbPool state
-  result <- try (withImageOperationGuard (ssImageOperations state) (actionExclusiveImages action) (actionExecute ctx action))
+  result <- try (executeWithImageLeases ctx action)
   finishTime <- getCurrentTime
   -- Was cancellation requested for this task tree? Read BEFORE
   -- unregistering, since the top-level task's token is dropped by
@@ -370,7 +388,9 @@ runAndFinalizeResult state ctx action = do
           )
           pool
         pushTaskFinished state (fromSqlKey taskKey) TaskError (Just errMsg)
-        let errResp = RespError $ "Internal error: " <> errMsg
+        let errResp = RespError $ case fromException err of
+              Just (ImageLeaseTimeout message) -> message
+              Nothing -> "Internal error: " <> errMsg
         pure $ Left errResp
 
 -- | Did this exception originate from a task cancellation?
@@ -402,7 +422,7 @@ orElse Nothing b = b
 executeCreate :: (Action a) => ActionContext -> a -> TaskId -> IO (Either Text Int64)
 executeCreate parentCtx action taskId = do
   let ctx = parentCtx {acTaskId = taskId}
-  result <- try $ withImageOperationGuard (ssImageOperations (acState ctx)) (actionExclusiveImages action) (actionExecute ctx action)
+  result <- try $ executeWithImageLeases ctx action
   case result of
     Left (err :: SomeException) -> pure $ Left $ T.pack $ show err
     Right resp -> do
@@ -606,3 +626,50 @@ pushTaskProgress state tid label (completed, total) = do
               , CGS.label = label
               }
       }
+
+-- | Include ancestors so deleting or rewriting a backing file cannot race reads.
+imageResources :: ServerState -> ImageAccess -> Int64 -> IO [(ImageResource, ImageAccess)]
+imageResources state mode imageId = do
+  ancestors <- runSqlPool (getBackingChainIds imageId) (ssDbPool state)
+  pure $ (ImageVersion imageId, mode) : [(ImageVersion (fromSqlKey key), SharedImage) | key <- ancestors]
+
+familyResource :: Text -> [(ImageResource, ImageAccess)]
+familyResource name = case publicationSelector name of
+  Left _ -> []
+  Right (family, _) -> [(ImageFamily family, ExclusiveImage)]
+
+executeWithImageLeases :: (Action a) => ActionContext -> a -> IO Response
+executeWithImageLeases ctx action = do
+  throwIfCancelled ctx
+  resources <- actionImageResources (acState ctx) action
+  withImageLeases
+    (ssImageOperations (acState ctx))
+    60000000
+    ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))) <> " (" <> actionCommand action <> ")")
+    (acImageLeases ctx)
+    resources
+    $ \leases -> do
+      current <- actionImageResources (acState ctx) action
+      if Map.fromListWith max current /= Map.fromListWith max resources
+        then pure (RespError "Image dependencies changed while waiting for access; retry the task")
+        else actionExecute (ctx {acImageLeases = leases}) action
+
+imageFamilyResources :: ServerState -> Int64 -> IO [(ImageResource, ImageAccess)]
+imageFamilyResources state imageId = do
+  family <- runSqlPool (fmap diskImageName <$> get (toSqlKey imageId :: DiskImageId)) (ssDbPool state)
+  pure $ maybe [] familyResource family
+
+vmImageResources :: ServerState -> Int64 -> IO [(ImageResource, ImageAccess)]
+vmImageResources state vmId = do
+  drives <- runSqlPool (selectList [DriveVmId ==. toSqlKey vmId] []) (ssDbPool state)
+  concat <$> mapM (imageResources state ExclusiveImage . fromSqlKey) [key | Entity _ drive <- drives, Just key <- [driveDiskImageId drive]]
+
+withContextImageLeases :: ActionContext -> [(ImageResource, ImageAccess)] -> (ActionContext -> IO a) -> IO a
+withContextImageLeases ctx resources operation =
+  withImageLeases
+    (ssImageOperations (acState ctx))
+    60000000
+    ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))))
+    (acImageLeases ctx)
+    resources
+    $ \leases -> operation (ctx {acImageLeases = leases})

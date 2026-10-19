@@ -37,22 +37,16 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Vm as CGVM
 import Control.Concurrent (threadDelay)
 import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM
-  ( TVar
-  , atomically
-  , modifyTVar'
-  , newTVarIO
-  , readTVarIO
-  , writeTVar
-  )
+import Control.Concurrent.STM (atomically, readTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (foldM, forever)
+import Control.Monad (forever)
 import Control.Monad.Logger (logWarnN, runStderrLoggingT)
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.NodeStats as NS
 import qualified Corvus.Node.ProcStats as PS
 import qualified Corvus.Node.Qmp as Qmp
+import Corvus.Node.StatusSubscribers (SubscriberRegistry, dispatchSubscribers, newSubscriberRegistry, registerSubscriber)
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Rpc.Streams (callSink)
@@ -71,7 +65,7 @@ import System.Timeout (timeout)
 -- 'subscribeVmStatus'; the ticker prunes dead ones on dispatch
 -- failure.
 data Subscribers = Subscribers
-  { subsList :: TVar [C.Client CGNA.VmStatusSink]
+  { subsList :: SubscriberRegistry (C.Client CGNA.VmStatusSink)
   , subsPriorSample :: IORef (Map.Map Int64 POSIXTime)
   -- ^ Wall-clock of the previous successful stats sample per VM.
   -- @intervalMillis = now - prior@. First sample for a VM has
@@ -80,11 +74,10 @@ data Subscribers = Subscribers
   }
 
 newSubscribers :: IO Subscribers
-newSubscribers = Subscribers <$> newTVarIO [] <*> newIORef Map.empty
+newSubscribers = Subscribers <$> newSubscriberRegistry <*> newIORef Map.empty
 
 addSubscriber :: Subscribers -> C.Client CGNA.VmStatusSink -> IO ()
-addSubscriber Subscribers {subsList = ref} sink =
-  atomically $ modifyTVar' ref (sink :)
+addSubscriber Subscribers {subsList = ref} = registerSubscriber ref
 
 -- | Run the periodic snapshot pusher. Blocks forever; spawn as
 -- a long-lived async from 'runNodeAgentServer'.
@@ -105,14 +98,8 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = do
     threadDelay (tickIntervalMs * 1000)
     vms <- atomically $ L.readVms ledger
     now <- millisNow
-    -- Build entries in parallel: one stuck guest agent (typically
-    -- a VM whose QGA MVar is held by a long-running vmGuestExec
-    -- from an in-flight build) would otherwise block the entire
-    -- tick via 'mapM', starving every other VM's status push and
-    -- leaving all of them with stale 'healthcheck' timestamps
-    -- ('crv vm list' shows them all as DOWN). Per-VM QGA
-    -- serialisation still applies inside 'buildEntry' for the
-    -- single stuck VM; the rest proceed independently.
+    -- Sample VMs concurrently, with bounded QGA observations in buildEntry:
+    -- the snapshot cannot be dispatched until every entry has completed.
     entries <-
       Async.forConcurrently
         (Map.toList vms)
@@ -200,18 +187,20 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
       -- A timed-out runtime stays errored even if QGA responds later.
       pingResult <-
         if isNothing startupError
-          then E.try @E.SomeException (NGA.guestPing qgaConns cfg vmId)
-          else pure (Right False)
+          -- Include waiting for the per-VM connection lock in the deadline.
+          -- A streaming provisioner can hold that lock for several minutes.
+          then E.try @E.SomeException (timeout 5000000 (NGA.guestPing qgaConns cfg vmId))
+          else pure (Right (Just False))
       let ok = case pingResult of
-            Right b -> b
-            Left _ -> False
+            Right (Just b) -> b
+            _ -> False
       pingedAt <- if ok then millisNow else pure 0
       ifs <-
         if ok
           then do
-            r <- E.try @E.SomeException (NGA.guestNetworkGetInterfaces qgaConns cfg vmId)
+            r <- E.try @E.SomeException (timeout 5000000 (NGA.guestNetworkGetInterfaces qgaConns cfg vmId))
             pure $ case r of
-              Right (Just list) -> list
+              Right (Just (Just list)) -> list
               _ -> []
           else pure []
       let wireIfs = map encodeIf ifs
@@ -379,28 +368,18 @@ encodeIp ip =
 -- otherwise freeze the ticker, since 'callSink' is a blocking
 -- 'callP >>= waitPipeline' round-trip with no built-in deadline.
 dispatch :: Subscribers -> C.Parsed CGNA.VmStatusSnapshot -> IO ()
-dispatch Subscribers {subsList = ref} snapshot = do
-  sinks <- readTVarIO ref
-  remaining <-
-    foldM
-      ( \acc sink -> do
-          r <-
-            E.try @E.SomeException $
-              timeout dispatchTimeoutMicros (deliver sink)
-          case r of
-            Right (Just ()) -> pure (sink : acc)
-            _ -> do
-              let reason = case r of
-                    Left e -> T.pack (show e)
-                    Right Nothing -> "no ACK within 5s"
-              runStderrLoggingT $
-                logWarnN
-                  ("[nodeagent] dropping VmStatusSink: " <> reason)
-              pure acc
-      )
-      []
-      sinks
-  atomically $ writeTVar ref (reverse remaining)
+dispatch Subscribers {subsList = ref} snapshot =
+  dispatchSubscribers ref $ \sink -> do
+    r <- E.try @E.SomeException $ timeout dispatchTimeoutMicros (deliver sink)
+    case r of
+      Right (Just ()) -> pure True
+      _ -> do
+        let reason = case r of
+              Left e -> T.pack (show e)
+              Right Nothing -> "no ACK within 5s"
+        runStderrLoggingT $
+          logWarnN ("[nodeagent] dropping VmStatusSink: " <> reason)
+        pure False
   where
     deliver =
       callSink
@@ -411,7 +390,8 @@ dispatch Subscribers {subsList = ref} snapshot = do
 -- interval — a sink that can't ACK within 5 s is treated as
 -- dead, dropped from the registry, and skipped on subsequent
 -- ticks. The daemon dials the agent and re-subscribes on its
--- next reconnect attempt.
+-- next reconnect attempt. Missing snapshots trigger that reconnect even when
+-- the transport remains alive (45 s freshness deadline in NodeSupervisor).
 dispatchTimeoutMicros :: Int
 dispatchTimeoutMicros = 5000000
 

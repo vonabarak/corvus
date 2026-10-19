@@ -776,7 +776,9 @@ comes back. Use after kernel updates.
 Each ephemeral resource (the bake VM, any temporary disks) registers a
 destructor when it's created. After provisioning completes — whether
 successfully or with a failure — the cleanup pass runs the destructors
-in reverse order.
+in reverse order. Cleanup continues after individual destructor failures and
+logs each error. A cleanup failure makes an otherwise successful build fail;
+an artifact already published remains available.
 
 | `cleanup:`    | on success | on failure |
 |---------------|------------|------------|

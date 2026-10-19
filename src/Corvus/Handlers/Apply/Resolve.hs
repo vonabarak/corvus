@@ -33,4 +33,6 @@ resolveByNameFilter state mkFilter mkNodeFilter localMap name nodeRef = case Map
     pure $ case entities of [e] -> Just (fromSqlKey $ entityKey e); _ -> Nothing
 
 resolveDiskName :: ServerState -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
-resolveDiskName state _ name = fmap (fromSqlKey . entityKey) <$> runSqlPool (imageByName name) (ssDbPool state)
+resolveDiskName state localMap name = case Map.lookup name localMap of
+  Just key -> pure (Just key)
+  Nothing -> fmap (fromSqlKey . entityKey) <$> runSqlPool (imageByName name) (ssDbPool state)
