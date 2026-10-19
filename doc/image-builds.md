@@ -35,12 +35,16 @@ The bake VM has no cloud-init ISO and no SSH keys. Provisioners run via
 `qemu-guest-agent`'s `guest-exec`, so the operator's identity and keys
 never end up baked into the image.
 
-## Hard requirement
+## Guest-agent requirement
 
 > The base **template's bootdisk must already include `qemu-guest-agent`.**
 > Without QGA we cannot run any provisioner. Almost every mainstream cloud
 > image (Debian, Ubuntu, Fedora, Rocky, AlmaLinux, openSUSE) ships with
 > QGA preinstalled or auto-installable on first boot.
+
+The `installer` strategy is an exception: it boots installation media and
+waits for guest-initiated poweroff, without QGA or provisioners. The unattended
+installer can install QGA for subsequent runtime VMs.
 
 ## Running
 
@@ -483,7 +487,9 @@ The template for an `installer` build typically has
 40 GiB blank disk via `strategy: create` as its first drive, and the
 vendor install ISO + any driver ISO as `media: cdrom` drives. See
 [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml)
-for a worked Windows Server 2025 example. Its Makefile prepares the dedicated
+for a worked Windows Server 2025 example, or the
+[AlmaLinux desktop recipe](../yaml/almalinux-10-desktop/README.md) for Linux
+with a predefined Kickstart file. Its Makefile prepares the dedicated
 installation-media import recipes and answer ISO before submitting the pipeline
 (upload answer media → apply bake template → build → apply runtime template).
 
@@ -876,6 +882,11 @@ From-scratch builds:
   bake VM.
 
 Installer builds:
+
+- [AlmaLinux 10 desktop](../yaml/almalinux-10-desktop/README.md) —
+  official DVD plus a separate `OEMDRV` ISO containing a predefined Kickstart
+  file. Installs GNOME with automatic login, VirtIO graphics/sound, and QGA,
+  without cloud-init or external package repositories.
 
 - [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,

@@ -490,9 +490,9 @@ class Topology:
             }
         ]
         # Always attach the host's BaseImages dir. The image's
-        # home-corvus-VMs-BaseImages.mount auto-mounts it under
-        # /home/corvus/VMs/BaseImages, so tests can register pre-baked
-        # images without touching the node. Tolerate a missing host dir
+        # home-corvus-VMs-BaseImagesRO.mount auto-mounts it under
+        # /home/corvus/VMs/BaseImagesRO. BaseImages remains local and
+        # writable for test output. Tolerate a missing host dir
         # (developers may not have built the required images yet) — the
         # daemon doesn't fault if the share is absent, and the
         # `base_images` fixture surfaces a clear error per-test.

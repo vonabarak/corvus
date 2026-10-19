@@ -1,0 +1,16 @@
+[Unit]
+Description=Read-only host BaseImages fixtures over virtiofs
+DefaultDependencies=no
+ConditionVirtualization=|kvm
+ConditionVirtualization=|qemu
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+What=base_images
+Where=/home/corvus/VMs/BaseImagesRO
+Type=virtiofs
+Options=ro,nofail,_netdev
+
+[Install]
+WantedBy=local-fs.target

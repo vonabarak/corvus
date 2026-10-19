@@ -431,6 +431,10 @@ class TestVmMigration(_MigrationCase):
             alpha_state = f"/home/corvus/VMs/{vm_name}/tpm2"
             beta_state = f"/home/corvus/VMs/{vm_name}/tpm2"
             self.node_alpha.run(f"test -d {shlex.quote(alpha_state)}")
+            # Both nodes can read the shared base image directly. Register its
+            # beta placement so migration only transfers the writable overlay
+            # and TPM state, never writes beside the read-only fixture.
+            self.stage_base_images_on(node_index=1)
             tid = vm.migrate(self.beta_name)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
             assert vm.show().node.name == self.beta_name
@@ -782,7 +786,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
     """Migrate tests that boot a real Alpine guest end-to-end.
 
     The class fixture pre-stages the Alpine base image on BOTH alpha
-    and beta — both nodes mount the same ``/home/corvus/VMs/BaseImages``
+    and beta — both nodes mount the same ``/home/corvus/VMs/BaseImagesRO``
     virtiofs share, so adding a ``DiskImageNode`` placement on beta
     costs zero bytes (handled by the daemon's ``mExisting`` branch in
     ``handleDiskRegister``). With both nodes carrying a placement for

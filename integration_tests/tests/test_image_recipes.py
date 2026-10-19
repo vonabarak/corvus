@@ -20,6 +20,8 @@ from .fixtures.image_recipes import RecipeCall, RecipeRunner
 
 RECIPES = {
     "multi-os": "debian-generic:12",
+    "almalinux-10-media": "almalinux-10-dvd-iso",
+    "almalinux-10-desktop": "almalinux-10-desktop-base",
     "corvus-test-node": "corvus-test-node",
     "corvus-test-vm": "corvus-test-vm",
     "debian-nginx": "debian-12-nginx",
@@ -71,7 +73,9 @@ class TestImageRecipes:
         expected = ["multi-os.yml"]
         if recipe == "corvus-test-node":
             expected = ["gentoo-cloud.yml", "gentoo-headless.yml"]
-        if recipe != "multi-os":
+        if recipe.startswith("almalinux-"):
+            expected = ["almalinux-10-media.yml"]
+        if recipe not in {"multi-os", "almalinux-10-media"}:
             expected.append(f"{recipe}.yml")
         builds = publications(recipes)
         assert [call.args[1] for call in builds] == expected
@@ -147,6 +151,7 @@ class TestImageRecipes:
                 "debian",
                 "ubuntu",
                 "almalinux",
+                "almalinux-iso",
                 "freebsd",
                 "alpine-index",
                 "alpine",
@@ -158,7 +163,10 @@ class TestImageRecipes:
     def test_invalid_upstream_stops_consumer(
         self, recipes: RecipeRunner, resource: str, error: str
     ) -> None:
-        result = recipes.run("debian-nginx", "build", env={error: resource})
+        recipe = (
+            "almalinux-10-desktop" if resource == "almalinux-iso" else "debian-nginx"
+        )
+        result = recipes.run(recipe, "build", env={error: resource})
         assert result.returncode != 0
         assert not publications(recipes)
 
@@ -168,6 +176,7 @@ class TestImageRecipes:
             ("corvus-test-node", "gentoo-cloud.yml"),
             ("corvus-test-node", "gentoo-headless.yml"),
             ("corvus-test-vm", "multi-os.yml"),
+            ("almalinux-10-desktop", "almalinux-10-media.yml"),
             ("debian-nginx", "multi-os.yml"),
             ("ubuntu-nginx", "multi-os.yml"),
             ("corvus-monitor", "multi-os.yml"),
@@ -217,6 +226,8 @@ class TestImageRecipes:
             "corvus-test-vm.yml",
             "virtio-win.yml",
             "windows-server-media.yml",
+            "almalinux-10-media.yml",
+            "almalinux-10-desktop.yml",
             "windows-11-desktop.yml",
             "debian-nginx.yml",
             "ubuntu-nginx.yml",
@@ -233,6 +244,9 @@ class TestImageRecipes:
             "corvus-monitor.yml",
         ):
             assert pipelines.index("multi-os.yml") < pipelines.index(consumer)
+        assert pipelines.index("almalinux-10-media.yml") < pipelines.index(
+            "almalinux-10-desktop.yml"
+        )
         assert all(f"image_if_exists={policy}" in call.args for call in builds)
 
     def test_windows_desktop_readiness_avoids_shell_quoting(
@@ -298,8 +312,10 @@ class TestImageRecipes:
                     imports.append(disk)
                     assert disk["ifExists"] == "{{ image_if_exists }}"
                     assert disk["checksum"]["value"]
-        assert len(imports) == (5 if recipe == "multi-os" else 0)
-        if imports:
+        assert len(imports) == (
+            5 if recipe == "multi-os" else 1 if recipe == "almalinux-10-media" else 0
+        )
+        if recipe == "multi-os":
             assert [disk["name"] for disk in imports] == [
                 "debian-generic:12",
                 "ubuntu-server:26.04",
@@ -310,8 +326,10 @@ class TestImageRecipes:
             freebsd = next(disk for disk in imports if disk["name"] == "freebsd:14")
             assert freebsd["checksum"]["target"] == "download"
 
-    @pytest.mark.parametrize("recipe", ["windows-11", "windows-server-2025"])
-    def test_windows_upload_policy_and_import_ownership(
+    @pytest.mark.parametrize(
+        "recipe", ["windows-11", "windows-server-2025", "almalinux-10-desktop"]
+    )
+    def test_installer_upload_policy_and_import_ownership(
         self, recipes: RecipeRunner, recipe: str
     ) -> None:
         doc = yaml.safe_load(
@@ -405,11 +423,12 @@ class TestUploadRecipes:
     @pytest.mark.parametrize(
         "recipe,imports",
         [
+            ("almalinux-10-desktop", ["almalinux-10-media.yml"]),
             ("windows-11", ["virtio-win.yml"]),
             ("windows-server-2025", ["virtio-win.yml", "windows-server-media.yml"]),
         ],
     )
-    def test_windows_dependency_order_and_incremental_answer_media(
+    def test_installer_dependency_order_and_incremental_answer_media(
         self, tmp_path: Path, recipe: str, imports: list[str]
     ) -> None:
         recipes = RecipeRunner(tmp_path)
@@ -421,3 +440,28 @@ class TestUploadRecipes:
             assert [call.args[1] for call in calls] == imports + [recipe + ".yml"]
             assert all(f"image_if_exists={policy}" in call.args for call in calls)
         assert len([call for call in recipes.calls() if call.command == "mkisofs"]) == 1
+
+    def test_kickstart_edit_regenerates_answer_media(self, tmp_path: Path) -> None:
+        recipes = RecipeRunner(tmp_path)
+        directory = recipes.root / "yaml/almalinux-10-desktop"
+        result = recipes.run("almalinux-10-desktop", "ensure")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not (directory / "build/kickstart.iso").exists()
+        for edit in (False, False, True):
+            if edit:
+                source = directory / "ks.cfg"
+                source.write_text(source.read_text() + "\n# changed Kickstart\n")
+                iso_mtime = (directory / "build/kickstart.iso").stat().st_mtime_ns
+                os.utime(source, ns=(iso_mtime + 2_000_000_000,) * 2)
+            result = recipes.run("almalinux-10-desktop", "build")
+            assert result.returncode == 0, result.stdout + result.stderr
+        generated = [call for call in recipes.calls() if call.command == "mkisofs"]
+        assert len(generated) == 2
+        assert all(
+            call.args[call.args.index("-V") + 1] == "OEMDRV" for call in generated
+        )
+        args = publications(recipes)[0].args
+        assert f"almalinux_sha256={SHA256}" in args
+        assert any(
+            arg.endswith("/AlmaLinux-10-latest-x86_64_v2-dvd.iso") for arg in args
+        )

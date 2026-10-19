@@ -25,7 +25,8 @@ Outer Corvus daemon
     v
 Test node VM
   /opt/corvus/bin     <- host stack install bin dir, read-only
-  /home/corvus/VMs/BaseImages <- host ~/VMs/BaseImages, read-only
+  /home/corvus/VMs/BaseImagesRO <- host ~/VMs/BaseImages, read-only
+  /home/corvus/VMs/BaseImages   <- test-node storage, writable
   corvus.service      <- inner daemon
   corvus-nodeagent.service
   corvus-netd.service
@@ -97,7 +98,13 @@ make image-ensure IMAGE=node
 make image-ensure IMAGE=vm
 make image-ensure IMAGE=windows
 make image-ensure IMAGE=installer
+make image-ensure IMAGE=almalinux-10-media
 ```
+
+The AlmaLinux installer test creates Kickstart media with `mkisofs` in a
+temporary directory on the test host and uploads it to the test node. It installs
+the real GNOME desktop and may take up to an hour; no prebuilt
+`almalinux-10-desktop` image is needed.
 
 Use `make image-list` to list fixture names. `make image-check IMAGE=<name>`
 checks the declared outputs. `make image-rebuild IMAGE=<name>` publishes new
@@ -106,7 +113,8 @@ local intermediates. The [image guide](../doc/test-images.md) describes each rec
 
 Images are registered with the outer daemon under `~/VMs/BaseImages`; generated
 filenames include the image ID. The test node mounts that directory read-only
-at `/home/corvus/VMs/BaseImages`. Each test class snapshots the outer catalogue's
+at `/home/corvus/VMs/BaseImagesRO`. Test-generated images are written to the
+node's `/home/corvus/VMs/BaseImages`. Each test class snapshots the outer catalogue's
 `latest` versions and stages those exact files on all its inner nodes. Publishing
 a replacement during a class does not change its selected backing files.
 
@@ -383,8 +391,8 @@ scripts/ssh-it <node> /opt/corvus/bin/corvus --version
 The base-image mount should expose host images:
 
 ```sh
-scripts/ssh-it <node> ls -la /home/corvus/VMs/BaseImages
-scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImages
+scripts/ssh-it <node> ls -la /home/corvus/VMs/BaseImagesRO
+scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImagesRO
 ```
 
 ## Common Problems

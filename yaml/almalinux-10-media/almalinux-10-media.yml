@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+---
+# Sole owner of the official installer media. Make resolves its current checksum.
+vars:
+  image_if_exists: update
+  almalinux_url: ~
+  almalinux_sha256: ~
+pipeline:
+  - apply:
+      ifExists: skip
+      disks:
+        - name: almalinux-10-dvd-iso
+          ifExists: "{{ image_if_exists }}"
+          import: "{{ almalinux_url }}"
+          format: raw
+          # Shared read-only into nested integration-test nodes.
+          path: BaseImages/AlmaLinux10/Media/
+          checksum:
+            algorithm: sha256
+            value: "{{ almalinux_sha256 }}"

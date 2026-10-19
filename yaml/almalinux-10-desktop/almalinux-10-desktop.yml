@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+---
+# Offline Anaconda installation; see README.md and ks.cfg in this directory.
+vars:
+  image_if_exists: update
+
+pipeline:
+  - upload:
+      name: almalinux-10-kickstart
+      from: ./build/kickstart.iso
+      format: raw
+      ephemeral: false
+      ifExists: "{{ image_if_exists }}"
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: almalinux-10-desktop-installer
+          description: AlmaLinux 10 unattended GNOME installer (bake-only)
+          cpuCount: 4
+          ram: 4G
+          headless: false
+          cloudInit: false
+          guestAgent: false
+          graphicsAdapter: virtio-vga
+          audioDevices:
+            - backend: spice
+              model: virtio-sound
+          drives:
+            # Installer strategy captures the first disk after guest poweroff.
+            - interface: virtio
+              media: disk
+              strategy: create
+              format: qcow2
+              size: 40G
+            - diskImage: almalinux-10-dvd-iso
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+            - diskImage: almalinux-10-kickstart
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+          networkInterfaces:
+            - network: corvus
+
+  - build:
+      name: almalinux-10-desktop-base
+      description: AlmaLinux 10 GNOME with automatic login and guest agent
+      template: almalinux-10-desktop-installer
+      strategy: installer
+      target:
+        ifExists: "{{ image_if_exists }}"
+        format: qcow2
+        compact: true
+        path: BaseImages/AlmaLinux10/
+      # Select "Start AlmaLinux" (the first menu entry) immediately. The
+      # preselected second entry checks the DVD again before installation.
+      bootKeys:
+        - keys: up
+          delaySec: 5
+        - keys: ret
+          delaySec: 1
+      waitForShutdownSec: 3600
+      provisioners: []
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: almalinux-10-desktop
+          description: AlmaLinux 10 GNOME desktop (login/password corvus)
+          cpuCount: 4
+          ram: 4G
+          headless: false
+          cloudInit: false
+          guestAgent: true
+          graphicsAdapter: virtio-vga
+          audioDevices:
+            - backend: spice
+              model: virtio-sound
+          drives:
+            - diskImage: almalinux-10-desktop-base
+              interface: virtio
+              strategy: overlay
+              discard: true
+          networkInterfaces:
+            - network: corvus

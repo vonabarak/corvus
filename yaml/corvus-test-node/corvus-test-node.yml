@@ -290,20 +290,7 @@ pipeline:
               install -d -m 0755 /opt/corvus/bin
               install -d -m 0755 /mnt/corvus
               install -d -m 0755 /home/corvus/VMs/BaseImages
-
-              # tmpfiles.d entry for the BaseImages overlay (see
-              # home-corvus-VMs-BaseImages.mount). /run is tmpfs, so
-              # the lower mount point + upper/work dirs need to be
-              # re-created every boot. corvus:corvus on upper+work
-              # so the unprivileged daemon can land writes there.
-              install -d -m 0755 /etc/tmpfiles.d
-              cat > /etc/tmpfiles.d/corvus-baseimages.conf <<'EOF'
-              d /run/baseimages       0755 root   root   -
-              d /run/baseimages/lower 0755 root   root   -
-              d /run/baseimages/upper 0755 corvus corvus -
-              d /run/baseimages/work  0700 corvus corvus -
-              EOF
-              chmod 0644 /etc/tmpfiles.d/corvus-baseimages.conf
+              install -d -m 0755 /home/corvus/VMs/BaseImagesRO
             timeoutSec: 10
 
         # systemd unit files. We use `file:` provisioners so the units
@@ -317,12 +304,8 @@ pipeline:
             to: /etc/systemd/system/mnt-corvus.mount
             mode: "0644"
         - file:
-            from: ./systemd/run-baseimages-lower.mount
-            to: /etc/systemd/system/run-baseimages-lower.mount
-            mode: "0644"
-        - file:
-            from: ./systemd/home-corvus-VMs-BaseImages.mount
-            to: /etc/systemd/system/home-corvus-VMs-BaseImages.mount
+            from: ./systemd/home-corvus-VMs-BaseImagesRO.mount
+            to: /etc/systemd/system/home-corvus-VMs-BaseImagesRO.mount
             mode: "0644"
         - file:
             from: ./systemd/corvus.service
@@ -349,11 +332,9 @@ pipeline:
               # `systemctl status` lists them.
               systemctl enable opt-corvus-bin.mount
               systemctl enable mnt-corvus.mount
-              # BaseImages: ro virtiofs lower + tmpfs upper overlay,
-              # so the inner daemon can delete/overwrite registered
-              # images without touching the host's tree.
-              systemctl enable run-baseimages-lower.mount
-              systemctl enable home-corvus-VMs-BaseImages.mount
+              # Host fixtures are mounted read-only beside the node's
+              # writable BaseImages directory.
+              systemctl enable home-corvus-VMs-BaseImagesRO.mount
               # corvus-{netd,nodeagent}.service + corvus.service are installed but
               # NOT enabled here. The integration-test harness drives
               # `corvus-admin deploy …` over SSH-over-VSOCK on every
@@ -451,10 +432,11 @@ pipeline:
               install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh
               # /home/corvus/VMs is the daemon's basePath (it runs
               # as the corvus user, so $HOME/VMs resolves here).
-              # BaseImages is the virtiofs mount point for the
-              # harness's host-side ~/VMs/BaseImages share.
+              # BaseImages is writable node-local storage. BaseImagesRO
+              # exposes the host's immutable image fixtures.
               install -d -m 0755 -o corvus -g corvus /home/corvus/VMs
               install -d -m 0755 -o corvus -g corvus /home/corvus/VMs/BaseImages
+              install -d -m 0755 -o corvus -g corvus /home/corvus/VMs/BaseImagesRO
               # /etc/corvus is the system-install cert dir
               # (Corvus.Tls.defaultCertSearchPath looks there first).
               # The harness drops the mTLS cert trio in here before

@@ -32,6 +32,12 @@ def download_response(url: str) -> tuple[str, str]:
             "ubuntu",
             f"{'b' * 64} *unrelated.img\n{SHA256} *ubuntu-26.04-server-cloudimg-amd64.img",
         )
+    if "repo.almalinux.org" in url and "/isos/" in url:
+        return (
+            "almalinux-iso",
+            f"SHA256 (unrelated.iso) = {'b' * 64}\n"
+            f"SHA256 (AlmaLinux-10-latest-x86_64_v2-dvd.iso) = {SHA256}",
+        )
     if "repo.almalinux.org" in url:
         return (
             "almalinux",

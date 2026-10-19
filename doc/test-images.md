@@ -192,8 +192,11 @@ prepare those dependencies through Make. Windows 11 installation media remains
 a manual prerequisite. For direct CLI use, prepare the required import owners
 and local answer ISO first.
 
-Windows answer media and the synthetic installer ISO are persistent uploads
-with `update`. Make regenerates each local ISO only when its declared files,
+The AlmaLinux DVD belongs to `yaml/almalinux-10-media/`. Its desktop consumer
+uses a separate `OEMDRV` answer ISO containing the predefined Kickstart file.
+
+Windows and AlmaLinux answer media and the synthetic installer ISO are persistent
+uploads with `update`. Make regenerates each local ISO only when its declared files,
 Makefile, generation script, or selected packages change. This preserves the
 exact ISO bytes across unchanged runs, including their embedded timestamps;
 it does not promise reproducible output after regeneration. The synthetic
@@ -216,6 +219,8 @@ artifacts above.
 | `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures `multi-os` first. |
 | `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, FreeBSD 14, and Alpine 3.21 base disks used by cloud-init tests and as the VM-image build base. |
 | `virtio-win` | `yaml/virtio-win/` | Shared, pinned `virtio-win-iso` installation medium. |
+| `almalinux-10-media` | `yaml/almalinux-10-media/` | Official AlmaLinux 10 `x86_64_v2` DVD, verified against its current SHA256; shared with nested tests under `BaseImages/AlmaLinux10/Media/`. |
+| `almalinux-10-desktop` | [yaml/almalinux-10-desktop/](../yaml/almalinux-10-desktop/README.md) | Offline Kickstart installation of GNOME with automatic login, VirtIO graphics/sound, and QEMU guest agent; no cloud-init. Publishes `almalinux-10-desktop-base` and its runtime template. |
 | `windows-server-media` | `yaml/windows-server-media/` | Pinned `windows-server-2025-iso` evaluation installation medium. |
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
@@ -249,6 +254,6 @@ unregistered files are ignored; IDs or filenames never select the latest.
 Missing published files or ambiguous local placements fail registration.
 
 The integration suite requires `node`, `vm`, `multi-os`, `windows`,
-`installer`, and `key`. Run `make image-ensure IMAGE=<name>` before running the
-suite; dependencies are ensured automatically. Use `make image IMAGE=<name>`
+`installer`, `almalinux-10-media`, and `key`. Run `make image-ensure IMAGE=<name>`
+before running the suite; dependencies are ensured automatically. Use `make image IMAGE=<name>`
 when deliberately publishing a replacement fixture.

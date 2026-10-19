@@ -1,10 +1,10 @@
 """Register pre-baked OS images with the inner Corvus daemon.
 
-The test image's `home-corvus-VMs-BaseImages.mount` (baked in
+The test image's `home-corvus-VMs-BaseImagesRO.mount` (baked in
 [`yaml/corvus-test-node/systemd/`](../../yaml/corvus-test-node/systemd/)) virtiofs-mounts
-the host's `~/VMs/BaseImages` at `/home/corvus/VMs/BaseImages` inside the test
-VM (the daemon runs as the `corvus` user, so this matches its
-default $HOME/VMs basePath). This module:
+the host's `~/VMs/BaseImages` read-only at `/home/corvus/VMs/BaseImagesRO`
+inside the test VM. The node's own writable `BaseImages` holds test outputs.
+This module:
 
   1. Selects registered versions carrying `latest` in the outer catalogue,
      with a local placement under the host's BaseImages directory.
@@ -40,10 +40,9 @@ from .outer import Crv, JsonObject
 # in yaml/{alpine-test,multi-os,windows-server-2025}/*.yml.
 HOST_BASE_IMAGES_DIR = Path(os.path.expanduser("~/VMs/BaseImages"))
 
-# In-guest mount point. Matches `home-corvus-VMs-BaseImages.mount`
-# in yaml/corvus-test-node/systemd/. The daemon runs as `corvus`,
-# so `/home/corvus/VMs` is its $HOME/VMs basePath.
-GUEST_BASE_IMAGES_PATH = Path("/home/corvus/VMs/BaseImages")
+# In-guest mount point for host fixtures. The daemon's writable BaseImages
+# directory is separate, under the same /home/corvus/VMs basePath.
+GUEST_BASE_IMAGES_PATH = Path("/home/corvus/VMs/BaseImagesRO")
 
 # Virtiofs tag wired up in `Topology.add` and the systemd mount unit.
 BASE_IMAGES_TAG = "base_images"
@@ -156,18 +155,15 @@ def _sanitize_name(raw: str) -> str:
 
 
 def ensure_mounted(crv: Crv, node_name: str) -> None:
-    """Ensure the BaseImages virtiofs share is mounted inside the node.
-
-    The image's `home-corvus-VMs-BaseImages.mount` should mount it
-    at boot, but images baked before that unit existed need a
-    one-shot manual mount. Idempotent: skips when
-    `/home/corvus/VMs/BaseImages` already shows up in
-    `/proc/self/mountinfo`.
-    """
+    """Ensure the host fixture share is mounted read-only inside the node."""
     script = (
-        "mkdir -p /home/corvus/VMs/BaseImages; "
-        "mountpoint -q /home/corvus/VMs/BaseImages || "
-        f"mount -t virtiofs {BASE_IMAGES_TAG} /home/corvus/VMs/BaseImages"
+        "set -eu; "
+        f"mkdir -p {GUEST_BASE_IMAGES_PATH}; "
+        f"mountpoint -q {GUEST_BASE_IMAGES_PATH} || "
+        f"mount -t virtiofs -o ro {BASE_IMAGES_TAG} {GUEST_BASE_IMAGES_PATH}; "
+        f'test "$(findmnt -n -o FSTYPE {GUEST_BASE_IMAGES_PATH})" = virtiofs; '
+        f"findmnt -n -o OPTIONS {GUEST_BASE_IMAGES_PATH} | "
+        "grep -Eq '(^|,)ro(,|$)'"
     )
     result = crv.vm_exec(node_name, script, timeout_sec=30.0)
     if result.get("exitcode") != 0:

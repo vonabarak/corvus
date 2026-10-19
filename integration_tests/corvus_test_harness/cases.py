@@ -322,7 +322,7 @@ class IntegrationTestCase:
         """Add a `DiskImageNode` placement on `self.nodes[node_index]`
         for every base image already registered via
         :meth:`register_base_images`. Idempotent. No bytes move — both
-        nodes mount the same BaseImages virtiofs share, so the daemon
+        nodes mount the same BaseImagesRO virtiofs share, so the daemon
         just records the new placement.
 
         Call after :meth:`register_base_images`. Useful in two-node
