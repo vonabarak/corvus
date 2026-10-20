@@ -2,7 +2,7 @@
 ---
 # Multi-OS template library.
 #
-# Imports base cloud images for several Linux distributions and FreeBSD,
+# Imports base cloud images for several Linux distributions,
 # then defines a template for each OS. No VMs are created — use
 # `crv template instantiate <template> <vm-name>` to spin up instances.
 #
@@ -25,8 +25,6 @@ vars:
   ubuntu_sha256: ~
   almalinux_url: ~
   almalinux_sha256: ~
-  freebsd_url: ~
-  freebsd_sha512: ~
   alpine_url: ~
   alpine_sha512: ~
 
@@ -82,16 +80,6 @@ pipeline:
           checksum:
             algorithm: sha256
             value: "{{ almalinux_sha256 }}"
-
-        - name: freebsd:14
-          ifExists: "{{ image_if_exists }}"
-          import: "{{ freebsd_url }}"
-          format: qcow2
-          path: BaseImages/FreeBSD/
-          checksum:
-            algorithm: sha512
-            value: "{{ freebsd_sha512 }}"
-            target: download
 
         - name: alpine:3.21
           ifExists: "{{ image_if_exists }}"
@@ -185,29 +173,6 @@ pipeline:
                 - systemctl enable --now qemu-guest-agent
           drives:
             - diskImage: almalinux:10
-              interface: virtio
-              strategy: overlay
-              cacheType: writeback
-              discard: true
-            - *ovmf_code
-            - *ovmf_vars
-          networkInterfaces:
-            - network: corvus
-          sshKeys:
-            - name: corvus
-
-        - name: freebsd14
-          <<: *defaults
-          description: "FreeBSD 14"
-          cloudInitConfig:
-            userData:
-              packages:
-                - qemu-guest-agent
-              runcmd:
-                - sysrc qemu_guest_agent_enable=YES
-                - service qemu-guest-agent start
-          drives:
-            - diskImage: freebsd:14
               interface: virtio
               strategy: overlay
               cacheType: writeback

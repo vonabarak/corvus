@@ -46,7 +46,7 @@ def download_response(url: str) -> tuple[str, str]:
     if "download.freebsd.org" in url:
         return (
             "freebsd",
-            f"SHA512 (unrelated.xz) = {'b' * 128}\nSHA512 (FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz) = {SHA512}",
+            f"SHA512 (unrelated.xz) = {'b' * 128}\nSHA512 (FreeBSD-15.1-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz) = {SHA512}",
         )
     if url.endswith("/cloud/"):
         older = ALPINE_FILE.replace("3.21.6", "3.21.5")

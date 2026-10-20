@@ -148,7 +148,7 @@ templates:
 
   - name: freebsd
     <<: *cloud
-    # Stock FreeBSD uses nuageinit, which cannot install packages via user-data.
+    # The raw FreeBSD source has no preinstalled QGA.
     guestAgent: false
     vsock: false
     headless: false

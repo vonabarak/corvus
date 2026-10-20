@@ -5,6 +5,9 @@ IMAGE ?=
 IMAGE_DIR_node := corvus-test-node
 IMAGE_DIR_vm := corvus-test-vm
 IMAGE_DIR_multi-os := multi-os
+IMAGE_DIR_freebsd := freebsd
+IMAGE_DIR_freebsd-headless := freebsd
+IMAGE_ARGS_freebsd-headless := HEADLESS=1
 IMAGE_DIR_virtio-win := virtio-win
 IMAGE_DIR_windows-server-media := windows-server-media
 IMAGE_DIR_almalinux-10-media := almalinux-10-media
@@ -21,7 +24,7 @@ IMAGE_DIR_debian-nginx := debian-nginx
 IMAGE_DIR_ubuntu-nginx := ubuntu-nginx
 IMAGE_DIR_monitor := corvus-monitor
 
-IMAGES := node vm multi-os virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer key gentoo gentoo-headless windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor
+IMAGES := node vm multi-os freebsd freebsd-headless virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer key gentoo gentoo-headless windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor
 
 .PHONY: image image-ensure image-clean image-rebuild image-check image-cache-clean image-list \
 	images images-ensure images-clean images-rebuild
@@ -62,21 +65,21 @@ image-list:
 
 # Shared sources are prepared before consumers; avoid refreshing them again.
 images:
-	@for image in key multi-os gentoo node vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do \
-	  case "$$image" in node|vm|almalinux-10-desktop|windows|windows-11|windows-11-desktop|debian-nginx|ubuntu-nginx|monitor) \
+	@for image in key multi-os freebsd freebsd-headless gentoo node vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do \
+	  case "$$image" in freebsd-headless|node|vm|almalinux-10-desktop|windows|windows-11|windows-11-desktop|debian-nginx|ubuntu-nginx|monitor) \
 	    $(MAKE) --no-print-directory image IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
 	  *) $(MAKE) --no-print-directory image IMAGE=$$image ;; esac || exit $$?; \
 	done
 
 images-clean:
-	@for image in monitor ubuntu-nginx debian-nginx windows-11-desktop windows-11 windows almalinux-10-desktop almalinux-10-media virtio-win windows-server-media installer vm gentoo gentoo-headless multi-os node; do $(MAKE) --no-print-directory image-clean IMAGE=$$image || exit $$?; done
+	@for image in monitor ubuntu-nginx debian-nginx windows-11-desktop windows-11 windows almalinux-10-desktop almalinux-10-media virtio-win windows-server-media installer vm gentoo gentoo-headless freebsd-headless freebsd multi-os node; do $(MAKE) --no-print-directory image-clean IMAGE=$$image || exit $$?; done
 
 images-rebuild:
-	@for image in gentoo multi-os node vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do \
-	  case "$$image" in node|vm|almalinux-10-desktop|windows|windows-11|windows-11-desktop|debian-nginx|ubuntu-nginx|monitor) \
+	@for image in gentoo multi-os freebsd freebsd-headless node vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do \
+	  case "$$image" in freebsd-headless|node|vm|almalinux-10-desktop|windows|windows-11|windows-11-desktop|debian-nginx|ubuntu-nginx|monitor) \
 	    $(MAKE) --no-print-directory image-rebuild IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
 	  *) $(MAKE) --no-print-directory image-rebuild IMAGE=$$image ;; esac || exit $$?; \
 	done
 
 images-ensure:
-	@for image in key multi-os gentoo node vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-ensure IMAGE=$$image || exit $$?; done
+	@for image in key multi-os freebsd freebsd-headless gentoo node vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do $(MAKE) --no-print-directory image-ensure IMAGE=$$image || exit $$?; done

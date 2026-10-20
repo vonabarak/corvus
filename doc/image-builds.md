@@ -31,13 +31,14 @@ into the daemon's database. Apply steps are most useful between two
 build steps when the second one needs a template that wraps the first
 one's artifact.
 
-The bake VM has no cloud-init ISO and no SSH keys. Provisioners run via
-`qemu-guest-agent`'s `guest-exec`, so the operator's identity and keys
-never end up baked into the image.
+The bake VM inherits the template's cloud-init configuration and SSH keys.
+Use a dedicated bake template without login credentials, and clear first-boot
+state before publication. Provisioners run via `qemu-guest-agent`'s `guest-exec`.
 
 ## Guest-agent requirement
 
-> The base **template's bootdisk must already include `qemu-guest-agent`.**
+> The base template must make **`qemu-guest-agent` available before provisioners run**,
+> either preinstalled or installed through first-boot NoCloud configuration.
 > Without QGA we cannot run any provisioner. Almost every mainstream cloud
 > image (Debian, Ubuntu, Fedora, Rocky, AlmaLinux, openSUSE) ships with
 > QGA preinstalled or auto-installable on first boot.
@@ -1064,3 +1065,6 @@ This also runs as part of `make check` and the Python test suite. It requires no
 running daemon or VM. For an editor smoke test, open a recipe, complete a
 `strategy` value, then temporarily introduce an unknown field and verify that
 it appears in Problems.
+
+The [FreeBSD headless recipe](../yaml/freebsd/README.md) bootstraps QGA with
+NoCloud, verifies serial-console settings after reboot, and seals first-boot state.

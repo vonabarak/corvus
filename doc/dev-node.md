@@ -284,16 +284,11 @@ disables guest-agent readiness because the image does not include QGA.
 Install and configure QGA manually there, then enable the VM's guest-agent
 setting while stopped if you need `vm exec`.
 
-FreeBSD uses
-[nuageinit](https://github.com/freebsd/freebsd-src/blob/releng/14.3/libexec/nuageinit/nuageinit),
-which does not process cloud-init `packages` or
-`runcmd`; its template also disables QGA readiness and keeps a graphical console.
-The FreeBSD user belongs to `wheel`; Linux's sudo configuration is not applied.
-Its first boot can run `freebsd-update` before starting SSH. With QGA disabled,
-`vm start --wait` confirms the QEMU process, not completion of guest setup;
-watch the console and allow time for updates and SSH startup.
-Install and configure QGA manually in FreeBSD, then enable the VM's
-guest-agent setting while stopped if you need `vm exec`.
+FreeBSD 15.1 uses nuageinit with NoCloud support. This dev-node template uses
+its raw source image and disables QGA readiness. The FreeBSD user belongs to
+`wheel`; Linux's sudo configuration is not applied. For a serial-console VM
+with QGA already installed, build and use the separate
+[freebsd-headless template](../yaml/freebsd/README.md).
 
 On Debian's first boot, QGA can be installed and running while Corvus still
 reports `starting`. After cloud-init finishes, stop the VM with `--wait` and

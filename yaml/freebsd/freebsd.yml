@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Sole owner of the upstream FreeBSD image and its base template.
+# make image IMAGE=freebsd
+vars:
+  image_if_exists: update
+  freebsd_url: ~
+  freebsd_sha512: ~
+
+pipeline:
+  - apply:
+      disks:
+        - name: freebsd:15
+          ifExists: "{{ image_if_exists }}"
+          import: "{{ freebsd_url }}"
+          format: qcow2
+          path: BaseImages/FreeBSD/
+          checksum:
+            algorithm: sha512
+            value: "{{ freebsd_sha512 }}"
+            target: download
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: freebsd15
+          description: FreeBSD 15.1-RELEASE (upstream cloud image)
+          cpuCount: 4
+          ram: 4G
+          cloudInit: true
+          guestAgent: true
+          vsock: false
+          startupTimeoutSec: 1800
+          cloudInitConfig:
+            userData:
+              users:
+                - name: corvus
+                  shell: /bin/sh
+                  groups: wheel
+              ssh_pwauth: false
+              write_files:
+                - path: /etc/rc.conf.d/firstboot_pkg_upgrade
+                  content: |
+                    firstboot_pkg_upgrade_enable="NO"
+                # FreeBSD tty buffering scales with speed; allow large QGA frames.
+                - path: /etc/rc.conf.d/qemu_guest_agent
+                  content: |
+                    start_postcmd="/bin/stty -f /dev/vtcon/org.qemu.guest_agent.0 raw -echo 921600"
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - kldstat -q -m virtio_console || kldload virtio_console
+                - sysrc -f /boot/loader.conf virtio_console_load=YES
+                - sysrc qemu_guest_agent_enable=YES
+                - sysrc 'qemu_guest_agent_flags=-d -m virtio-serial -p /dev/vtcon/org.qemu.guest_agent.0'
+                - service qemu-guest-agent start
+          drives:
+            - diskImage: freebsd:15
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - diskImage: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImage: ovmf-vars
+              interface: pflash
+              strategy: clone
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus

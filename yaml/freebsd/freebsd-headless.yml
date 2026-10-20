@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# make image IMAGE=freebsd-headless prepares freebsd.yml before this pipeline.
+# The source import belongs exclusively to freebsd.yml.
+vars:
+  image_if_exists: update
+
+_ovmf_code: &ovmf_code
+  diskImage: ovmf-code
+  interface: pflash
+  readOnly: true
+  strategy: direct
+
+_ovmf_vars: &ovmf_vars
+  diskImage: ovmf-vars
+  interface: pflash
+  strategy: clone
+
+pipeline:
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: freebsd-headless-bake
+          description: FreeBSD headless image builder (no injected accounts or keys)
+          cpuCount: 4
+          ram: 4G
+          headless: true
+          cloudInit: true
+          guestAgent: true
+          vsock: false
+          startupTimeoutSec: 1800
+          cloudInitConfig:
+            injectSshKeys: false
+            userData:
+              # Suppress nuageinit's factory account during the bake.
+              users: []
+              ssh_pwauth: false
+              write_files:
+                - path: /etc/rc.conf.d/firstboot_pkg_upgrade
+                  content: |
+                    firstboot_pkg_upgrade_enable="NO"
+                # FreeBSD tty buffering scales with speed; allow large QGA frames.
+                - path: /etc/rc.conf.d/qemu_guest_agent
+                  content: |
+                    start_postcmd="/bin/stty -f /dev/vtcon/org.qemu.guest_agent.0 raw -echo 921600"
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - kldstat -q -m virtio_console || kldload virtio_console
+                - sysrc -f /boot/loader.conf virtio_console_load=YES
+                - sysrc qemu_guest_agent_enable=YES
+                - sysrc 'qemu_guest_agent_flags=-d -m virtio-serial -p /dev/vtcon/org.qemu.guest_agent.0'
+                - service qemu-guest-agent start
+          drives:
+            - diskImage: freebsd:15
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus
+
+  - build:
+      name: freebsd-headless
+      description: FreeBSD 15.1-RELEASE with serial console, QGA and NoCloud
+      template: freebsd-headless-bake
+      strategy: overlay
+      target:
+        ifExists: "{{ image_if_exists }}"
+        path: BaseImages/FreeBSD/
+        format: qcow2
+        rebase: true
+        compact: true
+      shellDefaults:
+        preamble: set -eu
+      provisioners:
+        # QGA can start before rc has removed the firstboot sentinel.
+        - wait-for: &boot_finished
+            inline: >-
+              test ! -e /firstboot &&
+              ! pgrep -f '^/bin/sh /etc/rc([[:space:]]|$)' >/dev/null
+            timeoutSec: 1800
+        - shell:
+            script: ./scripts/configure.sh
+        - reboot:
+            timeoutSec: 300
+        - wait-for: *boot_finished
+        - shell:
+            script: ./scripts/verify.sh
+        - shell:
+            script: ./scripts/seal.sh
+      cleanup: always
+
+  - apply:
+      ifExists: overwrite
+      templates:
+        - name: freebsd-headless
+          description: FreeBSD 15.1-RELEASE headless (serial 115200, QGA, NoCloud)
+          cpuCount: 2
+          ram: 2G
+          headless: true
+          guestAgent: true
+          cloudInit: true
+          vsock: false
+          cloudInitConfig:
+            userData:
+              # No factory password: SSH keys are injected at instantiation.
+              users:
+                - name: corvus
+                  shell: /bin/sh
+                  groups: wheel
+              ssh_pwauth: false
+          drives:
+            - diskImage: freebsd-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus

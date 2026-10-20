@@ -96,6 +96,8 @@ Build the required fixtures once:
 ```sh
 make image-ensure IMAGE=node
 make image-ensure IMAGE=vm
+make image-ensure IMAGE=multi-os
+make image-ensure IMAGE=freebsd
 make image-ensure IMAGE=windows
 make image-ensure IMAGE=installer
 make image-ensure IMAGE=almalinux-10-media
@@ -401,7 +403,7 @@ scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImagesRO
 - **Test-node recipe changed** (for example, a new host tool): run
   `make image-rebuild IMAGE=node`.
 - **Missing Alpine/base image in a VM test**: run `make image-ensure IMAGE=vm`.
-- **Missing cloud-init distro image**: run `make image-ensure IMAGE=multi-os`.
+- **Missing cloud-init distro image**: run `make image-ensure IMAGE=multi-os` (or `IMAGE=freebsd` for FreeBSD).
 - **Missing Windows image**: run `make image-ensure IMAGE=windows`.
 - **Missing synthetic installer ISO**: run `make image-ensure IMAGE=installer`.
 - **Stale binary warning**: run `stack build` before trusting results.

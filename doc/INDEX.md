@@ -64,3 +64,5 @@ any companion files like kernel configs or autounattend answer files):
 - [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
 - [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 26.04 base
 - [yaml/template-example/template-example.yml](../yaml/template-example/template-example.yml) -- Standalone template file
+
+- [FreeBSD headless image](../yaml/freebsd/README.md): serial console, QGA, and NoCloud.

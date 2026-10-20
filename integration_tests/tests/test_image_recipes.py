@@ -20,6 +20,7 @@ from .fixtures.image_recipes import RecipeCall, RecipeRunner
 
 RECIPES = {
     "multi-os": "debian-generic:12",
+    "freebsd": "freebsd:15",
     "almalinux-10-media": "almalinux-10-dvd-iso",
     "almalinux-10-desktop": "almalinux-10-desktop-base",
     "corvus-test-node": "corvus-test-node",
@@ -71,15 +72,59 @@ class TestImageRecipes:
         result = recipes.run(recipe, target, variables)
         assert result.returncode == 0, result.stdout + result.stderr
         expected = ["multi-os.yml"]
+        if recipe == "freebsd":
+            expected = ["freebsd.yml"]
         if recipe == "corvus-test-node":
             expected = ["gentoo-cloud.yml", "gentoo-headless.yml"]
         if recipe.startswith("almalinux-"):
             expected = ["almalinux-10-media.yml"]
-        if recipe not in {"multi-os", "almalinux-10-media"}:
+        if recipe not in {"multi-os", "freebsd", "almalinux-10-media"}:
             expected.append(f"{recipe}.yml")
         builds = publications(recipes)
         assert [call.args[1] for call in builds] == expected
         assert all(f"image_if_exists={policy}" in call.args for call in builds)
+
+    @pytest.mark.parametrize("policy", ["update", "skip", "overwrite"])
+    def test_freebsd_headless_refreshes_source(
+        self, recipes: RecipeRunner, policy: str
+    ) -> None:
+        result = recipes.run(
+            "freebsd", "build", ("HEADLESS=1", f"IMAGE_POLICY={policy}")
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        builds = publications(recipes)
+        assert [call.args[1] for call in builds] == [
+            "freebsd.yml",
+            "freebsd-headless.yml",
+        ]
+        assert all(f"image_if_exists={policy}" in call.args for call in builds)
+        assert f"freebsd_sha512={SHA512}" in builds[0].args
+
+    def test_freebsd_headless_ensure_missing_dependencies(
+        self, recipes: RecipeRunner
+    ) -> None:
+        result = recipes.run(
+            "freebsd",
+            "ensure",
+            ("HEADLESS=1",),
+            env={"MISSING_OUTPUTS": "disk:freebsd:15,disk:freebsd-headless"},
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        builds = publications(recipes)
+        assert [call.args[1] for call in builds] == [
+            "freebsd.yml",
+            "freebsd-headless.yml",
+        ]
+        assert all("image_if_exists=skip" in call.args for call in builds)
+
+    def test_freebsd_headless_failed_source_stops_build(
+        self, recipes: RecipeRunner
+    ) -> None:
+        result = recipes.run(
+            "freebsd", "build", ("HEADLESS=1",), env={"FAIL_BUILD": "freebsd.yml"}
+        )
+        assert result.returncode != 0
+        assert [call.args[1] for call in publications(recipes)] == ["freebsd.yml"]
 
     def test_import_manifest_resolution(self, recipes: RecipeRunner) -> None:
         """Resolve provider formats, including Alpine's digest-only sidecar."""
@@ -90,12 +135,11 @@ class TestImageRecipes:
             ("debian_sha512", SHA512),
             ("ubuntu_sha256", SHA256),
             ("almalinux_sha256", SHA256),
-            ("freebsd_sha512", SHA512),
             ("alpine_sha512", SHA512),
         ):
             assert f"{variable}={digest}" in args
         assert any(arg.endswith(f"/{ALPINE_FILE}") for arg in args)
-        assert len([call for call in recipes.calls() if call.command == "curl"]) == 6
+        assert len([call for call in recipes.calls() if call.command == "curl"]) == 5
 
     @pytest.mark.parametrize("recipe", RECIPES)
     @pytest.mark.parametrize("target", ["ensure", "check"])
@@ -166,6 +210,8 @@ class TestImageRecipes:
         recipe = (
             "almalinux-10-desktop" if resource == "almalinux-iso" else "debian-nginx"
         )
+        if resource == "freebsd":
+            recipe = "freebsd"
         result = recipes.run(recipe, "build", env={error: resource})
         assert result.returncode != 0
         assert not publications(recipes)
@@ -222,6 +268,8 @@ class TestImageRecipes:
             "gentoo-headless.yml",
             "gentoo-test.yml",
             "multi-os.yml",
+            "freebsd.yml",
+            "freebsd-headless.yml",
             "corvus-test-node.yml",
             "corvus-test-vm.yml",
             "virtio-win.yml",
@@ -313,18 +361,22 @@ class TestImageRecipes:
                     assert disk["ifExists"] == "{{ image_if_exists }}"
                     assert disk["checksum"]["value"]
         assert len(imports) == (
-            5 if recipe == "multi-os" else 1 if recipe == "almalinux-10-media" else 0
+            4
+            if recipe == "multi-os"
+            else 1
+            if recipe in {"freebsd", "almalinux-10-media"}
+            else 0
         )
         if recipe == "multi-os":
             assert [disk["name"] for disk in imports] == [
                 "debian-generic:12",
                 "ubuntu-server:26.04",
                 "almalinux:10",
-                "freebsd:14",
                 "alpine:3.21",
             ]
-            freebsd = next(disk for disk in imports if disk["name"] == "freebsd:14")
-            assert freebsd["checksum"]["target"] == "download"
+        if recipe == "freebsd":
+            assert imports[0]["name"] == "freebsd:15"
+            assert imports[0]["checksum"]["target"] == "download"
 
     @pytest.mark.parametrize(
         "recipe", ["windows-11", "windows-server-2025", "almalinux-10-desktop"]

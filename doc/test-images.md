@@ -217,7 +217,9 @@ artifacts above.
 | --- | --- | --- |
 | `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo/` when needed. |
 | `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures `multi-os` first. |
-| `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, FreeBSD 14, and Alpine 3.21 base disks used by cloud-init tests and as the VM-image build base. |
+| `freebsd` | `yaml/freebsd/` | FreeBSD 15.1 NoCloud source and `freebsd15` template. |
+| `freebsd-headless` | `yaml/freebsd/` | [Serial-console FreeBSD with preinstalled QGA](../yaml/freebsd/README.md); prepares `freebsd` first. |
+| `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, and Alpine 3.21 base disks used by cloud-init tests and as the VM-image build base. |
 | `virtio-win` | `yaml/virtio-win/` | Shared, pinned `virtio-win-iso` installation medium. |
 | `almalinux-10-media` | `yaml/almalinux-10-media/` | Official AlmaLinux 10 `x86_64_v2` DVD, verified against its current SHA256; shared with nested tests under `BaseImages/AlmaLinux10/Media/`. |
 | `almalinux-10-desktop` | [yaml/almalinux-10-desktop/](../yaml/almalinux-10-desktop/README.md) | Offline Kickstart installation of GNOME with automatic login, VirtIO graphics/sound, and QEMU guest agent; no cloud-init. Publishes `almalinux-10-desktop-base` and its runtime template. |
@@ -253,7 +255,7 @@ nodes use the same snapshot and inner image IDs. Retained versions and
 unregistered files are ignored; IDs or filenames never select the latest.
 Missing published files or ambiguous local placements fail registration.
 
-The integration suite requires `node`, `vm`, `multi-os`, `windows`,
+The integration suite requires `node`, `vm`, `multi-os`, `freebsd`, `windows`,
 `installer`, `almalinux-10-media`, and `key`. Run `make image-ensure IMAGE=<name>`
 before running the suite; dependencies are ensured automatically. Use `make image IMAGE=<name>`
 when deliberately publishing a replacement fixture.
