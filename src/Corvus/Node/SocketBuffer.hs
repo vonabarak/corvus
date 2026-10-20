@@ -99,7 +99,8 @@ flushBuffer sb = atomically $ writeTVar (sbData sb) BS.empty
 
 -- | Drop CSI terminal queries and their responses from a byte
 -- string: @\ESC[…n@ (DSR), @\ESC[…c@ (DA, including @\ESC[?…c@ and
--- @\ESC[>c@), and @\ESC[…R@ (CPR reports). All of these are
+-- @\ESC[>c@), @\ESC[…R@ (CPR reports), and @\ESC[…t@ (XTWINOPS,
+-- with numeric/semicolon parameters and no intermediates). All of these are
 -- control-channel chatter that only makes sense between a live app
 -- and its terminal; replaying them at reconnect either triggers a
 -- stale query/response loop or renders as garbage.
@@ -110,6 +111,9 @@ stripTerminalQueries = BS.pack . go . BS.unpack
     isParam c = c >= 0x30 && c <= 0x3f
     -- Intermediate bytes (rare in practice but legal in CSI): @ ! " # $ % & ' ( ) * + , - . /@.
     isInter c = c >= 0x20 && c <= 0x2f
+    -- Standard XTWINOPS uses only decimal parameters separated by semicolons.
+    -- Other CSI commands ending in @t@ have private or intermediate bytes.
+    isWindowParam c = (c >= 0x30 && c <= 0x39) || c == 0x3b
 
     go [] = []
     go (0x1b : 0x5b : rest) =
@@ -118,6 +122,7 @@ stripTerminalQueries = BS.pack . go . BS.unpack
        in case afterInters of
             (final : rest')
               | final `elem` [0x6e, 0x63, 0x52] -> go rest' -- drop DSR / DA / CPR
+              | final == 0x74 && null inters && all isWindowParam params -> go rest' -- drop XTWINOPS
               | otherwise -> 0x1b : 0x5b : params ++ inters ++ final : go rest'
             [] -> 0x1b : 0x5b : params ++ inters
     go (b : rest) = b : go rest

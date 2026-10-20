@@ -29,7 +29,11 @@ import pty
 import secrets
 import select
 import subprocess
+import termios
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 import pytest
 from corvus_client._sync.vm import SyncByteStream
@@ -37,6 +41,66 @@ from corvus_client.exceptions import GuestAgentError, VmHeadless, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 LOGIN_PROMPT = b"login:"
+WINDOW_QUERY = b"\x1b[18t"
+WINDOW_REPORT = b"\x1b[8;34;115t"
+
+
+@dataclass
+class _ConsoleTerminal:
+    """PTY with the terminal-size response a real host terminal generates."""
+
+    master: int
+    slave: int
+    process: subprocess.Popen[bytes]
+    output: bytearray = field(default_factory=bytearray)
+    size_replies: int = 0
+
+    def read_until(self, needle: bytes, timeout: float = 15.0) -> bytes:
+        start = len(self.output)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            # Replay can arrive before crv enables raw mode. Queue replies
+            # until then so local canonical buffering cannot hide the bug.
+            raw = not (termios.tcgetattr(self.slave)[3] & termios.ICANON)
+            if raw:
+                queries = self.output.count(WINDOW_QUERY)
+                while self.size_replies < queries:
+                    os.write(self.master, WINDOW_REPORT)
+                    self.size_replies += 1
+                if needle in self.output[start:]:
+                    return bytes(self.output[start:])
+            assert self.process.poll() is None, (
+                f"crv exited {self.process.returncode}; tail={bytes(self.output[-1024:])!r}"
+            )
+            readable, _, _ = select.select([self.master], [], [], 0.1)
+            if readable:
+                chunk = os.read(self.master, 4096)
+                assert chunk, "console PTY closed"
+                self.output.extend(chunk)
+        raise AssertionError(
+            f"timed out waiting for {needle!r}; tail={bytes(self.output[-1024:])!r}"
+        )
+
+
+@contextmanager
+def _cli_console(argv: list[str]) -> Iterator[_ConsoleTerminal]:
+    master, slave = pty.openpty()
+    process = None
+    try:
+        process = subprocess.Popen(
+            argv, stdin=slave, stdout=slave, stderr=slave, close_fds=True
+        )
+        yield _ConsoleTerminal(master, slave, process)
+    finally:
+        if process is not None and process.poll() is None:
+            try:
+                os.write(master, b"\x1dq")
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                process.kill()
+                process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
 
 
 def _drain_until(stream: SyncByteStream, needle: bytes, timeout: float) -> bytes:
@@ -61,7 +125,82 @@ def _drain_until(stream: SyncByteStream, needle: bytes, timeout: float) -> bytes
 
 
 class TestSerialConsole(SingleNodeCase):
-    """Five phases over one Alpine VM, plus two cheap negative tests."""
+    """Buffer lifecycle, safe CLI replay, login, and attachment errors."""
+
+    def test_late_attach_filters_window_queries(self) -> None:
+        """Late CLI attachment must not feed boot-time size replies to getty."""
+        with Vm(self) as vm:
+            marker = f"WINDOW-REPLAY-{secrets.token_hex(4)}".encode()
+            colored = b"\x1b[31m" + marker + b"\x1b[0m"
+            end = marker + b"-END"
+            # A passive client never answers queries. Reading the final
+            # marker proves the entire fixture is buffered before CLI attach.
+            with vm.cap.serial_console() as observer:
+                _drain_until(observer, LOGIN_PROMPT, timeout=60.0)
+                payload = WINDOW_QUERY + WINDOW_REPORT + colored + end
+                octal = "".join(f"\\{byte:03o}" for byte in payload)
+                result = vm.cap.guest_exec(
+                    f"/bin/sh -c 'printf \"{octal}\" > /dev/ttyS0'"
+                )
+                assert result.exit_code == 0, result
+                live = _drain_until(observer, end, timeout=10.0)
+                assert payload in live, live
+
+            node = self.node
+            cert_dir = node._client_cert_dir
+            assert cert_dir is not None
+            host, port = node.host_endpoint
+            argv = [
+                str(self.topology.host_binary.bin_dir / "crv"),
+                "--host",
+                host,
+                "--port",
+                str(port),
+                "--tls-cert-dir",
+                str(cert_dir),
+                "vm",
+                "view",
+                vm.name,
+            ]
+            with _cli_console(argv) as terminal:
+                replay = terminal.read_until(end)
+                assert LOGIN_PROMPT in replay, replay
+                assert colored in replay, replay
+                assert WINDOW_QUERY not in replay, replay
+                assert WINDOW_REPORT not in replay, replay
+                assert b"^[[8;34;115t" not in replay, replay
+                assert terminal.size_replies == 0, replay
+
+                # Do not clear the input: a stale terminal reply would
+                # corrupt this username and cause the real login to fail.
+                os.write(terminal.master, b"corvus\r")
+                terminal.read_until(b"Password:")
+                os.write(terminal.master, b"corvus\r")
+                login = terminal.read_until(b"$ ")
+                assert b"Login incorrect" not in login, login
+                os.write(terminal.master, b"whoami\r")
+                terminal.read_until(b"\r\ncorvus\r\n")
+
+                # A new query while connected must still reach the host
+                # terminal and its reply must travel back through the CLI.
+                # Read the reply explicitly: ash's interactive line editor
+                # consumes escape sequences rather than echoing them.
+                os.write(
+                    terminal.master,
+                    b"printf '\\nWINDOW-LIVE-%s\\n' READY; IFS= read -r reply; "
+                    b"printf '\\nWINDOW-LIVE-REPLY:%s\\n' \"$reply\"\r",
+                )
+                terminal.read_until(b"\r\nWINDOW-LIVE-READY\r\n")
+                result = vm.cap.guest_exec(
+                    "/bin/sh -c 'printf \"\\033[18t\" > /dev/ttyS0'"
+                )
+                assert result.exit_code == 0, result
+                terminal.read_until(WINDOW_QUERY)
+                assert terminal.size_replies == 1
+                os.write(terminal.master, b"\r")
+                terminal.read_until(b"WINDOW-LIVE-REPLY:" + WINDOW_REPORT)
+                os.write(terminal.master, b"\x1dq")
+                assert terminal.process.wait(timeout=10) == 0
 
     def test_buffer_lifecycle(self) -> None:
         """Replay, capture-while-disconnected, reboot, and stop-cleanup.

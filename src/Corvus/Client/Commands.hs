@@ -381,6 +381,7 @@ runSerialConsoleSession fmt conn vmRef vmName = do
         putStrLn ("Error attaching serial console: " <> show e)
       pure False
     Right (writeInput, endInput) -> do
+      putStrLn ""
       putStrLn . T.unpack $ "Connecting to VM '" <> vmName <> "' serial console..."
       putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  f=flush  ?=help"
       putStrLn ""

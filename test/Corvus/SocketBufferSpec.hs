@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Unit tests for the ring-buffer replay sanitiser. Covers the
--- DSR / DA / CPR stripping that 'Corvus.Rpc.Streams.runByteSinkRelay'
+-- DSR / DA / CPR / window-operation stripping that 'Corvus.Rpc.Streams.runByteSinkRelay'
 -- applies to the initial buffered replay.
 module Corvus.SocketBufferSpec (spec) where
 
@@ -30,6 +30,21 @@ spec = describe "stripTerminalQueries" $ do
 
   it "strips a device-status query" $ do
     stripTerminalQueries (esc <> "[5n") `shouldBe` BS.empty
+
+  it "strips window queries and reports" $ do
+    mapM_
+      (\params -> stripTerminalQueries (esc <> "[" <> params <> "t") `shouldBe` BS.empty)
+      ["11", "13;2", "14;2", "15", "16", "18", "19", "20", "21", "8;34;115"]
+
+  it "strips repeated window exchanges while preserving surrounding text and colors" $ do
+    let exchange = esc <> "[18t" <> esc <> "[8;34;115t"
+        colored = esc <> "[31mlogin:" <> esc <> "[0m"
+    stripTerminalQueries ("boot" <> exchange <> exchange <> colored <> exchange)
+      `shouldBe` "boot" <> colored
+
+  it "preserves private, intermediate and nonstandard parameter forms ending in t" $ do
+    let seqs = esc <> "[>0t" <> esc <> "[1 t" <> esc <> "[1;1;2;2;7$t" <> esc <> "[18:1t"
+    stripTerminalQueries seqs `shouldBe` seqs
 
   it "leaves plain text untouched" $ do
     stripTerminalQueries "hello world\n" `shouldBe` "hello world\n"

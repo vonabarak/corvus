@@ -253,13 +253,14 @@ runByteSinkRelay sup sbh clientSink = do
   let buf = sbhBuffer sbh
   -- Replay the existing scrollback first so a reconnecting client
   -- sees recent output. Strip terminal query/response CSI
-  -- sequences (DSR / DA / CPR) from the replay — replaying them
+  -- sequences (DSR / DA / CPR / XTWINOPS) from the replay — replaying them
   -- prompts the client's terminal to answer stale queries, and
   -- the guest's TTY (in cooked-mode with echo) bounces the
-  -- answers back as visible junk like `^[[65;1R` at the prompt.
+  -- answers back as visible junk like `^[[65;1R` or `^[[8;34;115t`
+  -- at the prompt.
   -- Live data after the initial replay is passed through
   -- unchanged so ncurses-style apps inside the guest can still
-  -- query and receive cursor positions normally.
+  -- query and receive cursor positions and terminal sizes normally.
   -- Failures are swallowed: if the client cap is already dead,
   -- the live-stream loop below will exit on its own.
   (buffered, pos0) <- readBufferFrom buf 0
