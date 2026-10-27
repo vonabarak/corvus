@@ -9,7 +9,8 @@
 dist-newstyle/
 dist/
 plans/*
-!plans/qga-image-build-opportunities.md
+ebuilds
+ebuilds/*
 # Python tool caches
 .venv/
 .ruff_cache/
