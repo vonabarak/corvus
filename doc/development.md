@@ -75,7 +75,7 @@ The pre-commit hook runs `make check` and blocks a commit when it fails.
 
 No external C libraries are required by the Haskell package. Runtime and test
 workflows need PostgreSQL, QEMU/KVM, `qemu-img`, and relevant optional tools
-(`virtiofsd`, `dnsmasq`, `remote-viewer`, frontend `npm`, desktop extras, etc.)
+(`virtiofsd`, `dnsmasq`, `remmina` or `remote-viewer`, frontend `npm`, desktop extras, etc.)
 depending on the area touched.
 
 ## Tests

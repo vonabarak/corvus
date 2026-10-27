@@ -107,15 +107,19 @@ vms:
 
 ## SPICE Folder Sharing
 
-Every graphical VM exposes the `org.spice-space.webdav.0` channel. Sharing is controlled by the connected native SPICE viewer; Corvus stores no viewer-local paths. This feature requires `remote-viewer` with folder-sharing support on the client and `spice-webdavd` inside the guest. QEMU Guest Agent is independent of folder sharing. Guests without `spice-webdavd` can still start and use the graphical console normally.
+Every graphical VM exposes the `org.spice-space.webdav.0` channel. Sharing is controlled by the connected native SPICE viewer; Corvus stores no viewer-local paths. This feature requires Remmina or `remote-viewer` with SPICE WebDAV support on the client and `spice-webdavd` inside the guest. QEMU Guest Agent is independent of folder sharing. Guests without `spice-webdavd` can still start and use the graphical console normally.
 
 ### Selecting a Folder
 
-1. Open the VM with `crv vm view <vm>` or the desktop application's **View** button.
-2. In remote-viewer, open **File → Preferences**, select the folder on your client machine, and enable folder sharing. Use the viewer's read-only setting if the guest should not modify that folder.
-3. Access the share from inside the guest as described below.
+Run `crv vm view <vm> --share-folder /path/to/folder` with an existing directory on your client machine. Corvus prefers virt-viewer when both viewers are installed; use `--viewer remmina` or `--viewer virt-viewer` to require one explicitly.
 
-The share is available while that viewer is connected and sharing is enabled. Disable sharing in the viewer or disconnect to withdraw access; select and enable sharing again as needed after reconnecting. The browser console does not provide folder sharing. SPICE sharing does not create a `crv shared-dir` entry or use a virtiofs mount tag.
+- **Remmina:** the folder is shared automatically with read/write access. Without `--share-folder`, Corvus configures no folder.
+- **virt-viewer:** the folder is preselected, but sharing stays disabled until you open **File → Preferences** and enable **Share folder**. You can also choose a folder there without the CLI option. Use its read-only setting if the guest should not modify the folder.
+- **Desktop application:** the **View** button continues to open virt-viewer; select and enable the folder in **File → Preferences**.
+
+Access the share from inside the guest as described below.
+
+The share is available while that viewer is connected and sharing is enabled. Disconnect to withdraw access, or disable sharing in the viewer where supported. Each CLI launch configures only the folder explicitly supplied for that launch; virt-viewer requires manual activation again. The browser console does not provide folder sharing. SPICE sharing does not create a `crv shared-dir` entry or use a virtiofs mount tag.
 
 ### Linux Guest Setup
 

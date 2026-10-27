@@ -104,6 +104,7 @@ library
       Corvus.CloudInit
       Corvus.Client
       Corvus.Client.Config
+      Corvus.Client.Viewer
       Corvus.Client.Output
       Corvus.Client.Output.Columns
       Corvus.Client.Output.Selection
@@ -572,6 +573,7 @@ test-suite corvus-test
       Corvus.ClientOutputSpec
       Corvus.ClientParserSpec
       Corvus.ClientRuntimeSpec
+      Corvus.ClientViewerSpec
       Corvus.CloudInitHandlerSpec
       Corvus.CloudInitSpec
       Corvus.CoreSpec

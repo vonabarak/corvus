@@ -49,6 +49,7 @@ import Corvus.Client.Config (defaultClientConfig)
 import Corvus.Client.Output
 import Corvus.Client.Output.Selection (validateColumnSelection)
 import Corvus.Client.Types
+import Corvus.Client.Viewer (ViewerLaunch, prepareViewer, runViewer)
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..))
 import qualified Corvus.Tls as Tls
@@ -60,6 +61,7 @@ import Data.Char (toLower)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Time (getCurrentTime)
 import Options.Applicative.BashCompletion (bashCompletionScript, fishCompletionScript, zshCompletionScript)
 import System.Exit (exitFailure, exitSuccess)
@@ -172,7 +174,7 @@ runCommand opts = do
       VmUpload vmRef local guest -> handleVmUpload fmt conn vmRef local guest
       VmDownload vmRef guest local -> handleVmDownload fmt conn vmRef guest local
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
-      VmView vmRef -> handleVmView opts fmt conn vmRef
+      VmView vmRef viewOpts -> handleVmView opts fmt conn vmRef viewOpts
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
       VmMigrate vmRef toNodeRef -> handleVmMigrate fmt conn vmRef toNodeRef
       -- Disk commands
@@ -338,10 +340,9 @@ handleCompletion shell = do
 -- 'runSerialConsoleSession'. For graphical VMs,
 -- 'handleGraphicalViewGrant' asks the daemon for a short-lived
 -- password grant via 'CR.rpcVmViewGrant' and either emits it as
--- structured output or hands it to 'runRemoteViewer', which writes
--- a 0600 @.vv@ file and execs @remote-viewer@.
-handleVmView :: Options -> OutputFormat -> CapnpConnection -> Text -> IO Bool
-handleVmView opts fmt conn vmRef = do
+-- structured output or hands it to the selected native viewer.
+handleVmView :: Options -> OutputFormat -> CapnpConnection -> Text -> ViewOptions -> IO Bool
+handleVmView opts fmt conn vmRef viewOpts = do
   r <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
   case r of
     Left e -> do
@@ -359,7 +360,11 @@ handleVmView opts fmt conn vmRef = do
         else
           if vdHeadless details
             then runSerialConsoleSession fmt conn vmRef (vdName details)
-            else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
+            else do
+              prepared <- if isStructured fmt then pure (Right Nothing) else fmap Just <$> prepareViewer defaultClientConfig viewOpts
+              case prepared of
+                Left message -> emitError fmt "viewer_error" message (TIO.putStrLn message) >> pure False
+                Right launch -> handleGraphicalViewGrant opts fmt conn vmRef (vdName details) launch
 
 -- | Open the serial console for a headless VM. Wires the
 -- bidirectional 'ByteSink' pair returned by 'CR.rpcVmSerialConsole'
@@ -426,15 +431,10 @@ runHmpMonitorSession fmt conn vmRef = do
         Nothing
         (Just (CR.rpcVmHmpMonitorFlush conn ref))
 
--- | Request a SPICE grant. For structured output emit the grant
--- (host, port, password, ttl) as JSON/YAML and exit; for text output
--- print a short banner with the endpoint and TTL and hand the grant
--- to 'runRemoteViewer', which materialises a @.vv@ file and execs
--- @remote-viewer@. The password is never printed to the terminal —
--- the user sees only @host:port@ — and never lands in @argv@, so
--- @ps(1)@ can't leak it.
-handleGraphicalViewGrant :: Options -> OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleGraphicalViewGrant opts fmt conn vmRef vmName = do
+-- | Request a SPICE grant after local viewer validation. Structured output
+-- returns credentials without discovering or launching a local viewer.
+handleGraphicalViewGrant :: Options -> OutputFormat -> CapnpConnection -> Text -> Text -> Maybe ViewerLaunch -> IO Bool
+handleGraphicalViewGrant opts fmt conn vmRef vmName launch = do
   result <- try (CR.rpcVmViewGrant conn (entityRefFromText vmRef)) :: IO (Either SomeException ViewGrant)
   case result of
     Left e -> do
@@ -443,11 +443,11 @@ handleGraphicalViewGrant opts fmt conn vmRef vmName = do
       pure False
     Right grant0 -> do
       let grant = resolveGrantHost opts grant0
-      if isStructured fmt
-        then do
+      case launch of
+        Nothing -> do
           outputValue fmt (grantToJson grant)
           pure True
-        else do
+        Just selected -> do
           putStrLn $
             "VM '"
               ++ T.unpack vmName
@@ -458,7 +458,7 @@ handleGraphicalViewGrant opts fmt conn vmRef vmName = do
               ++ " (ttl "
               ++ show (vgTtlSeconds grant)
               ++ "s)"
-          runRemoteViewer defaultClientConfig grant
+          runViewer selected vmName grant
 
 -- | Replace wildcard SPICE hosts with the client's @--host@ when
 -- the client is connected via TCP. Unix-socket connections

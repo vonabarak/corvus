@@ -8,8 +8,10 @@ module Corvus.Client.Config
 where
 
 -- | Client configuration
-newtype ClientConfig = ClientConfig
-  { ccRemoteViewer :: FilePath
+data ClientConfig = ClientConfig
+  { ccRemmina :: FilePath
+  -- ^ Path to Remmina executable
+  , ccRemoteViewer :: FilePath
   -- ^ Path to remote-viewer executable
   }
   deriving stock (Eq, Show)
@@ -18,5 +20,6 @@ newtype ClientConfig = ClientConfig
 defaultClientConfig :: ClientConfig
 defaultClientConfig =
   ClientConfig
-    { ccRemoteViewer = "remote-viewer"
+    { ccRemmina = "remmina"
+    , ccRemoteViewer = "remote-viewer"
     }

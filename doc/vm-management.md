@@ -348,18 +348,26 @@ the completed VM deletion.
 ### SPICE (graphical VMs)
 
 ```bash
-crv vm view my-vm     # Requests a short-lived SPICE grant and opens remote-viewer
+crv vm view my-vm                         # Prefer virt-viewer; use Remmina if only it is installed
+crv vm view my-vm --viewer virt-viewer     # Require virt-viewer
+crv vm view my-vm --share-folder ~/Public  # Share a client-local folder
+crv vm view my-vm --viewer remmina -- --enable-fullscreen --kiosk
+crv vm view my-vm --viewer virt-viewer -- --full-screen --kiosk
 ```
 
-Non-headless VMs expose SPICE over **TCP with ticketed password authentication**, so `crv vm view` works from another host. Each invocation asks the daemon for a fresh password, which is installed via QMP `set_password` and expires after 120 seconds; unused grants disappear on their own. The client writes a chmod-600 `.vv` file and passes its path to `remote-viewer` — the password never appears on the command line.
+Non-headless VMs expose SPICE over **TCP with ticketed password authentication**, so `crv vm view` works from another host. Each invocation asks the daemon for a fresh password, which is installed via QMP `set_password` and expires after 120 seconds; unused grants disappear on their own. The client writes a private mode-600 temporary connection file (`.remmina` or `.vv`) and removes it when the viewer exits. Remmina receives an encrypted password generated through its encryption helper; plaintext passwords never appear on the command line.
 
 The daemon picks a TCP port in the range `5900-5999` (configurable via `qcSpicePortMin` / `qcSpicePortMax`). The bind address defaults to the daemon's RPC listen host: Unix-socket daemons keep SPICE on `127.0.0.1`, TCP daemons expose it on the same interface as RPC. Use `--spice-bind ADDR` to decouple the two.
 
-Requires `remote-viewer` (from `virt-viewer` package) installed on the client host.
+Install Remmina with its SPICE plugin and encryption support, or `remote-viewer` from the virt-viewer package, on the client host. With no `--viewer` flag, Corvus uses virt-viewer when installed and otherwise Remmina. `--viewer remmina` and `--viewer virt-viewer` require the named viewer and fail if it is absent. Launch failures do not switch viewers. On Gentoo, the live Corvus ebuild accepts either `remmina[crypt,spice]` or `virt-viewer[spice]` for CLI installations.
 
-Graphical VMs also support sharing a folder from the viewer's machine through SPICE WebDAV. Open **File → Preferences** in remote-viewer to select and enable the folder; this works with `crv vm view` and the desktop application's **View** button. The guest needs `spice-webdavd`. See [SPICE folder sharing](shared-directories.md#spice-folder-sharing) for Linux and Windows setup and upgrade requirements. The browser console does not support this feature.
+Pass native viewer arguments after `--`. Corvus forwards each argument literally, in order, to the graphical viewer; quote values containing spaces, for example `-- --title "My VM"` with virt-viewer. These arguments apply only to this invocation. Flags differ between viewers, so pair viewer-specific arguments with `--viewer`. The viewer handles unsupported or conflicting options. Extra arguments are ignored for headless serial sessions and JSON/YAML output.
 
-For machine-readable output, `crv --output json vm view my-vm` emits the grant as JSON (`host`, `port`, `password`, `ttl_seconds`) and exits without launching a viewer.
+The desktop application's **View** button continues to use virt-viewer.
+
+Graphical VMs also support sharing a folder from the viewer's machine through SPICE WebDAV. `--share-folder PATH` selects an existing client-local directory. Remmina enables read/write sharing automatically; virt-viewer preselects the directory and requires enabling **Share folder** in **File → Preferences**. Without this option, Corvus configures no folder. The guest needs `spice-webdavd`. See [SPICE folder sharing](shared-directories.md#spice-folder-sharing) for Linux and Windows setup and upgrade requirements. The browser console does not support this feature.
+
+For machine-readable output, `crv --output json vm view my-vm` emits the grant as JSON (`host`, `port`, `password`, `ttl_seconds`) and exits without launching a viewer. Viewer and folder options are ignored for JSON/YAML grant output and for headless VMs, which continue to use the serial console.
 
 ### Serial Console (headless VMs)
 

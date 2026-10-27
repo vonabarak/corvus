@@ -35,7 +35,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - `genisoimage` or `mkisofs` (for cloud-init ISO generation)
 - `vde_switch` and `dnsmasq` (optional, for virtual networking)
 - `curl` or `wget` (optional, for HTTP disk image import)
-- `remote-viewer` (optional, for `vm view` command)
+- Remmina with SPICE and encryption support, or `remote-viewer` from virt-viewer (for graphical `vm view`; virt-viewer is preferred when both are installed)
 
 ### Binary Releases
 
@@ -167,7 +167,7 @@ crv --socket /tmp/corvus.sock vm list
 
 ### Network Transparency
 
-Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that `remote-viewer` on the client uses. Disk registration and import paths are interpreted on the selected target node; use `crv disk upload` for a file on the client machine. Shared-directory paths refer to the daemon host's filesystem.
+Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that the selected native viewer on the client uses. Disk registration and import paths are interpreted on the selected target node; use `crv disk upload` for a file on the client machine. Shared-directory paths refer to the daemon host's filesystem.
 
 The TCP listener requires mutual TLS — `corvus-admin deploy` provisions a per-host CA and per-client certificates, and the daemon rejects any peer whose CN doesn't begin with `corvus-client:`. Pass `--no-tls` on both the daemon and the client to bypass it in dev. The Unix socket relies on filesystem permissions, and TLS is skipped there even when configured.
 

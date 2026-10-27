@@ -5,6 +5,8 @@ module Corvus.Client.Types
   , Command (..)
   , BorderStyleOpt (..)
   , ColumnSelection (..)
+  , Viewer (..)
+  , ViewOptions (..)
 
     -- * Output format
   , OutputFormat (..)
@@ -87,6 +89,17 @@ data ColumnSelection = DefaultColumns | AllColumns | NamedColumns !(NonEmpty Str
 data BorderStyleOpt = BordersUnicodeOpt | BordersAsciiOpt | BordersNoneOpt
   deriving stock (Show, Eq)
 
+-- | Native graphical console viewer. An omitted selection enables discovery.
+data Viewer = Remmina | VirtViewer
+  deriving stock (Show, Eq)
+
+data ViewOptions = ViewOptions
+  { voViewer :: !(Maybe Viewer)
+  , voShareFolder :: !(Maybe FilePath)
+  , voViewerArgs :: ![String]
+  }
+  deriving stock (Show, Eq)
+
 -- | Available commands
 data Command
   = Ping
@@ -105,8 +118,8 @@ data Command
   | VmSetBalloon !Text !Word64
   | VmReset !Text
   | VmSave !Text !WaitOptions
-  | -- | View VM via SPICE (runs remote-viewer)
-    VmView !Text
+  | -- | View VM via a native SPICE viewer or serial console.
+    VmView !Text !ViewOptions
   | -- | Connect to VM's HMP monitor
     VmMonitor !Text
   | -- | Edit VM properties (vmRef, cpuCount, ram, description, headless, guestAgent, tpm, cloudInit, autostart, rebootQuirk, cpuModel)

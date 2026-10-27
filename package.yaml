@@ -181,6 +181,7 @@ library:
     - Corvus.CloudInit
     - Corvus.Client
     - Corvus.Client.Config
+    - Corvus.Client.Viewer
     - Corvus.Client.Output
     - Corvus.Client.Output.Columns
     - Corvus.Client.Output.Selection

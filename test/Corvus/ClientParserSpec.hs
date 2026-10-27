@@ -146,7 +146,14 @@ commands =
   , (["vm", "save", "web", "-w"], VmSave "web" (WaitOptions True Nothing))
   , (["vm", "edit", "web"], VmEdit "web" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
   , (["vm", "edit", "web", "--startup-timeout-sec", "600", "--cpus", "2", "--ram", "512M", "--description", "new", "--headless", "true", "--guest-agent", "false", "--tpm", "yes", "--cloud-init", "no", "--autostart", "1", "--reboot-quirk", "0", "--cpu-model", "qemu64", "--graphics-adapter", "vga", "--vsock", "false", "--balloon", "true", "--rng", "false"], VmEdit "web" (Just 2) (Just 536870912) (Just "new") (Just True) (Just False) (Just True) (Just False) (Just True) (Just False) (Just "qemu64") (Just GraphicsVga) (Just False) (Just True) (Just False) (Just 600))
-  , (["vm", "view", "web"], VmView "web")
+  , (["vm", "view", "web"], VmView "web" (ViewOptions Nothing Nothing []))
+  , (["vm", "view", "web", "--viewer", "remmina", "--share-folder", "my folder"], VmView "web" (ViewOptions (Just Remmina) (Just "my folder") []))
+  , (["vm", "view", "web", "--viewer", "virt-viewer", "--share-folder", "."], VmView "web" (ViewOptions (Just VirtViewer) (Just ".") []))
+  , (["vm", "view", "web", "--share-folder", "."], VmView "web" (ViewOptions Nothing (Just ".") []))
+  , (["vm", "view", "web", "--"], VmView "web" (ViewOptions Nothing Nothing []))
+  , (["vm", "view", "web", "--viewer", "remmina", "--", "--enable-fullscreen", "--kiosk"], VmView "web" (ViewOptions (Just Remmina) Nothing ["--enable-fullscreen", "--kiosk"]))
+  , (["vm", "view", "web", "--viewer", "virt-viewer", "--share-folder", ".", "--", "--title", "A VM with spaces", "--full-screen"], VmView "web" (ViewOptions (Just VirtViewer) (Just ".") ["--title", "A VM with spaces", "--full-screen"]))
+  , (["vm", "view", "web", "--", "--viewer", "anything", "--share-folder", "missing", "--output", "json", "--help", "--"], VmView "web" (ViewOptions Nothing Nothing ["--viewer", "anything", "--share-folder", "missing", "--output", "json", "--help", "--"]))
   , (["vm", "monitor", "web"], VmMonitor "web")
   , (["vm", "upload", "web", "local.bin", "/tmp/guest.bin"], VmUpload "web" "local.bin" "/tmp/guest.bin")
   , (["vm", "download", "web", "/tmp/guest.bin", "local.bin"], VmDownload "web" "/tmp/guest.bin" "local.bin")
@@ -273,7 +280,9 @@ commands =
 
 failures :: [([String], String)]
 failures =
-  [ ([], "Missing")
+  [ (["vm", "view", "web", "--enable-fullscreen"], "Invalid option")
+  , (["vm", "view", "web", "--viewer", "unknown"], "expected remmina or virt-viewer")
+  , ([], "Missing")
   , (["unknown"], "Invalid argument")
   , (["vm", "unknown"], "Invalid argument")
   , (["vm", "show"], "Missing")

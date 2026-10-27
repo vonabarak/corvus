@@ -381,9 +381,39 @@ vmViewCommand =
     <$> argument
       (T.pack <$> str)
       ( metavar "VM"
-          <> help "Name or ID of the VM to view via SPICE"
+          <> help "Name or ID of the VM to view"
           <> completer vmCompleter
       )
+    <*> ( ViewOptions
+            <$> optional
+              ( option
+                  (eitherReader readViewer)
+                  ( long "viewer"
+                      <> metavar "remmina|virt-viewer"
+                      <> completeWith ["remmina", "virt-viewer"]
+                      <> help "Require this viewer (default: prefer installed virt-viewer, otherwise Remmina)"
+                  )
+              )
+            <*> optional
+              ( strOption
+                  ( long "share-folder"
+                      <> metavar "PATH"
+                      <> completer (bashCompleter "directory")
+                      <> help "Share a client-local folder; virt-viewer requires enabling sharing in Preferences"
+                  )
+              )
+            <*> many
+              ( argument
+                  str
+                  ( metavar "VIEWER_ARG..."
+                      <> help "Extra viewer arguments (put -- before viewer flags)"
+                  )
+              )
+        )
+  where
+    readViewer "remmina" = Right Remmina
+    readViewer "virt-viewer" = Right VirtViewer
+    readViewer _ = Left "expected remmina or virt-viewer"
 
 -- | Parser for vm monitor
 vmMonitorCommand :: Parser Command
@@ -582,7 +612,7 @@ vmCommandParser =
           (info vmEditCommand (progDesc "Edit VM properties (VM must be stopped)"))
         <> command
           "view"
-          (info vmViewCommand (progDesc "View VM via SPICE (runs remote-viewer)"))
+          (info vmViewCommand (progDesc "View VM via an installed SPICE viewer or serial console"))
         <> command
           "monitor"
           (info vmMonitorCommand (progDesc "Connect to VM's HMP monitor (Ctrl+] to exit)"))

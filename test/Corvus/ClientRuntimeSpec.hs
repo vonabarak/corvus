@@ -18,17 +18,14 @@ import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Exception (bracket)
 import Control.Monad (forM_, void, when)
-import Corvus.Client.Commands.Vm (RawSessionKind (..), runRawTerminalSession, runRemoteViewer)
+import Corvus.Client.Commands.Vm (RawSessionKind (..), runRawTerminalSession)
 import Corvus.Client.Completion
-import Corvus.Client.Config (ClientConfig (..))
 import Corvus.Client.Types
-import Corvus.Wire.Common (ViewGrant (..))
 import qualified Data.ByteString as BS
 import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Options.Applicative.Types (Completer (..))
-import System.Directory (doesFileExist)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -131,25 +128,50 @@ spec = sequential $ describe "CLI runtime and transport" $ do
       it ("renders a SPICE grant as " ++ show fmt) $ withMock $ \f -> do
         expectCalls f (vm "show" ++ vm "viewGrant")
         setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
-        out <- checkCli f fmt (VmView "fixture") ExitSuccess
+        out <- checkCli f fmt (VmView "fixture" (ViewOptions (Just Remmina) (Just "/nonexistent-corvus-folder") ["--kiosk"])) ExitSuccess
         out `shouldSatisfy` isInfixOf "password"
     it "requests a SPICE grant for an errored VM" $ withMock $ \f -> do
       expectCalls f (vm "show" ++ vm "viewGrant")
       setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, GVm.status = GEnums.VmStatus'error, ..})))
-      out <- checkCli f JsonOutput (VmView "fixture") ExitSuccess
+      out <- checkCli f JsonOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) ExitSuccess
       out `shouldSatisfy` isInfixOf "password"
     it "rejects viewing a stopped VM" $ withMock $ \f -> do
       expectCalls f (vm "show")
       setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.status = GEnums.VmStatus'stopped, ..})))
-      out <- checkCli f JsonOutput (VmView "fixture") (ExitFailure 1)
+      out <- checkCli f JsonOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) (ExitFailure 1)
       out `shouldSatisfy` isInfixOf "vm_not_running"
     forM_ ["Vm.show", "Vm.viewGrant"] $ \method ->
       it ("reports view failure at " ++ method) $ withMock $ \f -> do
         expectCalls f (vm "show" ++ if method == "Vm.viewGrant" then vm "viewGrant" else [])
         setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
         setFailure f (Just method)
-        _ <- checkCli f JsonOutput (VmView "fixture") (ExitFailure 1)
+        _ <- checkCli f JsonOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) (ExitFailure 1)
         pure ()
+  describe "graphical viewer selection" $ do
+    forM_ [(False, True), (True, False), (True, True)] $ \(remmina, virtViewer) ->
+      it ("launches the installed preferred viewer: " ++ show (remmina, virtViewer)) $ withSystemTempDirectory "cli-viewer" $ \dir -> withEnv "PATH" (Just dir) $ withMock $ \f -> do
+        let writeViewer name = do
+              writeFile (dir </> name) ("#!/bin/sh\nif [ \"$4\" = --encrypt-password ]; then read -r password; printf 'Encrypted password: MDEyMzQ1Njc=\\n'; exit 1; fi\nprintf '%s' '" ++ name ++ "' > '" ++ dir </> "selected" ++ "'\n")
+              setFileMode (dir </> name) 0o700
+        when remmina $ writeViewer "remmina"
+        when virtViewer $ writeViewer "remote-viewer"
+        expectCalls f (vm "show" ++ vm "viewGrant")
+        setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
+        _ <- checkCli f TextOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) ExitSuccess
+        readFile (dir </> "selected") `shouldReturn` (if virtViewer then "remote-viewer" else "remmina")
+    forM_ [Nothing, Just Remmina, Just VirtViewer] $ \selection ->
+      it ("fails before requesting a grant when the viewer is absent: " ++ show selection) $ withSystemTempDirectory "cli-viewer" $ \dir -> withEnv "PATH" (Just dir) $ withMock $ \f -> do
+        expectCalls f (vm "show")
+        setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
+        out <- checkCli f TextOutput (VmView "fixture" (ViewOptions selection Nothing [])) (ExitFailure 1)
+        out `shouldSatisfy` isInfixOf "Install"
+    it "rejects a missing shared folder before requesting a grant" $ withSystemTempDirectory "cli-viewer" $ \dir -> withEnv "PATH" (Just dir) $ withMock $ \f -> do
+      writeFile (dir </> "remote-viewer") "#!/bin/sh\nexit 0\n"
+      setFileMode (dir </> "remote-viewer") 0o700
+      expectCalls f (vm "show")
+      setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
+      out <- checkCli f TextOutput (VmView "fixture" (ViewOptions Nothing (Just (dir </> "missing")) [])) (ExitFailure 1)
+      out `shouldSatisfy` isInfixOf "existing client-local directory"
   describe "TCP and TLS selection" $ do
     it "connects to the scripted TCP peer with TLS disabled" $ withMockTcp $ \f -> do
       port <- readIORef (mockPort f)
@@ -181,7 +203,7 @@ spec = sequential $ describe "CLI runtime and transport" $ do
       (code, err) `shouldBe` (ExitFailure 1, "")
       out `shouldSatisfy` isInfixOf "Connection error"
   describe "console command dispatch" $ do
-    forM_ [(VmView "fixture", "serialConsole", vm "show"), (VmMonitor "fixture", "hmpMonitor", [])] $ \(cmd, method, prefix) -> do
+    forM_ [(VmView "fixture" (ViewOptions (Just Remmina) (Just "/nonexistent-corvus-folder") ["--kiosk"]), "serialConsole", vm "show"), (VmMonitor "fixture", "hmpMonitor", [])] $ \(cmd, method, prefix) -> do
       it ("forwards remote output and local input for " ++ method) $ withPty $ \master -> withMock $ \f -> do
         sink <- mockClient f
         let send :: C.Client GStreams.ByteSink -> IO ()
@@ -202,22 +224,6 @@ spec = sequential $ describe "CLI runtime and transport" $ do
         setFailure f (Just ("Vm." ++ method))
         out <- checkCli f JsonOutput cmd (ExitFailure 1)
         out `shouldSatisfy` isInfixOf "scripted RPC failure"
-  describe "viewer credential file" $ forM_ [False, True] $ \failViewer ->
-    it ("passes one private temporary file and removes it: " ++ show failViewer) $ withSystemTempDirectory "cli-viewer" $ \dir -> do
-      let viewer = dir </> "viewer"
-          record = dir </> "record"
-      writeFile viewer ("#!/bin/sh\ntest \"$#\" -eq 1 || exit 3\nprintf '%s\\n' \"$1\" > '" ++ record ++ "'\nstat -c %a \"$1\" >> '" ++ record ++ "'\ncat \"$1\" >> '" ++ record ++ "'\nexit " ++ if failViewer then "2\n" else "0\n")
-      setFileMode viewer 0o700
-      (out, ok) <- hCapture [stdout] $ runRemoteViewer (ClientConfig viewer) (ViewGrant "host" 5900 "secret" 30)
-      ok `shouldBe` not failViewer
-      if failViewer then out `shouldSatisfy` isInfixOf "Failed" else out `shouldBe` ""
-      saved <- lines <$> readFile record
-      case saved of
-        path : mode : body -> do
-          mode `shouldBe` "600"
-          body `shouldBe` ["[virt-viewer]", "type=spice", "host=host", "port=5900", "password=secret"]
-          doesFileExist path `shouldReturn` False
-        _ -> expectationFailure "Viewer did not record its single file argument"
   describe "raw terminal restoration" $ do
     forM_ [SerialSession, MonitorSession] $ \kind ->
       forM_ [Nothing, Just False, Just True] $ \failure ->
