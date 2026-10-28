@@ -28,6 +28,27 @@ import Test.Hspec
 
 spec :: Spec
 spec = do
+  describe "PNG screenshot command" $ do
+    it "requests PNG and escapes the private destination" $ withSystemTempDirectory "corvus-qmp" $ \dir -> do
+      let config = defaultQemuConfig {qcRuntimeDir = Just dir}
+          destination = ("/tmp/screen\"\\name.png" :: FilePath)
+      path <- getQmpSocket config 42
+      createDirectoryIfMissing True (takeDirectory path)
+      bracket (socket AF_UNIX Stream defaultProtocol) close $ \listener -> do
+        bind listener (SockAddrUnix path)
+        listen listener 1
+        command <- newEmptyMVar
+        _ <- forkIO $ bracket (fst <$> accept listener) close $ \peer -> do
+          sendAll peer "{\"QMP\":{}}\n"
+          _ <- recv peer 4096
+          sendAll peer "{\"return\":{}}\n"
+          request <- recv peer 4096
+          putMVar command request
+          sendAll peer "{\"return\":{}}\n"
+        qmpScreenshot config 42 destination `shouldReturn` QmpSuccess
+        request <- takeMVar command
+        eitherDecode' (BSL.fromStrict request) `shouldBe` Right (object ["execute" .= String "screendump", "arguments" .= object ["filename" .= destination, "format" .= String "png"]])
+
   describe "guest reboot event confirmation" $ do
     it "accepts a guest reset" $
       isGuestRebootEvent (object ["event" .= String "RESET", "data" .= object ["guest" .= True]]) `shouldBe` Just False

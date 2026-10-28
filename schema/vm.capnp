@@ -320,6 +320,8 @@ interface VmManager {
 }
 
 interface Vm {
+  # Capture the primary display as PNG; the destination is client-local.
+  screenshot @44 (sink :Streams.ByteSink) -> (bytesTransferred :UInt64);
   addAudioDevice    @35 (params :AudioDeviceParams) -> (audioDeviceId :Int64);
   editAudioDevice   @36 (audioDeviceId :Int64, params :AudioDeviceParams, setModel :Bool = false) -> ();
   removeAudioDevice @37 (audioDeviceId :Int64) -> ();

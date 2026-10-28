@@ -345,6 +345,7 @@ instance GVm.Vm'server_ Mock where
   vm'cloudInit (Mock f) = handleParsed (respond f "Vm.cloudInit")
   vm'viewGrant (Mock f) = handleParsed (respond f "Vm.viewGrant")
   vm'uploadFile (Mock f) = handleParsedAsync (respond f "Vm.uploadFile")
+  vm'screenshot (Mock f) = handleParsedAsync (respond f "Vm.screenshot")
   vm'downloadFile (Mock f) = handleParsedAsync (respond f "Vm.downloadFile")
   vm'guestExec (Mock f) = handleParsed (respond f "Vm.guestExec")
   vm'sendCtrlAltDel (Mock f) = handleParsed (respond f "Vm.sendCtrlAltDel")

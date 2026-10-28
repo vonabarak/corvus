@@ -29,6 +29,7 @@ import Data.List (isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Yaml as Yaml
+import System.Directory (doesFileExist, listDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -40,6 +41,42 @@ import Test.Hspec
 
 spec :: Spec
 spec = sequential $ describe "CLI files, editors and event streams" $ do
+  describe "VM screenshots" $ do
+    forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> forM_ (["ok", "rpc", "no-end", "count", "race", "exists"] :: [String]) $ \mode ->
+      it ("publishes complete PNG without overwriting: " <> show (fmt, mode)) $ withSystemTempDirectory "screenshots" $ \dir -> withMock $ \f -> do
+        let path = dir </> "screen.png"
+            payload = "\137PNG\r\n\26\nbytes"
+        when (mode == "exists") $ BS.writeFile path "original"
+        expectCalls f (if mode == "exists" then [] else ["Daemon.vms", "VmManager.get", "Vm.screenshot"])
+        setReply f "Vm.screenshot" $ \GVm.Vm'screenshot'params {GVm.sink = sink} -> do
+          callSink #write GStreams.ByteSink'write'params {GStreams.chunk = payload} sink
+          doesFileExist path `shouldReturn` False
+          when (mode == "race") $ BS.writeFile path "original"
+          when (mode == "rpc") $ ioError (userError "capture failed")
+          unless (mode == "no-end") $ callSink #end GStreams.ByteSink'end'params sink
+          pure GVm.Vm'screenshot'results {GVm.bytesTransferred = if mode == "count" then 0 else fromIntegral (BS.length payload)}
+        out <- checkCli f fmt (VmScreenshot "vm" (Just path)) (exitFor (mode /= "ok"))
+        out `shouldSatisfy` (not . null)
+        entries <- listDirectory dir
+        entries `shouldBe` ["screen.png" | mode `elem` ["ok", "race", "exists"]]
+        when (mode `elem` ["ok", "race", "exists"]) $ BS.readFile path `shouldReturn` if mode == "ok" then payload else "original"
+    forM_ [True, False] $ \useXdg -> it ("selects a unique default Pictures path: " <> show useXdg) $ withSystemTempDirectory "screenshots" $ \dir -> do
+      let script = dir </> "xdg-user-dir"
+          pictures = dir </> if useXdg then "Custom" else "Pictures"
+      writeFile script ("#!/bin/sh\n" <> if useXdg then "printf '%s\\n' '" <> pictures <> "'\n" else "exit 1\n")
+      setFileMode script 0o700
+      withEnv "HOME" (Just dir) $ withEnv "PATH" (Just dir) $ withMock $ \f -> do
+        expectCalls f ["Daemon.vms", "VmManager.get", "Vm.screenshot"]
+        setReply f "Vm.screenshot" $ \GVm.Vm'screenshot'params {GVm.sink = sink} -> do
+          callSink #write GStreams.ByteSink'write'params {GStreams.chunk = "PNG"} sink
+          callSink #end GStreams.ByteSink'end'params sink
+          pure GVm.Vm'screenshot'results {GVm.bytesTransferred = 3}
+        out <- checkCli f TextOutput (VmScreenshot "../VM_42-name" Nothing) ExitSuccess
+        out `shouldSatisfy` isInfixOf pictures
+        names <- listDirectory pictures
+        case names of
+          [name] -> name `shouldSatisfy` isInfixOf "___VM_42-name-"
+          _ -> expectationFailure "expected one screenshot"
   describe "guest file transfers" $ do
     forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> it ("uploads bounded binary chunks: " <> show fmt) $ withSystemTempDirectory "guest-files" $ \dir -> withMock $ \f -> do
       let path = dir </> "source"

@@ -17,6 +17,7 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-dodgy-exports #-}
 {-# OPTIONS_GHC -Wno-unused-matches #-}
+{-# OPTIONS_GHC -Wno-unused-type-patterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
@@ -1588,9 +1589,10 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'setBalloon) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'uploadFile) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'downloadFile) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'injectSshKeys) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'injectSshKeys) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'screenshot) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile,vm'injectSshKeys #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile,vm'injectSshKeys,vm'screenshot #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1679,6 +1681,8 @@ class (Vm'server_ s_) where
     vm'downloadFile _ = GH.methodUnimplemented
     vm'injectSshKeys :: s_ -> (GH.MethodHandler Vm'injectSshKeys'params Vm'injectSshKeys'results)
     vm'injectSshKeys _ = GH.methodUnimplemented
+    vm'screenshot :: s_ -> (GH.MethodHandler Vm'screenshot'params Vm'screenshot'results)
+    vm'screenshot _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1767,6 +1771,8 @@ instance (GH.HasMethod "downloadFile" Vm Vm'downloadFile'params Vm'downloadFile'
     methodByLabel  = (GH.Method 17269745093196220462 42)
 instance (GH.HasMethod "injectSshKeys" Vm Vm'injectSshKeys'params Vm'injectSshKeys'results) where
     methodByLabel  = (GH.Method 17269745093196220462 43)
+instance (GH.HasMethod "screenshot" Vm Vm'screenshot'params Vm'screenshot'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 44)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -4232,7 +4238,7 @@ instance (C.Marshal Vm'downloadFile'results (C.Parsed Vm'downloadFile'results)) 
         )
 instance (GH.HasField "bytesTransferred" GH.Slot Vm'downloadFile'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Vm'injectSshKeys'params
+data Vm'injectSshKeys'params 
 type instance (R.ReprFor Vm'injectSshKeys'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'injectSshKeys'params) where
     typeId  = 12020038094438978491
@@ -4248,7 +4254,7 @@ instance (C.AllocateList Vm'injectSshKeys'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Vm'injectSshKeys'params (C.Parsed Vm'injectSshKeys'params))
 data instance C.Parsed Vm'injectSshKeys'params
-    = Vm'injectSshKeys'params
+    = Vm'injectSshKeys'params 
         {username :: (RP.Parsed Basics.Text)
         ,reset :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
@@ -4267,7 +4273,7 @@ instance (GH.HasField "username" GH.Slot Vm'injectSshKeys'params Basics.Text) wh
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "reset" GH.Slot Vm'injectSshKeys'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
-data Vm'injectSshKeys'results
+data Vm'injectSshKeys'results 
 type instance (R.ReprFor Vm'injectSshKeys'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'injectSshKeys'results) where
     typeId  = 16560716642847869791
@@ -4283,7 +4289,7 @@ instance (C.AllocateList Vm'injectSshKeys'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results))
 data instance C.Parsed Vm'injectSshKeys'results
-    = Vm'injectSshKeys'results
+    = Vm'injectSshKeys'results 
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'injectSshKeys'results))
@@ -4292,6 +4298,66 @@ instance (C.Parse Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results)) 
     parse raw_ = (Std_.pure Vm'injectSshKeys'results)
 instance (C.Marshal Vm'injectSshKeys'results (C.Parsed Vm'injectSshKeys'results)) where
     marshalInto _raw (Vm'injectSshKeys'results) = (Std_.pure ())
+data Vm'screenshot'params 
+type instance (R.ReprFor Vm'screenshot'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'screenshot'params) where
+    typeId  = 13379313776745541673
+instance (C.TypedStruct Vm'screenshot'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Vm'screenshot'params) where
+    type AllocHint Vm'screenshot'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'screenshot'params (C.Parsed Vm'screenshot'params))
+instance (C.AllocateList Vm'screenshot'params) where
+    type ListAllocHint Vm'screenshot'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'screenshot'params (C.Parsed Vm'screenshot'params))
+data instance C.Parsed Vm'screenshot'params
+    = Vm'screenshot'params 
+        {sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'screenshot'params))
+deriving instance (Std_.Eq (C.Parsed Vm'screenshot'params))
+instance (C.Parse Vm'screenshot'params (C.Parsed Vm'screenshot'params)) where
+    parse raw_ = (Vm'screenshot'params <$> (GH.parseField #sink raw_))
+instance (C.Marshal Vm'screenshot'params (C.Parsed Vm'screenshot'params)) where
+    marshalInto raw_ Vm'screenshot'params{..} = (do
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "sink" GH.Slot Vm'screenshot'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data Vm'screenshot'results 
+type instance (R.ReprFor Vm'screenshot'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'screenshot'results) where
+    typeId  = 14314954623982129853
+instance (C.TypedStruct Vm'screenshot'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'screenshot'results) where
+    type AllocHint Vm'screenshot'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'screenshot'results (C.Parsed Vm'screenshot'results))
+instance (C.AllocateList Vm'screenshot'results) where
+    type ListAllocHint Vm'screenshot'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'screenshot'results (C.Parsed Vm'screenshot'results))
+data instance C.Parsed Vm'screenshot'results
+    = Vm'screenshot'results 
+        {bytesTransferred :: (RP.Parsed Std_.Word64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'screenshot'results))
+deriving instance (Std_.Eq (C.Parsed Vm'screenshot'results))
+instance (C.Parse Vm'screenshot'results (C.Parsed Vm'screenshot'results)) where
+    parse raw_ = (Vm'screenshot'results <$> (GH.parseField #bytesTransferred raw_))
+instance (C.Marshal Vm'screenshot'results (C.Parsed Vm'screenshot'results)) where
+    marshalInto raw_ Vm'screenshot'results{..} = (do
+        (GH.encodeField #bytesTransferred bytesTransferred raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "bytesTransferred" GH.Slot Vm'screenshot'results Std_.Word64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

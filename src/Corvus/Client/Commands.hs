@@ -40,6 +40,7 @@ import Corvus.Client.Commands.GuestExec
 import Corvus.Client.Commands.NetIf
 import Corvus.Client.Commands.Network
 import qualified Corvus.Client.Commands.Node as CmdNode
+import Corvus.Client.Commands.Screenshot (handleVmScreenshot)
 import Corvus.Client.Commands.SharedDir
 import Corvus.Client.Commands.SshKey
 import Corvus.Client.Commands.Task
@@ -172,6 +173,7 @@ runCommand opts = do
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec ->
         handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm mGraphicsAdapter mVsock mBalloon mRng mStartupTimeoutSec
       VmUpload vmRef local guest -> handleVmUpload fmt conn vmRef local guest
+      VmScreenshot vmRef path -> handleVmScreenshot fmt conn vmRef path
       VmDownload vmRef guest local -> handleVmDownload fmt conn vmRef guest local
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef viewOpts -> handleVmView opts fmt conn vmRef viewOpts

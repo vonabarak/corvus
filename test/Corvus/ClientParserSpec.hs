@@ -156,6 +156,8 @@ commands =
   , (["vm", "view", "web", "--", "--viewer", "anything", "--share-folder", "missing", "--output", "json", "--help", "--"], VmView "web" (ViewOptions Nothing Nothing ["--viewer", "anything", "--share-folder", "missing", "--output", "json", "--help", "--"]))
   , (["vm", "monitor", "web"], VmMonitor "web")
   , (["vm", "upload", "web", "local.bin", "/tmp/guest.bin"], VmUpload "web" "local.bin" "/tmp/guest.bin")
+  , (["vm", "screenshot", "web"], VmScreenshot "web" Nothing)
+  , (["vm", "screenshot", "web", "--path", "screen.png"], VmScreenshot "web" (Just "screen.png"))
   , (["vm", "download", "web", "/tmp/guest.bin", "local.bin"], VmDownload "web" "/tmp/guest.bin" "local.bin")
   , (["vm", "download", "web", "/tmp/guest.bin"], VmDownload "web" "/tmp/guest.bin" "guest.bin")
   , (["vm", "download", "web", "C:\\Windows\\Temp\\guest.bin"], VmDownload "web" "C:\\Windows\\Temp\\guest.bin" "guest.bin")

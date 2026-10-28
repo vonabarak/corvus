@@ -492,3 +492,28 @@ A readiness timeout marks the VM `error` and keeps QEMU alive for diagnosis.
 `crv vm view <vm>` can open the serial console or SPICE viewer while that
 process is alive, including when the VM is in `error`. Reset the VM before
 starting it again. Viewing an errored VM whose QEMU process exited is rejected.
+
+## Screenshots
+
+Capture a graphical VM's primary display as PNG:
+
+```sh
+crv vm screenshot my-vm
+crv vm screenshot my-vm --path ./screen.png
+```
+
+The file is saved on the machine running `crv`, including when the VM runs
+on a remote node. Without `--path`, Corvus uses `xdg-user-dir PICTURES`,
+falling back to `~/Pictures`, and creates the directory if needed. The default
+filename combines the sanitized VM reference, UTC timestamp, and random suffix.
+An explicit path is an exact filename; its parent directory must exist.
+Existing files and symlinks are never overwritten. Failed transfers remove
+partial files. Output includes the saved path and byte count.
+
+The VM must have a live QEMU process and a graphical display. Paused VMs can
+be captured; stopped, saved, and headless VMs cannot. Capture requires QEMU
+7.1 or newer built with PNG screenshot support. Screenshots do not require a
+guest agent and do not create tasks.
+
+Python clients expose `vm.screenshot_to_file(local_path)`, returning the number
+of bytes saved; the async client exposes the same method as a coroutine.

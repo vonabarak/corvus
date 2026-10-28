@@ -69,6 +69,7 @@ import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
 import Corvus.Node.Caps.Session.Vm.Lifecycle (sanitiseVmName)
 import Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot)
+import Corvus.Node.Caps.Session.Vm.Screenshot (handleVmScreenshot)
 import qualified Corvus.Node.Runtime as NR
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import System.FilePath (takeDirectory)
@@ -450,6 +451,10 @@ instance CGNA.Session'server_ SessionServer where
   session'vmPause (SessionServer sc) =
     handleParsed $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->
       handleVmPause sc vid
+
+  session'vmScreenshot (SessionServer sc) =
+    handleParsedAsync $ \CGNA.Session'vmScreenshot'params {CGNA.vmId = vid, CGNA.sink = sink} ->
+      handleVmScreenshot sc vid sink
 
   session'vmSetBalloon (SessionServer sc) =
     handleParsedAsync $ \CGNA.Session'vmSetBalloon'params {CGNA.vmId = vid, CGNA.targetBytes = target} ->

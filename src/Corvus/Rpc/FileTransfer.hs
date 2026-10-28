@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- | Scoped file callbacks. Dropped/cancelled transfers reject later calls.
-module Corvus.Rpc.FileTransfer (withSource, readSource, bytesSource, withDownload) where
+module Corvus.Rpc.FileTransfer (withSource, readSource, bytesSource, withDownload, withDownloadNoReplace) where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as S
@@ -21,6 +21,8 @@ import Supervisors (Supervisor)
 import System.Directory (removeFile, renameFile)
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (Handle, hClose, openBinaryTempFile)
+import System.IO.Error (isDoesNotExistError)
+import System.Posix.Files (createLink, getSymbolicLinkStatus)
 import System.Timeout (timeout)
 
 data Source = Source (MVar Bool) (Int -> IO (BS.ByteString, Bool))
@@ -73,7 +75,20 @@ instance S.ByteSink'server_ FileSink where
 
 -- | Publish the sibling temporary file only after end() and RPC success.
 withDownload :: Supervisor -> FilePath -> (C.Client S.ByteSink -> IO Word64) -> IO Word64
-withDownload sup destination transfer = bracketOnError
+withDownload = downloadWith renameFile
+
+-- | Reject existing destinations, including dangling symlinks. Hard-linking
+-- the completed sibling file publishes it atomically without replacing a racer.
+withDownloadNoReplace :: Supervisor -> FilePath -> (C.Client S.ByteSink -> IO Word64) -> IO Word64
+withDownloadNoReplace sup destination transfer = do
+  exists <-
+    (getSymbolicLinkStatus destination >> pure True) `catch` \err ->
+      if isDoesNotExistError err then pure False else ioError err
+  when exists $ ioError (userError "screenshot destination already exists")
+  downloadWith (\source target -> createLink source target >> removeFile source) sup destination transfer
+
+downloadWith :: (FilePath -> FilePath -> IO ()) -> Supervisor -> FilePath -> (C.Client S.ByteSink -> IO Word64) -> IO Word64
+downloadWith publish sup destination transfer = bracketOnError
   (openBinaryTempFile (takeDirectory destination) (takeFileName destination <> ".part"))
   (\(path, handle) -> ignore (hClose handle) >> ignore (removeFile path))
   $ \(path, handle) -> do
@@ -84,9 +99,9 @@ withDownload sup destination transfer = bracketOnError
         (\_ -> modifyMVar_ state $ \(_, ended, bytes) -> pure (False, ended, bytes))
         transfer
     valid <- modifyMVar state $ \s@(_, ended, bytes) -> pure (s, ended && bytes == count)
-    unless valid $ ioError (userError "incomplete guest file download")
+    unless valid $ ioError (userError "incomplete file download")
     hClose handle
-    renameFile path destination
+    publish path destination
     pure count
   where
     ignore action = action `catch` \(_ :: SomeException) -> pure ()

@@ -64,6 +64,20 @@ buffer to a `ByteSource` and adds `vmGuestReadFile`. Update all components
 together. See [guest files](guest-files.md) for completion, timeouts, and
 partial-upload behavior.
 
+## Display screenshots
+
+Protocol version 6 adds `Vm.screenshot(sink) -> bytesTransferred` and
+`Session.vmScreenshot(vmId, sink) -> (status, message, bytesTransferred)`.
+Update daemon, nodeagents, and clients together. The daemon routes the sink
+to the owning node without recording a task. The nodeagent holds the VM
+operation lock during QMP `screendump` with `format: "png"`, then streams a
+private temporary PNG in chunks of at most 32768 bytes. Capture times out
+after 30 seconds; each sink callback times out after 60 seconds. Successful
+completion ends the sink; failure aborts it and removes the temporary file.
+The typed node status distinguishes an absent/exited VM, a headless VM, and
+capture failure. Client destinations are local and published only after
+successful completion and matching byte counts, without replacing a file.
+
 ## Entity references
 
 ### Input lookups

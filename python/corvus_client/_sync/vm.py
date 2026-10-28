@@ -236,6 +236,10 @@ class SyncVm(LoopBoundResource):
     def download_to_file(self, guest_path: str, local_path: str | Path) -> int:
         return self._rl.run(self._a.download_to_file(guest_path, local_path))
 
+    def screenshot_to_file(self, local_path: str | Path) -> int:
+        """Save the primary display as PNG, refusing to overwrite."""
+        return self._rl.run(self._a.screenshot_to_file(local_path))
+
     def guest_exec(self, command: str) -> t.GuestExecResult:
         return self._rl.run(self._a.guest_exec(command))
 

@@ -60,6 +60,8 @@ struct AgentInfo {
 # ---------------------------------------------------------------------
 
 interface Session {
+  # Capture into an agent-owned temporary file and stream PNG to the caller.
+  vmScreenshot @58 (vmId :Int64, sink :Streams.ByteSink) -> (status :ScreenshotStatus, message :Text, bytesTransferred :UInt64);
   # End-to-end check that the session cap is live after `session(owner)`.
   ping @0 () -> ();
 
@@ -802,4 +804,12 @@ enum BalloonStatus {
   driverNotReady @3;
   invalidTarget @4;
   failed @5;
+}
+
+# Expected screenshot failures remain typed across the nodeagent boundary.
+enum ScreenshotStatus {
+  success @0;
+  notRunning @1;
+  headless @2;
+  failed @3;
 }

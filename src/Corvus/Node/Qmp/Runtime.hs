@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Runtime QMP operations.
-module Corvus.Node.Qmp.Runtime (qmpShutdown, qmpContinue, qmpSetBalloon, qmpStop, qmpQuit, qmpMigrate, qmpQueryMigrate, qmpSetSpicePassword, qmpExpireSpicePassword, qmpSendCtrlAltDel, qmpSendKey, qmpQueryBlockstats, qmpQueryBalloon, qmpQueryCommands, pollQmpJob, waitForQmpReady, BlockstatsRow (..)) where
+module Corvus.Node.Qmp.Runtime (qmpScreenshot, qmpShutdown, qmpContinue, qmpSetBalloon, qmpStop, qmpQuit, qmpMigrate, qmpQueryMigrate, qmpSetSpicePassword, qmpExpireSpicePassword, qmpSendCtrlAltDel, qmpSendKey, qmpQueryBlockstats, qmpQueryBalloon, qmpQueryCommands, pollQmpJob, waitForQmpReady, BlockstatsRow (..)) where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpRaw)
@@ -23,6 +23,11 @@ import Data.Word (Word64)
 
 -- QMP Commands
 --------------------------------------------------------------------------------
+
+-- | Capture the primary display directly as PNG (QEMU >= 7.1).
+qmpScreenshot :: QemuConfig -> Int64 -> FilePath -> IO QmpResult
+qmpScreenshot config vmId path =
+  sendQmpCommand config vmId [qmpQQ| { "execute": "screendump", "arguments": { "filename": #{T.pack path}, "format": "png" } } |]
 
 -- | Send graceful shutdown command via QMP
 qmpShutdown :: QemuConfig -> Int64 -> IO QmpResult

@@ -61,6 +61,7 @@ import Corvus.Handlers.Vm
   )
 import Corvus.Handlers.Vm.Balloon (VmSetBalloon (..))
 import Corvus.Handlers.Vm.Migrate (VmMigrate (..))
+import Corvus.Handlers.Vm.Screenshot (captureVmScreenshot)
 import Corvus.Handlers.Vm.Snapshot
   ( VmSnapshotCreate (..)
   , VmSnapshotDelete (..)
@@ -348,6 +349,10 @@ instance CGVm.Vm'server_ VmCap where
       RespGuestFileTransferred count -> pure CGVm.Vm'uploadFile'results {CGVm.bytesTransferred = count}
       RespInvalidTransition status msg -> throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
       _ -> throwError resp
+
+  vm'screenshot (VmCap st _ eid _) = handleParsedAsync $ \CGVm.Vm'screenshot'params {CGVm.sink = sink} -> do
+    count <- captureVmScreenshot st eid sink
+    pure CGVm.Vm'screenshot'results {CGVm.bytesTransferred = count}
 
   vm'downloadFile (VmCap st _ eid _) = handleParsedAsync $ \CGVm.Vm'downloadFile'params {..} -> do
     resp <- downloadGuestFile st eid path sink

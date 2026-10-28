@@ -5,6 +5,7 @@ module Corvus.Node.Qmp
   , BlockstatsRow (..)
   , withRebootObserver
   , isGuestRebootEvent
+  , qmpScreenshot
   , qmpShutdown
   , qmpContinue
   , qmpStop

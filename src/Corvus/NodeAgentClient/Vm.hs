@@ -11,6 +11,7 @@ module Corvus.NodeAgentClient.Vm
   , vmStopHard
   , vmPause
   , vmResume
+  , vmScreenshot
   , vmSetBalloon
   , vmSave
   , deleteSavedState
@@ -664,3 +665,8 @@ vmGuestSshAddAuthorizedKeys nac vmId username keys reset = remote $ do
       CGNA.Session'vmGuestSshAddAuthorizedKeys'params {CGNA.vmId = vmId, CGNA.username = username, CGNA.keys = keys, CGNA.reset = reset}
       (nacSession nac)
   pure ()
+
+vmScreenshot :: NodeAgentClient -> Int64 -> C.Client CGS.ByteSink -> IO (Either NodeAgentError (C.Parsed CGNA.Session'vmScreenshot'results))
+vmScreenshot nac vmId sink =
+  remote $
+    callOn #vmScreenshot CGNA.Session'vmScreenshot'params {CGNA.vmId = vmId, CGNA.sink = sink} (nacSession nac)

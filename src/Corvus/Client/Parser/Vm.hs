@@ -449,6 +449,12 @@ vmUploadCommand =
     <*> argument str (metavar "LOCAL_FILE" <> help "Binary file to upload")
     <*> argument (T.pack <$> str) (metavar "GUEST_FILE" <> help "Exact guest destination path (overwrite)")
 
+vmScreenshotCommand :: Parser Command
+vmScreenshotCommand =
+  VmScreenshot
+    <$> argument (T.pack <$> str) (metavar "VM" <> help "Name or ID of the VM" <> completer vmCompleter)
+    <*> optional (strOption (long "path" <> metavar "FILE" <> help "Exact local PNG destination (default: Pictures directory); never overwrite" <> completer (bashCompleter "file")))
+
 vmDownloadCommand :: Parser Command
 vmDownloadCommand =
   (\vm guest local -> VmDownload vm guest (fromMaybe (Windows.takeFileName (T.unpack guest)) local))
@@ -619,6 +625,9 @@ vmCommandParser =
         <> command
           "upload"
           (info vmUploadCommand (progDesc "Upload a binary file through QEMU guest agent"))
+        <> command
+          "screenshot"
+          (info vmScreenshotCommand (progDesc "Save the VM display as a local PNG screenshot"))
         <> command
           "download"
           (info vmDownloadCommand (progDesc "Download a binary file through QEMU guest agent"))

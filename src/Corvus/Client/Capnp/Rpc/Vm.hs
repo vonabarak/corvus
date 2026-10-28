@@ -31,6 +31,7 @@ module Corvus.Client.Capnp.Rpc.Vm
   , rpcVmSerialConsoleFlush
   , rpcVmHmpMonitorFlush
   , rpcGuestUpload
+  , rpcVmScreenshot
   , rpcGuestDownload
   , rpcGuestExec
 
@@ -93,7 +94,7 @@ import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.SharedDir as PSd
 import qualified Corvus.Protocol.SshKey as PSk
 import qualified Corvus.Protocol.Vm as PV
-import Corvus.Rpc.FileTransfer (withDownload, withSource)
+import Corvus.Rpc.FileTransfer (withDownload, withDownloadNoReplace, withSource)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpViewGrant, toCapnpEntityRef)
 import Corvus.Wire.Enums
@@ -402,6 +403,14 @@ rpcGuestUpload conn ref local path = do
       $ \source -> do
         CGVm.Vm'uploadFile'results count <- callOn #uploadFile CGVm.Vm'uploadFile'params {CGVm.path = path, CGVm.source = source} vm
         pure count
+
+rpcVmScreenshot :: CapnpConnection -> EntityRef -> FilePath -> IO Word64
+rpcVmScreenshot conn ref local =
+  withDownloadNoReplace (ccSupervisor conn) local $ \sink -> do
+    vm <- getVmClient conn ref
+    CGVm.Vm'screenshot'results count <- callOn #screenshot CGVm.Vm'screenshot'params {CGVm.sink = sink} vm
+    Control.Monad.when (count == 0) $ ioError (userError "empty screenshot download")
+    pure count
 
 rpcGuestDownload :: CapnpConnection -> EntityRef -> Text -> FilePath -> IO Word64
 rpcGuestDownload conn ref path local = do

@@ -328,6 +328,33 @@ class AsyncVm:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
+    async def screenshot_to_file(self, local_path: str | Path) -> int:
+        """Save the primary display as PNG without replacing an existing file."""
+        from .files import FileSink
+
+        destination = Path(local_path)
+        if os.path.lexists(destination):
+            raise FileExistsError(
+                f"screenshot destination already exists: {destination}"
+            )
+        fd, temporary = tempfile.mkstemp(
+            prefix=destination.name + ".part", dir=destination.parent
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                sink = FileSink(handle)
+                try:
+                    result = await self._cap.screenshot(sink=sink)
+                    count = int(result.bytesTransferred)
+                    if not sink.ended or count != sink.count or count == 0:
+                        raise OSError("incomplete screenshot download")
+                finally:
+                    sink.active = False
+            os.link(temporary, destination)
+            return count
+        finally:
+            os.unlink(temporary)
+
     async def send_ctrl_alt_del(self) -> None:
         await self._cap.sendCtrlAltDel()
 

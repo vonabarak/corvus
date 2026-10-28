@@ -58,7 +58,7 @@ handleStatus state = do
           -- 2 = structured wire error codes (B3): daemon
           -- exceptions carry a "<code> :: <message>" prefix.
           -- 5 = streamed guest file transfer callbacks.
-          siProtocolVersion = 5
+          siProtocolVersion = 6
         , siDatabaseBackend = driBackend dbRuntimeInfo
         , siDatabaseVersion = driVersion dbRuntimeInfo
         }

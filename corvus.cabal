@@ -62,6 +62,7 @@ library
       Corvus.Handlers
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
+      Corvus.Handlers.Vm.Screenshot
       Corvus.Handlers.Vm.Balloon
       Corvus.Handlers.Vm.Query
       Corvus.Handlers.Vm.Configure
@@ -191,6 +192,7 @@ library
       Corvus.Build.Identity
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle
+      Corvus.Client.Commands.Screenshot
       Corvus.Client.Commands.GuestExec
       Corvus.Client.Commands.Apply
       Corvus.Client.Commands.Build
@@ -311,6 +313,7 @@ library
       Corvus.Node.Caps.Session.Vm.Lifecycle
       Corvus.Node.Caps.Session.Vm.Process
       Corvus.Node.Caps.Session.Vm.Reboot
+      Corvus.Node.Caps.Session.Vm.Screenshot
       Corvus.Node.Caps.Session.Vm.Start
       Corvus.Node.Caps.Session.Vm.Startup
       Corvus.Node.ProcStats
