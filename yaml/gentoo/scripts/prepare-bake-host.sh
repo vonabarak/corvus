@@ -12,7 +12,7 @@ ln -sfn ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/no-multilib/
   /etc/portage/make.profile
 install -d /etc/portage/package.use
 cat > /etc/portage/package.use/grub <<'EOF'
-sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
+sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes
 EOF
 
 # Apply this block even when the cloud image already enables getbinpkg.
@@ -43,6 +43,7 @@ emerge --buildpkg --noreplace --quiet-build \
   sys-apps/gptfdisk \
   sys-block/parted \
   sys-fs/e2fsprogs \
+  sys-fs/dosfstools \
   sys-boot/grub:2
 emerge --buildpkg --noreplace --quiet-build sys-kernel/gentoo-sources
 

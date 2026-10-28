@@ -1,6 +1,7 @@
 #!/bin/sh
 cat > "$SYSROOT/etc/fstab" <<'EOF'
 LABEL=corvus-root  /  ext4  defaults,noatime  0 1
+LABEL=corvus-efi  /boot/efi  vfat  defaults,umask=0077  0 2
 EOF
 
 echo gentoo-headless > "$SYSROOT/etc/hostname"

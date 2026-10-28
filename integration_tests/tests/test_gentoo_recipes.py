@@ -66,6 +66,34 @@ class TestGentooRecipes:
         ]
         assert scripts == ["bootstrap-system", "build-kernel", "configure-system"]
 
+    @pytest.mark.parametrize("name", ["gentoo-headless", "gentoo-headless-cloudinit"])
+    def test_uefi_templates_share_os_images(
+        self, recipes: RecipeRunner, name: str
+    ) -> None:
+        source = recipes.root / "yaml/gentoo/gentoo-headless.yml"
+        doc = yaml.safe_load(preprocess_build_yaml(str(source)))
+        templates = {
+            template["name"]: template
+            for step in doc["pipeline"]
+            for template in step.get("apply", {}).get("templates", [])
+        }
+        bios = templates[name]
+        uefi = templates[name + "-uefi"]
+        assert uefi["drives"][:1] == bios["drives"]
+        assert uefi["drives"][1:] == [
+            {
+                "diskImage": "ovmf-code",
+                "interface": "pflash",
+                "readOnly": True,
+                "strategy": "direct",
+            },
+            {"diskImage": "ovmf-vars", "interface": "pflash", "strategy": "clone"},
+        ]
+        ignored = {"name", "description", "drives"}
+        assert {k: v for k, v in uefi.items() if k not in ignored} == {
+            k: v for k, v in bios.items() if k not in ignored
+        }
+
     @pytest.mark.parametrize("recipe", ["gentoo", "corvus-test-node"])
     @pytest.mark.parametrize("cache_dir", ["/data/corvus-cache", "/srv/build cache"])
     def test_cache_directory_forwarded(
@@ -213,6 +241,8 @@ class TestGentooRecipes:
                     if template["name"] in {
                         "gentoo-headless",
                         "gentoo-headless-cloudinit",
+                        "gentoo-headless-uefi",
+                        "gentoo-headless-cloudinit-uefi",
                     }:
                         assert not shares
                 if "build" not in step:
@@ -270,8 +300,11 @@ class TestGentooRecipes:
                             continue
                         assert "--buildpkg" in line
 
-    def test_target_finalization_without_cache_mounts(
-        self, recipes: RecipeRunner
+    @pytest.mark.parametrize(
+        "esp_mounted,fail_unmount", [(False, False), (True, False), (True, True)]
+    )
+    def test_target_finalization(
+        self, recipes: RecipeRunner, esp_mounted: bool, fail_unmount: bool
     ) -> None:
         doc = yaml.safe_load(
             (recipes.root / "yaml/gentoo/gentoo-headless.yml").read_text()
@@ -282,7 +315,9 @@ class TestGentooRecipes:
         log = recipes.root / "unmounts"
         for command, body in {
             "sync": ":",
-            "umount": 'echo "$1" >> "$MOUNT_LOG"',
+            "mountpoint": f"exit {0 if esp_mounted else 1}",
+            "umount": 'echo "$1" >> "$MOUNT_LOG"\n'
+            + ("exit 7" if fail_unmount else ":"),
         }.items():
             executable = recipes.bin / command
             executable.write_text("#!/bin/sh\n" + body + "\n")
@@ -300,8 +335,11 @@ class TestGentooRecipes:
             text=True,
             check=False,
         )
-        assert result.returncode == 0, result.stderr
-        assert log.read_text().splitlines() == [str(root)]
+        assert result.returncode == (7 if fail_unmount else 0), result.stderr
+        expected = [str(root / "boot/efi")] if esp_mounted else []
+        if not fail_unmount:
+            expected.append(str(root))
+        assert log.read_text().splitlines() == expected
         bootstrap = recipes.root / "yaml/gentoo/scripts/bootstrap-system.sh"
         assert "mount --bind" not in bootstrap.read_text()
 

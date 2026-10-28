@@ -73,6 +73,22 @@ virtiofs cache; the build host does not need Gentoo or a Portage tree. The
 `gentoo-cloud.yml` recipe owns the upstream import, tagged with the timestamp
 in Gentoo's filename. The pipeline prepares `gentoo-builder`, builds
 `gentoo-headless` from scratch, then adds Cloud-init in a separate overlay.
+Both headless image flavors support BIOS and UEFI boot. The
+`gentoo-headless-uefi` and `gentoo-headless-cloudinit-uefi` templates share the
+same OS images as their respective BIOS templates and use independent clones
+of the registered `ovmf-vars` firmware image alongside read-only `ovmf-code`.
+Each OS disk uses GPT: partition 1 is a 1 MiB BIOS boot partition, partition 2
+is a 512 MiB FAT32 EFI System Partition mounted at `/boot/efi`, and partition 3
+is the ext4 root filesystem occupying the remaining space. Cloud-init grows
+partition 3 and its filesystem when the virtual disk is enlarged. GRUB is
+installed for both firmware types, with an EFI fallback executable that does
+not require preconfigured firmware boot entries.
+
+Rebuild previously published headless images and their development/test-node
+derivatives before using this layout; existing images with root on partition 2
+are not converted. Use `make image-rebuild IMAGE=gentoo` for the headless and
+development chain, then `make image-rebuild IMAGE=node` for the test node.
+
 Small provisioning steps live inline; larger steps remain in `scripts/`.
 Expanded script contents participate in build metadata.
 

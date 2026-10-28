@@ -9,8 +9,9 @@ for attempt in $(seq 1 60); do
     sleep 2
 done
 getent hosts distfiles.gentoo.org >/dev/null
-[ "$(findmnt -n -o SOURCE /)" = /dev/vda2 ]
-[ "$(blkid -s TYPE -o value /dev/vdb2)" = ext4 ]
+[ "$(findmnt -n -o SOURCE /)" = /dev/vda3 ]
+[ "$(blkid -s TYPE -o value /dev/vdb3)" = ext4 ]
+[ "$(blkid -s TYPE -o value /dev/vdb2)" = vfat ]
 
 root=/mnt/target
 workspace=$(mktemp -d /var/tmp/corvus-test.XXXXXX)
@@ -57,7 +58,9 @@ for cache in distfiles binpkgs binhost; do
     rm "$probe/package"
     rmdir "$probe"
 done
-mount_at "$root" /dev/vdb2
+mount_at "$root" /dev/vdb3
+# Use artifact devices explicitly: the helper has the same filesystem labels.
+mount_at "$root/boot/efi" /dev/vdb2
 mount_at "$root/dev" --bind /dev
 mount_at "$root/dev/pts" --bind /dev/pts
 mount_at "$root/dev/shm" --bind /dev/shm

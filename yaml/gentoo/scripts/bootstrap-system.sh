@@ -1,6 +1,8 @@
 #!/bin/sh
 mkdir -p "$SYSROOT"
-mount "${DEV}2" "$SYSROOT"
+mount "${DEV}3" "$SYSROOT"
+install -d "$SYSROOT/boot/efi"
+mount "${DEV}2" "$SYSROOT/boot/efi"
 
 install -d "$SYSROOT/etc/portage" \
            "$SYSROOT/etc/portage/package.use" \
@@ -67,7 +69,7 @@ EOF
 echo "MAKEOPTS=\"-j$(nproc)\"" >> "$SYSROOT/etc/portage/make.conf"
 
 cat > "$SYSROOT/etc/portage/package.use/grub" <<'EOF'
-sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
+sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes
 EOF
 
 cat > "$SYSROOT/etc/portage/repos.conf/gentoo.conf" <<'EOF'

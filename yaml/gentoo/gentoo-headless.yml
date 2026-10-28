@@ -144,6 +144,9 @@ pipeline:
 
               sync
               if [ "$IMAGE_ROOT" != / ]; then
+                if mountpoint -q "$IMAGE_ROOT/boot/efi"; then
+                  umount "$IMAGE_ROOT/boot/efi"
+                fi
                 umount "$IMAGE_ROOT"
               fi
             env:
@@ -183,7 +186,7 @@ pipeline:
 
   - build:
       name: gentoo-headless
-      description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4) — no cloud-init
+      description: Minimal headless Gentoo with custom kernel (BIOS+UEFI, GPT, ext4) — no cloud-init
       template: gentoo-builder-bake
 
       target:
@@ -228,10 +231,20 @@ pipeline:
               wipefs -a "$DEV"
               sgdisk --zap-all "$DEV"
               sgdisk -n 1:0:+1M  -t 1:ef02 -c 1:bios "$DEV"
-              sgdisk -n 2:0:0    -t 2:8300 -c 2:root "$DEV"
-              partprobe "$DEV" || sleep 2
+              sgdisk -n 2:0:+512M -t 2:ef00 -c 2:efi "$DEV"
+              sgdisk -n 3:0:0     -t 3:8300 -c 3:root "$DEV"
+              partprobe "$DEV"
+              for attempt in $(seq 1 60); do
+                [ -b "${DEV}1" ] && [ -b "${DEV}2" ] && [ -b "${DEV}3" ] && break
+                sleep 1
+              done
+              if ! { [ -b "${DEV}1" ] && [ -b "${DEV}2" ] && [ -b "${DEV}3" ]; }; then
+                echo "Partition devices did not appear for $DEV" >&2
+                exit 1
+              fi
 
-              mkfs.ext4 -F -L corvus-root "${DEV}2"
+              mkfs.vfat -F32 -n corvus-efi "${DEV}2"
+              mkfs.ext4 -F -L corvus-root "${DEV}3"
             timeoutSec: 120
         - shell:
             script: ./scripts/bootstrap-system.sh
@@ -253,6 +266,8 @@ pipeline:
                 mail-mta/msmtp \
                 app-admin/sudo \
                 sys-fs/growpart \
+                sys-fs/dosfstools \
+                sys-boot/efibootmgr \
                 net-fs/nfs-utils \
                 sys-block/thin-provisioning-tools \
                 app-editors/vim \
@@ -262,6 +277,8 @@ pipeline:
         - shell:
             inline: |
               grub-install --target=i386-pc --boot-directory="$SYSROOT/boot" "$DEV"
+              grub-install --target=x86_64-efi --boot-directory="$SYSROOT/boot" \
+                --efi-directory="$SYSROOT/boot/efi" --removable --no-nvram
 
               KERNEL=$(cd "$SYSROOT/boot" && ls -1t vmlinuz-* 2>/dev/null | grep -v '\.old$' | head -1)
               test -n "$KERNEL"
@@ -282,7 +299,7 @@ pipeline:
 
               menuentry 'Gentoo Linux (custom kernel)' {
                   search --set=root --label corvus-root
-                  linux /boot/$KERNEL root=/dev/vda2 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
+                  linux /boot/$KERNEL root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
               }
               EOF
             timeoutSec: 600
@@ -407,6 +424,60 @@ pipeline:
               cacheType: writeback
               discard: true
               size: 40G  # Cloud-init expand the root partition automatically
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+          cloudInitConfig:
+            userData:
+              runcmd:
+                - [ passwd, -d, root ]
+
+        - name: gentoo-headless-uefi
+          cpuCount: 8
+          ram: 16G
+          cloudInit: false
+          guestAgent: true
+          headless: true
+          description: "Gentoo headless UEFI (no cloud-init)"
+          drives:
+            - diskImage: gentoo-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              size: 20G  # same size as the base
+            - diskImage: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImage: ovmf-vars
+              interface: pflash
+              strategy: clone
+          networkInterfaces:
+            - network: corvus
+
+        - name: gentoo-headless-cloudinit-uefi
+          cpuCount: 8
+          ram: 16G
+          cloudInit: true
+          guestAgent: true
+          headless: true
+          description: "Gentoo headless UEFI (with cloud-init)"
+          drives:
+            - diskImage: gentoo-headless-cloudinit
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              size: 40G  # Cloud-init expand the root partition automatically
+            - diskImage: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImage: ovmf-vars
+              interface: pflash
+              strategy: clone
           networkInterfaces:
             - network: corvus
           sshKeys:

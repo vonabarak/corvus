@@ -1,5 +1,5 @@
 DISKS := gentoo-cloud gentoo-builder gentoo-headless gentoo-headless-cloudinit
-TEMPLATES := gentoo-cloud gentoo-builder-bake gentoo-headless-bake gentoo-headless gentoo-headless-cloudinit
+TEMPLATES := gentoo-cloud gentoo-builder-bake gentoo-headless-bake gentoo-headless gentoo-headless-cloudinit gentoo-headless-uefi gentoo-headless-cloudinit-uefi
 IMAGE_POLICY ?= update
 export GENTOO_CACHE_DIR ?= /data/corvus-cache
 BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)"
