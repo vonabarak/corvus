@@ -13,7 +13,7 @@ module Corvus.Node.GuestAgent.File
 import Control.Exception (SomeException, mask, throwIO, try)
 import Control.Monad (unless, when)
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
-import Corvus.Node.GuestAgent.Transport (recvJson, sendJson)
+import Corvus.Node.GuestAgent.Transport (QgaSocket, sendQga, timeoutQgaReceive)
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value, (.:), (.=))
 import qualified Data.Aeson as Aeson
@@ -27,7 +27,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word64)
-import Network.Socket (Socket)
 import System.Timeout (timeout)
 
 type Request = Text -> [Pair] -> IO Value
@@ -48,10 +47,10 @@ fileSession conns config vmId = do
     either failText (either failText pure) result
 
 -- | One command, serialized by the caller. A timed-out transport is discarded.
-socketRequest :: Socket -> Request
+socketRequest :: QgaSocket -> Request
 socketRequest sock command args = do
-  sendJson sock $ Aeson.object ["execute" .= command, "arguments" .= Aeson.object args]
-  response <- bounded 5000000 (recvJson sock)
+  sendQga sock $ Aeson.object ["execute" .= command, "arguments" .= Aeson.object args]
+  response <- timeoutQgaReceive 5000000 sock >>= maybe (failText "guest file transfer timed out") pure
   maybe (failText (command <> ": connection closed or invalid JSON")) pure response
 
 parseReply :: Text -> (Value -> AT.Parser a) -> Value -> IO a

@@ -7,7 +7,7 @@ module Corvus.Node.GuestAgent.Network
 where
 
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
-import Corvus.Node.GuestAgent.Transport (recvJson, sendJson)
+import Corvus.Node.GuestAgent.Transport (recvQga, sendQga)
 import Corvus.Node.GuestAgent.Types
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value, (.:), (.:?), (.=))
@@ -23,8 +23,8 @@ import Data.Text (Text)
 guestNetworkGetInterfaces :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
 guestNetworkGetInterfaces conns config vmId = do
   result <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
-    parseGuestInterfaces <$> recvJson sock
+    sendQga sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
+    parseGuestInterfaces <$> recvQga sock
   pure $ fromRight Nothing result
 
 -- | Leniently parse QGA interfaces: malformed addresses and interfaces are

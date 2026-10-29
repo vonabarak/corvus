@@ -35,7 +35,7 @@ module Corvus.Node.Caps.Session.Vm.Lifecycle
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (atomically, modifyTVar', writeTVar)
+import Control.Concurrent.STM (atomically, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStderrLoggingT)
@@ -55,7 +55,6 @@ import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word32)
@@ -402,7 +401,7 @@ reapEntryAfterQuit sc vmId live = do
     P.waitForProcessBounded ("vm-" <> tshow vmId <> "-qemu (save)") 5 (L.vlsQemuHandle live)
   reapVmHelpers live
   _ <- atomically $ L.removeVm (scVmLedger sc) vmId
-  atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
+  NGA.releaseConn (scQgaConns sc) vmId
 
 -- | Unlink @\<basePath\>/\<vmName\>/state.qemu@. Idempotent: a
 -- missing file is success. Lives behind a Cap'n Proto method so the

@@ -13,7 +13,7 @@ where
 import Control.Monad (join)
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withDiscardedConn, withPersistentConn)
 import Corvus.Node.GuestAgent.Exec (pollRecvTimeoutMicros)
-import Corvus.Node.GuestAgent.Transport (recvJson, recvJsonWithin, sendJson)
+import Corvus.Node.GuestAgent.Transport (recvQgaWithin, sendQga, timeoutQgaReceive)
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value (..), (.=))
 import qualified Data.Aeson as Aeson
@@ -23,15 +23,14 @@ import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import System.Timeout (timeout)
 
 -- | Ping is deliberately single-attempt: callers already poll. Its bounded
 -- receive prevents a dead QGA from delaying the health-check cadence.
 guestPing :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
 guestPing conns config vmId = do
   result <- withPersistentConn conns config vmId 1 15000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
-    response <- recvJsonWithin pollRecvTimeoutMicros sock "guest-ping"
+    sendQga sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
+    response <- recvQgaWithin pollRecvTimeoutMicros sock "guest-ping"
     pure $ case response of
       Just (Object object) -> KM.member "return" object
       _ -> False
@@ -43,8 +42,8 @@ guestPing conns config vmId = do
 guestShutdown :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO (Either Text ())
 guestShutdown conns config vmId mode = do
   result <- withDiscardedConn conns config vmId 15000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-shutdown" :: Text), "arguments" .= Aeson.object ["mode" .= mode]]
-    response <- timeout 1000000 (recvJson sock)
+    sendQga sock $ Aeson.object ["execute" .= ("guest-shutdown" :: Text), "arguments" .= Aeson.object ["mode" .= mode]]
+    response <- timeoutQgaReceive 1000000 sock
     pure $ case response of
       Just (Just (Object object)) | KM.member "error" object -> Left (qgaErrText object)
       _ -> Right ()
@@ -64,8 +63,8 @@ guestFsThaw = fsCommand "guest-fsfreeze-thaw"
 fsCommand :: Text -> GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
 fsCommand command conns config vmId = do
   result <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= command]
-    response <- recvJsonWithin 10000000 sock command
+    sendQga sock $ Aeson.object ["execute" .= command]
+    response <- recvQgaWithin 10000000 sock command
     pure $ case response of
       Just (Object object) -> case KM.lookup "return" object of
         Just (Number number) -> Right (truncate number)
@@ -78,8 +77,8 @@ fsCommand command conns config vmId = do
 guestSetTime :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text ())
 guestSetTime conns config vmId = do
   result <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-set-time" :: Text)]
-    response <- recvJsonWithin 10000000 sock "guest-set-time"
+    sendQga sock $ Aeson.object ["execute" .= ("guest-set-time" :: Text)]
+    response <- recvQgaWithin 10000000 sock "guest-set-time"
     pure $ case response of
       Just (Object object) -> case KM.lookup "return" object of
         Just _ -> Right ()
@@ -91,12 +90,12 @@ guestSetTime conns config vmId = do
 guestSshAddAuthorizedKeys :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> [Text] -> Bool -> IO (Either Text ())
 guestSshAddAuthorizedKeys conns config vmId username keys reset = do
   result <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
-    sendJson sock $
+    sendQga sock $
       Aeson.object
         [ "execute" .= ("guest-ssh-add-authorized-keys" :: Text)
         , "arguments" .= Aeson.object ["username" .= username, "keys" .= keys, "reset" .= reset]
         ]
-    response <- recvJsonWithin 10000000 sock "guest-ssh-add-authorized-keys"
+    response <- recvQgaWithin 10000000 sock "guest-ssh-add-authorized-keys"
     case response of
       Just (Object object)
         | KM.member "return" object -> pure (Right ())

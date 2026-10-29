@@ -10,7 +10,7 @@ import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
 import Corvus.Node.GuestAgent.Exec (detectGuestShell, parseExecStatus, parsePid, pollRecvTimeoutMicros, pollStatus)
-import Corvus.Node.GuestAgent.Transport (decodeBase64Bytes, recvJson, sendJson)
+import Corvus.Node.GuestAgent.Transport (QgaSocket, decodeBase64Bytes, recvQga, sendQga, timeoutQgaReceive)
 import Corvus.Node.GuestAgent.Types
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value, (.:), (.:?), (.=))
@@ -22,8 +22,6 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
-import Network.Socket (Socket)
-import System.Timeout (timeout)
 
 guestExecStream :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> Maybe BS.ByteString -> Int -> ChunkSink -> ChunkSink -> IO GuestExecResult
 guestExecStream conns config vmId command mStdin maxPolls onOut onErr = do
@@ -50,7 +48,7 @@ data DispatchedExec
   = DispatchedPosix !Int !Int
   | DispatchedWindows !Int
 
-dispatchLogTailExec :: Socket -> Text -> [Text] -> Text -> Maybe BS.ByteString -> IO (Either Text DispatchedExec)
+dispatchLogTailExec :: QgaSocket -> Text -> [Text] -> Text -> Maybe BS.ByteString -> IO (Either Text DispatchedExec)
 dispatchLogTailExec sock shellPath shellArgs command mStdin = do
   let logPath = "/tmp/.corvus-build-step.log" :: Text
   truncated <- guestFileOpenForTruncate sock logPath
@@ -70,7 +68,7 @@ dispatchLogTailExec sock shellPath shellArgs command mStdin = do
               pure $ Left $ "Failed to parse guest-exec response " <> T.pack (show execResponse)
             Just pid -> pure $ Right (DispatchedPosix pid readHandle)
 
-dispatchWindowsExec :: Socket -> Text -> [Text] -> Text -> Maybe BS.ByteString -> IO (Either Text DispatchedExec)
+dispatchWindowsExec :: QgaSocket -> Text -> [Text] -> Text -> Maybe BS.ByteString -> IO (Either Text DispatchedExec)
 dispatchWindowsExec sock shellPath shellArgs command mStdin = do
   execResponse <- dispatchExec sock shellPath (shellArgs ++ [command]) mStdin
   pure $
@@ -78,25 +76,25 @@ dispatchWindowsExec sock shellPath shellArgs command mStdin = do
       Nothing -> Left $ "Failed to parse guest-exec response " <> T.pack (show execResponse)
       Just pid -> Right $ DispatchedWindows pid
 
-dispatchExec :: Socket -> Text -> [Text] -> Maybe BS.ByteString -> IO (Maybe Value)
+dispatchExec :: QgaSocket -> Text -> [Text] -> Maybe BS.ByteString -> IO (Maybe Value)
 dispatchExec sock shellPath args mStdin = do
   let stdinField = case mStdin of
         Nothing -> []
         Just bytes -> ["input-data" .= decodeUtf8 (B64.encode bytes)]
-  sendJson sock $
+  sendQga sock $
     Aeson.object
       [ "execute" .= ("guest-exec" :: Text)
       , "arguments" .= Aeson.object (["path" .= shellPath, "arg" .= args, "capture-output" .= True] ++ stdinField)
       ]
-  recvJson sock
+  recvQga sock
 
-pollWithLogTail :: Socket -> Int -> Int -> Int -> Int -> ChunkSink -> IO GuestExecResult
+pollWithLogTail :: QgaSocket -> Int -> Int -> Int -> Int -> ChunkSink -> IO GuestExecResult
 pollWithLogTail sock pid logHandle attempts maxAttempts onOut
   | attempts > maxAttempts = pure $ GuestExecError "guest-exec timed out waiting for process to exit"
   | otherwise = do
       drainLog sock logHandle onOut
-      sendJson sock $ Aeson.object ["execute" .= ("guest-exec-status" :: Text), "arguments" .= Aeson.object ["pid" .= pid]]
-      mResponse <- timeout pollRecvTimeoutMicros (recvJson sock)
+      sendQga sock $ Aeson.object ["execute" .= ("guest-exec-status" :: Text), "arguments" .= Aeson.object ["pid" .= pid]]
+      mResponse <- timeoutQgaReceive pollRecvTimeoutMicros sock
       response <- maybe (ioError (userError "guest agent stopped responding mid-exec")) pure mResponse
       case parseExecStatus response of
         Just (True, exitcode, _, _) -> do
@@ -105,7 +103,7 @@ pollWithLogTail sock pid logHandle attempts maxAttempts onOut
         Just (False, _, _, _) -> threadDelay 100000 >> pollWithLogTail sock pid logHandle (attempts + 1) maxAttempts onOut
         Nothing -> pure $ GuestExecError "Failed to parse guest-exec-status response"
 
-drainLog :: Socket -> Int -> ChunkSink -> IO ()
+drainLog :: QgaSocket -> Int -> ChunkSink -> IO ()
 drainLog sock logHandle onOut = do
   bytes <- collect BS.empty
   unless (BS.null bytes) (onOut bytes)
@@ -118,24 +116,24 @@ drainLog sock logHandle onOut = do
           let accumulated' = accumulated <> bytes
            in if eof then pure accumulated' else collect accumulated'
 
-guestFileOpenForTruncate :: Socket -> Text -> IO (Either Text Int)
+guestFileOpenForTruncate :: QgaSocket -> Text -> IO (Either Text Int)
 guestFileOpenForTruncate = guestFileOpenMode "w+"
 
-guestFileOpenForRead :: Socket -> Text -> IO (Either Text Int)
+guestFileOpenForRead :: QgaSocket -> Text -> IO (Either Text Int)
 guestFileOpenForRead = guestFileOpenMode "r"
 
-guestFileOpenMode :: Text -> Socket -> Text -> IO (Either Text Int)
+guestFileOpenMode :: Text -> QgaSocket -> Text -> IO (Either Text Int)
 guestFileOpenMode mode sock path = do
-  sendJson sock $ Aeson.object ["execute" .= ("guest-file-open" :: Text), "arguments" .= Aeson.object ["path" .= path, "mode" .= mode]]
-  response <- recvJson sock
+  sendQga sock $ Aeson.object ["execute" .= ("guest-file-open" :: Text), "arguments" .= Aeson.object ["path" .= path, "mode" .= mode]]
+  response <- recvQga sock
   pure $ case response >>= AT.parseMaybe (AT.withObject "response" $ \object -> object .: "return") of
     Just handle -> Right handle
     Nothing -> Left ("guest-file-open: " <> T.pack (show response))
 
-guestFileRead :: Socket -> Int -> Int -> IO (Either Text (BS.ByteString, Bool))
+guestFileRead :: QgaSocket -> Int -> Int -> IO (Either Text (BS.ByteString, Bool))
 guestFileRead sock handle count = do
-  sendJson sock $ Aeson.object ["execute" .= ("guest-file-read" :: Text), "arguments" .= Aeson.object ["handle" .= handle, "count" .= count]]
-  mResponse <- timeout pollRecvTimeoutMicros (recvJson sock)
+  sendQga sock $ Aeson.object ["execute" .= ("guest-file-read" :: Text), "arguments" .= Aeson.object ["handle" .= handle, "count" .= count]]
+  mResponse <- timeoutQgaReceive pollRecvTimeoutMicros sock
   response <- maybe (ioError (userError "guest agent stopped responding mid-exec")) pure mResponse
   pure $ case response >>= AT.parseMaybe parser of
     Just result -> Right result
@@ -147,10 +145,10 @@ guestFileRead sock handle count = do
       eof <- returned .:? "eof" AT..!= False
       pure (decodeBase64Bytes encoded, eof)
 
-guestFileClose :: Socket -> Int -> IO (Either Text ())
+guestFileClose :: QgaSocket -> Int -> IO (Either Text ())
 guestFileClose sock handle = do
-  sendJson sock $ Aeson.object ["execute" .= ("guest-file-close" :: Text), "arguments" .= Aeson.object ["handle" .= handle]]
-  _ <- recvJson sock
+  sendQga sock $ Aeson.object ["execute" .= ("guest-file-close" :: Text), "arguments" .= Aeson.object ["handle" .= handle]]
+  _ <- recvQga sock
   pure (Right ())
 
 shellQuote :: Text -> Text

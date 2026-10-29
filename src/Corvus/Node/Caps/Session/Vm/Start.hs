@@ -29,7 +29,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (withMVar)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
@@ -61,7 +61,6 @@ import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Wire.Enums (fromCapnpGraphicsAdapter)
 import Corvus.Wire.Errors (WireError)
 import Data.Int (Int32, Int64)
-import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -678,7 +677,7 @@ respawnAfterExit sc spec = do
   -- Drop the cached QGA socket: the new QEMU re-opens the
   -- chardev under the same path but it's a fresh fd; talking
   -- to the dead socket would give EPIPE on every method.
-  atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
+  NGA.releaseConn (scQgaConns sc) vmId
   -- Re-execute the full spawn path. Discard the wire result
   -- (no caller is waiting on it — the daemon's original
   -- vmStart already returned long ago). doVmStart's

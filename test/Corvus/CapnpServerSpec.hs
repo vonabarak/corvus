@@ -328,7 +328,7 @@ withCapnpDaemon env action = do
       state <- newServerState (tePool env) Q.defaultQemuConfig
       naPort <- pickFreePort
       bracket
-        (async (runNodeAgentServer "127.0.0.1" naPort Nothing))
+        (async (runNodeAgentServer (\_ _ -> pure ()) "127.0.0.1" naPort Nothing))
         cancel
         $ \_ -> do
           waitForTcp "127.0.0.1" naPort

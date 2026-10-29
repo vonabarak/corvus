@@ -203,6 +203,15 @@ Cap'n Proto over SSH so pytest itself stays unprivileged.
 Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` (default:
 `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
 
+For a class-fixture failure in the outer `crv vm start --wait`, collect the
+**outer host's nodeagent journal**, including the period before the timeout.
+`CORVUS_TEST_LOG_LEVEL` controls services launched inside test nodes; it does not
+change the outer host's nodeagent log level. Configure that nodeagent with
+`--log-level debug` before reproducing to capture QGA command metadata. Preserve
+the retained VM and collect its console and guest QGA service logs too.
+See [QGA connection diagnostics](../doc/development.md#qga-connection-diagnostics)
+for fields and how to distinguish connection, sync, send, and receive stalls.
+
 `TestNode.host_ip` returns the host address reachable from that node over the
 session's managed network. It uses the preferred source address of the host's
 route to `node.outer_ip`, so tests can bind host services without hardcoding

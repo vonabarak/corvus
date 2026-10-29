@@ -33,6 +33,8 @@ import Control.Concurrent.STM (newTVarIO)
 import Control.Exception (catch)
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
+import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
+import Corvus.Node.GuestAgent.Transport (QgaLogger)
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
@@ -73,14 +75,14 @@ defaultNodeAgentPort = 9878
 -- wrapped with mutual TLS and the peer's CN is validated against
 -- the @corvus-daemon:@ prefix before any RPC frame is exchanged.
 -- 'Nothing' (i.e. @--no-tls@) falls back to plain TCP.
-runNodeAgentServer :: String -> Int -> Maybe Tls.TlsConfig -> IO ()
-runNodeAgentServer host port mTlsCfg = do
+runNodeAgentServer :: QgaLogger -> String -> Int -> Maybe Tls.TlsConfig -> IO ()
+runNodeAgentServer logger host port mTlsCfg = do
   cleanupCorvusProcesses
   vmLedger <- L.newVmLedger
   -- Agent-wide subscriber registry, QGA connection cache, and
   -- chardev ring-buffer registries (serial + HMP monitor).
   subs <- SP.newSubscribers
-  qgaConns <- newTVarIO Map.empty
+  qgaConns <- newGuestAgentConns logger
   serialBufs <- newTVarIO Map.empty
   monitorBufs <- newTVarIO Map.empty
   -- Process-wide token registry for inter-agent disk transfer

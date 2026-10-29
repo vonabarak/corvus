@@ -254,3 +254,28 @@ the local equivalent of the full local pre-merge gate.
 ```
 make test
 ```
+
+### QGA connection diagnostics
+
+The nodeagent logs QEMU guest agent (QGA) connection lifecycle events at `info`,
+failures at `warn`, and command send/reply metadata and socket reuse at `debug`.
+Use the nodeagent's `--log-level debug` option when investigating a stall.
+The messages use the `qga` logging source and include UTC timestamps, VM ID,
+a process-local connection ID, command sequence, phase, and monotonic elapsed
+milliseconds for the connection and current phase. Connection IDs restart when
+the nodeagent restarts; retain journal timestamps and process identity alongside them.
+
+Follow one `vm_id` and `connection_id` from `connect_start` through
+`sync_start`, command traffic, and `close_complete`. A `send_start` without
+`send_complete` locates a blocked send; a completed send followed by
+`operation_timeout` in `phase=receive` locates a missing reply. Timeout events
+include the budget in microseconds. `operation_cancelled` identifies external
+cancellation separately. Close events include the reason (timeout, exception,
+shutdown discard, explicit invalidation, or lifecycle release). A new connection
+ID identifies a reconnect; debug `sync_mismatch` events identify stale sync replies.
+
+Logs contain command names and reply classifications, including sanitized QGA
+error classes, but never command arguments, scripts, stdin, file data, keys,
+raw reply JSON, or error descriptions. Synchronous logger failures do not fail
+QGA operations. These diagnostics do not establish why a guest stopped replying;
+retain guest console output and QEMU/QGA logs alongside the nodeagent journal.

@@ -16,7 +16,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
-import Corvus.Node.GuestAgent.Transport (decodeBase64Bytes, recvJson, sendJson)
+import Corvus.Node.GuestAgent.Transport (QgaSocket, decodeBase64Bytes, recvQga, sendQga, timeoutQgaReceive)
 import Corvus.Node.GuestAgent.Types
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value, (.:), (.:?), (.=))
@@ -31,8 +31,6 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word8)
-import Network.Socket (Socket)
-import System.Timeout (timeout)
 
 -- | Per-receive timeout for QGA commands whose stale reply must never be
 -- reused by a later request.
@@ -75,12 +73,12 @@ runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
     let stdinField = case mStdin of
           Nothing -> []
           Just bytes -> ["input-data" .= decodeUtf8 (B64.encode bytes)]
-    sendJson sock $
+    sendQga sock $
       Aeson.object
         [ "execute" .= ("guest-exec" :: Text)
         , "arguments" .= Aeson.object (["path" .= shellPath, "arg" .= (shellArgs ++ [command]), "capture-output" .= True] ++ stdinField)
         ]
-    response <- recvJson sock
+    response <- recvQga sock
     pure $ maybe (Left ("Failed to parse guest-exec response: " <> T.pack (show response))) Right (parsePid response)
   case dispatched of
     Left err -> pure $ GuestExecConnectionFailed err
@@ -90,10 +88,10 @@ runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
         pollStatus sock pid 0 maxPolls onOut onErr
       pure $ either GuestExecConnectionFailed id result
 
-detectGuestShell :: Socket -> IO (Text, [Text])
+detectGuestShell :: QgaSocket -> IO (Text, [Text])
 detectGuestShell sock = do
-  sendJson sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
-  response <- recvJson sock
+  sendQga sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
+  response <- recvQga sock
   case response >>= parseOsId of
     Just osId | "mswindows" `T.isPrefixOf` osId -> pure ("cmd.exe", ["/c"])
     _ -> pure ("/bin/sh", ["-c"])
@@ -108,12 +106,12 @@ detectGuestShell sock = do
 parsePid :: Maybe Value -> Maybe Int
 parsePid mValue = mValue >>= AT.parseMaybe (AT.withObject "response" $ \object -> object .: "return" >>= (.: "pid"))
 
-pollStatus :: Socket -> Int -> Int -> Int -> ChunkSink -> ChunkSink -> IO GuestExecResult
+pollStatus :: QgaSocket -> Int -> Int -> Int -> ChunkSink -> ChunkSink -> IO GuestExecResult
 pollStatus sock pid attempts maxAttempts onOut onErr
   | attempts > maxAttempts = pure $ GuestExecError "guest-exec timed out waiting for process to exit"
   | otherwise = do
-      sendJson sock $ Aeson.object ["execute" .= ("guest-exec-status" :: Text), "arguments" .= Aeson.object ["pid" .= pid]]
-      mResponse <- timeout pollRecvTimeoutMicros (recvJson sock)
+      sendQga sock $ Aeson.object ["execute" .= ("guest-exec-status" :: Text), "arguments" .= Aeson.object ["pid" .= pid]]
+      mResponse <- timeoutQgaReceive pollRecvTimeoutMicros sock
       response <- maybe (ioError (userError "guest agent stopped responding mid-exec")) pure mResponse
       case parseExecStatus response of
         Just (exited, exitcode, outBytes, errBytes) -> do

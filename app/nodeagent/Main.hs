@@ -24,7 +24,7 @@ module Main (main) where
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (void)
-import Control.Monad.Logger (LogLevel (..), logInfoN)
+import Control.Monad.Logger (LogLevel (..), logInfoN, logWithoutLoc, toLogStr)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import Corvus.Node.Server (defaultNodeAgentHost, defaultNodeAgentPort, runNodeAgentServer)
 import Corvus.Tls
@@ -161,7 +161,7 @@ main = do
   -- cleanup (in Corvus.Node.Server.runNodeAgentServer) before
   -- it binds the listener.
   serverThread <-
-    async $ runNodeAgentServer (optHost opts) (optPort opts) tlsCfg
+    async $ runNodeAgentServer (\level message -> runFilteredLogging (optLogLevel opts) $ logWithoutLoc "qga" level (toLogStr message)) (optHost opts) (optPort opts) tlsCfg
 
   -- Block until SIGTERM/SIGINT.
   takeMVar stopMV

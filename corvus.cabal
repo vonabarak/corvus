@@ -587,6 +587,7 @@ test-suite corvus-test
       Corvus.DiskSpec
       Corvus.DnsmasqArgsSpec
       Corvus.EmitSpec
+      Corvus.GuestAgentLoggingSpec
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
       Corvus.HostDnsSpec

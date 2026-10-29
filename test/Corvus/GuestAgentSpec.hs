@@ -9,14 +9,15 @@
 module Corvus.GuestAgentSpec (spec) where
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 import qualified Control.Concurrent.STM as STM
 import Control.Exception (bracket, try)
 import Control.Monad (unless)
 import Corvus.Node.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
 import qualified Corvus.Node.GuestAgent as GA
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..), newGuestAgentConns)
 import Corvus.Node.GuestAgent.File (downloadFile, socketRequest, uploadFile)
-import Corvus.Node.GuestAgent.Transport (parseQgaFrame, recvJson, sendJson)
+import Corvus.Node.GuestAgent.Transport (QgaSocket (..), newQgaSocket, parseQgaFrame, recvFrame, sendJson)
 import Corvus.Qemu.Config (defaultQemuConfig)
 import Corvus.Rpc.FileTransfer (bytesSource)
 import qualified Data.Aeson as Aeson
@@ -25,9 +26,10 @@ import Data.Aeson.QQ (aesonQQ)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef (modifyIORef', newIORef, readIORef)
+import qualified Data.Int
 import qualified Data.Map.Strict as Map
 import Data.Time (diffUTCTime, getCurrentTime)
-import Network.Socket (Family (..), SocketType (..), close, defaultProtocol, socketPair)
+import Network.Socket (Family (..), Socket, SocketType (..), close, defaultProtocol, socketPair)
 import Network.Socket.ByteString (recv)
 import System.IO.Error (isUserError)
 import Test.Hspec
@@ -35,6 +37,18 @@ import Test.Hspec
 -- | Encode a JSON response exactly as QGA frames it on the socket.
 qgaFrame :: Aeson.Value -> BS.ByteString
 qgaFrame value = BL.toStrict (Aeson.encode value) <> "\n"
+
+recvJson :: Socket -> IO (Maybe Aeson.Value)
+recvJson sock = fst <$> recvFrame sock
+
+testTransport :: Socket -> IO QgaSocket
+testTransport = newQgaSocket (\_ _ -> pure ()) 42 1
+
+testCache :: Map.Map Data.Int.Int64 (MVar (Maybe QgaSocket)) -> IO GuestAgentConns
+testCache slots = do
+  cache <- newGuestAgentConns (\_ _ -> pure ())
+  STM.atomically $ STM.writeTVar (guestAgentSlots cache) slots
+  pure cache
 
 spec :: Spec
 spec = do
@@ -94,8 +108,9 @@ spec = do
               )
               [[aesonQQ| { "return": 42 } |], [aesonQQ| { "return": { "count": 2 } } |], [aesonQQ| { "return": { "count": 3 } } |], [aesonQQ| { "return": {} } |], [aesonQQ| { "return": {} } |]]
           putMVar requests captured
+        managed <- testTransport client
         source <- bytesSource "hello"
-        uploadFile (socketRequest client) "C:\\Temp\\script.ps1" source `shouldReturn` 5
+        uploadFile (socketRequest managed) "C:\\Temp\\script.ps1" source `shouldReturn` 5
         captured <- takeMVar requests
         captured
           `shouldBe` map
@@ -118,15 +133,16 @@ spec = do
           request <- recvJson peer
           sendJson peer [aesonQQ| { "return": {} } |]
           putMVar closed request
+        managed <- testTransport client
         source <- bytesSource "hello"
-        uploadFile (socketRequest client) "script.ps1" source `shouldThrow` isUserError
+        uploadFile (socketRequest managed) "script.ps1" source `shouldThrow` isUserError
         takeMVar closed `shouldReturn` Just [aesonQQ| { "execute": "guest-file-close", "arguments": { "handle": 42 } } |]
 
   describe "guest file session serialization" $ do
     it "allows a health ping while awaiting a source chunk" $
       bracket (socketPair AF_UNIX Stream defaultProtocol) (\(client, peer) -> close client >> close peer) $ \(client, peer) -> do
-        slot <- newMVar (Just client)
-        conns <- STM.newTVarIO (Map.singleton 42 slot)
+        slot <- newMVar . Just =<< testTransport client
+        conns <- testCache (Map.singleton 42 slot)
         requests <- newEmptyMVar
         _ <- forkIO $ do
           captured <-
@@ -155,8 +171,8 @@ spec = do
     it "refuses handles after the cached socket is replaced" $
       bracket (socketPair AF_UNIX Stream defaultProtocol) (\(client, peer) -> close client >> close peer) $ \(client, peer) ->
         bracket (socketPair AF_UNIX Stream defaultProtocol) (\(next, nextPeer) -> close next >> close nextPeer) $ \(next, _) -> do
-          slot <- newMVar (Just client)
-          conns <- STM.newTVarIO (Map.singleton 42 slot)
+          slot <- newMVar . Just =<< testTransport client
+          conns <- testCache (Map.singleton 42 slot)
           _ <- forkIO $ do
             _ <- recvJson peer
             sendJson peer [aesonQQ| {"return": 7} |]
@@ -167,13 +183,13 @@ spec = do
             "/binary"
             ( \_ -> do
                 _ <- takeMVar slot
-                putMVar slot (Just next)
+                putMVar slot . Just =<< testTransport next
                 pure ("x", True)
             )
             `shouldThrow` isUserError
           -- A rejected stale handle must not discard the replacement socket.
-          takeMVar slot `shouldReturn` Just next
-          putMVar slot (Just next)
+          fmap (fmap qgaSocket) (takeMVar slot) `shouldReturn` Just next
+          putMVar slot . Just =<< testTransport next
 
   describe "native guest downloads" $ do
     it "reads binary bytes and closes before returning" $ do
@@ -354,9 +370,10 @@ spec = do
               unless (BS.null chunk) loop
         loop
         putMVar drained ()
+      managed <- testTransport sockClient
       t0 <- getCurrentTime
       eResult <-
-        try $ GA.pollStatus sockClient 1234 0 600 (\_ -> pure ()) (\_ -> pure ())
+        try $ GA.pollStatus managed 1234 0 600 (\_ -> pure ()) (\_ -> pure ())
       t1 <- getCurrentTime
       -- Close client first so the drainer sees EOF and exits before
       -- we close the server side (closing a socket another thread
@@ -382,8 +399,8 @@ spec = do
     mapM_
       ( \reset -> it ("sends assigned keys with reset=" <> show reset) $ do
           (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-          slot <- newMVar (Just client)
-          conns <- STM.newTVarIO (Map.singleton 42 slot)
+          slot <- newMVar . Just =<< testTransport client
+          conns <- testCache (Map.singleton 42 slot)
           observed <- newEmptyMVar
           _ <- forkIO $ do
             request <- recv peer 4096
@@ -403,8 +420,8 @@ spec = do
       [False, True]
     it "preserves QGA error class and description" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       _ <- forkIO $ do
         _ <- recv peer 4096
         sendJson peer (Aeson.object ["error" Aeson..= Aeson.object ["class" Aeson..= ("CommandNotFound" :: String), "desc" Aeson..= ("unsupported" :: String)]])
@@ -413,8 +430,8 @@ spec = do
       close peer
     it "invalidates the connection after a missing reply without replay" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       _ <- forkIO $ recv peer 4096 >> close peer
       result <- GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key"] False
       result `shouldSatisfy` either (const True) (const False)
@@ -423,8 +440,8 @@ spec = do
   describe "authorized key reply failure" $ do
     it "invalidates a malformed response" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       _ <- forkIO $ do
         _ <- recv peer 4096
         sendJson peer (Aeson.object ["unexpected" Aeson..= True])
@@ -435,8 +452,8 @@ spec = do
       close peer
     it "bounds a stalled exchange and discards its connection" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       result <- GA.guestSshAddAuthorizedKeys conns defaultQemuConfig 42 "alice" ["key"] False
       result `shouldSatisfy` either (const True) (const False)
       takeMVar slot `shouldReturn` Nothing
@@ -447,8 +464,8 @@ spec = do
   describe "native guest control" $ do
     it "checks readiness with guest-ping" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       observed <- newEmptyMVar
       _ <- forkIO $ do
         request <- recv peer 4096
@@ -460,8 +477,8 @@ spec = do
       close peer
     it "treats powerdown EOF as dispatch and keeps the serialization slot" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       observed <- newEmptyMVar
       _ <- forkIO $ do
         request <- recv peer 4096
@@ -470,11 +487,11 @@ spec = do
       GA.guestShutdown conns defaultQemuConfig 42 "powerdown" `shouldReturn` Right ()
       takeMVar observed `shouldReturn` Right (Aeson.object ["execute" Aeson..= ("guest-shutdown" :: String), "arguments" Aeson..= Aeson.object ["mode" Aeson..= ("powerdown" :: String)]])
       takeMVar slot `shouldReturn` Nothing
-      Map.member 42 <$> STM.readTVarIO conns `shouldReturn` True
+      Map.member 42 <$> STM.readTVarIO (guestAgentSlots conns) `shouldReturn` True
     it "dispatches reboot once and discards the cached connection on an explicit error" $ do
       (client, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      slot <- newMVar (Just client)
-      conns <- STM.newTVarIO (Map.singleton 42 slot)
+      slot <- newMVar . Just =<< testTransport client
+      conns <- testCache (Map.singleton 42 slot)
       observed <- newEmptyMVar
       _ <- forkIO $ do
         request <- recv peer 4096
@@ -506,24 +523,24 @@ spec = do
 
   describe "releaseConn" $ do
     it "is a no-op when the VM has no cached connection" $ do
-      conns <- STM.newTVarIO Map.empty
+      conns <- testCache Map.empty
       GA.releaseConn conns 42
-      m <- STM.readTVarIO conns
+      m <- STM.readTVarIO (guestAgentSlots conns)
       Map.member 42 m `shouldBe` False
 
     it "removes the map entry when present, leaving no entry behind" $ do
-      conns <- STM.newTVarIO Map.empty
+      conns <- testCache Map.empty
       slot <- newMVar Nothing
-      STM.atomically $ STM.writeTVar conns (Map.singleton 42 slot)
+      STM.atomically $ STM.writeTVar (guestAgentSlots conns) (Map.singleton 42 slot)
       GA.releaseConn conns 42
-      m <- STM.readTVarIO conns
+      m <- STM.readTVarIO (guestAgentSlots conns)
       Map.member 42 m `shouldBe` False
 
     it "closes the cached socket so its fd is returned to the kernel" $ do
       (s, peer) <- socketPair AF_UNIX Stream defaultProtocol
-      conns <- STM.newTVarIO Map.empty
-      slot <- newMVar (Just s)
-      STM.atomically $ STM.writeTVar conns (Map.singleton 7 slot)
+      conns <- testCache Map.empty
+      slot <- newMVar . Just =<< testTransport s
+      STM.atomically $ STM.writeTVar (guestAgentSlots conns) (Map.singleton 7 slot)
       GA.releaseConn conns 7
       -- A peer recv on a fully-closed socket returns the empty
       -- ByteString (EOF). If 'releaseConn' forgot to close, recv
@@ -538,12 +555,12 @@ spec = do
       close peer
 
     it "leaves untouched the conn slots for OTHER VMs (no spillover)" $ do
-      conns <- STM.newTVarIO Map.empty
+      conns <- testCache Map.empty
       slot7 <- newMVar Nothing
       slot8 <- newMVar Nothing
       STM.atomically $
-        STM.writeTVar conns (Map.fromList [(7, slot7), (8, slot8)])
+        STM.writeTVar (guestAgentSlots conns) (Map.fromList [(7, slot7), (8, slot8)])
       GA.releaseConn conns 7
-      m <- STM.readTVarIO conns
+      m <- STM.readTVarIO (guestAgentSlots conns)
       Map.member 7 m `shouldBe` False
       Map.member 8 m `shouldBe` True
