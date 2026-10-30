@@ -331,9 +331,10 @@ Combine disk-level `ifExists: update` and a verified import checksum with build
 [`gentoo-cloud.yml`](../yaml/gentoo/gentoo-cloud.yml) recipe
 owns the import, while
 [`gentoo-headless.yml`](../yaml/gentoo/gentoo-headless.yml)
-consumes that registered image. `make -C yaml/gentoo
-build-headless` runs the import recipe before the build recipe in
-separate CLI invocations, forwarding the selected policy to both.
+consumes the shared builder derived from that registered image.
+`make -C yaml/gentoo build IMAGE=gentoo-headless` runs the import, shared
+builder, and headless recipes in separate CLI invocations, forwarding the
+selected policy throughout.
 An unchanged checksum keeps the source version and skips matching downstream
 builds. A new import or rebuilt intermediate artifact changes its image ID, so
 each dependent build rebuilds in dependency order. Unrelated branches can still
@@ -565,6 +566,11 @@ the kernel, QGA, and whatever installer (e.g. `debootstrap`) you need.
 A separate empty disk is attached as a second drive (e.g. `/dev/vdb`).
 Provisioners populate the empty disk; at the end, the second drive is
 the source of the publish-time clone.
+
+Separately attached targets for `from-scratch` and `offline-overlay` enable
+discard automatically, allowing provisioners to reclaim unused blocks with
+`fstrim` before publication. Template drives retain their configured discard
+settings. Actual TRIM support also depends on the guest filesystem and storage.
 
 Use this for stripped-down golden images or images that don't share
 content with any existing template (custom kernels, embedded OSes).

@@ -14,8 +14,8 @@ include ../image.mk
 # Refresh upstream inputs for build; ensure only fills missing outputs.
 build-dependencies:
 	+$(MAKE) -C ../../integration_tests/keys build
-	+$(MAKE) -C ../gentoo build-headless IMAGE_POLICY=$(IMAGE_POLICY)
+	+$(MAKE) -C ../gentoo build IMAGE=gentoo-headless IMAGE_POLICY=$(IMAGE_POLICY)
 
 dependencies:
 	+$(MAKE) -C ../../integration_tests/keys build
-	+$(MAKE) -C ../gentoo ensure-headless
+	+$(MAKE) -C ../gentoo ensure IMAGE=gentoo-headless

@@ -1,19 +1,61 @@
-DISKS := gentoo-cloud gentoo-builder gentoo-headless gentoo-headless-cloudinit
-TEMPLATES := gentoo-cloud gentoo-builder-bake gentoo-headless-bake gentoo-headless gentoo-headless-cloudinit gentoo-headless-uefi gentoo-headless-cloudinit-uefi
+# Select a complete recipe, including its cloud-init variants and templates.
+IMAGE ?= gentoo-corvus-test
+IMAGES := gentoo-cloud gentoo-builder gentoo-musl-builder gentoo-headless gentoo-musl gentoo-corvus-test
+ifneq ($(words $(IMAGE)),1)
+$(error Select one IMAGE from: $(IMAGES))
+endif
+ifneq ($(filter $(IMAGES),$(IMAGE)),$(IMAGE))
+$(error Unknown IMAGE '$(IMAGE)'. Use: $(IMAGES))
+endif
+
+PIPELINE_gentoo-builder := gentoo-builder.yml
+PIPELINE_gentoo-musl := gentoo-musl.yml
+PIPELINE_gentoo-headless := gentoo-headless.yml
+PIPELINE_gentoo-corvus-test := gentoo-test.yml
+
+DISKS_gentoo-cloud := gentoo-cloud
+DISKS_gentoo-builder := gentoo-builder
+DISKS_gentoo-headless := gentoo-headless gentoo-headless-cloudinit
+DISKS_gentoo-musl-builder := gentoo-musl-builder
+DISKS_gentoo-musl := gentoo-musl gentoo-musl-cloudinit
+DISKS_gentoo-corvus-test := gentoo-corvus-test
+
+TEMPLATES_gentoo-builder := gentoo-builder-bootstrap gentoo-builder-bake
+TEMPLATES_gentoo-headless := gentoo-headless gentoo-headless-cloudinit gentoo-headless-uefi gentoo-headless-cloudinit-uefi
+TEMPLATES_gentoo-musl-builder := gentoo-musl-builder-bake
+TEMPLATES_gentoo-musl := gentoo-musl gentoo-musl-cloudinit gentoo-musl-uefi gentoo-musl-cloudinit-uefi
+TEMPLATES_gentoo-corvus-test := gentoo-test-builder
+
+PARENT_gentoo-builder := gentoo-cloud
+PARENT_gentoo-headless := gentoo-builder
+PARENT_gentoo-musl-builder := gentoo-builder
+PARENT_gentoo-musl := gentoo-musl-builder
+PARENT_gentoo-corvus-test := gentoo-headless
+
+PIPELINE := $(PIPELINE_$(IMAGE))
+DISKS := $(DISKS_$(IMAGE))
+TEMPLATES := $(TEMPLATES_$(IMAGE))
+PARENT := $(PARENT_$(IMAGE))
 IMAGE_POLICY ?= update
 export GENTOO_CACHE_DIR ?= /data/corvus-cache
 BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)"
-# The headless selector also serves node-image dependencies.
-ifeq ($(HEADLESS_ONLY),1)
-BUILD_DEPENDENCIES := build-cloud
-else
-DISKS += gentoo-corvus-test
-BUILD_DEPENDENCIES := build-headless
-endif
+BUILD_DEPENDENCIES := build-dependencies
 
 include ../image.mk
 
-.PHONY: build-cloud ensure-cloud publish-cloud build-headless ensure-headless publish-headless build-test publish-test latest-url latest-sha256
+.PHONY: build-dependencies latest-url latest-sha256
+
+# Build refreshes upstream metadata; ensure only fills missing outputs.
+# Explicit IMAGE overrides the child's selector inherited through MAKEFLAGS.
+ifneq ($(PARENT),)
+build-dependencies:
+	+$(MAKE) --no-print-directory build IMAGE=$(PARENT) IMAGE_POLICY=$(IMAGE_POLICY)
+
+dependencies:
+	+$(MAKE) --no-print-directory ensure IMAGE=$(PARENT)
+else
+build-dependencies:
+endif
 
 CURL ?= curl
 GENTOO_AUTOBUILDS := https://distfiles.gentoo.org/releases/amd64/autobuilds
@@ -28,36 +70,21 @@ LATEST_FILE_SH = "$(CURL)" -fsS "$(LATEST_TXT)" \
 LATEST_SHA256_SH = "$(CURL)" -fsS "$(GENTOO_AUTOBUILDS)/$(GENTOO_BRANCH)/$${file}.sha256" \
     | awk -v file="$${file}" 'length($$1) == 64 && $$2 == file {print $$1; exit}'
 
-# Ensure uses presence checks; build checks the current upstream checksum.
-ifeq ($(HEADLESS_ONLY),1)
-dependencies: ensure-cloud
-publish: publish-headless
-else
-dependencies: ensure-headless
-publish: publish-test
-endif
+# Recipes with upstream downloads resolve a filename and its matching checksum.
+ifeq ($(IMAGE),gentoo-musl-builder)
+MUSL_BASE := $(GENTOO_AUTOBUILDS)/current-stage3-amd64-musl-openrc
+publish:
+	@file=$$( "$(CURL)" -fsS "$(MUSL_BASE)/latest-stage3-amd64-musl-openrc.txt" \
+	  | awk '/^stage3-amd64-musl-openrc-[0-9]+T[0-9]+Z\.tar\.xz [0-9]+$$/ {print $$1; exit}' ); \
+	if [ -z "$$file" ]; then echo "ERROR: invalid musl stage3 manifest" >&2; exit 1; fi; \
+	sha256=$$( "$(CURL)" -fsS "$(MUSL_BASE)/$$file.sha256" \
+	  | awk -v file="$$file" 'length($$1) == 64 && $$1 !~ /[^0-9a-fA-F]/ && ($$2 == file || $$2 == "*" file) {print $$1; exit}' ); \
+	if [ -z "$$sha256" ]; then echo "ERROR: invalid musl stage3 SHA256" >&2; exit 1; fi; \
+	"$(CRV)" build gentoo-musl-builder.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) \
+	  --var musl_stage3_url="$(MUSL_BASE)/$$file" --var musl_stage3_sha256="$$sha256" --wait
 
-build-cloud:
-	+$(MAKE) --no-print-directory publish-cloud IMAGE_POLICY=$(IMAGE_POLICY)
-
-ensure-cloud:
-	$(call ensure-images,disk:gentoo-cloud,publish-cloud)
-
-build-headless:
-	+$(MAKE) --no-print-directory build HEADLESS_ONLY=1 IMAGE_POLICY=$(IMAGE_POLICY)
-
-ensure-headless:
-	+$(MAKE) --no-print-directory ensure HEADLESS_ONLY=1
-
-build-test: build
-
-publish-test:
-	"$(CRV)" build gentoo-test.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) --wait
-
-publish-headless:
-	"$(CRV)" build gentoo-headless.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) --wait
-
-publish-cloud:
+else ifeq ($(IMAGE),gentoo-cloud)
+publish:
 	@file=$$( $(LATEST_FILE_SH) ); \
 	if [ -z "$$file" ]; then \
 	  echo "ERROR: failed to parse image URL from $(LATEST_TXT)" >&2; \
@@ -78,6 +105,8 @@ publish-cloud:
 	echo "Latest Gentoo cloud-init tag: $$tag"; \
 	echo "Latest Gentoo cloud-init SHA256: $$sha256"; \
 	"$(CRV)" build gentoo-cloud.yml --var image_if_exists=$(IMAGE_POLICY) --var gentoo_cloud_url="$$url" --var gentoo_cloud_tag="$$tag" --var gentoo_cloud_sha256="$$sha256" --wait
+
+endif
 
 # Resolve current Gentoo import variables for direct CLI use.
 latest-url:

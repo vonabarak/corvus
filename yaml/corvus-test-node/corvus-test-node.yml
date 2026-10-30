@@ -59,7 +59,7 @@ pipeline:
         env:
           FEATURES: "-userfetch -userpriv"
           DISTDIR: /mnt/corvus-cache/distfiles
-          PKGDIR: /mnt/corvus-cache/binpkgs
+          PKGDIR: /mnt/corvus-cache/packages/x86-64
 
       provisioners:
         - *wait_for_network
@@ -68,7 +68,7 @@ pipeline:
             inline: |
               mkdir -p /mnt/corvus-cache
               mount -t virtiofs corvus-cache /mnt/corvus-cache
-              for cache in distfiles binpkgs binhost; do
+              for cache in distfiles packages/x86-64 binhost; do
                 mkdir -p "/mnt/corvus-cache/$cache"
                 probe=$(mktemp -d "/mnt/corvus-cache/$cache/.corvus-write-test.XXXXXX") || {
                   echo "Cannot create directories in cache $cache; check host cache permissions for the virtiofsd user." >&2
@@ -85,7 +85,7 @@ pipeline:
               install -d /etc/portage/binrepos.conf
               cat > /etc/portage/binrepos.conf/zz-corvus-cache.conf <<'EOF'
               [binhost]
-              location = /mnt/corvus-cache/binhost/binhost
+              location = /mnt/corvus-cache/binhost/x86-64
               EOF
               mkdir -p /var/db/repos
               mount -t tmpfs tmpfs /var/db/repos

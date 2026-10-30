@@ -61,6 +61,91 @@ class TestBuildOfflineOverlay(SingleNodeCase):
             print(events)
         return end, events
 
+    @pytest.mark.parametrize("strategy", ["from-scratch", "offline-overlay"])
+    def test_target_discard_support(self, strategy: str) -> None:
+        """Artifact disks expose discard and accept real filesystem TRIM."""
+        base = self.register_base_images()["corvus-test-vm"]
+        with self._resources() as prefix:
+            template, helper, output = (
+                f"{prefix}-{suffix}" for suffix in ("helper", "bootstrap", "trim")
+            )
+            definition = {
+                "name": template,
+                "cpuCount": 1,
+                "ram": "512M",
+                "headless": True,
+                "guestAgent": True,
+                "drives": [
+                    {"diskImage": base, "interface": "virtio", "strategy": "overlay"}
+                ],
+            }
+            # Pin the helper root so a target with matching labels cannot boot.
+            end, _ = self._run(
+                [
+                    {"apply": {"templates": [definition]}},
+                    {
+                        "build": {
+                            "name": helper,
+                            "template": template,
+                            "target": {},
+                            "provisioners": [
+                                {
+                                    "shell": "sed -i 's#LABEL=root#/dev/vda3#g' /etc/fstab /boot/grub/grub.cfg"
+                                }
+                            ],
+                        }
+                    },
+                ]
+            )
+            assert not [build for build in end.builds if build.error_message], end
+            definition["drives"] = [
+                {"diskImage": helper, "interface": "virtio", "strategy": "overlay"}
+            ]
+            source_info = self.client.disks.get(base, by_name=True).show()
+            source_path = shlex.quote(source_info.placements[0].file_path)
+            before = self.node.run(f"sha256sum {source_path}").stdout
+            prepare = (
+                "mkfs.ext4 -F /dev/vdb\nmount /dev/vdb /mnt/target"
+                if strategy == "from-scratch"
+                else "mount /dev/vdb3 /mnt/target"
+            )
+            recipe: dict[str, object] = {
+                "name": output,
+                "template": template,
+                "strategy": strategy,
+                "target": {"size": "2G"},
+                # Retain drive metadata for assertions; _resources reaps the VM.
+                "cleanup": "never",
+                "provisioners": [
+                    {
+                        "shell": "set -eux\n"
+                        'test "$(cat /sys/block/vdb/queue/discard_max_bytes)" -gt 0\n'
+                        "mkdir -p /mnt/target\n"
+                        f"{prepare}\n"
+                        "trap 'umount /mnt/target' EXIT\n"
+                        "dd if=/dev/urandom of=/mnt/target/trim-probe bs=1M count=8\n"
+                        "sync\nrm /mnt/target/trim-probe\nsync\n"
+                        "fstrim -v /mnt/target\n"
+                    }
+                ],
+            }
+            if strategy == "offline-overlay":
+                recipe["sourceImage"] = base
+            end, _ = self._run(
+                [
+                    {"apply": {"ifExists": "overwrite", "templates": [definition]}},
+                    {"build": recipe},
+                ]
+            )
+            assert not [build for build in end.builds if build.error_message], end
+            assert end.builds[-1].artifact_disk_id is not None
+            bake_vm = next(vm for vm in self.client.vms.list() if output in vm.name)
+            drives = self.client.vms.get(bake_vm.id).show().drives
+            assert len(drives) == 2
+            assert not drives[0].discard  # Template policy stays unchanged.
+            assert drives[1].discard
+            assert self.node.run(f"sha256sum {source_path}").stdout == before
+
     @pytest.mark.parametrize(
         "output_format,rebase,compact",
         [

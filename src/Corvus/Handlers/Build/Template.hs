@@ -164,7 +164,8 @@ setupTargetDisk context stack vmIdLong build target targetTmpName buildNodeRef =
         liftIO $
           runActionAsSubtask
             context
-            (DiskAttach vmIdLong diskIdLong InterfaceVirtio Nothing False False CacheWriteback)
+            -- Provisioners trim free artifact blocks before publication.
+            (DiskAttach vmIdLong diskIdLong InterfaceVirtio Nothing False True CacheWriteback)
       case attachResp of
         RespDiskAttached _ -> do
           liftIO $ detachByTag stack "orphan-target-disk"

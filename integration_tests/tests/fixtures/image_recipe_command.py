@@ -10,6 +10,7 @@ from pathlib import Path
 
 FILENAME = "di-amd64-cloudinit-20261004T164559Z.qcow2"
 SHA256 = "a" * 64
+MUSL_FILENAME = "stage3-amd64-musl-openrc-20261025T170057Z.tar.xz"
 
 
 # Multi-file manifests include an unrelated entry to catch accidental first-row use.
@@ -18,6 +19,10 @@ ALPINE_FILE = "nocloud_alpine-3.21.6-x86_64-bios-cloudinit-r0.qcow2"
 
 
 def download_response(url: str) -> tuple[str, str]:
+    if url.endswith("latest-stage3-amd64-musl-openrc.txt"):
+        return "musl-manifest", f"# signed manifest\n{MUSL_FILENAME} 1024"
+    if "current-stage3-amd64-musl-openrc/" in url:
+        return "musl-checksum", f"{SHA256} {MUSL_FILENAME}"
     if url.endswith("latest-di-amd64-cloudinit.txt"):
         return "manifest", f"# signed manifest\n{FILENAME} 1024"
     if "autobuilds/" in url:

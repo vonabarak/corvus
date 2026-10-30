@@ -43,9 +43,9 @@ pipeline:
         preamble: set -eux
       provisioners:
         - file:
-            from: ./scripts/provision-test-root.sh
-            to: /tmp/provision-test-root.sh
-            mode: '0755'
+            from: ./scripts/lib/build.sh
+            to: /usr/local/lib/corvus-build/build.sh
+            mode: '0644'
         - file:
             from: ./scripts/build-test-offline.sh
             to: /tmp/build-test-offline.sh

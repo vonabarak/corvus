@@ -75,7 +75,7 @@ class TestImageRecipes:
         if recipe == "freebsd":
             expected = ["freebsd.yml"]
         if recipe == "corvus-test-node":
-            expected = ["gentoo-cloud.yml", "gentoo-headless.yml"]
+            expected = ["gentoo-cloud.yml", "gentoo-builder.yml", "gentoo-headless.yml"]
         if recipe.startswith("almalinux-"):
             expected = ["almalinux-10-media.yml"]
         if recipe not in {"multi-os", "freebsd", "almalinux-10-media"}:
@@ -265,8 +265,11 @@ class TestImageRecipes:
         pipelines = [call.args[1] for call in builds]
         expected = [
             "gentoo-cloud.yml",
+            "gentoo-builder.yml",
             "gentoo-headless.yml",
             "gentoo-test.yml",
+            "gentoo-musl-builder.yml",
+            "gentoo-musl.yml",
             "multi-os.yml",
             "freebsd.yml",
             "freebsd-headless.yml",
