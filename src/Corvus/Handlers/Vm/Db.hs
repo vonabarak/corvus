@@ -21,6 +21,7 @@ module Corvus.Handlers.Vm.Db
   , setVmVsockCidIfCurrent
   , claimVmReset
   , completeVmReset
+  , completeVmMonitor
   )
 where
 
@@ -32,7 +33,7 @@ import Data.Int (Int64)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
-import Database.Persist (entityVal, get, selectList, update, updateWhere, (=.), (==.))
+import Database.Persist (entityVal, get, selectList, update, updateWhere, (<-.), (=.), (==.))
 import Database.Persist.Sql (SqlPersistT, toSqlKey, updateWhereCount)
 
 -- | Get VM with its current status
@@ -45,9 +46,6 @@ getVmWithStatus vmId = do
     Just vm -> Just (vm, vmStatus vm)
 
 -- | Just the current status, or 'Nothing' if the row is gone.
--- Used by 'attachVmMonitor' to skip reconciliation when a
--- competing handler ('handleVmReset') has already committed a
--- terminal state.
 getVmStatusOnly :: Int64 -> SqlPersistT IO (Maybe VmStatus)
 getVmStatusOnly vmId = fmap vmStatus <$> get (toSqlKey vmId :: VmId)
 
@@ -288,3 +286,30 @@ hasNetdMediatedNetIf vmId = do
     isNetdMediated ni =
       M.networkInterfaceInterfaceType ni == M.NetBridge
         || isJust (M.networkInterfaceNetworkId ni)
+
+-- | Reconcile an unexpected exit only for the runtime and node observed by
+-- this monitor. Save/migration/reset handlers own their own completion, and
+-- a late result must not clear the next runtime's status or guest addresses.
+completeVmMonitor :: Int64 -> Vm -> Maybe Text -> SqlPersistT IO Bool
+completeVmMonitor vmId observed reason = do
+  now <- liftIO getCurrentTime
+  let key = toSqlKey vmId :: VmId
+  count <-
+    updateWhereCount
+      [ M.VmId ==. key
+      , M.VmLifecycleRevision ==. vmLifecycleRevision observed
+      , M.VmRuntimeGeneration ==. vmRuntimeGeneration observed
+      , M.VmNodeId ==. M.vmNodeId observed
+      , M.VmStatus <-. [VmStarting, VmLoading, VmRunning, VmPaused]
+      ]
+      [ M.VmStatus =. maybe VmStopped (const VmError) reason
+      , M.VmHealthcheck =. Nothing
+      , M.VmSpicePort =. Nothing
+      , M.VmErrorMessage =. reason
+      , M.VmLastErrorAt =. (now <$ reason)
+      ]
+  when (count == 1) $
+    updateWhere
+      [M.NetworkInterfaceVmId ==. key]
+      [M.NetworkInterfaceGuestIpAddresses =. Nothing]
+  pure (count == 1)

@@ -22,11 +22,11 @@ module Corvus.Handlers.Vm.Monitor
 where
 
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Monad (forM_, unless, void, when)
+import Control.Monad (forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.Vm.Db
-  ( getVmStatusOnly
+  ( completeVmMonitor
   , hasNetdMediatedNetIf
   , setVmError
   , setVmStarted
@@ -43,7 +43,7 @@ import Corvus.Types (ServerState, lookupNetAgentMaybe, runServerLogging, ssDbPoo
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), entityVal, selectList, (<-.), (==.))
+import Database.Persist (Entity (..), entityVal, get, selectList, (<-.), (==.))
 import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 
 -- | Tell the agent to drop every netd-allocated TAP attached to
@@ -75,8 +75,8 @@ releaseManagedTaps state vmId = do
 -- 'NOA.vmStatus'. Returns when the agent reports anything other
 -- than 'VmAgentRunning' (stopped / errored / unknown all count as
 -- "gone"), or when the agent itself disappears.
-pollVmUntilExit :: ServerState -> Int64 -> IO ExitOutcome
-pollVmUntilExit state vmId = loop 0
+pollVmUntilExit :: ServerState -> Int64 -> Vm -> IO ExitOutcome
+pollVmUntilExit state vmId observed = loop 0
   where
     -- Consecutive non-running reads required before concluding the
     -- VM has exited. A vmStart / reboot-quirk re-spawn briefly drops
@@ -93,7 +93,18 @@ pollVmUntilExit state vmId = loop 0
     -- so the small added latency is harmless.
     confirmReads :: Int
     confirmReads = 5
+    -- Stop watching as soon as another lifecycle operation takes ownership.
+    -- Debouncing alone cannot distinguish an old run from a new start.
     loop misses = do
+      current <- runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
+      case current of
+        Just vm
+          | M.vmLifecycleRevision vm == M.vmLifecycleRevision observed
+          , M.vmRuntimeGeneration vm == M.vmRuntimeGeneration observed
+          , M.vmNodeId vm == M.vmNodeId observed ->
+              poll misses
+        _ -> pure ExitSuperseded
+    poll misses = do
       outer <- withVmNodeAgent state vmId $ \nac -> NOA.vmStatus nac vmId
       case outer of
         Left _ -> pure ExitAgentGone
@@ -117,6 +128,7 @@ data ExitOutcome
   | ExitErrored !Int
   | ExitVanished
   | ExitAgentGone
+  | ExitSuperseded
 
 -- | Fork a background thread that waits for VM @vmId@ to exit on
 -- the agent side, then reconciles DB state.
@@ -126,75 +138,25 @@ data ExitOutcome
 -- running when it (re)connects to the agent.
 attachVmMonitor :: ServerState -> Int64 -> IO ()
 attachVmMonitor state vmId = do
-  _ <- forkIO $ runServerLogging state $ do
+  -- Capture ownership before forking: the thread may not run until after a
+  -- stop/migrate/start has already replaced the runtime it was attached for.
+  observed <- runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
+  forM_ observed $ \vm -> void $ forkIO $ runServerLogging state $ do
     logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
-    outcome <- liftIO $ pollVmUntilExit state vmId
-    -- Skip reconciliation if a competing handler (e.g.
-    -- 'handleVmReset') already committed a terminal status.
-    -- Replaces the old "Vm.pid was cleared" signal.
-    mStatus <- liftIO $ runSqlPool (getVmStatusOnly vmId) (ssDbPool state)
-    case mStatus of
-      Nothing ->
-        logDebugN $ "VM " <> T.pack (show vmId) <> " was deleted; monitor exiting"
-      Just VmStopped ->
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " already marked stopped (likely by reset); skipping status update"
-      Just VmError ->
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " already marked error; skipping status update"
-      Just VmSaved ->
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " already marked saved; skipping status update"
-      Just VmSaving ->
-        -- The save executor owns the terminal flip from VmSaving to
-        -- VmSaved / VmError; the monitor only watches for unexpected
-        -- exits. QMP @quit@ is part of the save flow so an observed
-        -- exit here is expected — leave the row alone.
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " is being saved; skipping monitor status update"
-      Just VmMigrating ->
-        -- The migration orchestrator owns the terminal flip.
-        logDebugN $
-          "VM "
-            <> T.pack (show vmId)
-            <> " is being migrated; skipping monitor status update"
-      Just _ -> case outcome of
-        ExitClean -> do
-          logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
-          liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-        ExitErrored code -> do
-          let msg = "QEMU exited with error code " <> T.pack (show code)
-          logWarnN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " "
-              <> msg
-          liftIO $ runSqlPool (setVmError vmId msg) (ssDbPool state)
-        ExitVanished -> do
-          logInfoN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " no longer in agent ledger; marking stopped"
-          liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-        ExitAgentGone ->
-          logDebugN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " monitor exiting: agent disconnected"
-    -- An unavailable agent does not prove QEMU exited. Reconnect
-    -- reconciliation will release TAPs if it has actually stopped.
-    unless (case outcome of ExitAgentGone -> True; _ -> False) $
-      liftIO $
-        releaseManagedTaps state vmId
-  pure ()
+    outcome <- liftIO $ pollVmUntilExit state vmId vm
+    case outcome of
+      ExitAgentGone -> logDebugN "VM monitor exiting: agent disconnected"
+      ExitSuperseded -> logDebugN "VM monitor exiting: runtime ownership changed"
+      _ -> do
+        let reason = case outcome of
+              ExitErrored code -> Just ("QEMU exited with error code " <> T.pack (show code))
+              _ -> Nothing
+        -- Recheck ownership atomically with the update: a lifecycle change
+        -- can also happen while the final nodeagent request is in flight.
+        committed <- liftIO $ runSqlPool (completeVmMonitor vmId vm reason) (ssDbPool state)
+        when committed $ do
+          logInfoN $ "VM " <> T.pack (show vmId) <> " exited; reconciled monitor status"
+          liftIO $ releaseManagedTaps state vmId
 
 -- | On daemon (re)connect to the agent: walk the DB for every VM
 -- that might still have QEMU alive (status in

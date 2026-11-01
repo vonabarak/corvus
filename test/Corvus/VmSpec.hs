@@ -13,12 +13,14 @@
 -- those branches deliberately.
 module Corvus.VmSpec (spec) where
 
+import Control.Monad (forM_)
 import qualified Data.Text as T
 import Test.Prelude
 
 import Corvus.Handlers.Vm.Db
   ( claimVmReset
   , claimVmStart
+  , completeVmMonitor
   , completeVmReset
   , setVmErrorIfCurrent
   , setVmStartedIfCurrent
@@ -28,7 +30,7 @@ import qualified Corvus.Node.VmSpec as VS
 import Corvus.NodeAgentClient.Spec (assembleVmSpec)
 import Corvus.Qemu.Config (defaultQemuConfig)
 import Data.Maybe (fromMaybe)
-import Database.Persist (update, (=.))
+import Database.Persist (getJust, insert, update, (=.))
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (getDbPool, runDb)
 
@@ -113,6 +115,66 @@ spec = sequential $ withTestDb $ do
         staleRevision `shouldBe` False
         staleGeneration `shouldBe` False
       then_ $ vmHasStatus 1 VmStopping
+
+    testCase "rejects an old monitor after a new runtime starts" $ do
+      vid <- insertVm "monitor-restart" VmRunning
+      observed <- runDb $ getJust (toSqlKey vid :: M.VmId)
+      runDb $
+        update
+          (toSqlKey vid :: M.VmId)
+          [ M.VmLifecycleRevision =. (M.vmLifecycleRevision observed + 1)
+          , M.VmRuntimeGeneration =. Just (M.vmLifecycleRevision observed + 1)
+          , M.VmStatus =. VmStarting
+          ]
+      committed <- runDb $ completeVmMonitor vid observed Nothing
+      liftIO $ committed `shouldBe` False
+      then_ $ vmHasStatus vid VmStarting
+
+    testCase "rejects a monitor after node reassignment or generation replacement" $ do
+      vid <- insertVm "monitor-ownership" VmRunning
+      let key = toSqlKey vid :: M.VmId
+      observed <- runDb $ getJust key
+      node <- runDb $ getJust (M.vmNodeId observed)
+      destination <- runDb $ insert node {M.nodeName = "monitor-destination", M.nodeHost = "127.0.0.2"}
+      runDb $ update key [M.VmNodeId =. destination]
+      moved <- runDb $ completeVmMonitor vid observed Nothing
+      runDb $
+        update
+          key
+          [ M.VmNodeId =. M.vmNodeId observed
+          , M.VmRuntimeGeneration =. Just 999
+          ]
+      replaced <- runDb $ completeVmMonitor vid observed Nothing
+      liftIO $ do
+        moved `shouldBe` False
+        replaced `shouldBe` False
+      then_ $ vmHasStatus vid VmRunning
+
+    testCase "records an unexpected error for the current runtime" $ do
+      vid <- insertVm "monitor-error" VmRunning
+      observed <- runDb $ getJust (toSqlKey vid :: M.VmId)
+      committed <- runDb $ completeVmMonitor vid observed (Just "QEMU exited with error code 1")
+      liftIO $ committed `shouldBe` True
+      then_ $ vmHasStatus vid VmError
+
+    testCase "leaves save and migration completion to their owners" $ do
+      vid <- insertVm "monitor-migrate" VmRunning
+      observed <- runDb $ getJust (toSqlKey vid :: M.VmId)
+      forM_ [VmSaving, VmMigrating, VmStopping, VmSaved, VmStopped, VmError] $ \status -> do
+        runDb $ update (toSqlKey vid :: M.VmId) [M.VmStatus =. status]
+        committed <- runDb $ completeVmMonitor vid observed (Just "late exit")
+        liftIO $ committed `shouldBe` False
+        then_ $ vmHasStatus vid status
+
+    testCase "reconciles an exit only once for the current runtime" $ do
+      vid <- insertVm "monitor-current" VmRunning
+      observed <- runDb $ getJust (toSqlKey vid :: M.VmId)
+      first <- runDb $ completeVmMonitor vid observed Nothing
+      second <- runDb $ completeVmMonitor vid observed (Just "late error")
+      liftIO $ do
+        first `shouldBe` True
+        second `shouldBe` False
+      then_ $ vmHasStatus vid VmStopped
 
     testCase "reports whether reset completion committed" $ do
       given $ do
