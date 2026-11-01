@@ -63,7 +63,7 @@ class NodeShellRunner(Runner):
 
         Owner is forced to ``corvus:corvus`` because every
         Corvus service in the test image runs as that user (see
-        ``yaml/corvus-test-node/systemd/corvus-*.service``) — a
+        ``yaml/gentoo/systemd/corvus-test-node/corvus-*.service``) — a
         naïve ``sudo install`` would leave the file owned by
         ``root:root`` and the daemon couldn't read its own
         0600-mode private key. The matching gap in

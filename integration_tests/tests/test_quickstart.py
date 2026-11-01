@@ -22,7 +22,7 @@ Python build deps that corvus-admin needs (``dev-python/{pip,
 click,cryptography,jinja,pyyaml,pycapnp}``). The portage tree
 isn't mounted on a *running* test node, so the deps cannot be
 emerged at test time — they have to be baked in by
-``yaml/corvus-test-node/corvus-test-node.yml``. Rebuild the
+``yaml/gentoo/corvus-test-node.yml``. Rebuild the
 image after pulling this commit:
 
     make image-rebuild IMAGE=node
@@ -43,7 +43,7 @@ from corvus_test_harness.topology import NodeRole, Topology
 
 # Where the harness mounts the host's repo when ``attach_source=True``.
 # Matches the systemd mount unit baked into the test-node image at
-# yaml/corvus-test-node/systemd/mnt-corvus.mount.
+# yaml/gentoo/systemd/corvus-test-node/mnt-corvus.mount.
 SRC_MOUNT = "/mnt/corvus"
 
 # User on the node that runs everything (matches the test-node

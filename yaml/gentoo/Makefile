@@ -1,6 +1,7 @@
 # Select a complete recipe, including its cloud-init variants and templates.
+.DEFAULT_GOAL := all
 IMAGE ?= gentoo-corvus-test
-IMAGES := gentoo-cloud gentoo-builder gentoo-musl-builder gentoo-headless gentoo-musl gentoo-corvus-test
+IMAGES := gentoo-cloud gentoo-builder gentoo-musl-builder gentoo-headless gentoo-musl gentoo-corvus-test corvus-test-node
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
@@ -12,6 +13,7 @@ PIPELINE_gentoo-builder := gentoo-builder.yml
 PIPELINE_gentoo-musl := gentoo-musl.yml
 PIPELINE_gentoo-headless := gentoo-headless.yml
 PIPELINE_gentoo-corvus-test := gentoo-test.yml
+PIPELINE_corvus-test-node := corvus-test-node.yml
 
 DISKS_gentoo-cloud := gentoo-cloud
 DISKS_gentoo-builder := gentoo-builder
@@ -19,18 +21,21 @@ DISKS_gentoo-headless := gentoo-headless gentoo-headless-cloudinit
 DISKS_gentoo-musl-builder := gentoo-musl-builder
 DISKS_gentoo-musl := gentoo-musl gentoo-musl-cloudinit
 DISKS_gentoo-corvus-test := gentoo-corvus-test
+DISKS_corvus-test-node := corvus-test-node
 
 TEMPLATES_gentoo-builder := gentoo-builder-bootstrap gentoo-builder-bake
 TEMPLATES_gentoo-headless := gentoo-headless gentoo-headless-cloudinit gentoo-headless-uefi gentoo-headless-cloudinit-uefi
 TEMPLATES_gentoo-musl-builder := gentoo-musl-builder-bake
 TEMPLATES_gentoo-musl := gentoo-musl gentoo-musl-cloudinit gentoo-musl-uefi gentoo-musl-cloudinit-uefi
 TEMPLATES_gentoo-corvus-test := gentoo-test-builder
+TEMPLATES_corvus-test-node := corvus-test-node
 
 PARENT_gentoo-builder := gentoo-cloud
 PARENT_gentoo-headless := gentoo-builder
 PARENT_gentoo-musl-builder := gentoo-builder
 PARENT_gentoo-musl := gentoo-musl-builder
 PARENT_gentoo-corvus-test := gentoo-headless
+PARENT_corvus-test-node := gentoo-headless
 
 PIPELINE := $(PIPELINE_$(IMAGE))
 DISKS := $(DISKS_$(IMAGE))
@@ -40,6 +45,14 @@ IMAGE_POLICY ?= update
 export GENTOO_CACHE_DIR ?= /data/corvus-cache
 BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)"
 BUILD_DEPENDENCIES := build-dependencies
+
+# The key is a local input, not an image dependency; generate it before publication.
+ifeq ($(IMAGE),corvus-test-node)
+LOCAL_PREREQUISITES := test-node-key
+.PHONY: test-node-key
+test-node-key:
+	+$(MAKE) -C ../../integration_tests/keys build
+endif
 
 include ../image.mk
 

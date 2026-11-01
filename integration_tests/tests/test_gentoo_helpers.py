@@ -735,6 +735,10 @@ configure_login_banner
     assert len(service_calls) == 2
     assert all(line.startswith(f"--root={root} enable ") for line in service_calls)
     assert "vde-switch.service" in result.stdout
+    assert (
+        "ip saddr 192.168.92.0/24" in (root / "etc/nftables/rules/main.nft").read_text()
+    )
+    assert not (root / "etc/nftables.conf").exists()
     assert "nftables" in result.stdout
     assert "dnsmasq" in result.stdout
 
@@ -851,3 +855,79 @@ prepare_build_mounts
     )
     assert result.returncode == 0, result.stderr
     assert workspace.stat().st_mode & 0o777 == 0o755
+
+
+def test_node_kernel_checks_artifact_not_helper(tmp_path: Path) -> None:
+    """Offline validation follows the artifact symlink, regardless of helper uname."""
+    definitions = (
+        (ROOT / "scripts/build-test-node.sh").read_text().rsplit('main "$@"', 1)[0]
+    )
+    (tmp_path / "boot").mkdir()
+    (tmp_path / "boot/vmlinuz").symlink_to("vmlinuz-6.12.1-gentoo")
+    (tmp_path / "boot/vmlinuz-6.12.1-gentoo").touch()
+    (tmp_path / "lib/modules/6.12.1-gentoo").mkdir(parents=True)
+    config = tmp_path / "boot/config-6.12.1-gentoo"
+    for contents, expected in [
+        ("CONFIG_KVM_INTEL=m\n", 0),
+        ("# CONFIG_KVM_INTEL is not set\n", 1),
+    ]:
+        config.write_text(contents)
+        result = subprocess.run(
+            [
+                "bash",
+                "-euc",
+                definitions + "\nroot=$1\ncheck_node_kernel\n",
+                "bash",
+                str(tmp_path),
+            ],
+            env={**os.environ, "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib")},
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == expected, result.stderr
+
+
+def test_node_configuration_preserves_runtime_policy(tmp_path: Path) -> None:
+    """Only harness-independent services start; debug files retain runtime expansion."""
+    definitions = (
+        (ROOT / "scripts/build-test-node.sh").read_text().rsplit('main "$@"', 1)[0]
+    )
+    # Redirect only upload staging; all generated target paths stay beneath the fixture.
+    staging = tmp_path / "staging/systemd"
+    staging.mkdir(parents=True)
+    (staging / "corvus.service").write_text("[Service]\nExecStart=/bin/true\n")
+    definitions = definitions.replace("/tmp/corvus-test-node", str(staging.parent))
+    root = tmp_path / "root"
+    result = subprocess.run(
+        [
+            "bash",
+            "-euc",
+            definitions
+            + """
+root=$1
+systemctl() { printf '%s\\n' "$*"; }
+write_node_package_policy "$root"
+install_node_services
+configure_node_debugging
+""",
+            "bash",
+            str(root),
+        ],
+        env={**os.environ, "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib")},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        "disable corvus.service corvus-netd.service corvus-nodeagent.service"
+        in result.stdout
+    )
+    assert "corvus-tcp-relay.service sshd.service" in result.stdout
+    assert (
+        "pulseaudio sound-server"
+        in (root / "etc/portage/package.use/corvus").read_text()
+    )
+    assert not (root / "etc/portage/binrepos.conf/zz-corvus-cache.conf").exists()
+    profile = root / "etc/profile.d/50-corvus.sh"
+    assert "$(/opt/corvus/bin/crv completion bash" in profile.read_text()
+    assert subprocess.run(["bash", "-n", str(profile)], check=False).returncode == 0

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -34,6 +35,20 @@ RECIPES = {
 @pytest.fixture
 def recipes(tmp_path: Path) -> RecipeRunner:
     return RecipeRunner(tmp_path)
+
+
+def run_recipe(
+    recipes: RecipeRunner,
+    recipe: str,
+    target: str,
+    variables: tuple[str, ...] = (),
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if recipe == "corvus-test-node":
+        return recipes.run(
+            "gentoo", target, ("IMAGE=corvus-test-node", *variables), env=env
+        )
+    return recipes.run(recipe, target, variables, env=env)
 
 
 def publications(recipes: RecipeRunner) -> list[RecipeCall]:
@@ -69,7 +84,7 @@ class TestImageRecipes:
         recipe first and forward the same policy to every dependent build, even
         with parallel Make. Rebuild always overrides an explicit skip policy.
         """
-        result = recipes.run(recipe, target, variables)
+        result = run_recipe(recipes, recipe, target, variables)
         assert result.returncode == 0, result.stdout + result.stderr
         expected = ["multi-os.yml"]
         if recipe == "freebsd":
@@ -146,7 +161,7 @@ class TestImageRecipes:
     def test_existing_outputs_only_check_presence(
         self, recipes: RecipeRunner, recipe: str, target: str
     ) -> None:
-        result = recipes.run(recipe, target)
+        result = run_recipe(recipes, recipe, target)
         assert result.returncode == 0, result.stdout + result.stderr
         assert recipes.calls()
         assert all(
@@ -157,8 +172,8 @@ class TestImageRecipes:
     def test_ensure_missing_output_publishes_with_skip(
         self, recipes: RecipeRunner, recipe: str, output: str
     ) -> None:
-        result = recipes.run(
-            recipe, "ensure", env={"MISSING_OUTPUTS": f"disk:{output}"}
+        result = run_recipe(
+            recipes, recipe, "ensure", env={"MISSING_OUTPUTS": f"disk:{output}"}
         )
         assert result.returncode == 0, result.stdout + result.stderr
         builds = publications(recipes)
@@ -182,7 +197,7 @@ class TestImageRecipes:
     def test_lookup_error_stops_ensure(
         self, recipes: RecipeRunner, recipe: str
     ) -> None:
-        result = recipes.run(recipe, "ensure", env={"LOOKUP_ERROR": "1"})
+        result = run_recipe(recipes, recipe, "ensure", env={"LOOKUP_ERROR": "1"})
         assert result.returncode != 0
         assert not publications(recipes)
         assert not any(call.command == "curl" for call in recipes.calls())
@@ -212,7 +227,7 @@ class TestImageRecipes:
         )
         if resource == "freebsd":
             recipe = "freebsd"
-        result = recipes.run(recipe, "build", env={error: resource})
+        result = run_recipe(recipes, recipe, "build", env={error: resource})
         assert result.returncode != 0
         assert not publications(recipes)
 
@@ -231,7 +246,7 @@ class TestImageRecipes:
     def test_failed_publication_stops_consumer(
         self, recipes: RecipeRunner, recipe: str, failed: str
     ) -> None:
-        result = recipes.run(recipe, "build", env={"FAIL_BUILD": failed})
+        result = run_recipe(recipes, recipe, "build", env={"FAIL_BUILD": failed})
         assert result.returncode != 0
         assert publications(recipes)[-1].args[1] == failed
         assert not any(
@@ -349,7 +364,12 @@ class TestImageRecipes:
         self, recipes: RecipeRunner, recipe: str
     ) -> None:
         doc = yaml.safe_load(
-            (recipes.root / "yaml" / recipe / f"{recipe}.yml").read_text()
+            (
+                recipes.root
+                / "yaml"
+                / ("gentoo" if recipe == "corvus-test-node" else recipe)
+                / f"{recipe}.yml"
+            ).read_text()
         )
         assert doc["vars"]["image_if_exists"] == "update"
         imports = []
@@ -388,7 +408,12 @@ class TestImageRecipes:
         self, recipes: RecipeRunner, recipe: str
     ) -> None:
         doc = yaml.safe_load(
-            (recipes.root / "yaml" / recipe / f"{recipe}.yml").read_text()
+            (
+                recipes.root
+                / "yaml"
+                / ("gentoo" if recipe == "corvus-test-node" else recipe)
+                / f"{recipe}.yml"
+            ).read_text()
         )
         assert doc["vars"]["image_if_exists"] == "update"
         upload = doc["pipeline"][0]["upload"]
@@ -489,7 +514,7 @@ class TestUploadRecipes:
         recipes = RecipeRunner(tmp_path)
         variables = (f"ISO_TOOL={recipes.bin / 'mkisofs'}",)
         for target, policy in [("build", "update"), ("rebuild", "overwrite")]:
-            result = recipes.run(recipe, target, variables)
+            result = run_recipe(recipes, recipe, target, variables)
             assert result.returncode == 0, result.stdout + result.stderr
             calls = publications(recipes)[-len(imports) - 1 :]
             assert [call.args[1] for call in calls] == imports + [recipe + ".yml"]

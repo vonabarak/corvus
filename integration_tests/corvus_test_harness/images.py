@@ -9,10 +9,9 @@ because session scope is per-worker, so two workers could both
 spawn `crv build` against the same outer daemon when the disk was
 missing.
 
-The YAML doesn't declare a VM template — Corvus templates don't yet
-support `sharedDirs`, and every test VM needs a per-run share-dir
-attached at create time. The harness builds each VM from the base
-disk via an inline `apply` YAML; see `topology.py`.
+The recipe also publishes a template for interactive inspection. The harness
+instead creates each VM through inline `apply` YAML with per-run shares;
+see `topology.py`.
 
 Build path (run once per machine, lives outside pytest):
 
@@ -32,10 +31,7 @@ DISK_NAME = "corvus-test-node"
 
 # The YAML file relative to the repo root.
 DEFAULT_YAML = (
-    Path(__file__).resolve().parents[2]
-    / "yaml"
-    / "corvus-test-node"
-    / "corvus-test-node.yml"
+    Path(__file__).resolve().parents[2] / "yaml" / "gentoo" / "corvus-test-node.yml"
 )
 
 # The synthetic-installer ISO consumed by

@@ -32,7 +32,7 @@ DEV_NODE_DATABASE ?= sqlite
 export DEV_NODE_DATABASE STACK_BUILD_FLAGS
 # Private half of the SSH key the image bakes into
 # /home/corvus/.ssh/authorized_keys at build time
-# (see yaml/corvus-test-node/corvus-test-node.yml).
+# (see yaml/gentoo/corvus-test-node.yml).
 DEV_NODE_SSH_KEY ?= integration_tests/keys/corvus-test-key
 
 # Run each step through a separate recursive Make invocation so even -j

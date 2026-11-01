@@ -198,10 +198,13 @@ else:
             "#!/bin/sh\nif [ \"$1\" != '-o' ]; then exit 99; fi\nprintf '%s\\n' '{\"id\":42}'\n"
         )
         fake.chmod(0o755)
-        directory = tmp_path / "yaml" / recipe
+        directory = (
+            tmp_path / "yaml" / ("gentoo" if recipe == "corvus-test-node" else recipe)
+        )
+        image_args = ["IMAGE=corvus-test-node"] if recipe == "corvus-test-node" else []
         for target in ("check", "ensure"):
             result = subprocess.run(
-                ["make", "--no-print-directory", target, f"CRV={fake}"],
+                ["make", "--no-print-directory", target, f"CRV={fake}", *image_args],
                 cwd=directory,
                 capture_output=True,
                 text=True,

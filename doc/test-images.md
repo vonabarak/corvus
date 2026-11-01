@@ -382,7 +382,7 @@ artifacts above.
 
 | Image | Directory | Artifact and use |
 | --- | --- | --- |
-| `node` | `yaml/corvus-test-node/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo/` when needed. |
+| `node` | `yaml/gentoo/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo/` when needed. |
 | `vm` | `yaml/corvus-test-vm/` | `BaseImages/Alpine/<id>-corvus-test-vm.qcow2`, the inner Alpine VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures `multi-os` first. |
 | `freebsd` | `yaml/freebsd/` | FreeBSD 15.1 NoCloud source and `freebsd15` template. |
 | `freebsd-headless` | `yaml/freebsd/` | [Serial-console FreeBSD with preinstalled QGA](../yaml/freebsd/README.md); prepares `freebsd` first. |
@@ -403,10 +403,13 @@ artifacts above.
 | `ubuntu-nginx` | `yaml/ubuntu-nginx/` | `ubuntu26-nginx`, an example Ubuntu 26.04 nginx derivative built from the multi-OS Ubuntu base. |
 | `monitor` | `yaml/corvus-monitor/` | `corvus-monitor`, a Debian 12 Prometheus and Grafana image. Set `CORVUS_WEB_TARGET=host:port` when building to bake a Corvus metrics endpoint into its dashboard configuration. |
 
-The test-node image build uses the same Gentoo cache as the headless and
-development images. Run `make image IMAGE=node GENTOO_CACHE_DIR=/srv/corvus-cache`
-to override the default `/data/corvus-cache` throughout its dependency chain.
-The dedicated `corvus-test-node-bake` template attaches this directory through
+The test-node recipe lives in `yaml/gentoo/corvus-test-node.yml`. Build it with
+`make image IMAGE=node` or `make -C yaml/gentoo build IMAGE=corvus-test-node`;
+both prepare the registered dependencies and integration SSH key.
+It uses the same Gentoo cache as the headless and development images. Run
+`make image IMAGE=node GENTOO_CACHE_DIR=/srv/corvus-cache` to override the default `/data/corvus-cache` throughout its dependency chain.
+The shared `gentoo-builder-bake` template builds an offline overlay of
+`gentoo-headless` and attaches this directory through
 virtiofs; downloads, built packages, and official binaries use its `distfiles`,
 `packages/x86-64`, and `binhost/x86-64` subdirectories. The recipe checks directory creation and
 file writes, disables `userfetch` and `userpriv` only during provisioning, and

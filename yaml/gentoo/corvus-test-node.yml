@@ -1,0 +1,92 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Prepare registered dependencies and the harness key through the Gentoo Makefile.
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+pipeline:
+- build:
+    name: corvus-test-node
+    description: Corvus integration-test target; runs the freshly built daemon over
+      vsock
+    template: gentoo-builder-bake
+    strategy: offline-overlay
+    sourceImage: gentoo-headless
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      compact: true
+      path: BaseImages/Gentoo/
+    vm:
+      cpuCount: 8
+      ram: 8G
+    shellDefaults:
+      preamble: set -eux
+      env:
+        IMAGE_LIBC: glibc
+        IMAGE_INIT: systemd
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+    provisioners:
+    - file:
+        from: ./scripts/lib/build.sh
+        to: /usr/local/lib/corvus-build/build.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/build-test-node.sh
+        to: /tmp/build-test-node.sh
+        mode: '0755'
+    - file:
+        from: ./systemd/corvus-test-node/corvus-netd.service
+        to: /tmp/corvus-test-node/systemd/corvus-netd.service
+        mode: '0644'
+    - file:
+        from: ./systemd/corvus-test-node/corvus-nodeagent.service
+        to: /tmp/corvus-test-node/systemd/corvus-nodeagent.service
+        mode: '0644'
+    - file:
+        from: ./systemd/corvus-test-node/corvus-tcp-relay.service
+        to: /tmp/corvus-test-node/systemd/corvus-tcp-relay.service
+        mode: '0644'
+    - file:
+        from: ./systemd/corvus-test-node/corvus.service
+        to: /tmp/corvus-test-node/systemd/corvus.service
+        mode: '0644'
+    - file:
+        from: ./systemd/corvus-test-node/home-corvus-VMs-BaseImagesRO.mount
+        to: /tmp/corvus-test-node/systemd/home-corvus-VMs-BaseImagesRO.mount
+        mode: '0644'
+    - file:
+        from: ./systemd/corvus-test-node/mnt-corvus.mount
+        to: /tmp/corvus-test-node/systemd/mnt-corvus.mount
+        mode: '0644'
+    - file:
+        from: ./systemd/corvus-test-node/opt-corvus-bin.mount
+        to: /tmp/corvus-test-node/systemd/opt-corvus-bin.mount
+        mode: '0644'
+    - file:
+        from: ../../integration_tests/keys/corvus-test-key.pub
+        to: /tmp/corvus-test-node/authorized_keys
+        mode: '0600'
+    - shell:
+        inline: unshare --mount --propagation private /bin/bash /tmp/build-test-node.sh
+        timeoutSec: 18000
+    cleanup: onSuccess
+- apply:
+    ifExists: overwrite
+    templates:
+    - name: corvus-test-node
+      # The harness creates its own VMs with per-class shares; this is for inspection.
+      description: Corvus integration-test node; instantiate via make dev-node-vm
+      cpuCount: 4
+      ram: 16G
+      guestAgent: true
+      headless: true
+      drives:
+      - diskImage: corvus-test-node
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+      networkInterfaces:
+      - network: corvus

@@ -3,66 +3,6 @@
 set -euxo pipefail
 . "${CORVUS_BUILD_LIB:-/usr/local/lib/corvus-build}/build.sh"
 
-# Wait for the grown helper and validate artifact partitions before mounting.
-check_build_prerequisites() {
-    cloud-init status --wait
-    # Cloud-init grows only the helper; compilation must not fill the smaller artifact.
-    [ "$(df --output=size -B1 / | tail -1)" -ge 30000000000 ]
-    wait_for_network
-    [ "$(findmnt -n -o SOURCE /)" = /dev/vda3 ]
-    [ "$(blkid -s TYPE -o value /dev/vdb3)" = ext4 ]
-    [ "$(blkid -s TYPE -o value /dev/vdb2)" = vfat ]
-}
-
-# Stop the target server before releasing its private runtime filesystem.
-stop_postgres() {
-    if "$postgres_active"; then
-        chroot "$root" runuser -u postgres -- "$pgbin/pg_ctl" -D "$pgdata" -m fast -w stop || return $?
-        postgres_active=false
-    fi
-}
-
-# Preserve the build error while stopping PostgreSQL and releasing every mount.
-cleanup_test_build() {
-    local status=$?
-    trap - EXIT
-    set +e
-    stop_postgres || { [ "$status" -ne 0 ] || status=1; }
-    unmount_tracked || { [ "$status" -ne 0 ] || status=1; }
-    # Failed builds retain their workspace for inspection; never remove mounted data.
-    if [ "$status" -eq 0 ] && [ -n "$workspace" ]; then
-        rm -rf -- "$workspace"
-    fi
-    exit "$status"
-}
-
-# Use tracked, disposable repository storage and private target interfaces.
-prepare_build_mounts() {
-    workspace=$(mktemp -d /var/tmp/corvus-test.XXXXXX)
-    # Repository sync drops privileges even when package userpriv is disabled.
-    chmod 0755 "$workspace"
-    # Native Portage resolves repositories on the helper, not beneath ROOT.
-    mount_at /var/db/repos -t tmpfs tmpfs
-    prepare_workspace
-    # Select devices explicitly: helper and artifact have identical filesystem labels.
-    mount_target_disk "$root" /dev/vdb
-    bind /dev/pts "$root/dev/pts"
-    bind /dev/shm "$root/dev/shm"
-    # PostgreSQL pkg_config needs the same ebuild tree inside its individual chroot.
-    bind /var/db/repos "$root/var/db/repos"
-    local cache source
-    for cache in distfiles binpkgs binhost; do
-        case "$cache" in
-            binpkgs) source=packages/x86-64 ;;
-            *) source=$cache ;;
-        esac
-        bind "/mnt/corvus-cache/$source" "$root/var/cache/$cache"
-    done
-    # All compilation uses the larger helper disk, including native build dependencies.
-    export PORTAGE_TMPDIR="$workspace"
-    configure_glibc_caches
-}
-
 # Keep the development VM’s existing native cache paths and lazy automounts.
 configure_target_caches() {
     cat >> "$root/etc/portage/make.conf" <<'EOF'
@@ -106,22 +46,7 @@ dev-util/ghcup-bin ~amd64
 app-admin/haskell-updater ~amd64
 EOF
 
-    cat > "$config_root/etc/portage/repos.conf/corvus.conf" <<'EOF'
-[vonabarak]
-location = /var/db/repos/vonabarak
-sync-type = git
-sync-uri = https://github.com/vonabarak/gentoo.git
-
-[haskell]
-location = /var/db/repos/haskell
-sync-type = git
-sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git
-EOF
-}
-
-# Install natively into ROOT while retaining the development dependency closure.
-install_target_packages() {
-    env -u SYSROOT ROOT="$root" emerge --root-deps "$@"
+    write_corvus_repositories "$1"
 }
 
 # Sync overlays on the helper, then populate the artifact in dependency order.
@@ -135,111 +60,6 @@ install_development_packages() {
     install_target_packages --usepkg --buildpkg --quiet-build --onlydeps app-emulation/corvus
     # Rebuild the live Corvus ebuild rather than reusing a potentially stale binary.
     install_target_packages --verbose app-emulation/corvus
-}
-
-# Initialize the target cluster and database without starting its init system.
-initialize_postgres() {
-    chroot "$root" eselect postgresql set 18
-    # Run the installed package's configuration with target accounts, locale, and paths.
-    env -u ROOT -u SYSROOT -u PORTAGE_TMPDIR -u DISTDIR -u PKGDIR \
-        chroot "$root" emerge --config dev-db/postgresql:18
-    systemctl --root="$root" enable postgresql-18.service
-    chroot "$root" install -d -o postgres -g postgres /run/postgresql
-    # Mark ownership before startup so cleanup also handles a partially failed start.
-    postgres_active=true
-    chroot "$root" runuser -u postgres -- "$pgbin/pg_ctl" -D "$pgdata" -w start \
-        -o "-c listen_addresses='' -c unix_socket_directories=/run/postgresql"
-    chroot "$root" runuser -u postgres -- "$pgbin/psql" -h /run/postgresql -v ON_ERROR_STOP=1 <<'SQL'
-CREATE USER corvus SUPERUSER;
-CREATE DATABASE corvus OWNER corvus;
-SQL
-    stop_postgres
-}
-
-# Install and enable the VDE switch used by nested test VMs.
-configure_vde_service() {
-    install -d "$root/etc/systemd/system"
-    cat > "$root/etc/systemd/system/vde-switch.service" <<'EOF'
-[Unit]
-Description=VDE virtual switch for Corvus test VMs
-After=network-pre.target
-Before=network.target
-Wants=network-pre.target
-
-[Service]
-Type=forking
-ExecStartPre=/bin/mkdir -p /run/vde2
-ExecStart=/usr/bin/vde_switch \
-    --sock /run/vde2/switch.ctl \
-    --mgmt /run/vde2/switch.mgmt \
-    -tap vde0 \
-    -m 666 \
-    -group kvm \
-    --daemon \
-    --pidfile /run/vde2/vde_switch.pid
-PIDFile=/run/vde2/vde_switch.pid
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl --root="$root" enable vde-switch.service
-}
-
-# Assign the private VDE subnet and enable IPv4 forwarding.
-configure_vde_network() {
-    install -d "$root/etc/systemd/network"
-    cat > "$root/etc/systemd/network/30-vde0.network" <<'EOF'
-[Match]
-Name=vde0
-
-[Network]
-Address=192.168.92.1/24
-ConfigureWithoutCarrier=yes
-EOF
-
-    install -d "$root/etc/sysctl.d"
-    cat > "$root/etc/sysctl.d/30-corvus-vde-forward.conf" <<'EOF'
-net.ipv4.ip_forward = 1
-EOF
-}
-
-# Masquerade traffic leaving the private VDE subnet.
-configure_nat() {
-    cat > "$root/etc/nftables.conf" <<'EOF'
-#!/usr/sbin/nft -f
-flush ruleset
-
-table ip nat {
-    chain postrouting {
-        type nat hook postrouting priority srcnat
-        policy accept
-        ip saddr 192.168.92.0/24 oifname != "vde0" masquerade
-    }
-}
-EOF
-}
-
-# Serve DHCP and DNS only on VDE, after its interface is available.
-configure_dhcp() {
-    cat > "$root/etc/dnsmasq.conf" <<'EOF'
-interface=vde0
-bind-dynamic
-dhcp-range=192.168.92.10,192.168.92.200,12h
-dhcp-option=option:router,192.168.92.1
-dhcp-option=option:dns-server,192.168.92.1
-domain-needed
-bogus-priv
-EOF
-
-    install -d "$root/etc/systemd/system/dnsmasq.service.d"
-    cat > "$root/etc/systemd/system/dnsmasq.service.d/wait-vde.conf" <<'EOF'
-[Unit]
-After=vde-switch.service systemd-networkd.service
-Wants=systemd-networkd.service
-EOF
-
-    systemctl --root="$root" enable nftables.service dnsmasq.service
 }
 
 # Share the console banner with PAM without duplicate SSH messages.

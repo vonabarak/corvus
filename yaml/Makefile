@@ -2,7 +2,8 @@
 # directory owns its inputs and build logic; this file only selects it.
 IMAGE ?=
 
-IMAGE_DIR_node := corvus-test-node
+IMAGE_DIR_node := gentoo
+IMAGE_ARGS_node := IMAGE=corvus-test-node
 IMAGE_DIR_vm := corvus-test-vm
 IMAGE_DIR_multi-os := multi-os
 IMAGE_DIR_freebsd := freebsd

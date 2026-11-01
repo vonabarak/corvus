@@ -104,7 +104,14 @@ class TestGentooRecipes:
     def test_cache_directory_forwarded(
         self, recipes: RecipeRunner, recipe: str, cache_dir: str
     ) -> None:
-        result = recipes.run(recipe, "build", (f"GENTOO_CACHE_DIR={cache_dir}",))
+        result = recipes.run(
+            "gentoo",
+            "build",
+            (
+                f"GENTOO_CACHE_DIR={cache_dir}",
+                *(["IMAGE=corvus-test-node"] if recipe == "corvus-test-node" else []),
+            ),
+        )
         assert result.returncode == 0, result.stdout + result.stderr
         calls = [call for call in recipes.calls() if call.command == "crv"]
         assert len(calls) == 4
@@ -155,17 +162,15 @@ class TestGentooRecipes:
                     in log.read_text()
                 )
 
-    @pytest.mark.parametrize("failure", [None, "mount", "directory", "file"])
+    @pytest.mark.parametrize("failure", [None, "directory", "file"])
     def test_node_cache_permissions(
         self, recipes: RecipeRunner, failure: str | None
     ) -> None:
-        doc = yaml.safe_load(
-            (recipes.root / "yaml/corvus-test-node/corvus-test-node.yml").read_text()
-        )
-        script = doc["pipeline"][1]["build"]["provisioners"][1]["shell"]["inline"]
-        script = script.split("install -d /etc/portage/binrepos.conf")[0]
-        script = script.replace("/mnt/corvus-cache", str(recipes.root / "cache"))
-        commands = {"mount": "exit 7" if failure == "mount" else "exit 0"}
+        script = (recipes.root / "yaml/gentoo/scripts/lib/build.sh").read_text()
+        cache = recipes.root / "cache"
+        cache.mkdir()
+        script += '\ncheck_cache_writable "$1"\n'
+        commands = {}
         if failure == "directory":
             commands["mktemp"] = "exit 1"
         if failure == "file":
@@ -177,7 +182,7 @@ class TestGentooRecipes:
             executable.write_text("#!/bin/sh\n" + body + "\n")
             executable.chmod(0o755)
         result = subprocess.run(
-            ["bash", "-ec", script],
+            ["bash", "-ec", script, "bash", str(cache)],
             env={**os.environ, "PATH": f"{recipes.bin}:{os.environ['PATH']}"},
             capture_output=True,
             text=True,
@@ -185,53 +190,27 @@ class TestGentooRecipes:
         )
         if failure is None:
             assert result.returncode == 0, result.stderr
-            for cache in ("distfiles", "packages/x86-64", "binhost"):
-                assert list((recipes.root / "cache" / cache).iterdir()) == []
+            assert list(cache.iterdir()) == []
         else:
             assert result.returncode != 0
-            if failure != "mount":
-                assert "check host cache permissions" in result.stderr
+            assert "check host cache permissions" in result.stderr
 
     def test_node_build_cache_is_temporary(self, recipes: RecipeRunner) -> None:
-        source = recipes.root / "yaml/corvus-test-node/corvus-test-node.yml"
+        source = recipes.root / "yaml/gentoo/corvus-test-node.yml"
         doc = yaml.safe_load(preprocess_build_yaml(str(source)))
-        bake = doc["pipeline"][0]["apply"]["templates"][0]
+        build = doc["pipeline"][0]["build"]
         runtime = doc["pipeline"][-1]["apply"]["templates"][0]
-        assert bake["sharedDirs"] == [
-            {"path": "/data/corvus-cache", "tag": "corvus-cache"}
-        ]
         assert not runtime.get("sharedDirs")
-        build = doc["pipeline"][1]["build"]
-        assert build["template"] == bake["name"]
-        env = build["shellDefaults"]["env"]
-        assert {"-userfetch", "-userpriv"} <= set(env["FEATURES"].split())
-        assert env["DISTDIR"] == "/mnt/corvus-cache/distfiles"
-        assert env["PKGDIR"] == "/mnt/corvus-cache/packages/x86-64"
-        shell = "\n".join(
-            item["shell"]["inline"] for item in build["provisioners"] if "shell" in item
+        assert build["template"] == "gentoo-builder-bake"
+        assert build["strategy"] == "offline-overlay"
+        assert build["sourceImage"] == "gentoo-headless"
+        script = (source.parent / "scripts/build-test-node.sh").read_text()
+        assert "configure_target_caches" not in script
+        assert "clean_image_temporary_files" in script
+        assert script.index("install_node_packages\n") < script.index(
+            "clean_node_build_files\n"
         )
-        assert "mount -t nfs" not in shell
-        assert "192.168.72.1" not in shell
-        assert shell.index("mount -t tmpfs tmpfs /var/db/repos") < shell.index(
-            "emerge-webrsync -k"
-        )
-        assert shell.index("--quiet-build dev-vcs/git") < shell.index(
-            "emaint sync -r vonabarak"
-        )
-        assert (
-            "sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git" in shell
-        )
-        assert "location = /mnt/corvus-cache/binhost/x86-64" in shell
-        assert shell.index(
-            "rm /etc/portage/binrepos.conf/zz-corvus-cache.conf"
-        ) > shell.index("--reinstall-atoms=dev-python/pycapnp")
-        assert "umount /var/db/repos" in shell
-        assert "umount /mnt/corvus-cache" in shell
-        assert "/etc/portage/make.conf" not in shell
-        commands = shell.replace("\\\n", " ")
-        for line in commands.splitlines():
-            if line.strip().startswith("emerge ") and "--config" not in line:
-                assert "--buildpkg" in line
+        assert "--reinstall-atoms=dev-python/pycapnp" in script
 
     def test_repository_storage_policy(self, recipes: RecipeRunner) -> None:
         for recipe in ("gentoo-builder", "gentoo-headless", "gentoo-test"):
@@ -256,9 +235,7 @@ class TestGentooRecipes:
                     continue
                 build = step["build"]
                 if build["name"] == "gentoo-corvus-test":
-                    helper = (
-                        source.parent / "scripts/build-test-offline.sh"
-                    ).read_text()
+                    helper = (source.parent / "scripts/lib/build.sh").read_text()
                     assert "mount_at /var/db/repos -t tmpfs tmpfs" in helper
                     assert 'bind /var/db/repos "$root/var/db/repos"' in helper
                     assert (
@@ -304,7 +281,14 @@ class TestGentooRecipes:
                     if (
                         not line.lstrip().startswith("#")
                         and " emerge " in " " + line
-                        and not any(flag in line for flag in ("--sync", "--config"))
+                        and not any(
+                            flag in line
+                            for flag in (
+                                "--sync",
+                                "--config",
+                                'emerge --root-deps "$@"',
+                            )
+                        )
                     ):
                         args = line.split()
                         # The development package itself is deliberately rebuilt;
