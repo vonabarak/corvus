@@ -3,13 +3,26 @@
 module Corvus.NodeStartupSpec (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
+import Control.Exception (bracket)
 import Control.Monad (void)
+import Corvus.Model (GraphicsAdapter (..))
+import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
+import qualified Corvus.Node.Ledger as L
 import Corvus.Node.QemuStartup (waitForVsockOwnership)
-import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Node.Runtime (createVmRuntimeDir, getQmpSocket)
+import qualified Corvus.Node.StatusPoller as SP
+import Corvus.Node.VmSpec (VmSpec (..))
+import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import qualified Data.Text as Text
 import qualified Data.Text.IO as T
+import qualified Network.Socket as Socket
 import System.IO (hClose)
+import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
+import System.Timeout (timeout)
 import Test.Hspec
 
 spec :: Spec
@@ -36,3 +49,89 @@ spec = describe "QEMU startup failures" $ do
     doneVar <- newTVarIO True
     result <- waitForVsockOwnership defaultQemuConfig 1 1004 process tailVar doneVar
     result `shouldBe` Left "QEMU exited with status 2"
+
+  it "leaves QGA startup to the coordinator, then enables periodic probes" $
+    withSystemTempDirectory "corvus-startup-poll" $ \runtime -> do
+      (_, _, _, process) <- createProcess (proc "true" [])
+      _ <- waitForProcess process
+      lastExit <- newTVarIO Nothing
+      stderrTail <- newTVarIO ""
+      stderrDone <- newTVarIO True
+      startupError <- newTVarIO Nothing
+      startupPending <- newTVarIO True
+      stopRequested <- newTVarIO False
+      let vmSpec = startupSpec
+          live =
+            L.VmLiveState
+              { L.vlsQemuPid = 0
+              , L.vlsQemuHandle = process
+              , L.vlsVirtiofsd = []
+              , L.vlsSwtpm = Nothing
+              , L.vlsLastExitCode = lastExit
+              , L.vlsStderrTail = stderrTail
+              , L.vlsStderrDone = stderrDone
+              , L.vlsStartupError = startupError
+              , L.vlsStartupPending = startupPending
+              , L.vlsSpicePort = 0
+              , L.vlsSpec = vmSpec
+              , L.vlsStopRequested = stopRequested
+              }
+          cfg = defaultQemuConfig {qcRuntimeDir = Just runtime, qcBasePath = Just runtime}
+      ledger <- L.newVmLedger
+      _ <- atomically $ L.admitVmStart ledger 7 1 1
+      atomically (L.publishVmStart ledger 7 1 1 live) `shouldReturn` True
+      messages <- newIORef []
+      conns <- newGuestAgentConns (\_ message -> modifyIORef' messages (message :))
+      subs <- SP.newSubscribers
+      let probe = SP.dispatchVm cfg conns ledger subs 7
+          connected = any (Text.isInfixOf "event=connect_start") <$> readIORef messages
+      probe
+      connected `shouldReturn` False
+
+      -- A QMP peer that accepts connections but never sends its greeting
+      -- must not prevent the startup failure/readiness notification.
+      _ <- createVmRuntimeDir cfg 7
+      qmpPath <- getQmpSocket cfg 7
+      bracket (Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol) Socket.close $ \listener -> do
+        Socket.bind listener (Socket.SockAddrUnix qmpPath)
+        Socket.listen listener 4
+        withAsync
+          (bracket (fst <$> Socket.accept listener) Socket.close (\_ -> threadDelay 10000000))
+          $ \_ -> timeout 4000000 probe `shouldReturn` Just ()
+      atomically $ writeTVar startupPending False
+      probe
+      connected `shouldReturn` True
+      writeIORef messages []
+      atomically $ writeTVar startupError (Just "startup timed out")
+      probe
+      connected `shouldReturn` False
+
+-- A cold boot whose first QGA handshake belongs to the startup coordinator.
+startupSpec :: VmSpec
+startupSpec =
+  VmSpec
+    { vsVmId = 7
+    , vsLifecycleRevision = 1
+    , vsRuntimeGeneration = 1
+    , vsName = "startup-poll"
+    , vsCpuCount = 1
+    , vsRam = 134217728
+    , vsHeadless = True
+    , vsGraphicsAdapter = GraphicsVirtioVga
+    , vsGuestAgent = True
+    , vsTpm = False
+    , vsVsockCid = Nothing
+    , vsBalloon = False
+    , vsRng = False
+    , vsSpicePort = Nothing
+    , vsDrives = []
+    , vsNetIfs = []
+    , vsSharedDirs = []
+    , vsAudioDevices = []
+    , vsWaitForGuestAgentMs = 120000
+    , vsRebootQuirk = False
+    , vsSpiceBindAddr = "127.0.0.1"
+    , vsLoadFromSavedState = False
+    , vsStartPaused = False
+    , vsCpuModel = "host"
+    }

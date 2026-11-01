@@ -37,7 +37,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Vm as CGVM
 import Control.Concurrent (threadDelay)
 import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM (atomically, readTVarIO)
+import Control.Concurrent.STM (atomically, readTVar, readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (forever)
 import Control.Monad.Logger (logWarnN, runStderrLoggingT)
@@ -166,7 +166,9 @@ buildEntry
   -> IO (C.Parsed CGNA.VmStatusEntry)
 buildEntry cfg qgaConns subs clk (vmId, live) = do
   mExit <- readTVarIO (L.vlsLastExitCode live)
-  startupError <- readTVarIO (L.vlsStartupError live)
+  (startupError, startupPending) <-
+    atomically $
+      (,) <$> readTVar (L.vlsStartupError live) <*> readTVar (L.vlsStartupPending live)
   let qpid = fromIntegral (L.vlsQemuPid live) :: Int32
   case mExit of
     Just 0 -> pure $ baseEntry vmId live CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk) startupError
@@ -186,7 +188,10 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
     Nothing -> do
       -- A timed-out runtime stays errored even if QGA responds later.
       pingResult <-
-        if isNothing startupError
+        -- The startup coordinator has a boot-sized deadline. Let it finish
+        -- before using five-second health probes: disconnecting mid-handshake
+        -- can leave QGA spinning on EAGAIN and wedge virtio-serial reconnects.
+        if not startupPending && isNothing startupError
           -- Include waiting for the per-VM connection lock in the deadline.
           -- A streaming provisioner can hold that lock for several minutes.
           then E.try @E.SomeException (timeout 5000000 (NGA.guestPing qgaConns cfg vmId))
@@ -308,12 +313,17 @@ sampleVmStats cfg subs clk vmId live = do
       , CGVM.nets = catMaybes tapEntries
       }
 
--- | Wrap a QMP-returning IO in a try + 'Either'-flatten so the
--- caller always sees @Nothing@ on any failure path.
+-- | Resource counters are optional observations, not prerequisites for
+-- reporting startup readiness. Bound each QMP exchange (including connect
+-- and greeting) so a live but unresponsive monitor cannot stall either the
+-- first-ping notification or the entire periodic snapshot.
 safeQmpResult :: IO (Either e a) -> IO (Maybe a)
 safeQmpResult io =
-  E.handle (\(_ :: E.SomeException) -> pure Nothing) $
-    either (const Nothing) Just <$> io
+  E.handle (\(_ :: E.SomeException) -> pure Nothing) $ do
+    result <- timeout 1000000 io
+    pure $ case result of
+      Just (Right value) -> Just value
+      _ -> Nothing
 
 sampleTap :: T.Text -> IO (Maybe (C.Parsed CGVM.NetIo))
 sampleTap tap = do

@@ -383,6 +383,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
   stderrTailVar <- newTVarIO T.empty
   stderrDoneVar <- newTVarIO False
   startupErrorVar <- newTVarIO Nothing
+  startupPendingVar <- newTVarIO (needsGuestAgentWait spec)
   forwardQemuOutput (VS.vsVmId spec) mStdoutH mStderrH stderrTailVar stderrDoneVar
   stopRequestedVar <- newTVarIO False
   pure $
@@ -395,6 +396,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
       , L.vlsStderrTail = stderrTailVar
       , L.vlsStderrDone = stderrDoneVar
       , L.vlsStartupError = startupErrorVar
+      , L.vlsStartupPending = startupPendingVar
       , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
       , L.vlsSpec = spec
       , L.vlsStopRequested = stopRequestedVar
@@ -592,13 +594,16 @@ awaitGuestAgent sc cfg live = do
       (VS.vsWaitForGuestAgentMs spec)
   case result of
     FirstQgaPingSucceeded -> do
+      atomically $ writeTVar (L.vlsStartupPending live) False
       runStderrLoggingT . logInfoN $
         "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
     FirstQgaPingTimedOut reason -> do
       runStderrLoggingT . logWarnN $
         "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping timed out: " <> reason
-      atomically $ writeTVar (L.vlsStartupError live) (Just reason)
+      atomically $ do
+        writeTVar (L.vlsStartupError live) (Just reason)
+        writeTVar (L.vlsStartupPending live) False
       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
     FirstQgaPingQemuExited reason -> do
       runStderrLoggingT . logWarnN $

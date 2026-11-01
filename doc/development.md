@@ -257,6 +257,13 @@ make test
 
 ### QGA connection diagnostics
 
+During startup, the first-ping coordinator owns QGA readiness. Periodic
+five-second health probes begin only after that coordinator succeeds; they
+must not open and cancel a competing handshake while the guest is booting.
+A failed startup remains errored and is not retried by the periodic poller.
+QMP resource-counter queries have a one-second deadline per exchange: missing
+statistics must not hold up startup notifications or periodic status delivery.
+
 The nodeagent logs QEMU guest agent (QGA) connection lifecycle events at `info`,
 failures at `warn`, and command send/reply metadata and socket reuse at `debug`.
 Use the nodeagent's `--log-level debug` option when investigating a stall.
