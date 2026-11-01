@@ -24,16 +24,66 @@ configure_dns() {
     touch "$root/etc/resolv.conf"
 }
 
+# Skip the redundant RTC read: the kernel already initializes the system clock.
+configure_clock() {
+    # Keep hwclock's timezone setup and shutdown clock saving enabled, but avoid
+    # waiting for RTC ticks that may not be delivered by the virtual hardware.
+    sed -i '/^[[:space:]#]*clock_hctosys=/d' "$root/etc/conf.d/hwclock"
+    printf '%s\n' 'clock_hctosys="NO"' >> "$root/etc/conf.d/hwclock"
+}
+
+# Forward host VSOCK SSH connections to OpenSSH's local TCP listener.
+configure_vsock_ssh() {
+    cat > "$root/etc/init.d/vsock-sshd" <<'EOF'
+#!/sbin/openrc-run
+description="Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22"
+command="/usr/bin/socat"
+command_args="VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+# Start only after the local SSH listener is available; no IP network is needed.
+depend() {
+    need sshd
+}
+
+# The kernel builds virtio-VSOCK as modules; load the transport and dependencies.
+start_pre() {
+    modprobe vmw_vsock_virtio_transport
+}
+EOF
+    chmod 0755 "$root/etc/init.d/vsock-sshd"
+}
+
+# Wait for the syslog socket, not just the background daemon's process creation.
+configure_logging() {
+    cat >> "$root/etc/conf.d/sysklogd" <<'EOF'
+
+# OpenRC backgrounds syslogd before initialization has created /dev/log.
+# Keep dependent services waiting until local logging is actually available.
+start_post() {
+    local attempt
+    for attempt in $(seq 1 30); do
+        [ -S /dev/log ] && return 0
+        sleep 1
+    done
+    eerror "sysklogd did not create /dev/log within 30 seconds"
+    return 1
+}
+EOF
+}
+
 # Assign device setup, networking, SSH, logging, and shutdown services to OpenRC runlevels.
 enable_runtime_services() {
     local service
     for service in devfs dmesg udev udev-trigger; do
         chroot "$root" rc-update add "$service" sysinit
     done
-    for service in hwclock modules sysctl hostname bootmisc root fsck localmount; do
+    # Create /dev/log during boot, before default-runlevel services emit logs.
+    for service in hwclock modules sysctl hostname bootmisc root fsck localmount sysklogd; do
         chroot "$root" rc-update add "$service" boot
     done
-    for service in dhcpcd sshd sysklogd qemu-guest-agent; do
+    for service in dhcpcd sshd vsock-sshd qemu-guest-agent; do
         chroot "$root" rc-update add "$service" default
     done
     for service in savecache killprocs mount-ro; do
@@ -58,6 +108,9 @@ main() {
     configure_filesystems
     configure_identity
     configure_dns
+    configure_clock
+    configure_vsock_ssh
+    configure_logging
     enable_runtime_services
     configure_serial_console
     configure_grub

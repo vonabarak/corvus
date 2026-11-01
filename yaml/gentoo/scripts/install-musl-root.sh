@@ -31,6 +31,7 @@ install_base_packages() {
         sys-apps/iproute2 \
         net-misc/dhcpcd \
         net-misc/openssh \
+        net-misc/socat \
         app-admin/sysklogd \
         app-misc/ca-certificates \
         app-emulation/qemu-guest-agent \

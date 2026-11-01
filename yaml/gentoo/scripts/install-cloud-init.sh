@@ -87,6 +87,10 @@ adapt_cloudinit_for_openrc() {
 
 # Schedule NoCloud discovery before the remaining cloud-init boot stages.
 enable_cloudinit_services() {
+    # Order local discovery after syslog too: cloud-init's fingerprint helper
+    # invokes logger, which needs /dev/log even before the default runlevel.
+    mkdir -p "$root/etc/conf.d"
+    printf '%s\n' 'rc_use="logger"' > "$root/etc/conf.d/cloud-init-local"
     chroot "$root" rc-update add cloud-init-local boot
     for service in cloud-init cloud-config cloud-final; do
         chroot "$root" rc-update add "$service" default
