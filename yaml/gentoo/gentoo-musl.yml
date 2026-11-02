@@ -52,7 +52,7 @@ pipeline:
         to: /tmp/gentoo-kernel-config
         mode: '0644'
     - shell:
-        inline: unshare --mount --propagation private /bin/bash /tmp/build-runtime.sh
+        inline: /bin/bash /tmp/build-runtime.sh
         timeoutSec: 28800
     cleanup: onSuccess
 - build:
@@ -92,7 +92,7 @@ pipeline:
         to: /tmp/build-cloud-init.sh
         mode: '0755'
     - shell:
-        inline: unshare --mount --propagation private /bin/bash /tmp/build-cloud-init.sh
+        inline: /bin/bash /tmp/build-cloud-init.sh
         timeoutSec: 28800
     cleanup: onSuccess
 - apply:

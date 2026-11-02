@@ -7,6 +7,9 @@ set -euxo pipefail
 main() {
     initialize_mount_tracking
     trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     : "${IMAGE_ROOT:?}" "${TARGET_DISK:?}" "${IMAGE_INIT:?}"
     prepare_workspace
     partition_target_disk "$TARGET_DISK"

@@ -69,7 +69,7 @@ pipeline:
         to: /tmp/corvus-test-node/authorized_keys
         mode: '0600'
     - shell:
-        inline: unshare --mount --propagation private /bin/bash /tmp/build-test-node.sh
+        inline: /bin/bash /tmp/build-test-node.sh
         timeoutSec: 18000
     cleanup: onSuccess
 - apply:

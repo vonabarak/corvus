@@ -67,6 +67,6 @@ pipeline:
         to: /tmp/corvus-test-key.pub
         mode: '0644'
     - shell:
-        inline: unshare --mount --propagation private /bin/bash /tmp/build-runtime.sh
+        inline: /bin/bash /tmp/build-runtime.sh
         timeoutSec: 28800
     cleanup: onSuccess

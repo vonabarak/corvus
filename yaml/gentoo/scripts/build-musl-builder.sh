@@ -89,6 +89,9 @@ configure_build_host() {
 main() {
     initialize_mount_tracking
     trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     cloud-init status --wait
     prepare_workspace
     partition_target_disk /dev/vdb

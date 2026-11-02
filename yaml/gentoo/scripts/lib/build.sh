@@ -83,9 +83,10 @@ mount_at() {
     mounts+=("$destination")
 }
 
-# Bind a host path into the target with the same cleanup tracking.
+# Track binds and isolate child mount events from the source mount.
 bind() {
     mount_at "$2" --bind "$1"
+    mount --make-rprivate "$2"
 }
 
 # Release nested mounts first, attempting every unmount even after a failure.
@@ -97,10 +98,14 @@ unmount_tracked() {
     return "$status"
 }
 
-# Preserve a failed build's exit status while still releasing its mounts.
+# Preserve failed builds untouched for debugging; clean up only successful builds.
 cleanup() {
     local status=$?
     trap - EXIT
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+    set +e
     unmount_tracked || { [ "$status" -ne 0 ] || status=1; }
     exit "$status"
 }
@@ -381,10 +386,13 @@ stop_postgres() {
     fi
 }
 
-# Preserve the build error while stopping PostgreSQL and releasing every mount.
+# Preserve failed builds untouched for debugging; clean up only successful builds.
 cleanup_test_build() {
     local status=$?
     trap - EXIT
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
     set +e
     stop_postgres || { [ "$status" -ne 0 ] || status=1; }
     unmount_tracked || { [ "$status" -ne 0 ] || status=1; }

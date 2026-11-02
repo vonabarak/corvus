@@ -412,7 +412,7 @@ def test_cleanup_protects_mounted_cache(tmp_path: Path) -> None:
 def test_mount_cleanup_preserves_failure_and_reverses_order(
     tmp_path: Path, build_status: int, unmount_status: int, expected_status: int
 ) -> None:
-    """Attempt every unmount, failing publication without hiding a build failure."""
+    """Preserve failed builds; successful builds attempt every unmount in reverse."""
     log = tmp_path / "unmounts"
     result = subprocess.run(
         [
@@ -437,10 +437,13 @@ def test_mount_cleanup_preserves_failure_and_reverses_order(
         check=False,
     )
     assert result.returncode == expected_status
-    assert log.read_text().splitlines() == [
-        str(tmp_path / "parent/child"),
-        str(tmp_path / "parent"),
-    ]
+    if build_status:
+        assert not log.exists()
+    else:
+        assert log.read_text().splitlines() == [
+            str(tmp_path / "parent/child"),
+            str(tmp_path / "parent"),
+        ]
 
 
 def test_runtime_recipe_alignment() -> None:
@@ -478,7 +481,7 @@ def test_runtime_recipe_alignment() -> None:
             assert env["IMAGE_ROOT"] == "/mnt/sysroot"
             assert env["TARGET_DISK"] == "/dev/vdb"
             assert build["provisioners"][-1]["shell"] == {
-                "inline": f"unshare --mount --propagation private /bin/bash /tmp/{entry}",
+                "inline": f"/bin/bash /tmp/{entry}",
                 "timeoutSec": 28800,
             }
         for step in document["pipeline"]:
@@ -537,7 +540,7 @@ def test_native_workspace_cache_isolation(tmp_path: Path) -> None:
 
 
 def test_offline_entry_failure_cleanup(tmp_path: Path) -> None:
-    """Both entry points stop on installer failure and release every tracked mount."""
+    """Both entry points stop on installer failure and preserve every tracked mount."""
     library = tmp_path / "lib"
     library.mkdir()
     (library / "build.sh").write_text(
@@ -570,7 +573,7 @@ def test_offline_entry_failure_cleanup(tmp_path: Path) -> None:
             text=True,
         )
         assert result.returncode == 7, result.stderr
-        assert log.read_text().splitlines() == ["proc", "efi", "root"]
+        assert not log.exists()
 
 
 def test_binhost_configuration_is_libc_specific(tmp_path: Path) -> None:
@@ -745,7 +748,7 @@ configure_login_banner
 
 @pytest.mark.parametrize("failure", ["none", "install", "postgres", "stop", "unmount"])
 def test_development_build_cleanup(tmp_path: Path, failure: str) -> None:
-    """Failures skip finalization, preserve their status, and stop before unmounting."""
+    """Failures preserve resources; successful builds stop PostgreSQL before unmounting."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     log = tmp_path / "events"
@@ -786,10 +789,16 @@ main
         result.returncode
         == {"none": 0, "install": 17, "postgres": 19, "stop": 23, "unmount": 1}[failure]
     ), result.stderr
-    events = log.read_text().splitlines()
-    assert events[-1] == "unmount root run"
+    events = log.read_text().splitlines() if log.exists() else []
+    assert ("unmount root run" in events) == (failure in {"none", "unmount"})
+    if failure in {"none", "unmount"}:
+        assert events == ["stop", "finalize", "unmount root run"]
+    elif failure == "stop":
+        assert events == ["stop"]
+    else:
+        assert events == []
     assert ("finalize" in events) == (failure in {"none", "unmount"})
-    assert ("stop" in events) == (failure != "install")
+    assert ("stop" in events) == (failure in {"none", "stop", "unmount"})
     assert workspace.exists() == (failure != "none")
 
 
@@ -1009,3 +1018,111 @@ def test_test_vm_verifies_packages_before_removing_records(
     assert result.returncode != 0
     assert f"Unexpected runtime package: {package}" in result.stderr
     assert record.is_dir()
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "build-runtime.sh",
+        "build-cloud-init.sh",
+        "build-musl-builder.sh",
+        "build-test-offline.sh",
+        "build-test-node.sh",
+    ],
+)
+@pytest.mark.parametrize("signal,status", [("HUP", 129), ("INT", 130), ("TERM", 143)])
+def test_build_interrupt_preserves_resources(
+    tmp_path: Path, entry: str, signal: str, status: int
+) -> None:
+    """Real entrypoint traps preserve mounts, active PostgreSQL, and scratch data."""
+    library = tmp_path / "lib"
+    library.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "sentinel").touch()
+    log = tmp_path / "cleanup"
+    (library / "build.sh").write_text(
+        (ROOT / "scripts/lib/build.sh").read_text()
+        + r"""
+initialize_mount_tracking() { mounts=(root run); }
+interrupt_build() {
+    workspace=$WORKSPACE
+    postgres_active=true
+    kill -s "$SIGNAL" "$$"
+    exit 99
+}
+prepare_workspace() { interrupt_build; }
+check_build_prerequisites() { interrupt_build; }
+stop_postgres() { echo stop >> "$LOG"; }
+umount() { echo unmount >> "$LOG"; }
+cloud-init() { :; }
+export -f cloud-init
+"""
+    )
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / entry)],
+        env={
+            **os.environ,
+            "CORVUS_BUILD_LIB": str(library),
+            "IMAGE_ROOT": "/unused",
+            "TARGET_DISK": "/unused",
+            "IMAGE_INIT": "systemd",
+            "SIGNAL": signal,
+            "WORKSPACE": str(workspace),
+            "LOG": str(log),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == status, result.stderr
+    assert not log.exists()
+    assert (workspace / "sentinel").exists()
+
+
+@pytest.mark.parametrize("propagation_status", [0, 9])
+def test_bind_isolates_mount_events_and_tracks_before_propagation(
+    tmp_path: Path, propagation_status: int
+) -> None:
+    """Even a bind whose propagation setup fails remains tracked for inspection."""
+    result = subprocess.run(
+        [
+            "bash",
+            "-euc",
+            r"""
+. "$1"
+initialize_mount_tracking
+mount() {
+    printf '%s\n' "$*"
+    if [[ $1 == --make-rprivate ]]; then
+        [[ ${mounts[*]} == "$2" ]]
+        return "$PROPAGATION_STATUS"
+    fi
+}
+bind /source "$2/target"
+""",
+            "bash",
+            str(ROOT / "scripts/lib/build.sh"),
+            str(tmp_path),
+        ],
+        env={**os.environ, "PROPAGATION_STATUS": str(propagation_status)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == propagation_status, result.stderr
+    assert result.stdout.splitlines() == [
+        f"--bind /source {tmp_path}/target",
+        f"--make-rprivate {tmp_path}/target",
+    ]
+
+
+def test_all_gentoo_builds_preserve_helper_and_use_visible_mounts() -> None:
+    """Every build keeps its failed helper and runs without a private namespace."""
+    for recipe in ROOT.glob("*.yml"):
+        for step in yaml.safe_load(recipe.read_text())["pipeline"]:
+            if "build" not in step:
+                continue
+            build = step["build"]
+            assert build["cleanup"] == "onSuccess", recipe
+            for provisioner in build.get("provisioners", []):
+                if "shell" in provisioner:
+                    assert "unshare" not in provisioner["shell"]["inline"], recipe

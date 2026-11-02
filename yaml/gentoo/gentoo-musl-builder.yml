@@ -49,7 +49,7 @@ pipeline:
         to: /tmp/build-musl-builder.sh
         mode: '0755'
     - shell:
-        inline: unshare --mount --propagation private /bin/bash /tmp/build-musl-builder.sh
+        inline: /bin/bash /tmp/build-musl-builder.sh
         env:
           MUSL_STAGE3_URL: '{{ musl_stage3_url }}'
           MUSL_STAGE3_SHA256: '{{ musl_stage3_sha256 }}'

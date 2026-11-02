@@ -105,7 +105,21 @@ identity, write image metadata, flush writes, and trim the root and mounted EFI
 filesystems before publication. Unsupported discard emits a warning and does
 not fail the build; image compaction remains enabled separately. Cleanup refuses
 to delete directories containing mounted caches. Offline glibc and musl builds
-track mounts in private namespaces and release them in reverse order on failure.
+run in the helper VM's main mount namespace. Successful builds release tracked
+mounts in reverse order; failed builds and HUP/INT/TERM interruptions preserve
+existing mounts, workspaces, and any active build PostgreSQL process for debugging.
+Bind destinations use private propagation so target mount events do not propagate
+back to their source mounts. All Gentoo build recipes use `cleanup: onSuccess`,
+retaining the helper VM and artifact disk on failure.
+
+Connect to the retained helper with `ssh corvus@vsock%<CID>` (find its CID with
+`crv vm show <ID>`). Inspect the artifact with `sudo findmnt -R /mnt/sysroot`,
+all build mounts with `sudo findmnt`, and attached partitions with `lsblk -f`.
+Mounts remain visible after the provisioning shell exits, until manual unmount
+or VM shutdown. Mounts already detached by a completed build phase are not
+recreated after a later failure. Cleanup failures can leave partially released
+resources; inspect the remaining mounts before removing any workspace. Use a
+fresh helper for another build rather than rerunning over preserved mounts.
 
 Both recipes use `build-runtime.sh` and `build-cloud-init.sh`, with explicit
 `IMAGE_LIBC`, `IMAGE_INIT`, `IMAGE_ROOT`, and `TARGET_DISK` inputs. Shared

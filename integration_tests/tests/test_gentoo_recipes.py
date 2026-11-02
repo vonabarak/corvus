@@ -65,9 +65,7 @@ class TestGentooRecipes:
         ]
         assert scripts == []
         assert any(
-            "unshare --mount --propagation private"
-            in item.get("shell", {}).get("inline", "")
-            and "/tmp/build-runtime.sh" in item["shell"]["inline"]
+            item.get("shell", {}).get("inline") == "/bin/bash /tmp/build-runtime.sh"
             for item in builds["gentoo-headless"]["provisioners"]
         )
 

@@ -51,7 +51,7 @@ pipeline:
             to: /tmp/build-test-offline.sh
             mode: '0755'
         - shell:
-            inline: unshare --mount --propagation private /bin/bash /tmp/build-test-offline.sh
+            inline: /bin/bash /tmp/build-test-offline.sh
             timeoutSec: 18000
       cleanup: onSuccess
 
