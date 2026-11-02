@@ -90,6 +90,35 @@ class NodeShell:
             check=check,
         )
 
+    def wait_ready(self, *, timeout_sec: float = 60.0, poll_sec: float = 0.5) -> None:
+        """Wait for authenticated SSH independently of guest-agent readiness.
+
+        Only the harmless probe is retried, never a caller's mutating command.
+        Each connection attempt is bounded by the remaining overall deadline.
+        """
+        deadline = time.monotonic() + timeout_sec
+        last_error = "no attempts yet"
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                result = self.run("true", timeout_sec=min(5.0, remaining), check=False)
+            except subprocess.TimeoutExpired as exc:
+                last_error = f"connection timed out after {exc.timeout}s"
+            else:
+                if result.returncode == 0:
+                    return
+                stderr = result.stderr.decode("utf-8", errors="replace").strip()
+                last_error = f"exit {result.returncode}: {stderr or '<empty stderr>'}"
+                if "permission denied" in stderr.lower():
+                    raise RuntimeError(
+                        f"Node SSH authentication failed ({self.user}@vsock-{self.cid}): "
+                        f"{last_error}"
+                    )
+            time.sleep(min(poll_sec, max(0.0, deadline - time.monotonic())))
+        raise TimeoutError(
+            f"Node SSH ({self.user}@vsock-{self.cid}) not ready after "
+            f"{timeout_sec}s; last error: {last_error}"
+        )
+
     def read_file(self, path: str) -> str:
         out = self.run(f"cat {path}")
         return out.stdout.decode("utf-8", errors="replace")

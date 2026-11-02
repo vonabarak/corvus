@@ -44,6 +44,37 @@ EOF
     LC_ALL=C chroot "$IMAGE_ROOT" localedef -i C -f UTF-8 C.UTF-8
 }
 
+# Generate fresh host keys at boot before either SSH transport accepts clients.
+configure_ssh_hostkeys() {
+    local units="$IMAGE_ROOT/etc/systemd/system" consumer
+    install -d "$units"
+    cat > "$units/sshd-hostkeys.service" <<'EOF'
+[Unit]
+Description=Generate SSH host keys
+# Socket units start before basic.target; normal service dependencies would cycle.
+DefaultDependencies=no
+RequiresMountsFor=/etc/ssh
+After=systemd-remount-fs.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/ssh-keygen -A
+EOF
+    # systemd-ssh-generator creates separate VSOCK and UNIX socket services,
+    # not instances of sshd@.service. Gate their sockets, not just TCP sshd.
+    for consumer in sshd.service sshd-vsock.socket sshd-unix-local.socket; do
+        install -d "$units/$consumer.d"
+        cat > "$units/$consumer.d/10-hostkeys.conf" <<'EOF'
+[Unit]
+Requires=sshd-hostkeys.service
+After=sshd-hostkeys.service
+EOF
+    done
+}
+
 # Enable DHCP, DNS, SSH, QGA, and the serial console.
 configure_network_and_services() {
     install -d "$IMAGE_ROOT/etc/systemd/network"
@@ -71,6 +102,7 @@ main() {
     configure_filesystems
     configure_identity
     generate_locales
+    configure_ssh_hostkeys
     configure_network_and_services
     write_target_grub_config "$IMAGE_ROOT" "Gentoo Linux (custom kernel)"
 }

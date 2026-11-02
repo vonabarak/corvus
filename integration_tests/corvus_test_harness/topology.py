@@ -648,6 +648,9 @@ class Topology:
             ca_key=ca_key,
         )
         self._nodes.append(test_node)
+        # QGA can respond before SSH has host keys or accepts authentication.
+        # Register first so failed readiness retains the node for inspection.
+        NodeShell(cid=cid, user="corvus", key_path=HOST_TEST_KEY_PATH).wait_ready()
         return test_node
 
     # ---- convenience -----------------------------------------------------
