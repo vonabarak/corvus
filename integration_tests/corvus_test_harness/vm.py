@@ -12,7 +12,7 @@ that's a lot of boilerplate.
 
 Two classes live here:
 
-* `Vm` — the lifecycle. Defaults to "Alpine, BIOS, headless,
+* `Vm` — the lifecycle. Defaults to "Gentoo musl/OpenRC, BIOS, headless,
   qemu-guest-agent, block on QGA first ping" and tears the VM down
   on exit. Knows nothing about SSH.
 * `VmSsh` — `Vm` plus an open SSH session. Yields a `.run(cmd)`
@@ -350,7 +350,7 @@ class VmSsh(Vm):
     """
 
     # How long to wait for sshd to answer after QGA first-ping. The
-    # Alpine test image typically opens its VSOCK SSH relay within a
+    # Gentoo test image typically opens its VSOCK SSH relay within a
     # second or two of QGA coming up, but boot can stretch on a busy
     # nested-KVM host.
     ssh_ready_timeout_sec: float = 90.0
@@ -386,9 +386,9 @@ class VmSsh(Vm):
         (`integration_tests/keys/corvus-test-key`). Cloud-init
         subclasses override to point at a per-VM generated key.
         """
-        from .ssh import HOST_ALPINE_KEY_PATH
+        from .ssh import HOST_TEST_KEY_PATH
 
-        return HOST_ALPINE_KEY_PATH
+        return HOST_TEST_KEY_PATH
 
     def __exit__(
         self,

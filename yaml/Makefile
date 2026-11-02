@@ -4,7 +4,8 @@ IMAGE ?=
 
 IMAGE_DIR_node := gentoo
 IMAGE_ARGS_node := IMAGE=corvus-test-node
-IMAGE_DIR_vm := corvus-test-vm
+IMAGE_DIR_vm := gentoo
+IMAGE_ARGS_vm := IMAGE=corvus-test-vm
 IMAGE_DIR_multi-os := multi-os
 IMAGE_DIR_freebsd := freebsd
 IMAGE_DIR_freebsd-headless := freebsd

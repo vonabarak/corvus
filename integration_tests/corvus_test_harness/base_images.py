@@ -17,7 +17,7 @@ that class cannot change its backing files.
 
 Tests then refer to the images by short name:
 
-    def test_overlay_on_alpine(single_client, base_images):
+    def test_overlay_on_test_vm(single_client, base_images):
         disk = base_images["corvus-test-vm"]
         single_client.disks.create_overlay("scratch-overlay", disk)
         vm = single_client.vms.create("scratch")
@@ -37,7 +37,7 @@ from corvus_client import Client, DiskNotFound
 from .outer import Crv, JsonObject
 
 # Host-side root for all pre-baked images. Mirrors `path: BaseImages/…/`
-# in yaml/{alpine-test,multi-os,windows-server-2025}/*.yml.
+# in yaml/{gentoo,multi-os,windows-server-2025}/*.yml.
 HOST_BASE_IMAGES_DIR = Path(os.path.expanduser("~/VMs/BaseImages"))
 
 # In-guest mount point for host fixtures. The daemon's writable BaseImages

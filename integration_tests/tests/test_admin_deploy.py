@@ -55,7 +55,7 @@ from pathlib import Path
 import pytest
 from corvus_test_harness import Crv, HostBinary, ImageReady
 from corvus_test_harness.cases import IntegrationTestCase, state_for
-from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from corvus_test_harness.ssh import HOST_TEST_KEY_PATH, NodeShell
 from corvus_test_harness.topology import NodeRole, TestNode, Topology
 
 # Where the harness mounts the host's repo when ``attach_source=True``.
@@ -626,10 +626,10 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
 
             controller, remote = topology.nodes
             controller._outer_ip = NodeShell(
-                cid=controller.cid, user=NODE_USER, key_path=HOST_ALPINE_KEY_PATH
+                cid=controller.cid, user=NODE_USER, key_path=HOST_TEST_KEY_PATH
             ).outer_ip()
             remote._outer_ip = NodeShell(
-                cid=remote.cid, user=NODE_USER, key_path=HOST_ALPINE_KEY_PATH
+                cid=remote.cid, user=NODE_USER, key_path=HOST_TEST_KEY_PATH
             ).outer_ip()
             _configure_controller_ssh(controller, remote.outer_ip)
             quickstart = _shrun(
@@ -753,7 +753,7 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
 def _configure_controller_ssh(controller: TestNode, target: str) -> None:
     """Make the harness key available to SshRunner on the controller."""
 
-    encoded_key = base64.b64encode(HOST_ALPINE_KEY_PATH.read_bytes()).decode()
+    encoded_key = base64.b64encode(HOST_TEST_KEY_PATH.read_bytes()).decode()
     config = (
         f"Host {target}\n"
         "  IdentityFile ~/.ssh/corvus-it\n"

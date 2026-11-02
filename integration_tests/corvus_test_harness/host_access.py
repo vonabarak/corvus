@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import cast
 
 from .outer import Crv, CrvError, JsonObject
-from .ssh import HOST_ALPINE_KEY_PATH
+from .ssh import HOST_TEST_KEY_PATH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CERT_FILES = ("ca.crt", "corvus-client.crt", "corvus-client.key")
@@ -284,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
                 metadata = read_metadata(vm_state(details) / "state.json")
                 key = Path(str(metadata["ssh_key"]))
             else:
-                key = HOST_ALPINE_KEY_PATH
+                key = HOST_TEST_KEY_PATH
             key = Path(os.environ.get("DEV_NODE_SSH_KEY", str(key)))
             if not key.is_file():
                 raise RuntimeError(

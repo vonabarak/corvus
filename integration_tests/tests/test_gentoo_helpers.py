@@ -931,3 +931,81 @@ configure_node_debugging
     profile = root / "etc/profile.d/50-corvus.sh"
     assert "$(/opt/corvus/bin/crv completion bash" in profile.read_text()
     assert subprocess.run(["bash", "-n", str(profile)], check=False).returncode == 0
+
+
+@pytest.mark.parametrize("profile", ["", "test-vm"])
+def test_runtime_cleanup_is_profile_scoped(tmp_path: Path, profile: str) -> None:
+    """Only the immutable test guest loses package records and non-English catalogs."""
+    for directory in (
+        "var/db/pkg/sys-libs/musl-1.2.5",
+        "var/lib/portage",
+        "usr/share/locale/en",
+        "usr/share/locale/en_GB",
+        "usr/share/locale/en@shaw",
+        "usr/share/locale/fr",
+        "usr/share/locale/de",
+        "usr/lib/locale/C.UTF-8",
+    ):
+        path = tmp_path / directory
+        path.mkdir(parents=True)
+        (path / "sentinel").touch()
+    result = subprocess.run(
+        [
+            "bash",
+            "-euc",
+            '. "$1"; clean_image_temporary_files() { :; }; '
+            "reset_image_identity() { :; }; finalize_image() { :; }; finish_runtime",
+            "bash",
+            str(ROOT / "scripts/lib/build.sh"),
+        ],
+        env={
+            **os.environ,
+            "IMAGE_LIBC": "musl",
+            "IMAGE_ROOT": str(tmp_path),
+            "IMAGE_PROFILE": profile,
+            "CORVUS_BUILD_NAME": "test",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    keep_metadata = profile != "test-vm"
+    assert (tmp_path / "var/db/pkg").exists() == keep_metadata
+    assert (tmp_path / "var/lib/portage").exists() == keep_metadata
+    for language in ("en", "en_GB", "en@shaw"):
+        assert (tmp_path / "usr/share/locale" / language / "sentinel").exists()
+    for language in ("fr", "de"):
+        assert (tmp_path / "usr/share/locale" / language).exists() == keep_metadata
+    assert (tmp_path / "usr/lib/locale/C.UTF-8/sentinel").exists()
+
+
+@pytest.mark.parametrize(
+    "package", ["sys-libs/glibc", "app-admin/sudo", "dev-lang/python"]
+)
+def test_test_vm_verifies_packages_before_removing_records(
+    tmp_path: Path, package: str
+) -> None:
+    """Forbidden dependencies fail the bake while their package records still exist."""
+    record = tmp_path / "var/db/pkg" / f"{package}-1.0"
+    record.mkdir(parents=True)
+    result = subprocess.run(
+        [
+            "bash",
+            "-euc",
+            '. "$1"; finish_runtime',
+            "bash",
+            str(ROOT / "scripts/lib/build.sh"),
+        ],
+        env={
+            **os.environ,
+            "IMAGE_LIBC": "musl",
+            "IMAGE_ROOT": str(tmp_path),
+            "IMAGE_PROFILE": "test-vm",
+            "CORVUS_BUILD_NAME": "test",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert f"Unexpected runtime package: {package}" in result.stderr
+    assert record.is_dir()

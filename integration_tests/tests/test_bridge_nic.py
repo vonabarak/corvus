@@ -30,7 +30,7 @@ import time
 from corvus_test_harness import SingleNodeCase, TestNode, VmSsh
 from corvus_test_harness.vm import _NetIfOptions
 
-# Alpine test image puts its sole NIC on eth0.
+# Gentoo test image puts its sole NIC on eth0.
 GUEST_NIC = "eth0"
 
 

@@ -9,7 +9,7 @@ Ports `SerialConsoleIntegrationSpec` from the pre-capnp suite (see
   - rejection: non-headless VM
   - rejection: stopped VM
 
-All four positive behaviours share one Alpine `Vm` boot — the daemon's
+All four positive behaviours share one Gentoo `Vm` boot — the daemon's
 serial ring buffer is per-VM TVar state and the assertions are
 sequential reads separated by tiny actions (close, qga-write, reset,
 stop), so a single boot suffices.
@@ -67,7 +67,7 @@ class _ConsoleTerminal:
                 while self.size_replies < queries:
                     os.write(self.master, WINDOW_REPORT)
                     self.size_replies += 1
-                if needle in self.output[start:]:
+                if needle in bytes(self.output[start:]).replace(b"\r\r\n", b"\r\n"):
                     return bytes(self.output[start:])
             assert self.process.poll() is None, (
                 f"crv exited {self.process.returncode}; tail={bytes(self.output[-1024:])!r}"
@@ -179,7 +179,8 @@ class TestSerialConsole(SingleNodeCase):
                 login = terminal.read_until(b"$ ")
                 assert b"Login incorrect" not in login, login
                 os.write(terminal.master, b"whoami\r")
-                terminal.read_until(b"\r\ncorvus\r\n")
+                # Bash may emit a bracketed-paste toggle before the output line.
+                terminal.read_until(b"corvus\r\n")
 
                 # A new query while connected must still reach the host
                 # terminal and its reply must travel back through the CLI.
@@ -381,12 +382,12 @@ class TestSerialConsole(SingleNodeCase):
         """Log in as `corvus` over the serial console.
 
         Uses the test image's password-based login (corvus:corvus,
-        baked at `yaml/corvus-test-vm/corvus-test-vm.yml` via
+        baked at `yaml/gentoo/corvus-test-vm.yml` via
         `chpasswd`). Sends username + password through the
         bidirectional `serial_console()` stream, then issues
         `whoami` and reads the response from the same stream.
         Image-agnostic w.r.t. cloud-init — the standard `Vm`
-        Alpine image is enough.
+        Gentoo image is enough.
         """
         with Vm(self) as vm, vm.cap.serial_console() as stream:
             # 1. Wait for the getty `login:` prompt. The boot
@@ -400,7 +401,7 @@ class TestSerialConsole(SingleNodeCase):
             # 3. Password. Local echo is off so we don't expect
             #    the bytes back; we expect a shell prompt next.
             stream.write(b"corvus\r")
-            # 4. Shell prompt. Alpine /bin/sh prints `$ ` for an
+            # 4. Shell prompt. Gentoo /bin/sh prints `$ ` for an
             #    unprivileged user. If the password was wrong
             #    we'd see `Login incorrect` and a fresh `login:`.
             data = _drain_until(stream, b"$ ", timeout=15.0)

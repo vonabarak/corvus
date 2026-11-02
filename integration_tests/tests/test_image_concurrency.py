@@ -17,7 +17,7 @@ from corvus_client._schema import disk as schema
 from corvus_client.exceptions import CorvusError
 from corvus_client.types import BuildPipelineEnd
 from corvus_test_harness import SingleNodeCase, SqliteDatabase
-from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, VmShell
+from corvus_test_harness.ssh import HOST_TEST_KEY_PATH, VmShell
 
 import yaml
 
@@ -129,7 +129,7 @@ class TestImageConcurrency(SingleNodeCase):
                         continue
                     shell = VmShell(
                         node_cid=self.node.cid,
-                        host_key_path=HOST_ALPINE_KEY_PATH,
+                        host_key_path=HOST_TEST_KEY_PATH,
                         vm_cid=details.vsock_cid,
                     )
                     try:

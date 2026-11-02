@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from . import base_images as _base_images
-from .ssh import HOST_ALPINE_KEY_PATH, VmShell
+from .ssh import HOST_TEST_KEY_PATH, VmShell
 from .topology import NodeRole, Topology
 
 if TYPE_CHECKING:
@@ -328,7 +328,7 @@ class IntegrationTestCase:
         Call after :meth:`register_base_images`. Useful in two-node
         migration tests that want to skip the first-test backing-image
         transfer cost: with both nodes carrying a placement for the
-        Alpine base, ``vm.migrate``'s PreCheck appends zero chain-ops
+        Gentoo base, ``vm.migrate``'s PreCheck appends zero chain-ops
         to the migration plan.
         """
         self.register_base_images()
@@ -366,7 +366,7 @@ class IntegrationTestCase:
         the inline block in ``test_vde_networking.py``.
         """
         from .runner import NodeShellRunner
-        from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
+        from .ssh import HOST_TEST_KEY_PATH, NodeShell
 
         node = self.nodes[node_index]
         cert_dir = node._client_cert_dir
@@ -376,7 +376,7 @@ class IntegrationTestCase:
                 "did the class fixture's deploy_certs() run?"
             )
         runner = NodeShellRunner(
-            NodeShell(cid=node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH),
+            NodeShell(cid=node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH),
             label=f"vsock:{node.short_name}",
         )
         # ``~/.config/corvus`` is owned by corvus; no sudo needed
@@ -441,7 +441,7 @@ class IntegrationTestCase:
         vm: SyncVm,
         *,
         node_index: int = 0,
-        host_key_path: Path = HOST_ALPINE_KEY_PATH,
+        host_key_path: Path = HOST_TEST_KEY_PATH,
         user: str = "corvus",
         vm_tcp_port: int | None = None,
     ) -> VmShell:

@@ -39,7 +39,7 @@ from .outer import Crv
 from .runner import NodeShellRunner
 from .spice import SpiceLinkInfo, probe_spice_link
 from .sqlite import SqliteDatabase
-from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, SshResult, VmShell
+from .ssh import HOST_TEST_KEY_PATH, NodeShell, SshResult, VmShell
 from .topology import NoDaemonOnNodeError, NodeRole, TestNode, Topology
 from .transport import VsockTcpRelay
 from .version import (
@@ -51,7 +51,7 @@ from .vm import Vm, VmCloudInit, VmSsh, VmUefi, VmWindows
 from .web_gateway import WebGateway
 
 __all__ = [
-    "HOST_ALPINE_KEY_PATH",
+    "HOST_TEST_KEY_PATH",
     "CaContext",
     "Crv",
     "HostBinary",

@@ -1,9 +1,10 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
-# Minimal Alpine Linux test image for Corvus integration tests.
+# Alpine fixture for the full image-build integration test.
+# All other integration tests use yaml/gentoo/corvus-test-vm.yml.
 #
 # Replaces the legacy image-build shell script with
-# a declarative `crv build`. Same output: a 512 MiB qcow2 with BIOS +
+# a declarative `crv build`. Same output: a 1 GiB qcow2 with BIOS +
 # UEFI boot, serial + graphical console, sshd (TCP and AF_VSOCK),
 # doas, and qemu-guest-agent.
 #
@@ -23,12 +24,12 @@
 #     authorises both the outer and inner halves of the SSH tunnel.
 #
 # Usage:
-#   make image IMAGE=vm
+#   make -C yaml/corvus-test-vm-alpine build
 #
 # Make prepares the SSH keys and refreshes multi-os automatically.
 # Unchanged declared inputs skip the bake; image-rebuild forces the chain.
 #
-# Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm`.
+# Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm-alpine`.
 #
 # Multi-node note: the build step accepts an optional `node:` field
 # to pin the bake VM to a specific node. Omitted here so the
@@ -40,7 +41,7 @@ vars:
 
 pipeline:
   - build:
-      name: corvus-test-vm
+      name: corvus-test-vm-alpine
       description: "Alpine Linux test image (BIOS+UEFI, sshd, qemu-ga, vsock-sshd)"
       template: debian12
 
@@ -189,8 +190,8 @@ pipeline:
             iface eth0 inet dhcp
             EOF
 
-            echo "corvus-test-vm" > /etc/hostname
-            echo "127.0.0.1 corvus-test-vm localhost" > /etc/hosts
+            echo "corvus-test-vm-alpine" > /etc/hostname
+            echo "127.0.0.1 corvus-test-vm-alpine localhost" > /etc/hosts
 
             # vsock kernel modules
             # Mainline OpenSSH does not speak AF_VSOCK natively; sshd

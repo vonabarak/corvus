@@ -23,7 +23,7 @@ import pytest
 from corvus_client import VmNotFound
 from corvus_client._sync.vm import SyncByteStream, SyncVm
 from corvus_test_harness import (
-    HOST_ALPINE_KEY_PATH,
+    HOST_TEST_KEY_PATH,
     SingleNodeCase,
     Vm,
     VmShell,
@@ -339,7 +339,7 @@ class TestVmBootBasics(_VmLifecycleBase):
     def test_vm(self) -> None:
         """Full vm lifecycle with SSH-driven assertions.
 
-        The default `VmSsh` boots a **headless, BIOS** Alpine
+        The default `VmSsh` boots a **headless, BIOS** Gentoo
         VM (the `headless=True` default and no OVMF drives attached
         — see `VmUefi` for the UEFI variant and the `_GfxOn`
         subclass in `test_headless_swap_cycle` for the non-headless
@@ -362,7 +362,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             assert r.stdout.strip() == "Linux"
 
             r = vm.run("cat /etc/os-release")
-            assert "Alpine Linux" in r.stdout
+            assert "Gentoo" in r.stdout
 
             r = vm.run("hostname")
             assert "corvus-test-vm" in r.stdout
@@ -418,7 +418,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             )
 
             # Guest-IP advertisement: the poller's secondary job.
-            # The user NIC eth0 is set up by Alpine's DHCP client at
+            # The user NIC eth0 is set up by Gentoo's DHCP client at
             # boot; the poller calls `guest-network-get-interfaces`
             # and propagates the CIDR address back to the daemon
             # within a couple of healthcheck cycles.
@@ -551,7 +551,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             assert details.spice_port is None, details
 
     def test_uefi_vm_lists_efi_boot_entries(self) -> None:
-        """UEFI-booted Alpine guest exposes EFI variables and at
+        """UEFI-booted Gentoo guest exposes EFI variables and at
         least one BootXXXX entry."""
         with VmUefi(self) as vm:
             r = vm.run("efibootmgr -v")
@@ -642,7 +642,7 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
             info = probe_spice_link(
                 node_cid=self.nodes[0].cid,
                 spice_port=details.spice_port,
-                host_key_path=HOST_ALPINE_KEY_PATH,
+                host_key_path=HOST_TEST_KEY_PATH,
             )
             # SPICE_MAGIC + version are mirrored from
             # spice-protocol's spice/protocol.h.
@@ -823,7 +823,7 @@ class TestVmPauseResetPowerOff(_VmLifecycleBase):
             every boot) differs from the pre-reset value.
           * `vm.stop(wait=True)` is the GRACEFUL path — QMP
             `system_powerdown` sends ACPI to the guest, which
-            Alpine's acpid handles by initiating a clean
+            Gentoo's acpid handles by initiating a clean
             shutdown. Distinct from `vm.reset()`'s SIGKILL'd
             QEMU.
         """
@@ -927,7 +927,7 @@ class TestVmPauseResetPowerOff(_VmLifecycleBase):
 
             # Wait for the guest to finish powering off and the
             # daemon's monitor to reap the exit. 90s covers a
-            # full Alpine shutdown sequence under nested KVM
+            # full Gentoo shutdown sequence under nested KVM
             # plus one status-poller tick.
             self._wait_status(vm.cap, "stopped", timeout_sec=90)
 

@@ -224,7 +224,7 @@ Host creation, setup, registration, cleanup, and shared helpers create the check
 
 The [dev-node template library](../yaml/dev-node/dev-node.yml) provides reusable
 VM templates for the bootable images in the current dev-node catalog. It includes
-Debian, Ubuntu, AlmaLinux, FreeBSD, Alpine, the standard Alpine integration-test
+Debian, Ubuntu, AlmaLinux, FreeBSD, Alpine, the standard Gentoo integration-test
 VM, the Gentoo variants and integration-test node, Windows Server 2025, and both
 Windows 11 images. It excludes installer media and does not download or build
 images. Applying it creates templates and supporting resources, not VMs.
@@ -239,14 +239,14 @@ scripts/crv-it corvus-dev-node ssh-key create dev-node \
 scripts/crv-it corvus-dev-node apply yaml/dev-node/dev-node.yml --wait
 scripts/crv-it corvus-dev-node network start dev-node-vms
 
-scripts/crv-it corvus-dev-node template instantiate corvus-test-vm test-alpine
-scripts/crv-it corvus-dev-node vm start test-alpine --wait
-scripts/crv-it corvus-dev-node vm exec test-alpine 'cat /etc/os-release'
+scripts/crv-it corvus-dev-node template instantiate corvus-test-vm test-gentoo
+scripts/crv-it corvus-dev-node vm start test-gentoo --wait
+scripts/crv-it corvus-dev-node vm exec test-gentoo 'cat /etc/os-release'
 ```
 
 Use your selected `DEV_NODE_VM` name in place of `corvus-dev-node`. To inject
 a different key into cloud-init guests, pass its public key to `ssh-key create`.
-The Alpine integration image and `corvus-test-node` retain their baked-in key;
+The Gentoo integration image and `corvus-test-node` retain their baked-in key;
 changing the registered key does not change those images.
 
 Template names match image families, except `windows-11-pro` uses
@@ -271,7 +271,7 @@ subnet in the YAML before applying if it overlaps your local networks.
 
 Each VM gets an overlay root disk at the base image's original size. UEFI VMs
 also get an independent writable firmware variables clone; firmware code is
-shared read-only. Defaults are 2 CPUs and 2 GiB RAM, except the Alpine
+shared read-only. Defaults are 2 CPUs and 2 GiB RAM, except the Gentoo
 integration VM (1 GiB) and Windows (4 CPUs, 8 GiB). Run larger guests one at a
 time within the dev node's memory budget.
 
@@ -295,7 +295,7 @@ reports `starting`. After cloud-init finishes, stop the VM with `--wait` and
 start it again; SSH remains available during that initial provisioning.
 
 Gentoo images without cloud-init retain their baked accounts; use `vm exec`
-to configure an account if needed. The standard Alpine integration template
+to configure an account if needed. The standard Gentoo integration template
 uses baked SSH access and QGA without cloud-init.
 
 Inspect a guest's address with `scripts/crv-it corvus-dev-node vm show <vm>`
@@ -323,8 +323,8 @@ first-boot details.
 Stop and delete nested VMs through the inner daemon:
 
 ```sh
-scripts/crv-it corvus-dev-node vm stop test-alpine --wait
-scripts/crv-it corvus-dev-node vm delete test-alpine
+scripts/crv-it corvus-dev-node vm stop test-gentoo --wait
+scripts/crv-it corvus-dev-node vm delete test-gentoo
 ```
 
 Deletion removes the VM's ephemeral overlays and firmware clones. The registered

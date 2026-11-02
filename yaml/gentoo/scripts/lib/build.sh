@@ -128,7 +128,7 @@ partition_target_disk() (
     wipefs -a "$disk"
     sgdisk --zap-all "$disk"
     sgdisk -n 1:0:+1M -t 1:ef02 -c 1:bios "$disk"
-    sgdisk -n 2:0:+512M -t 2:ef00 -c 2:efi "$disk"
+    sgdisk -n "2:0:+${IMAGE_ESP_SIZE:-512M}" -t 2:ef00 -c 2:efi "$disk"
     sgdisk -n 3:0:0 -t 3:8300 -c 3:root "$disk"
     partprobe "$disk"
     for attempt in $(seq 1 60); do
@@ -179,7 +179,7 @@ terminal_input serial console
 terminal_output serial console
 menuentry '$title' {
     search --set=root --label corvus-root
-    linux /boot/$kernel root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
+    linux /boot/$kernel root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8 ${IMAGE_KERNEL_ARGS:-}
 }
 CONF
 )
@@ -297,6 +297,9 @@ verify_runtime() {
     # A dependency change must fail the bake rather than silently ship a build toolchain.
     forbidden=(sys-devel/gcc sys-devel/binutils llvm-core/clang dev-lang/rust dev-lang/rust-bin dev-lang/go
         sys-apps/portage sys-libs/glibc sys-apps/systemd)
+    if [[ "${IMAGE_PROFILE:-}" == test-vm ]]; then
+        forbidden+=(app-admin/sudo dev-lang/python)
+    fi
     for package in "${forbidden[@]}"; do
         if compgen -G "$root/var/db/pkg/${package}-[0-9]*" >/dev/null; then
             echo "Unexpected runtime package: $package" >&2
@@ -323,12 +326,35 @@ remove_build_artifacts() {
     done
 }
 
+# Drop package-manager state only from the immutable test guest, after verification.
+remove_test_vm_package_metadata() {
+    local root=${IMAGE_ROOT:?}
+    rm -rf "$root/var/db/pkg" "$root/var/lib/portage"
+}
+
+# Keep English gettext catalogs, including regional and modifier variants.
+remove_non_english_locales() {
+    local root=${IMAGE_ROOT:?}
+    local directory
+    for directory in "$root/usr/share/locale" "$root/usr/lib/locale"; do
+        if [[ -d "$directory" ]]; then
+            find "$directory" -mindepth 1 -maxdepth 1 \
+                ! -name en ! -name 'en_*' ! -name 'en@*' \
+                ! -name C ! -name C.utf8 ! -name C.UTF-8 -exec rm -rf -- {} +
+        fi
+    done
+}
+
 # Apply explicit flavor policy, then finalize both runtimes identically.
 finish_runtime() {
     if [[ "$IMAGE_LIBC" == musl ]]; then
         remove_documentation
         remove_build_artifacts
         verify_runtime
+    fi
+    if [[ "${IMAGE_PROFILE:-}" == test-vm ]]; then
+        remove_test_vm_package_metadata
+        remove_non_english_locales
     fi
     clean_image_temporary_files "$IMAGE_ROOT"
     reset_image_identity "$IMAGE_ROOT"

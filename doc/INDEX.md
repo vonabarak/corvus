@@ -55,7 +55,7 @@ any companion files like kernel configs or autounattend answer files):
 - [yaml/example-apply/](../yaml/example-apply/) -- Full environment with UEFI, networking, templates
 - [yaml/multi-os/](../yaml/multi-os/) -- Multi-OS template library (shared prereq for several builds)
 - [Integration-test images](test-images.md) -- Build, check, clean, and rebuild image fixtures, including Gentoo musl/OpenRC
-- [yaml/corvus-test-vm/](../yaml/corvus-test-vm/) -- Build the minimal Alpine integration-test image
+- [Gentoo test guest](../yaml/gentoo/corvus-test-vm.yml) -- Build the musl/OpenRC integration-test image
 - [AlmaLinux 10 desktop](../yaml/almalinux-10-desktop/README.md) -- Install GNOME unattended from the official DVD with Kickstart
 - [yaml/windows-server-2025/](../yaml/windows-server-2025/) -- Build a Windows Server 2025 image
 - [yaml/windows-11/](../yaml/windows-11/README.md) -- Build a generalized Windows 11 Pro overlay base and template with per-VM TPM

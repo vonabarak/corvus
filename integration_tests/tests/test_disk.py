@@ -69,30 +69,30 @@ class TestDisk(SingleNodeCase):
     def test_discover_keeps_logical_names_and_original_paths(
         self, tmp_path: Path, filename: str
     ) -> None:
-        directory = tmp_path / "Alpine"
+        directory = tmp_path / "Gentoo"
         directory.mkdir()
         # The upstream family name collides with the directory alias.
-        upstream = directory / "1-alpine:3.21.qcow2"
+        upstream = directory / "1-gentoo:23.0.qcow2"
         upstream.touch()
         baked = directory / filename
         baked.touch()
 
         images = discover(
             [
-                _catalogue_image("alpine", upstream, 1),
+                _catalogue_image("gentoo", upstream, 1),
                 _catalogue_image("corvus-test-vm", baked),
             ],
             tmp_path,
         )
 
-        assert set(images) == {"corvus-test-vm", "alpine"}
-        assert images["alpine"].name == "alpine"
-        assert images["alpine"].host_path == upstream
-        assert images["alpine"].outer_id == 1
+        assert set(images) == {"corvus-test-vm", "gentoo"}
+        assert images["gentoo"].name == "gentoo"
+        assert images["gentoo"].host_path == upstream
+        assert images["gentoo"].outer_id == 1
         image = images["corvus-test-vm"]
         assert disk_entity_ref(image.name).name == "corvus-test-vm"
         assert image.host_path == baked
-        assert image.guest_path == GUEST_BASE_IMAGES_PATH / "Alpine" / filename
+        assert image.guest_path == GUEST_BASE_IMAGES_PATH / "Gentoo" / filename
 
     def test_discover_preserves_numbers_within_image_names(
         self, tmp_path: Path
@@ -225,7 +225,7 @@ class TestDisk(SingleNodeCase):
 
     def test_clone_rejects_running_vm(self) -> None:
         """Cloning a disk attached to a running VM must fail with
-        `VmMustBeStopped`. The disk is the Alpine vm's overlay,
+        `VmMustBeStopped`. The disk is the Gentoo vm's overlay,
         which is attached and busy for the lifetime of the `with`."""
         with Vm(self) as vm, pytest.raises(VmMustBeStopped):
             self.client.disks.clone(vm.name, _uniq("clone-while-running"))
@@ -355,7 +355,7 @@ class TestDisk(SingleNodeCase):
     # ---- hot-plug attach / detach -------------------------------------------
 
     def test_hot_attach_detach_reattach(self) -> None:
-        """Boot an Alpine guest, create a fresh data disk, attach it
+        """Boot a Gentoo guest, create a fresh data disk, attach it
         over virtio, see the kernel pick up `/dev/vd*`, detach,
         re-attach (regression check that the qcow2 lock is released
         cleanly), and finally clean up.

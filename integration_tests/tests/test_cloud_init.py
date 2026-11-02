@@ -48,7 +48,7 @@ def _uniq(stem: str) -> str:
 
 
 class _CIBase(VmCloudInit):
-    """Bigger defaults than the bare-Alpine baseline — cloud images
+    """Bigger defaults than the minimal Gentoo baseline — cloud images
     do real package work at first boot (qemu-guest-agent, sshd
     configuration, …). 2 GiB is enough headroom for every distro in
     the matrix without slowing down the fast ones."""

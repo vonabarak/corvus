@@ -13,7 +13,7 @@ into the ring buffer.  The whole machinery is exercised at the
 process level (`crv vm monitor`) but never asserted programmatically
 — this file closes that gap.
 
-One Alpine VM boot covers every positive phase (replay, write/read
+One Gentoo VM boot covers every positive phase (replay, write/read
 round-trip, flush, headless+non-headless attach).  Each negative
 case (stopped, missing VM) uses a tiny stopped-only VM.
 """

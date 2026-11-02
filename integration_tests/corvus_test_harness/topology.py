@@ -51,7 +51,7 @@ from .host_binary import REPO_ROOT, HostBinary
 from .images import ImageReady
 from .inner import open_client
 from .outer import Crv, CrvError
-from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from .ssh import HOST_TEST_KEY_PATH, NodeShell
 from .transport import VsockTcpRelay
 
 # Prefix for every test-owned node-side resource. Makes orphan
@@ -201,12 +201,12 @@ class TestNode:
         are bytes (decode with `.stdout.decode()`). Set `check=False`
         to let non-zero exits return normally instead of raising.
         """
-        if not HOST_ALPINE_KEY_PATH.exists():
+        if not HOST_TEST_KEY_PATH.exists():
             raise RuntimeError(
-                f"SSH private key not found at {HOST_ALPINE_KEY_PATH} — "
+                f"SSH private key not found at {HOST_TEST_KEY_PATH} — "
                 "run `make image IMAGE=key` to generate it"
             )
-        return NodeShell(cid=self.cid, user=user, key_path=HOST_ALPINE_KEY_PATH).run(
+        return NodeShell(cid=self.cid, user=user, key_path=HOST_TEST_KEY_PATH).run(
             command, timeout_sec=timeout_sec, check=check
         )
 
@@ -407,9 +407,7 @@ class Topology:
         host_cert_root.mkdir(parents=True, exist_ok=True)
 
         for node in self._nodes:
-            shell = NodeShell(
-                cid=node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH
-            )
+            shell = NodeShell(cid=node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH)
             outer_ip = shell.outer_ip()
             node._outer_ip = outer_ip
 

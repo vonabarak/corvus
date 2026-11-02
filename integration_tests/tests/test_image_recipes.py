@@ -26,6 +26,7 @@ RECIPES = {
     "almalinux-10-desktop": "almalinux-10-desktop-base",
     "corvus-test-node": "corvus-test-node",
     "corvus-test-vm": "corvus-test-vm",
+    "corvus-test-vm-alpine": "corvus-test-vm-alpine",
     "debian-nginx": "debian-12-nginx",
     "ubuntu-nginx": "ubuntu26-nginx",
     "corvus-monitor": "corvus-monitor",
@@ -44,10 +45,8 @@ def run_recipe(
     variables: tuple[str, ...] = (),
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    if recipe == "corvus-test-node":
-        return recipes.run(
-            "gentoo", target, ("IMAGE=corvus-test-node", *variables), env=env
-        )
+    if recipe in {"corvus-test-node", "corvus-test-vm"}:
+        return recipes.run("gentoo", target, (f"IMAGE={recipe}", *variables), env=env)
     return recipes.run(recipe, target, variables, env=env)
 
 
@@ -91,6 +90,12 @@ class TestImageRecipes:
             expected = ["freebsd.yml"]
         if recipe == "corvus-test-node":
             expected = ["gentoo-cloud.yml", "gentoo-builder.yml", "gentoo-headless.yml"]
+        if recipe == "corvus-test-vm":
+            expected = [
+                "gentoo-cloud.yml",
+                "gentoo-builder.yml",
+                "gentoo-musl-builder.yml",
+            ]
         if recipe.startswith("almalinux-"):
             expected = ["almalinux-10-media.yml"]
         if recipe not in {"multi-os", "freebsd", "almalinux-10-media"}:
@@ -236,7 +241,8 @@ class TestImageRecipes:
         [
             ("corvus-test-node", "gentoo-cloud.yml"),
             ("corvus-test-node", "gentoo-headless.yml"),
-            ("corvus-test-vm", "multi-os.yml"),
+            ("corvus-test-vm", "gentoo-musl-builder.yml"),
+            ("corvus-test-vm-alpine", "multi-os.yml"),
             ("almalinux-10-desktop", "almalinux-10-media.yml"),
             ("debian-nginx", "multi-os.yml"),
             ("ubuntu-nginx", "multi-os.yml"),
@@ -303,8 +309,10 @@ class TestImageRecipes:
         assert pipelines.index("gentoo-headless.yml") < pipelines.index(
             "corvus-test-node.yml"
         )
+        assert pipelines.index("gentoo-musl-builder.yml") < pipelines.index(
+            "corvus-test-vm.yml"
+        )
         for consumer in (
-            "corvus-test-vm.yml",
             "debian-nginx.yml",
             "ubuntu-nginx.yml",
             "corvus-monitor.yml",
@@ -367,7 +375,11 @@ class TestImageRecipes:
             (
                 recipes.root
                 / "yaml"
-                / ("gentoo" if recipe == "corvus-test-node" else recipe)
+                / (
+                    "gentoo"
+                    if recipe in {"corvus-test-node", "corvus-test-vm"}
+                    else recipe
+                )
                 / f"{recipe}.yml"
             ).read_text()
         )
@@ -411,7 +423,11 @@ class TestImageRecipes:
             (
                 recipes.root
                 / "yaml"
-                / ("gentoo" if recipe == "corvus-test-node" else recipe)
+                / (
+                    "gentoo"
+                    if recipe in {"corvus-test-node", "corvus-test-vm"}
+                    else recipe
+                )
                 / f"{recipe}.yml"
             ).read_text()
         )

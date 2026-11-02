@@ -25,6 +25,7 @@ import pytest
 from corvus_client import Client
 from corvus_client._sync.network import SyncNetwork
 from corvus_test_harness import SingleNodeCase, TestNode, VmSsh
+from corvus_test_harness.guest_network import renew_dhcp
 from corvus_test_harness.vm import _NetIfOptions
 
 # ---------------------------------------------------------------------------
@@ -139,7 +140,7 @@ def _network(
 
 
 class _ManagedVm(VmSsh):
-    """Alpine VM with a single managed NIC. SSH via VSOCK (no user NIC).
+    """Gentoo VM with a single managed NIC. SSH via VSOCK (no user NIC).
 
     Subclasses set `network_name` (the network the managed NIC joins).
     """
@@ -152,7 +153,7 @@ class _ManagedVm(VmSsh):
         return [{"type": "managed", "network_ref": self.network_name}]
 
 
-# Inside the alpine VM, the managed NIC is eth0 (it's the only NIC).
+# Inside the Gentoo VM, the managed NIC is eth0 (it's the only NIC).
 GUEST_NIC = "eth0"
 
 # A reasonable external target to exercise NAT. Cloudflare's 1.1.1.1 is
@@ -260,7 +261,7 @@ class TestManagedNetworking(SingleNodeCase):
                 # Bring the link up and assign a static IP.
                 vm.run(
                     f"doas ip link set {GUEST_NIC} up && "
-                    f"doas ipaddr add 10.50.0.10/24 dev {GUEST_NIC}"
+                    f"doas ip addr add 10.50.0.10/24 dev {GUEST_NIC}"
                 )
 
                 # VM → bridge (the node's host netns).
@@ -310,14 +311,10 @@ class TestManagedNetworking(SingleNodeCase):
                 network_name = "dhcp-net"
 
             with _Vm(self, name="dhcp-vm1") as vm1, _Vm(self, name="dhcp-vm2") as vm2:
-                # Alpine doesn't auto-DHCP secondary NICs (and our
-                # managed NIC is the only NIC). The harness's baked
-                # alpine image leaves it down. Bring it up + dhcp.
+                # Explicitly renew the lease so the test does not depend
+                # on the boot-time DHCP client having completed already.
                 for vm in (vm1, vm2):
-                    vm.run(
-                        f"doas ip link set {GUEST_NIC} up && "
-                        f"doas udhcpc -i {GUEST_NIC} -n -q -t 5 -T 2"
-                    )
+                    renew_dhcp(vm, interface=GUEST_NIC)
 
                 ip1 = _wait_for_vm_iface_ip(vm1, network_id=net_id)
                 ip2 = _wait_for_vm_iface_ip(vm2, network_id=net_id)
@@ -355,7 +352,7 @@ class TestManagedNetworking(SingleNodeCase):
 
           * The schema field is wired but never reaches the dnsmasq
             argv (caller / encoder regression).
-          * udhcpc on the guest receives the option but doesn't write
+          * dhcpcd on the guest receives the option but doesn't write
             ``/etc/resolv.conf`` — which would silently leave guests
             without DNS even though the daemon thinks it's served.
         """
@@ -391,17 +388,13 @@ class TestManagedNetworking(SingleNodeCase):
 
             # 3. End-to-end: spin up a VM, DHCP it, and verify
             #    /etc/resolv.conf carries the advertised resolvers.
-            #    busybox udhcpc invokes /usr/share/udhcpc/default.script
-            #    on `bound`, which writes the option-6 list into
+            #    dhcpcd's lease hooks write the option-6 list into
             #    /etc/resolv.conf.
             class _Vm(_ManagedVm):
                 network_name = "dns-net"
 
             with _Vm(self, name="dns-vm") as vm:
-                vm.run(
-                    f"doas ip link set {GUEST_NIC} up && "
-                    f"doas udhcpc -i {GUEST_NIC} -n -q -t 5 -T 2"
-                )
+                renew_dhcp(vm, interface=GUEST_NIC)
                 _wait_for_vm_iface_ip(vm, network_id=net_id)
                 resolv = vm.run("cat /etc/resolv.conf").stdout
                 for ip in expected_dns:
@@ -418,7 +411,7 @@ class TestManagedNetworking(SingleNodeCase):
         Exercises every layer of the new DNS feature in one shot:
 
           * VM's DHCP DISCOVER carries an option-12 hostname (via
-            ``udhcpc -x hostname:...``).
+            the DHCP helper's hostname argument).
           * The agent's dnsmasq records the (mac, ip, hostname) lease
             and serves it as ``<host>.<network>`` because the network's
             effective domain defaults to its name and ``--dhcp-fqdn``
@@ -459,15 +452,11 @@ class TestManagedNetworking(SingleNodeCase):
                 network_name = "dnshost"
 
             with _Vm(self, name="dnsvm") as vm:
-                # `-x hostname:<n>` tells busybox udhcpc to include
+                # The explicit hostname tells dhcpcd to include
                 # DHCP option 12 (host name) in the DISCOVER. dnsmasq
                 # stores it in the lease, and with --domain + --dhcp-fqdn
                 # serves it as `<n>.<network>`.
-                vm.run(
-                    f"doas ip link set {GUEST_NIC} up && "
-                    f"doas udhcpc -i {GUEST_NIC} -n -q -t 5 -T 2 "
-                    f"-x hostname:{vm_hostname}"
-                )
+                renew_dhcp(vm, interface=GUEST_NIC, hostname=vm_hostname)
                 ip = _wait_for_vm_iface_ip(vm, network_id=net_id)
                 assert ip.startswith("10.56.0."), ip
 
@@ -532,11 +521,11 @@ class TestManagedNetworking(SingleNodeCase):
             ):
                 vm_a.run(
                     f"doas ip link set {GUEST_NIC} up && "
-                    f"doas ipaddr add 10.60.0.10/24 dev {GUEST_NIC}"
+                    f"doas ip addr add 10.60.0.10/24 dev {GUEST_NIC}"
                 )
                 vm_b.run(
                     f"doas ip link set {GUEST_NIC} up && "
-                    f"doas ipaddr add 10.61.0.10/24 dev {GUEST_NIC}"
+                    f"doas ip addr add 10.61.0.10/24 dev {GUEST_NIC}"
                 )
                 # Each VM can ping its own gateway…
                 vm_a.run("ping -c 1 -W 2 10.60.0.1")

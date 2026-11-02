@@ -127,13 +127,13 @@ class TestApply(SingleNodeCase):
                 try:
                     # eth1 is the managed NIC (eth0 = user NIC).
                     # Assign static IPs via QGA (no DHCP on empty subnet).
-                    _qga(v1, "/sbin/ip link set eth1 up")
-                    _qga(v1, "/sbin/ip addr add 10.0.0.1/24 dev eth1")
-                    _qga(v2, "/sbin/ip link set eth1 up")
-                    _qga(v2, "/sbin/ip addr add 10.0.0.2/24 dev eth1")
+                    _qga(v1, "ip link set eth1 up")
+                    _qga(v1, "ip addr add 10.0.0.1/24 dev eth1")
+                    _qga(v2, "ip link set eth1 up")
+                    _qga(v2, "ip addr add 10.0.0.2/24 dev eth1")
                     # Bidirectional ping over the managed bridge.
-                    _qga(v1, "/bin/ping -c 3 -W 5 10.0.0.2")
-                    _qga(v2, "/bin/ping -c 3 -W 5 10.0.0.1")
+                    _qga(v1, "ping -c 3 -W 5 10.0.0.2")
+                    _qga(v2, "ping -c 3 -W 5 10.0.0.1")
                 finally:
                     v1.stop(wait=True)
                     v2.stop(wait=True)
@@ -212,7 +212,7 @@ class TestApply(SingleNodeCase):
                 # Cloud-init runs at first boot. Poll up to ~60 s.
                 last = None
                 for _ in range(30):
-                    last = vm.guest_exec("/bin/cat /home/corvus/.ssh/authorized_keys")
+                    last = vm.guest_exec("cat /home/corvus/.ssh/authorized_keys")
                     if last.exit_code == 0 and _TEST_PUB_KEY_BLOB in last.stdout:
                         break
                     time.sleep(2)
@@ -297,7 +297,7 @@ class TestApply(SingleNodeCase):
                             seen_user = True
                     if seen_user and not seen_key:
                         last_key = vm.guest_exec(
-                            "/bin/cat /home/deployer/.ssh/authorized_keys"
+                            "cat /home/deployer/.ssh/authorized_keys"
                         )
                         if (
                             last_key.exit_code == 0

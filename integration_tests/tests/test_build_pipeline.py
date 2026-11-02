@@ -172,6 +172,7 @@ else:
         [
             "corvus-test-node",
             "corvus-test-vm",
+            "corvus-test-vm-alpine",
             "multi-os",
             "windows-server-2025",
             "corvus-test-installer",
@@ -199,9 +200,15 @@ else:
         )
         fake.chmod(0o755)
         directory = (
-            tmp_path / "yaml" / ("gentoo" if recipe == "corvus-test-node" else recipe)
+            tmp_path
+            / "yaml"
+            / ("gentoo" if recipe in {"corvus-test-node", "corvus-test-vm"} else recipe)
         )
-        image_args = ["IMAGE=corvus-test-node"] if recipe == "corvus-test-node" else []
+        image_args = (
+            [f"IMAGE={recipe}"]
+            if recipe in {"corvus-test-node", "corvus-test-vm"}
+            else []
+        )
         for target in ("check", "ensure"):
             result = subprocess.run(
                 ["make", "--no-print-directory", target, f"CRV={fake}", *image_args],
@@ -324,7 +331,7 @@ else:
             try:
                 verify_vm.attach_disk(disk_ref=verify_overlay, interface="virtio")
                 verify_vm.start(wait=True)
-                r = verify_vm.guest_exec("/bin/cat /var/lib/corvus-test/marker")
+                r = verify_vm.guest_exec("cat /var/lib/corvus-test/marker")
                 assert r.exit_code == 0, r
                 assert "bake-marker" in r.stdout, r.stdout
                 verify_vm.stop(wait=True)
@@ -396,10 +403,10 @@ else:
         finally:
             tpl.delete()
 
-    def test_builds_corvus_test_vm_image(self) -> None:
+    def test_builds_alpine_test_vm_image(self) -> None:
         """End-to-end build of the project's Alpine test image.
 
-        Drives `crv build yaml/corvus-test-vm/corvus-test-vm.yml`
+        Drives `crv build yaml/corvus-test-vm-alpine/corvus-test-vm-alpine.yml`
         after staging the `debian12` bake template inline (the
         build uses it as the bake VM for the apk-tools-static
         bootstrap → chroot → GRUB BIOS+UEFI install →
@@ -439,8 +446,10 @@ else:
             )
 
         token = secrets.token_hex(4)
-        artifact_name = f"corvus-it-corvus-test-vm-{token}"
-        build_path = REPO_ROOT / "yaml" / "corvus-test-vm" / "corvus-test-vm.yml"
+        artifact_name = f"corvus-it-corvus-test-vm-alpine-{token}"
+        build_path = (
+            REPO_ROOT / "yaml" / "corvus-test-vm-alpine" / "corvus-test-vm-alpine.yml"
+        )
 
         # Make sure the harness's BaseImages catalogue is registered
         # (gives us `debian-generic` referenced by the

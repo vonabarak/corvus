@@ -36,7 +36,7 @@ What's NOT covered here:
   cascading separately; pinning a guest-exec cancellation here
   would need a deliberate timeout knob plus daemon-side coop.
 * Windows PowerShell ``-EncodedCommand``. Already exercised by
-  :mod:`test_windows`, plus our regular test image is Alpine. A
+  :mod:`test_windows`, plus our regular test image is Gentoo. A
   dedicated Windows guest-exec test would just duplicate that
   coverage.
 * "Guest agent enabled but not yet responsive". Racy — would need
@@ -69,7 +69,7 @@ def _crv(
 class TestGuestExecCli(SingleNodeCase):
     """``crv vm exec`` exit-code + JSON output via the inner CLI.
 
-    Boots a single Alpine VM with QGA, runs three exec invocations
+    Boots a single Gentoo VM with QGA, runs three exec invocations
     in sequence, and one JSON round-trip. Shares one VM boot — the
     daemon's RPC surface here is read-only-stateful (the VM keeps
     running, no per-test mutation) so back-to-back execs are

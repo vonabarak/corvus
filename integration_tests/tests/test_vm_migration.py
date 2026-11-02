@@ -142,7 +142,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
     """Shared scaffolding for every class in this file: register beta
     with alpha's daemon at class scope, plus the small set of
     per-test helpers (silent deletion, placement queries, bootable
-    Alpine VM construction) that two or more classes here reuse.
+    Gentoo VM construction) that two or more classes here reuse.
 
     Not a test class itself — pytest skips classes whose name doesn't
     start with ``Test``.
@@ -208,8 +208,8 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         ephemeral_overlay: bool = False,
     ) -> SyncVm:
         """Build a bootable VM on alpha by creating a qcow2 overlay
-        on top of the standard `corvus-test-vm` base image (Alpine
-        + qemu-guest-agent + vsock-sshd, baked under the `alpine`
+        on top of the standard `corvus-test-vm` base image (Gentoo
+        + qemu-guest-agent + vsock-sshd, registered under the `corvus-test-vm`
         key in ``base_images.discover``). Suitable for tests that
         need the VM to actually boot, run QGA, and let
         ``vm.start(wait=True)`` return.
@@ -222,7 +222,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         base_disk = images.get("corvus-test-vm")
         if base_disk is None:
             pytest.skip(
-                "alpine (corvus-test-vm) base image not registered — "
+                "gentoo (corvus-test-vm) base image not registered — "
                 "run `make image IMAGE=vm` to bake it on the host"
             )
         self.client_alpha.disks.create_overlay(
@@ -508,11 +508,11 @@ class TestVmMigration(_MigrationCase):
         full sequence on the row is `running → saving → saved →
         migrating → saved → loading → running`.
 
-        Uses the migrate suite's fixture (no QGA, no Alpine
+        Uses the migrate suite's fixture (no QGA, no Gentoo
         bootable image) to prove the auto-save and post-migrate
         restore paths don't depend on a guest agent; the
         test_vm_save_load.py ``TestVmMigrateSaved`` suite exercises
-        the same path with a real Alpine guest and a sentinel-
+        the same path with a real Gentoo guest and a sentinel-
         survives-RAM assertion.
         """
         vm_name = _uniq("mig-run")
@@ -783,27 +783,27 @@ class TestVmMigration(_MigrationCase):
 
 @pytest.mark.slow
 class TestVmMigrationBootableGuest(_MigrationCase):
-    """Migrate tests that boot a real Alpine guest end-to-end.
+    """Migrate tests that boot a real Gentoo guest end-to-end.
 
-    The class fixture pre-stages the Alpine base image on BOTH alpha
+    The class fixture pre-stages the Gentoo base image on BOTH alpha
     and beta — both nodes mount the same ``/home/corvus/VMs/BaseImagesRO``
     virtiofs share, so adding a ``DiskImageNode`` placement on beta
     costs zero bytes (handled by the daemon's ``mExisting`` branch in
     ``handleDiskRegister``). With both nodes carrying a placement for
-    the Alpine row, ``vm.migrate``'s PreCheck appends zero chain-ops
+    the Gentoo row, ``vm.migrate``'s PreCheck appends zero chain-ops
     to the migration plan, so every test in this class only transfers
     the per-test overlay (+ state file for the saved-VM tests). That
     drops the first-test cost from ~30–90 s of base-image transfer to
     near-zero.
 
-    Tests here are deliberately the only ones that pay the Alpine
+    Tests here are deliberately the only ones that pay the Gentoo
     boot-to-QGA cost (~30 s per start); the rest of the migrate
     coverage lives in :class:`TestVmMigration` with blank disks.
     """
 
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
-    def _stage_alpine_on_beta(cls) -> Iterator[None]:
+    def _stage_gentoo_on_beta(cls) -> Iterator[None]:
         # Inherits ``_register_beta`` from ``_MigrationCase``; pytest
         # runs class-scoped fixtures in dependency order, so by the
         # time this fires beta is already registered with the daemon.
@@ -813,14 +813,14 @@ class TestVmMigrationBootableGuest(_MigrationCase):
         yield
 
     def test_migrate_minimal_vm_and_boot(self) -> None:
-        """End-to-end: create a real Alpine VM on alpha, migrate to
+        """End-to-end: create a real Gentoo VM on alpha, migrate to
         beta, then start the VM on the destination. Asserts the
         guest actually boots (qemu-guest-agent responds to a guest
         exec) — not just that QEMU spawned on beta. This is the
         canonical "does migrate end-to-end work for a real guest"
         smoke test.
 
-        Uses ``_make_bootable_vm`` (Alpine + QGA). With the Alpine
+        Uses ``_make_bootable_vm`` (Gentoo + QGA). With the Gentoo
         base pre-staged on beta by the class fixture, the migration
         plan only carries the per-test overlay.
         """
@@ -850,7 +850,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             # QGA liveness check — proves the agent path works
             # end-to-end on the destination, not just that the daemon
             # flipped status to ``running``.
-            r = vm.guest_exec("/bin/true")
+            r = vm.guest_exec("true")
             assert r.exit_code == 0, (
                 f"guest_exec failed after migrate: exit={r.exit_code!r}, "
                 f"stderr={r.stderr!r}"
@@ -870,7 +870,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
         VSOCK CID) has that field cleared after migration; the
         next start re-allocates against beta.
 
-        Uses the standard `corvus-test-vm` Alpine image so the
+        Uses the standard `corvus-test-vm` Gentoo image so the
         guest actually boots and runs qemu-guest-agent — the
         daemon needs the first QGA ping to land before it
         transitions the row to ``running`` and allocates the
@@ -925,7 +925,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 timeout_sec=15.0,
                 msg=f"vm.show().status for {vm_name!r} did not settle on stopped",
             )
-            # Migrate. With Alpine pre-staged on beta the budget
+            # Migrate. With Gentoo pre-staged on beta the budget
             # comes back down to 120 s (no base-image transfer; only
             # the per-test overlay moves).
             tid = vm.migrate(self.beta_name)
@@ -953,7 +953,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
 
         Originally lived in test_vm_save_load.py — moved here
         alongside the other bootable-guest migrate tests so the class
-        fixture's Alpine pre-staging removes the base-image transfer
+        fixture's Gentoo pre-staging removes the base-image transfer
         cost.
         """
         vm_name = _uniq("mig-saved")
@@ -983,7 +983,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             )
 
             tid = vm.migrate(self.beta_name)
-            # 120 s budget: the Alpine base is pre-staged on beta so
+            # 120 s budget: the Gentoo base is pre-staged on beta so
             # only the per-test overlay and the ~512 MiB state file
             # transfer here.
             self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
@@ -1024,7 +1024,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             )
 
             # Sentinel survived the cross-host round trip.
-            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            r = vm.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
                 f"sentinel {sentinel!r} did not survive migrate; "
@@ -1038,7 +1038,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(overlay_name)
 
-    def test_migrate_running_alpine_vm_auto_saves(self) -> None:
+    def test_migrate_running_gentoo_vm_auto_saves(self) -> None:
         """Migrate a *running* VM — the daemon auto-saves first as
         a child task, then runs the standard transfer+commit, and
         finally auto-starts the VM on the destination so the
@@ -1089,7 +1089,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             details = vm.show()
             assert details.node.name == self.beta_name
 
-            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            r = vm.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
                 f"sentinel {sentinel!r} did not survive auto-save migrate; "
@@ -1150,7 +1150,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             details = vm.show()
             assert details.node.name == self.beta_name
 
-            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            r = vm.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout
         finally:

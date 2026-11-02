@@ -8,27 +8,27 @@ disks:
     overlay: windows-server-2025-eval
     path: BaseImages/WindowsServer2025/
 
-  - name: alpine-test
+  - name: gentoo-test-vm
     overlay: corvus-test-vm
-    path: BaseImages/Alpine/
+    path: BaseImages/Gentoo/
 
-  - name: alpine-test-ovmf-vars
+  - name: gentoo-test-vm-ovmf-vars
     clone: ovmf-vars
-    path: BaseImages/Alpine/
+    path: BaseImages/Gentoo/
 
   - name: windows-server-2025-ovmf-vars
     clone: ovmf-vars
     path: BaseImages/WindowsServer2025/
 
 vms:
-  - name: alpine-test
+  - name: gentoo-test-vm
     cpuCount: 4
     ram: 4G
-    description: "alpine-test"
-    cloudInit: true
+    description: "Gentoo musl/OpenRC test VM"
+    cloudInit: false
     guestAgent: true
     drives:
-      - disk: alpine-test
+      - disk: gentoo-test-vm
         interface: virtio
         media: disk
         cacheType: writeback
@@ -36,7 +36,7 @@ vms:
       - disk: ovmf-code
         interface: pflash
         readOnly: true
-      - disk: alpine-test-ovmf-vars
+      - disk: gentoo-test-vm-ovmf-vars
         interface: pflash
     networkInterfaces:
       - network: corvus

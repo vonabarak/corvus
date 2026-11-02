@@ -14,7 +14,7 @@ from corvus_test_harness.cases import SingleNodeCase
 from corvus_test_harness.inner import open_client
 from corvus_test_harness.postgres import psql, wait_for_postgres
 from corvus_test_harness.sqlite import SqliteDatabase
-from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from corvus_test_harness.ssh import HOST_TEST_KEY_PATH, NodeShell
 
 FIXTURES = Path(__file__).resolve().parents[2] / "test" / "fixtures" / "database"
 DATABASE = "corvus_migration_test"
@@ -28,9 +28,7 @@ class DatabaseMigrationCase(SingleNodeCase):
 
     @property
     def shell(self) -> NodeShell:
-        return NodeShell(
-            cid=self.node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH
-        )
+        return NodeShell(cid=self.node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH)
 
     def _stop(self) -> None:
         if self.node._client is not None:

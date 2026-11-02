@@ -1,7 +1,7 @@
 # Select a complete recipe, including its cloud-init variants and templates.
 .DEFAULT_GOAL := all
 IMAGE ?= gentoo-corvus-test
-IMAGES := gentoo-cloud gentoo-builder gentoo-musl-builder gentoo-headless gentoo-musl gentoo-corvus-test corvus-test-node
+IMAGES := gentoo-cloud gentoo-builder gentoo-musl-builder gentoo-headless gentoo-musl gentoo-corvus-test corvus-test-node corvus-test-vm
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
@@ -13,6 +13,7 @@ PIPELINE_gentoo-builder := gentoo-builder.yml
 PIPELINE_gentoo-musl := gentoo-musl.yml
 PIPELINE_gentoo-headless := gentoo-headless.yml
 PIPELINE_gentoo-corvus-test := gentoo-test.yml
+PIPELINE_corvus-test-vm := corvus-test-vm.yml
 PIPELINE_corvus-test-node := corvus-test-node.yml
 
 DISKS_gentoo-cloud := gentoo-cloud
@@ -21,6 +22,7 @@ DISKS_gentoo-headless := gentoo-headless gentoo-headless-cloudinit
 DISKS_gentoo-musl-builder := gentoo-musl-builder
 DISKS_gentoo-musl := gentoo-musl gentoo-musl-cloudinit
 DISKS_gentoo-corvus-test := gentoo-corvus-test
+DISKS_corvus-test-vm := corvus-test-vm
 DISKS_corvus-test-node := corvus-test-node
 
 TEMPLATES_gentoo-builder := gentoo-builder-bootstrap gentoo-builder-bake
@@ -35,6 +37,7 @@ PARENT_gentoo-headless := gentoo-builder
 PARENT_gentoo-musl-builder := gentoo-builder
 PARENT_gentoo-musl := gentoo-musl-builder
 PARENT_gentoo-corvus-test := gentoo-headless
+PARENT_corvus-test-vm := gentoo-musl-builder
 PARENT_corvus-test-node := gentoo-headless
 
 PIPELINE := $(PIPELINE_$(IMAGE))
@@ -47,7 +50,7 @@ BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)"
 BUILD_DEPENDENCIES := build-dependencies
 
 # The key is a local input, not an image dependency; generate it before publication.
-ifeq ($(IMAGE),corvus-test-node)
+ifneq ($(filter corvus-test-node corvus-test-vm,$(IMAGE)),)
 LOCAL_PREREQUISITES := test-node-key
 .PHONY: test-node-key
 test-node-key:

@@ -39,7 +39,7 @@ class TestTemplates(SingleNodeCase):
     def test_create_show_instantiate_boot(self) -> None:
         """Ports both pre-refactor TemplateIntegrationSpec tests.
 
-        One Alpine boot covers: create from YAML, show, list,
+        One Gentoo boot covers: create from YAML, show, list,
         cloud-init config round-trip (userData + injectSshKeys),
         instantiate, VM field propagation, boot to QGA-ready,
         `whoami` via guest_exec, clean stop, delete.

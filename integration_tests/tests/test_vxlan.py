@@ -10,7 +10,7 @@ beta runs agents only. The class fixture below registers beta with
 alpha's daemon.
 
 Most of the class is deliberately state-heavy and boot-light. Its slow
-data-plane case also boots one Alpine guest on each node and sends
+data-plane case also boots one Gentoo guest on each node and sends
 packets over the overlay, proving the VTEP/FDB control plane forwards
 real guest frames in both directions.
 
@@ -28,6 +28,7 @@ import pytest
 from corvus_client import Client, ServerError
 from corvus_client._sync.vm import SyncVm
 from corvus_test_harness import OneDaemonTwoNodesCase, TestNode, VmShell
+from corvus_test_harness.guest_network import renew_dhcp
 
 
 def _uniq(stem: str) -> str:
@@ -318,7 +319,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
     def test_overlay_forwards_guest_packets_between_nodes(self) -> None:
         """Two DHCP guests on different nodes can ping across the VXLAN.
 
-        The Alpine base is staged on both nodes before creating the
+        The Gentoo base is staged on both nodes before creating the
         overlays. ``create_overlay`` chooses one of the backing image's
         placements, so move beta's overlay explicitly; its backing image is
         already present there and the move transfers only the small overlay.
@@ -387,9 +388,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             alpha_shell.wait_ready(timeout_sec=90.0)
             beta_shell.wait_ready(timeout_sec=90.0)
             for shell in shells:
-                shell.run(
-                    "doas ip link set eth0 up && doas udhcpc -i eth0 -n -q -t 5 -T 2"
-                )
+                renew_dhcp(shell)
 
             alpha_shell.run(f"ping -c 2 -W 3 {beta_ip}")
             beta_shell.run(f"ping -c 2 -W 3 {alpha_ip}")

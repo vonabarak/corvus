@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Test guest built with the shared musl runtime flow and kernel configuration.
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+pipeline:
+- build:
+    name: corvus-test-vm
+    description: Gentoo musl/OpenRC integration-test guest
+    template: gentoo-musl-builder-bake
+    strategy: from-scratch
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      size: 1G
+      path: BaseImages/Gentoo/
+      compact: true
+    vm:
+      cpuCount: 8
+      ram: 8G
+    shellDefaults:
+      preamble: set -eux
+      env:
+        IMAGE_LIBC: musl
+        IMAGE_INIT: openrc
+        IMAGE_PROFILE: test-vm
+        IMAGE_ESP_SIZE: 64M
+        IMAGE_KERNEL_ARGS: net.ifnames=0
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+    provisioners:
+    - file:
+        from: ./scripts/lib/build.sh
+        to: /usr/local/lib/corvus-build/build.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/build-kernel.sh
+        to: /tmp/build-kernel.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/install-musl-root.sh
+        to: /tmp/install-musl-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/configure-musl-root.sh
+        to: /tmp/configure-musl-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/build-runtime.sh
+        to: /tmp/build-runtime.sh
+        mode: '0755'
+    - file:
+        from: ./gentoo-kernel
+        to: /tmp/gentoo-kernel-config
+        mode: '0644'
+    - file:
+        from: ./scripts/install-test-vm-root.sh
+        to: /tmp/install-test-vm-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/configure-test-vm-root.sh
+        to: /tmp/configure-test-vm-root.sh
+        mode: '0755'
+    - file:
+        from: ../../integration_tests/keys/corvus-test-key.pub
+        to: /tmp/corvus-test-key.pub
+        mode: '0644'
+    - shell:
+        inline: unshare --mount --propagation private /bin/bash /tmp/build-runtime.sh
+        timeoutSec: 28800
+    cleanup: onSuccess

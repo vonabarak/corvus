@@ -103,7 +103,7 @@ class TestVmAutostart(SingleNodeCase):
     """VM autostart fires per-node when the nodeagent connects, not
     at daemon startup. The tests exercise the cold-stopped case
     (fast: no QGA, non-bootable), the resume-from-saved case (real
-    Alpine with QGA, round-tripping a RAM sentinel), and the
+    Gentoo with QGA, round-tripping a RAM sentinel), and the
     no-refire-on-agent-flap invariant."""
 
     def _create_stopped_autostart_vm(self) -> tuple[SyncVm, str, str]:
@@ -187,7 +187,7 @@ class TestVmAutostart(SingleNodeCase):
     def test_vm_autostart_resumes_saved_vm(self) -> None:
         """A saved VM with autostart=True resumes after a daemon
         restart, and the guest's RAM (a sentinel in /tmp) survives.
-        Uses the full Alpine + QGA fixture because we need the
+        Uses the full Gentoo + QGA fixture because we need the
         guest to be able to read /tmp/sentinel back out post-resume.
 
         This is the exact case the previously-skipped
@@ -259,7 +259,7 @@ class TestVmAutostart(SingleNodeCase):
             # round trip — proves the RAM image was actually
             # restored (not just a cold boot wearing a `saved` →
             # `running` label).
-            r = vm.cap.guest_exec("/bin/cat /tmp/sentinel")
+            r = vm.cap.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
                 f"sentinel {sentinel!r} did not survive autostart resume; "

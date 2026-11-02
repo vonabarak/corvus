@@ -6,7 +6,7 @@ a saved VM spawns a fresh QEMU with `-incoming "file:…"`, waits for
 the restore to finish, and `cont`s the guest — same verb as a cold
 boot. The state file lives at `<basePath>/<vmName>/state.qemu`.
 
-These tests exercise the full round-trip on a real Alpine VM with
+These tests exercise the full round-trip on a real Gentoo VM with
 qemu-guest-agent — proving that RAM survives the save/restore cycle
 by writing a sentinel through QGA, saving, restoring, and reading
 the sentinel back. Behavioural coverage:
@@ -86,7 +86,7 @@ def _poll_until(
 
 
 class TestVmSaveLoadRoundtrip(SingleNodeCase):
-    """Round-trip a real Alpine VM through save/start and verify RAM
+    """Round-trip a real Gentoo VM through save/start and verify RAM
     survives. The other refusal/discard cases hang off this same
     fixture pattern to share the bake cost."""
 
@@ -99,7 +99,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
         vm_context = Vm(self)
         vm_context.headless = headless
         with vm_context as vm:
-            boot = vm.cap.guest_exec("/bin/cat /proc/sys/kernel/random/boot_id")
+            boot = vm.cap.guest_exec("cat /proc/sys/kernel/random/boot_id")
             assert boot.exit_code == 0, boot
             port = vm.cap.guest_exec(
                 "/bin/sh -c 'test -c /dev/virtio-ports/org.spice-space.webdav.0'"
@@ -153,13 +153,13 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
                 f"state file at {state_path} was not unlinked after successful resume"
             )
 
-            r = vm.cap.guest_exec("/bin/cat /tmp/sentinel")
+            r = vm.cap.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
                 f"sentinel {sentinel!r} did not survive save→start round trip; "
                 f"guest stdout={r.stdout!r}"
             )
-            resumed_boot = vm.cap.guest_exec("/bin/cat /proc/sys/kernel/random/boot_id")
+            resumed_boot = vm.cap.guest_exec("cat /proc/sys/kernel/random/boot_id")
             assert resumed_boot.exit_code == 0, resumed_boot
             assert resumed_boot.stdout == boot.stdout, (
                 "guest cold-booted instead of resuming"
@@ -326,8 +326,8 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
 
 # Cross-host migration of saved state moved to
 # integration_tests/tests/test_vm_migration.py::TestVmMigrationBootableGuest
-# (alongside the other bootable-Alpine migrate tests). That class
-# pre-stages the Alpine base image on both nodes so the per-test
+# (alongside the other bootable-Gentoo migrate tests). That class
+# pre-stages the Gentoo base image on both nodes so the per-test
 # migration plan carries only the overlay + state file, dropping the
 # wall-clock from ~5 min to ~2 min for the three saved-VM tests.
 #

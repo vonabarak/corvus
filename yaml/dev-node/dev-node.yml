@@ -183,7 +183,7 @@ templates:
   - name: corvus-test-vm
     <<: *defaults
     ram: 1G
-    description: Alpine integration-test VM with baked SSH key and VSOCK relay
+    description: Gentoo musl/OpenRC integration-test VM with baked SSH key and VSOCK relay
     drives:
       - <<: *root
         diskImage: corvus-test-vm

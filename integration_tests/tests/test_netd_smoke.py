@@ -34,7 +34,7 @@ import capnp
 import pytest
 from corvus_test_harness import NetdClient, SingleNodeCase, TestNode
 from corvus_test_harness.cases import state_for
-from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH
+from corvus_test_harness.ssh import HOST_TEST_KEY_PATH
 
 NETD_SERVICE = "corvus-netd.service"
 NETD_NODE_PORT = 9877
@@ -69,7 +69,7 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen[bytes]:
         "-o",
         f"ProxyCommand={socat} - VSOCK-CONNECT:{cid}:22",
         "-i",
-        str(HOST_ALPINE_KEY_PATH),
+        str(HOST_TEST_KEY_PATH),
         "-L",
         f"127.0.0.1:{host_port}:127.0.0.1:{NETD_NODE_PORT}",
         f"corvus@vsock-{cid}",

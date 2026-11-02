@@ -26,7 +26,7 @@ from .host_access import (
 )
 from .outer import Crv, JsonObject
 from .runner import NodeShellRunner
-from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from .ssh import HOST_TEST_KEY_PATH, NodeShell
 
 
 class DevRunner(NodeShellRunner):
@@ -279,7 +279,7 @@ def setup(vm: str, ssh_key: Path, database: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vm", default="corvus-dev-node")
-    parser.add_argument("--ssh-key", type=Path, default=HOST_ALPINE_KEY_PATH)
+    parser.add_argument("--ssh-key", type=Path, default=HOST_TEST_KEY_PATH)
     parser.add_argument(
         "--database", choices=("sqlite", "postgresql"), default="sqlite"
     )

@@ -318,7 +318,7 @@ class TestSnapshots(SingleNodeCase):
 
         ``dmesg | grep fsfreeze`` was considered as an in-guest
         confirmation but the kernel doesn't log ext4 fsfreeze at
-        ``info`` level on Alpine's stock build; the daemon's own
+        ``info`` level in the guest configuration; the daemon's own
         ``quiesced`` flag (set from QGA's ack) is the documented
         operator surface and the right thing to assert."""
         with Vm(self) as vm:

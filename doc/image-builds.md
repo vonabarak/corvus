@@ -885,10 +885,11 @@ From-scratch builds:
   (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
   kernel `.config` next to the YAML. Uses official mirrors and a persistent
   virtiofs cache; see [Gentoo cache setup](test-images.md).
-- [yaml/corvus-test-vm/corvus-test-vm.yml](../yaml/corvus-test-vm/corvus-test-vm.yml) —
-  the integration-test Alpine image (BIOS+UEFI, sshd, qemu-ga,
-  vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian
-  bake VM.
+- [yaml/gentoo/corvus-test-vm.yml](../yaml/gentoo/corvus-test-vm.yml) —
+  the Gentoo musl/OpenRC integration guest (BIOS+UEFI, SSH over TCP/VSOCK,
+  QGA), built by the native musl builder with the shared Gentoo kernel.
+- [Alpine build fixture](../yaml/corvus-test-vm-alpine/corvus-test-vm-alpine.yml) —
+  a separate recipe-build test fixture bootstrapped inside a Debian bake VM.
 
 Installer builds:
 

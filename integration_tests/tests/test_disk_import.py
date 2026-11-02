@@ -24,7 +24,7 @@ from corvus_client.types import (
 )
 from corvus_test_harness import SingleNodeCase, SqliteDatabase, TestNode, Vm
 from corvus_test_harness.runner import NodeShellRunner
-from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from corvus_test_harness.ssh import HOST_TEST_KEY_PATH, NodeShell
 
 import yaml
 
@@ -171,7 +171,7 @@ class TestDiskImport(SingleNodeCase):
             .strip()
         )
         runner = NodeShellRunner(
-            NodeShell(cid=self.node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH)
+            NodeShell(cid=self.node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH)
         )
         try:
             pipeline = f"{directory}/imports.yml"

@@ -14,7 +14,7 @@ This file:
 * Spawns ``corvus-web`` on the host via the
   :class:`WebGateway` harness piece, pointing at the inner daemon's
   TCP relay with the same mTLS cert dir the pycapnp client uses.
-* Boots one Alpine VM and exercises every observability surface
+* Boots one Gentoo VM and exercises every observability surface
   the doc enumerates in a single test method (one boot amortises
   the ~30 s VM startup across all assertions, matching the pattern
   in :mod:`test_serial_console`).

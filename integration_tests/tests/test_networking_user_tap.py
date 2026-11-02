@@ -48,7 +48,7 @@ from collections.abc import Callable
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 from corvus_test_harness.vm import _NetIfOptions
 
-# Alpine test image puts its sole NIC on eth0.
+# Gentoo test image puts its sole NIC on eth0.
 GUEST_NIC = "eth0"
 
 # QEMU SLIRP defaults (qemu-doc.html → "Using the user mode network
@@ -116,7 +116,7 @@ class TestUserModeSlirp(SingleNodeCase):
 
             # /etc/resolv.conf should carry the SLIRP nameserver
             # too — the DHCP options QEMU advertises include it.
-            r = vm.cap.guest_exec("/bin/cat /etc/resolv.conf")
+            r = vm.cap.guest_exec("cat /etc/resolv.conf")
             assert r.exit_code == 0
             assert SLIRP_NAMESERVER in r.stdout, (
                 f"resolv.conf missing {SLIRP_NAMESERVER}: {r.stdout!r}"
@@ -138,7 +138,7 @@ class TestUserModeSlirp(SingleNodeCase):
         """
         node = self.node
         with Vm(self) as vm:
-            # The Alpine test image runs sshd on 22, so if SLIRP
+            # The Gentoo test image runs sshd on 22, so if SLIRP
             # forwarded inbound by accident we'd see a successful
             # connect. nc -z -w 2 returns 0 on connect, non-zero
             # on timeout/refused.
@@ -205,8 +205,8 @@ class TestUserModeSlirp(SingleNodeCase):
             # The hostfwd listener binds whenever QEMU starts user-
             # mode netdev. Poll the node-side TCP port for SSH banner
             # — SSH takes a few seconds to come up after kernel.
-            # busybox nc on alpine doesn't accept -w with the
-            # connect-and-read shape; we use bash's /dev/tcp and a
+            # Use bash's /dev/tcp without depending on the installed
+            # netcat implementation's timeout flags, with a
             # small `read` budget instead, which works on the
             # Gentoo test-node shell.
             def _banner_ok() -> bool:

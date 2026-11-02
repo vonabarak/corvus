@@ -22,11 +22,12 @@ import secrets
 import time
 
 from corvus_test_harness import SingleNodeCase, VmSsh
+from corvus_test_harness.guest_network import renew_dhcp
 from corvus_test_harness.runner import NodeShellRunner
-from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from corvus_test_harness.ssh import HOST_TEST_KEY_PATH, NodeShell
 from corvus_test_harness.vm import _NetIfOptions
 
-# Alpine test image puts the sole NIC on eth0.
+# Gentoo test image puts the sole NIC on eth0.
 GUEST_NIC = "eth0"
 
 # Test-node's vde0 gateway IP (baked into corvus-test-node.yml).
@@ -118,13 +119,9 @@ class TestVdeNetworking(SingleNodeCase):
             _VdeVm(self, name=f"vde-b-{suffix}") as vm_b,
         ):
             # 1. Bring eth0 up and DHCP a lease from the test-node's
-            #    dnsmasq on vde0. Alpine's default config leaves
-            #    secondary NICs down.
+            #    dnsmasq on vde0, renewing any boot-time lease.
             for vm in (vm_a, vm_b):
-                vm.run(
-                    f"doas ip link set {GUEST_NIC} up && "
-                    f"doas udhcpc -i {GUEST_NIC} -n -q -t 5 -T 2"
-                )
+                renew_dhcp(vm, interface=GUEST_NIC)
 
             ip_a = _wait_for_lease(vm_a)
             ip_b = _wait_for_lease(vm_b)
@@ -199,7 +196,7 @@ class TestVdeNetworking(SingleNodeCase):
             "deploy_certs(); did the class fixture run?"
         )
         runner = NodeShellRunner(
-            NodeShell(cid=node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH),
+            NodeShell(cid=node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH),
             label=f"vsock:{node.short_name}",
         )
         # `~/.config/corvus` is the corvus user's home — no sudo

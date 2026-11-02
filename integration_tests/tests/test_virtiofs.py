@@ -13,7 +13,7 @@ Ports the pre-capnp `VirtiofsIntegrationSpec` (see
     from the default ``auto``.
 
 All tests stage their host-side directories on the node (the
-inner daemon's filesystem) via `self.node.run(...)`; the Alpine
+inner daemon's filesystem) via `self.node.run(...)`; the Gentoo
 guest mounts via virtiofs and reads/writes from there.
 """
 
@@ -33,7 +33,7 @@ def _uniq(stem: str) -> str:
 
 class TestVirtiofs(SingleNodeCase):
     """Virtiofs sharing between the node (hosting the inner daemon's
-    filesystem) and the Alpine vm.
+    filesystem) and the Gentoo vm.
 
     Each test stages its host-side directories on the node via
     `self.node.run(...)`, then drives the guest over the nested SSH
@@ -57,7 +57,7 @@ class TestVirtiofs(SingleNodeCase):
 
             with _Bidi(self) as vm:
                 # Mount inside guest. doas is configured for corvus
-                # (see Alpine image YAML); the mount type is
+                # (see Gentoo image YAML); the mount type is
                 # `virtiofs` and the source is the shared-dir tag.
                 vm.run("doas mkdir -p /mnt/share")
                 vm.run("doas mount -t virtiofs share /mnt/share")
@@ -95,7 +95,7 @@ class TestVirtiofs(SingleNodeCase):
         base = images.get("corvus-test-vm")
         if base is None:
             pytest.skip(
-                "alpine (corvus-test-vm) base image not registered — "
+                "gentoo (corvus-test-vm) base image not registered — "
                 "run `make image IMAGE=vm` to bake it on the host"
             )
         name = _uniq("virtiofs-missing")

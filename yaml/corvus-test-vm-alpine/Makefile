@@ -1,6 +1,6 @@
-DISKS := corvus-test-vm
+DISKS := corvus-test-vm-alpine
 TEMPLATES :=
-PIPELINE := corvus-test-vm.yml
+PIPELINE := corvus-test-vm-alpine.yml
 
 IMAGE_POLICY ?= update
 BUILD_DEPENDENCIES := build-dependencies

@@ -11,7 +11,7 @@ from typing import Literal, cast
 
 from ._sqlite_worker import SqliteRequest, SqlValue
 from .runner import NodeShellRunner
-from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
+from .ssh import HOST_TEST_KEY_PATH, NodeShell
 from .topology import TestNode
 
 
@@ -27,7 +27,7 @@ class SqliteDatabase:
         self.path = path
         self._directory: str | None = None
         self._runner = NodeShellRunner(
-            NodeShell(cid=node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH)
+            NodeShell(cid=node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH)
         )
 
     def __enter__(self) -> SqliteDatabase:
