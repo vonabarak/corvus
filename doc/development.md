@@ -268,9 +268,39 @@ The nodeagent logs QEMU guest agent (QGA) connection lifecycle events at `info`,
 failures at `warn`, and command send/reply metadata and socket reuse at `debug`.
 Use the nodeagent's `--log-level debug` option when investigating a stall.
 The messages use the `qga` logging source and include UTC timestamps, VM ID,
-a process-local connection ID, command sequence, phase, and monotonic elapsed
+a process-local connection ID, operation ID, caller source stack, thread ID,
+monotonic timestamp, command sequence, phase, and monotonic elapsed
 milliseconds for the connection and current phase. Connection IDs restart when
 the nodeagent restarts; retain journal timestamps and process identity alongside them.
+
+At `info` level, `request_start`/`request_end` bracket every operation, including
+callers that never acquire a socket. `lock_wait`, `lock_acquired`, and
+`lock_wait_cancelled` distinguish queue contention from a stalled handshake.
+Operation IDs follow cached connections across reuse, while connection IDs
+identify individual socket attempts. Correlate `thread_id` with the enclosing
+`startup_ping_*` and `status_*` events to identify which outer deadline cancelled
+a request. Lifecycle release/invalidation events include their caller even when
+no socket is cached. All IDs are process-local.
+
+`runtime_publish_*`, `runtime_published`, `startup_coordinator_start`,
+`startup_ready`, and `startup_timeout` record QEMU PID, runtime generation,
+lifecycle revision, readiness fence, and configured boot budget. Status probes
+record the same state plus their origin (`periodic` or `dispatch`) and decision
+to probe/skip. Startup attempts record their remaining outer budget; status
+probes explicitly report `outer_timeout` rather than an unexplained cancellation.
+These causal events are available at the default `info` level; enable `debug`
+for individual sends/replies and stale synchronization replies.
+
+Collect the entire affected nodeagent journal, retaining systemd PID/boot fields
+and the period before VM publication, not only lines containing the failed VM:
+
+```sh
+journalctl --user -u corvus-nodeagent.service --since '30 minutes ago' -o short-precise --no-pager
+```
+
+For nested nodes, run the corresponding system-service journal command on the
+node (`journalctl -u corvus-nodeagent.service ...`). Retain guest QGA service logs
+and console output before restarting either guest or nodeagent.
 
 Follow one `vm_id` and `connection_id` from `connect_start` through
 `sync_start`, command traffic, and `close_complete`. A `send_start` without

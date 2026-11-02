@@ -6,6 +6,7 @@ module Corvus.Node.GuestAgent.Transport
   , QgaLogger
   , newQgaSocket
   , logQga
+  , logQgaEvent
   , sendQga
   , recvQga
   , recvQgaWithin
@@ -18,6 +19,7 @@ module Corvus.Node.GuestAgent.Transport
   )
 where
 
+import Control.Concurrent (myThreadId)
 import Control.Exception (SomeAsyncException, SomeException, catch, finally, fromException, throwIO)
 import Control.Monad.Logger (LogLevel (..))
 import Data.Aeson (Value (..))
@@ -49,6 +51,7 @@ data QgaSocket = QgaSocket
   , qgaConnectionId :: !Integer
   , qgaVmId :: !Int64
   , qgaLogger :: QgaLogger
+  , qgaOperation :: IORef Text
   , qgaExchange :: IORef (Integer, Text, Text)
   , qgaPhaseStarted :: IORef Word64
   , qgaStarted :: !Word64
@@ -63,22 +66,18 @@ instance Eq QgaSocket where
 newQgaSocket :: QgaLogger -> Int64 -> Integer -> Socket -> IO QgaSocket
 newQgaSocket logger vmId connectionId sock = do
   now <- getMonotonicTimeNSec
-  QgaSocket sock connectionId vmId logger <$> newIORef (0, "none", "connect") <*> newIORef now <*> pure now
+  QgaSocket sock connectionId vmId logger <$> newIORef "operation_id=none" <*> newIORef (0, "none", "connect") <*> newIORef now <*> pure now
 
 -- | Never let a synchronous logger failure change a QGA operation. In
 -- particular, never print arbitrary exception text, which can contain payloads.
 logQga :: QgaSocket -> LogLevel -> Text -> Text -> IO ()
 logQga sock level event fields = do
-  utc <- getCurrentTime
   now <- getMonotonicTimeNSec
   phaseStarted <- readIORef (qgaPhaseStarted sock)
   (sequenceId, command, phase) <- readIORef (qgaExchange sock)
+  operation <- readIORef (qgaOperation sock)
   let message =
-        "qga event="
-          <> event
-          <> " utc="
-          <> T.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" utc)
-          <> " vm_id="
+        "vm_id="
           <> shown (qgaVmId sock)
           <> " connection_id="
           <> shown (qgaConnectionId sock)
@@ -93,14 +92,35 @@ logQga sock level event fields = do
           <> " phase_elapsed_ms="
           <> shown ((now - phaseStarted) `div` 1000000)
           <> " "
+          <> operation
+          <> " "
           <> fields
-  qgaLogger sock level message `catch` \err ->
-    case fromException err :: Maybe SomeAsyncException of
-      Just _ -> throwIO (err :: SomeException)
-      Nothing -> pure ()
+  logQgaEvent (qgaLogger sock) level event message
   where
     shown :: (Show a) => a -> Text
     shown = T.pack . show
+
+-- | Record socket-independent events, including lock waiters and outer deadlines.
+logQgaEvent :: QgaLogger -> LogLevel -> Text -> Text -> IO ()
+logQgaEvent logger level event fields = do
+  utc <- getCurrentTime
+  now <- getMonotonicTimeNSec
+  thread <- myThreadId
+  let message =
+        "qga event="
+          <> event
+          <> " utc="
+          <> T.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" utc)
+          <> " monotonic_ns="
+          <> T.pack (show now)
+          <> " thread_id="
+          <> T.pack (show (show thread))
+          <> " "
+          <> fields
+  logger level message `catch` \err ->
+    case fromException err :: Maybe SomeAsyncException of
+      Just _ -> throwIO (err :: SomeException)
+      Nothing -> pure ()
 
 sendQga :: QgaSocket -> Value -> IO ()
 sendQga sock value = do

@@ -17,10 +17,11 @@ import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
+import GHC.Stack (HasCallStack)
 
 -- | Query network interfaces from the guest. Failures are represented as
 -- 'Nothing'; a successful query with no interfaces returns @Just []@.
-guestNetworkGetInterfaces :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
+guestNetworkGetInterfaces :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
 guestNetworkGetInterfaces conns config vmId = do
   result <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
     sendQga sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]

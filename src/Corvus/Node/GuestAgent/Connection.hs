@@ -16,9 +16,9 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
-import Control.Exception (SomeAsyncException, SomeException, catch, finally, fromException, mask, mask_, onException, throwIO, try)
+import Control.Exception (SomeAsyncException, SomeException, catch, evaluate, finally, fromException, mask, mask_, onException, throwIO, try)
 import Control.Monad.Logger (LogLevel (..))
-import Corvus.Node.GuestAgent.Transport (QgaLogger, QgaSocket (..), closeQga, logQga, newQgaSocket, recvQga, sendQga)
+import Corvus.Node.GuestAgent.Transport (QgaLogger, QgaSocket (..), closeQga, logQga, logQgaEvent, newQgaSocket, recvQga, sendQga)
 import Corvus.Node.Runtime (getGuestAgentSocket)
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value (..), (.=))
@@ -29,20 +29,24 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Clock (getMonotonicTimeNSec)
 import GHC.IO.Exception (IOErrorType (ResourceExhausted))
+import GHC.Stack (HasCallStack, callStack, prettyCallStack)
 import Network.Socket (Family (AF_UNIX), SockAddr (SockAddrUnix), SocketType (Stream), close, connect, defaultProtocol, socket)
 import System.IO.Error (ioeGetErrorType)
+import System.Mem.StableName (hashStableName, makeStableName)
 import System.Random (randomRIO)
 import System.Timeout (timeout)
 
 data GuestAgentConns = GuestAgentConns
   { guestAgentSlots :: TVar (Map.Map Int64 (MVar (Maybe QgaSocket)))
   , guestAgentLogger :: QgaLogger
+  , guestAgentNextOperationId :: TVar Integer
   , guestAgentNextId :: TVar Integer
   }
 
 newGuestAgentConns :: QgaLogger -> IO GuestAgentConns
-newGuestAgentConns logger = GuestAgentConns <$> newTVarIO Map.empty <*> pure logger <*> newTVarIO 0
+newGuestAgentConns logger = GuestAgentConns <$> newTVarIO Map.empty <*> pure logger <*> newTVarIO 0 <*> newTVarIO 0
 
 getOrCreateConn :: GuestAgentConns -> Int64 -> IO (MVar (Maybe QgaSocket))
 getOrCreateConn cache vmId = do
@@ -60,34 +64,64 @@ getOrCreateConn cache vmId = do
 
 -- | Run an operation against the cached socket. The MVar both caches and
 -- serializes QGA traffic; QEMU's chardev listen backlog is only one deep.
-withPersistentConn :: GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
+withPersistentConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
 withPersistentConn = withConnection False
 
 -- | Serialize once and discard the socket before releasing the lock. Used
 -- for shutdown, which has no success reply and invalidates the guest session.
-withDiscardedConn :: GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
+withDiscardedConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
 withDiscardedConn conns config vmId = withConnection True conns config vmId 1
 
-withConnection :: Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
+withConnection :: (HasCallStack) => Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
 withConnection discard connsVar config vmId retries timeoutMicros action = do
-  connVar <- getOrCreateConn connsVar vmId
-  path <- getGuestAgentSocket config vmId
-  go connVar path retries
+  operationId <- atomically $ do
+    n <- readTVar (guestAgentNextOperationId connsVar)
+    writeTVar (guestAgentNextOperationId connsVar) (n + 1)
+    pure (n + 1)
+  started <- getMonotonicTimeNSec
+  let context = "operation_id=" <> tshow operationId <> " caller=" <> tshow (prettyCallStack callStack)
+      event level name fields = logQgaEvent (guestAgentLogger connsVar) level name ("vm_id=" <> tshow vmId <> " " <> context <> " " <> fields)
+      finish outcome = do
+        now <- getMonotonicTimeNSec
+        event LevelInfo "request_end" ("result=" <> outcome <> " duration_ms=" <> tshow ((now - started) `div` 1000000))
+  event LevelInfo "request_start" ("timeout_us=" <> tshow timeoutMicros <> " timeout_scope=after_lock retries=" <> tshow retries <> " discard=" <> tshow discard)
+  ( do
+      connVar <- getOrCreateConn connsVar vmId
+      path <- getGuestAgentSocket config vmId
+      result <- go event context connVar path retries
+      finish (either (const "error") (const "success") result)
+      pure result
+    )
+    `onException` finish "exception_or_cancellation"
   where
-    go _ _ 0 = pure (Left "Guest agent unavailable after retries")
-    go connVar path count = do
-      result <- runOnce connVar path
+    go _ _ _ _ 0 = pure (Left "Guest agent unavailable after retries")
+    go event context connVar path count = do
+      result <- runOnce event context connVar path (retries - count + 1)
+      event LevelInfo "attempt_end" ("attempt=" <> tshow (retries - count + 1) <> " result=" <> either (const "error") (const "success") result)
       case result of
         Right value -> pure (Right value)
-        Left _ | count > 1 -> threadDelay 1000000 >> go connVar path (count - 1)
+        Left _ | count > 1 -> do
+          event LevelInfo "operation_retry" "delay_ms=1000"
+          threadDelay 1000000
+          go event context connVar path (count - 1)
         Left err -> pure (Left err)
 
-    runOnce connVar path = mask $ \restore -> do
-      mSock <- takeMVar connVar
+    runOnce event context connVar path attempt = mask $ \restore -> do
+      waiting <- getMonotonicTimeNSec
+      slotIdentity <- hashStableName <$> (evaluate connVar >>= makeStableName)
+      let attemptFields = "attempt=" <> tshow attempt <> " slot_identity=" <> tshow slotIdentity
+      event LevelInfo "lock_wait" attemptFields :: IO ()
+      mSock <- takeMVar connVar `onException` event LevelWarn "lock_wait_cancelled" attemptFields
+      acquired <- getMonotonicTimeNSec
       sockRef <- newIORef mSock
       result <-
-        restore (doWork mSock path sockRef) `onException` do
-          (readIORef sockRef >>= closeMaybe "cancelled") `finally` putMVar connVar Nothing
+        restore
+          ( do
+              event LevelInfo "lock_acquired" (attemptFields <> " wait_ms=" <> tshow ((acquired - waiting) `div` 1000000) <> " cached_connection_id=" <> maybe "none" (tshow . qgaConnectionId) mSock)
+              doWork event (context <> " slot_identity=" <> tshow slotIdentity) mSock path sockRef
+          )
+          `onException` do
+            (readIORef sockRef >>= closeMaybe "cancelled") `finally` putMVar connVar Nothing
       case result of
         Right (sock, value) -> do
           if discard then closeQga "shutdown_discard" sock `finally` putMVar connVar Nothing else putMVar connVar (Just sock)
@@ -96,13 +130,13 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
           (readIORef sockRef >>= closeMaybe reason) `finally` putMVar connVar Nothing
           pure (Left err)
 
-    doWork mSock path sockRef = do
+    doWork event context mSock path sockRef = do
       -- Let timeout consume its own exception before handling other failures.
       mResult <- try $ timeout timeoutMicros $ do
         sock <- case mSock of
-          Just existing -> logQga existing LevelDebug "reuse" "" >> pure existing
+          Just existing -> writeIORef (qgaOperation existing) context >> logQga existing LevelDebug "reuse" "" >> pure existing
           Nothing -> mask_ $ do
-            fresh <- connectWithRetry connsVar vmId 10 path sockRef
+            fresh <- connectWithRetry connsVar vmId context 10 path sockRef
             writeIORef sockRef (Just fresh)
             pure fresh
         case mSock of
@@ -121,6 +155,7 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
               let category = case fromException err :: Maybe IOError of
                     Just ioErr -> T.pack (show (ioeGetErrorType ioErr))
                     Nothing -> "non_io_exception"
+              event LevelWarn "attempt_exception" ("error_type=" <> category) :: IO ()
               readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelWarn "operation_error" ("reason=exception error_type=" <> category))
               pure (Left (T.pack (show err), "exception"))
         Right Nothing -> do
@@ -128,8 +163,8 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
           pure (Left ("Timed out waiting for guest agent", "timeout"))
 
 -- Each connect attempt owns its socket and ID, including backlog retries.
-connectWithRetry :: GuestAgentConns -> Int64 -> Int -> FilePath -> IORef (Maybe QgaSocket) -> IO QgaSocket
-connectWithRetry cache vmId count path sockRef = do
+connectWithRetry :: GuestAgentConns -> Int64 -> Text -> Int -> FilePath -> IORef (Maybe QgaSocket) -> IO QgaSocket
+connectWithRetry cache vmId context count path sockRef = do
   connectionId <- atomically $ do
     n <- readTVar (guestAgentNextId cache)
     writeTVar (guestAgentNextId cache) (n + 1)
@@ -137,6 +172,7 @@ connectWithRetry cache vmId count path sockRef = do
   raw <- socket AF_UNIX Stream defaultProtocol
   sock <- newQgaSocket (guestAgentLogger cache) vmId connectionId raw `onException` close raw
   writeIORef sockRef (Just sock)
+  writeIORef (qgaOperation sock) context
   logQga sock LevelInfo "connect_start" ("path=" <> T.pack (show path))
   ( do
       connect raw (SockAddrUnix path)
@@ -151,7 +187,7 @@ connectWithRetry cache vmId count path sockRef = do
         then do
           logQga sock LevelDebug "retry" "delay_ms=300"
           threadDelay 300000
-          connectWithRetry cache vmId (count - 1) path sockRef
+          connectWithRetry cache vmId context (count - 1) path sockRef
         else ioError err
 
 closeMaybe :: Text -> Maybe QgaSocket -> IO ()
@@ -160,17 +196,25 @@ closeMaybe reason (Just sock) = closeQga reason sock
 
 -- | Drop the map entry before waiting for its holder, avoiding a race where a
 -- concurrently completing operation reinstates a socket for a retired VM.
-releaseConn :: GuestAgentConns -> Int64 -> IO ()
+releaseConn :: (HasCallStack) => GuestAgentConns -> Int64 -> IO ()
 releaseConn cache vmId = mask_ $ do
   let connsVar = guestAgentSlots cache
+  lifecycleEvent cache vmId "release_start" ("caller=" <> tshow (prettyCallStack callStack))
   mConnection <- atomically $ do
     conns <- readTVar connsVar
     case Map.lookup vmId conns of
       Nothing -> pure Nothing
       Just connection -> writeTVar connsVar (Map.delete vmId conns) >> pure (Just connection)
-  maybe (pure ()) (takeMVar >=> closeMaybe "lifecycle_release") mConnection
-  where
-    (>=>) f g x = f x >>= g
+  case mConnection of
+    Nothing -> pure ()
+    Just slot -> do
+      slotIdentity <- hashStableName <$> (evaluate slot >>= makeStableName)
+      lifecycleEvent cache vmId "release_lock_wait" ("slot_identity=" <> tshow slotIdentity)
+      cached <- takeMVar slot
+      lifecycleEvent cache vmId "release_lock_acquired" ("slot_identity=" <> tshow slotIdentity)
+        `onException` closeMaybe "lifecycle_release" cached
+      closeMaybe "lifecycle_release" cached
+  lifecycleEvent cache vmId "release_complete" ""
 
 -- | Sync IDs stay below 2^30 so JSON implementations using doubles retain
 -- them exactly. Stale replies are drained until the matching ID arrives.
@@ -196,8 +240,25 @@ syncGuest sock = do
           waitForSync expected (remaining - 1)
 
 -- | Close a stale session while retaining the per-VM serialization lock.
-invalidateConn :: GuestAgentConns -> Int64 -> IO ()
+invalidateConn :: (HasCallStack) => GuestAgentConns -> Int64 -> IO ()
 invalidateConn conns vmId = mask_ $ do
+  lifecycleEvent conns vmId "invalidate_start" ("caller=" <> tshow (prettyCallStack callStack))
   slot <- getOrCreateConn conns vmId
+  slotIdentity <- hashStableName <$> (evaluate slot >>= makeStableName)
+  lifecycleEvent conns vmId "invalidate_lock_wait" ("slot_identity=" <> tshow slotIdentity)
   cached <- takeMVar slot
-  closeMaybe "explicit_invalidation" cached `finally` putMVar slot Nothing
+  ( do
+      lifecycleEvent conns vmId "invalidate_lock_acquired" ("slot_identity=" <> tshow slotIdentity)
+        `onException` closeMaybe "explicit_invalidation" cached
+      closeMaybe "explicit_invalidation" cached
+    )
+    `finally` putMVar slot Nothing
+  lifecycleEvent conns vmId "invalidate_complete" ""
+
+-- | Identifiers and source locations only; never format guest payloads.
+tshow :: (Show a) => a -> Text
+tshow = T.pack . show
+
+lifecycleEvent :: GuestAgentConns -> Int64 -> Text -> Text -> IO ()
+lifecycleEvent cache vmId event fields =
+  logQgaEvent (guestAgentLogger cache) LevelInfo event ("vm_id=" <> tshow vmId <> " " <> fields)

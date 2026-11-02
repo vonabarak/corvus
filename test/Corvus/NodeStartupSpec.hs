@@ -87,6 +87,10 @@ spec = describe "QEMU startup failures" $ do
           connected = any (Text.isInfixOf "event=connect_start") <$> readIORef messages
       probe
       connected `shouldReturn` False
+      initialLogs <- readIORef messages
+      initialLogs `shouldSatisfy` any (Text.isInfixOf "startup_pending=True")
+      initialLogs `shouldSatisfy` any (Text.isInfixOf "probe=False")
+      initialLogs `shouldSatisfy` any (Text.isInfixOf "runtime_generation=1 lifecycle_revision=1 qemu_pid=0")
 
       -- A QMP peer that accepts connections but never sends its greeting
       -- must not prevent the startup failure/readiness notification.
@@ -101,6 +105,9 @@ spec = describe "QEMU startup failures" $ do
       atomically $ writeTVar startupPending False
       probe
       connected `shouldReturn` True
+      readyLogs <- readIORef messages
+      readyLogs `shouldSatisfy` any (Text.isInfixOf "startup_pending=False")
+      readyLogs `shouldSatisfy` any (Text.isInfixOf "probe=True")
       writeIORef messages []
       atomically $ writeTVar startupError (Just "startup timed out")
       probe

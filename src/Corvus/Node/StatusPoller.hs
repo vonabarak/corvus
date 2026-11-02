@@ -40,8 +40,10 @@ import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM (atomically, readTVar, readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (forever)
-import Control.Monad.Logger (logWarnN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logWarnN, runStderrLoggingT)
 import qualified Corvus.Node.GuestAgent as NGA
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
+import Corvus.Node.GuestAgent.Transport (logQgaEvent)
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.NodeStats as NS
 import qualified Corvus.Node.ProcStats as PS
@@ -53,7 +55,7 @@ import Corvus.Rpc.Streams (callSink)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Word (Word32, Word64)
@@ -103,7 +105,7 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = do
     entries <-
       Async.forConcurrently
         (Map.toList vms)
-        (buildEntry cfg qgaConns subs clk)
+        (buildEntry "periodic" cfg qgaConns subs clk)
     -- Per-tick node observation: CPU/RAM/disk/load/kernel/version.
     -- The daemon-side sink stamps these into the 'Node' row and
     -- bumps 'nodeAgentHealthcheck'.
@@ -140,7 +142,7 @@ dispatchVm cfg qgaConns ledger subs vmId = do
     Nothing -> pure ()
     Just live -> do
       clk <- PS.getClkTck
-      entry <- buildEntry cfg qgaConns subs clk (vmId, live)
+      entry <- buildEntry "dispatch" cfg qgaConns subs clk (vmId, live)
       now <- millisNow
       stats <- NS.readNodeStats cfg
       let snapshot =
@@ -156,7 +158,8 @@ dispatchVm cfg qgaConns ledger subs vmId = do
 -- pings QGA + fetches network interfaces + samples resource
 -- counters.
 buildEntry
-  :: QemuConfig
+  :: T.Text
+  -> QemuConfig
   -> NGA.GuestAgentConns
   -> Subscribers
   -> Word32
@@ -164,7 +167,7 @@ buildEntry
   -- 'VmStats' sample so consumers can convert jiffies to seconds.
   -> (Int64, L.VmLiveState)
   -> IO (C.Parsed CGNA.VmStatusEntry)
-buildEntry cfg qgaConns subs clk (vmId, live) = do
+buildEntry origin cfg qgaConns subs clk (vmId, live) = do
   mExit <- readTVarIO (L.vlsLastExitCode live)
   (startupError, startupPending) <-
     atomically $
@@ -186,6 +189,29 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
           (zeroVmStats clk)
           startupError
     Nothing -> do
+      let spec = L.vlsSpec live
+          fields =
+            "vm_id="
+              <> shown vmId
+              <> " origin="
+              <> origin
+              <> " runtime_generation="
+              <> shown (VS.vsRuntimeGeneration spec)
+              <> " lifecycle_revision="
+              <> shown (VS.vsLifecycleRevision spec)
+              <> " qemu_pid="
+              <> shown qpid
+              <> " startup_pending="
+              <> shown startupPending
+              <> " startup_error_present="
+              <> shown (isJust startupError)
+              <> " startup_budget_ms="
+              <> shown (VS.vsWaitForGuestAgentMs spec)
+              <> " start_paused="
+              <> shown (VS.vsStartPaused spec)
+              <> " timeout_us=5000000"
+          event level name extra = logQgaEvent (guestAgentLogger qgaConns) level name (fields <> " " <> extra)
+      event LevelInfo "status_probe_decision" ("probe=" <> shown (not startupPending && isNothing startupError))
       -- A timed-out runtime stays errored even if QGA responds later.
       pingResult <-
         -- The startup coordinator has a boot-sized deadline. Let it finish
@@ -196,6 +222,15 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
           -- A streaming provisioner can hold that lock for several minutes.
           then E.try @E.SomeException (timeout 5000000 (NGA.guestPing qgaConns cfg vmId))
           else pure (Right (Just False))
+      event
+        (case pingResult of Right (Just _) -> LevelInfo; _ -> LevelWarn)
+        "status_ping_end"
+        ( "result=" <> case pingResult of
+            Right Nothing -> "outer_timeout"
+            Left _ -> "exception"
+            Right (Just True) -> "ready"
+            Right (Just False) -> if startupPending || isJust startupError then "skipped" else "unready"
+        )
       let ok = case pingResult of
             Right (Just b) -> b
             _ -> False
@@ -204,6 +239,10 @@ buildEntry cfg qgaConns subs clk (vmId, live) = do
         if ok
           then do
             r <- E.try @E.SomeException (timeout 5000000 (NGA.guestNetworkGetInterfaces qgaConns cfg vmId))
+            event
+              (case r of Right (Just _) -> LevelInfo; _ -> LevelWarn)
+              "status_network_end"
+              ("result=" <> case r of Right Nothing -> "outer_timeout"; Left _ -> "exception"; Right (Just _) -> "complete")
             pure $ case r of
               Right (Just (Just list)) -> list
               _ -> []
@@ -407,3 +446,6 @@ dispatchTimeoutMicros = 5000000
 
 millisNow :: IO Int64
 millisNow = round . (* 1000) <$> getPOSIXTime
+
+shown :: (Show a) => a -> T.Text
+shown = T.pack . show

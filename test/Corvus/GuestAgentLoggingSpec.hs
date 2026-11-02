@@ -10,8 +10,8 @@ import Control.Exception (AsyncException (ThreadKilled), bracket, throwIO)
 import qualified Control.Exception
 import Control.Monad (replicateM_, void)
 import Control.Monad.Logger (LogLevel (..))
-import Corvus.Node.GuestAgent (guestPing, guestShutdown)
 import Corvus.Node.GuestAgent.Connection
+import Corvus.Node.GuestAgent.Control (guestPing, guestShutdown)
 import Corvus.Node.GuestAgent.Transport
 import Corvus.Node.Runtime (getGuestAgentSocket)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
@@ -85,7 +85,14 @@ spec = describe "GuestAgent connection logs" $ do
         ["event=connect_start", "event=connect_complete", "event=sync_start", "event=sync_complete", "event=reuse", "sequence=3 command=guest-ping", "reason=lifecycle_release", "phase_elapsed_ms="]
       filter (contains "event=send_start" . pure) logs `shouldSatisfy` all ((== LevelDebug) . fst)
       filter ((>= LevelInfo) . fst) logs `shouldSatisfy` (not . contains "event=send_start")
-      logs `shouldSatisfy` all (T.isInfixOf "vm_id=42 connection_id=1" . snd)
+      logs `shouldSatisfy` all (T.isInfixOf "vm_id=42" . snd)
+      let socketLogs = filter (contains " connection_id=" . pure) logs
+      socketLogs `shouldSatisfy` all (T.isInfixOf "vm_id=42 connection_id=1" . snd)
+      logs `shouldSatisfy` contains "operation_id=1"
+      logs `shouldSatisfy` contains "operation_id=2"
+      logs `shouldSatisfy` contains "GuestAgentLoggingSpec.hs"
+      logs `shouldSatisfy` all (T.isInfixOf "thread_id=" . snd)
+      logs `shouldSatisfy` all (T.isInfixOf "monotonic_ns=" . snd)
 
   it "allocates another connection ID after invalidation" $ withFixture $ \cache config listener entries ->
     withAsync (replicateM_ 2 (bracket (fst <$> accept listener) close $ \peer -> handshake peer >> pingReply peer)) $ \server -> do
@@ -144,6 +151,48 @@ spec = describe "GuestAgent connection logs" $ do
       logs `shouldSatisfy` contains "event=operation_cancelled"
       logs `shouldSatisfy` contains "reason=cancelled"
       logs `shouldSatisfy` (not . contains "event=operation_timeout")
+
+  it "attributes cancellation while queued without closing the holder's socket" $ withFixture $ \cache config listener entries -> do
+    held <- newEmptyMVar
+    resume <- newEmptyMVar
+    withAsync (bracket (fst <$> accept listener) close $ \peer -> handshake peer >> pingReply peer) $ \server ->
+      withAsync
+        (withPersistentConn cache config 42 1 2000000 $ \_ -> putMVar held () >> takeMVar resume)
+        $ \holder -> do
+          takeMVar held
+          -- The outer deadline expires before the operation acquires the lock;
+          -- its own timeout has not started and the holder must be unaffected.
+          timeout 30000 (guestPing cache config 42) `shouldReturn` Nothing
+          logs <- entries
+          let cancelled = filter (contains "event=lock_wait_cancelled" . pure) logs
+          cancelled `shouldSatisfy` (not . null)
+          cancelled `shouldSatisfy` contains "operation_id=2"
+          logs `shouldSatisfy` (not . contains "event=close_start")
+          putMVar resume ()
+          wait holder `shouldReturn` Right ()
+          guestPing cache config 42 `shouldReturn` True
+          wait server
+          finalLogs <- entries
+          finalLogs `shouldSatisfy` contains "cached_connection_id=1"
+          finalLogs `shouldSatisfy` (not . contains "connection_id=2")
+
+  it "attributes external cancellation during synchronization and restores the slot" $ withFixture $ \cache config listener entries -> do
+    syncing <- newEmptyMVar
+    withAsync (bracket (fst <$> accept listener) close $ \peer -> void (readJson peer) >> putMVar syncing () >> (recv peer 1 `shouldReturn` "")) $ \server -> do
+      withAsync (withPersistentConn cache config 42 1 2000000 (const (pure ()))) $ \worker -> do
+        takeMVar syncing
+        cancel worker
+      wait server
+      logs <- entries
+      let cancelled = filter (contains "event=operation_cancelled" . pure) logs
+      cancelled `shouldSatisfy` contains "operation_id=1"
+      cancelled `shouldSatisfy` contains "command=guest-sync phase=receive"
+      logs `shouldSatisfy` contains "event=request_end"
+      logs `shouldSatisfy` (not . contains "event=operation_timeout")
+      slots <- readTVarIO (guestAgentSlots cache)
+      case Map.lookup 42 slots of
+        Just slot -> readMVar slot `shouldReturn` Nothing
+        Nothing -> expectationFailure "serialization slot disappeared"
 
   it "records connect errors and distinct attempts without exception payloads" $ withFixture $ \cache config _ entries -> do
     let missing = config {qcRuntimeDir = Just "/nonexistent-corvus-qga-test"}

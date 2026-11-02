@@ -23,10 +23,11 @@ import Data.Either (fromRight)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Stack (HasCallStack)
 
 -- | Ping is deliberately single-attempt: callers already poll. Its bounded
 -- receive prevents a dead QGA from delaying the health-check cadence.
-guestPing :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
+guestPing :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
 guestPing conns config vmId = do
   result <- withPersistentConn conns config vmId 1 15000000 $ \sock -> do
     sendQga sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]

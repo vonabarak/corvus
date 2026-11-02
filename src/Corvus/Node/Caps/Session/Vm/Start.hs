@@ -29,7 +29,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (withMVar)
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
@@ -50,6 +50,8 @@ import Corvus.Node.Caps.Session.Utils
   )
 import qualified Corvus.Node.Command as NC
 import qualified Corvus.Node.GuestAgent as NGA
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
+import Corvus.Node.GuestAgent.Transport (logQgaEvent)
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
 import Corvus.Node.SocketBuffer (startSocketBufferThread)
@@ -423,6 +425,7 @@ publishStartedVm :: SessionCap -> L.VmLiveState -> IO ()
 publishStartedVm sc live = do
   let spec = L.vlsSpec live
       vmId = VS.vsVmId spec
+  logStartupState sc live "runtime_publish_start"
   published <-
     atomically $
       L.publishVmStart
@@ -431,6 +434,7 @@ publishStartedVm sc live = do
         (VS.vsLifecycleRevision spec)
         (VS.vsRuntimeGeneration spec)
         live
+  logStartupState sc live (if published then "runtime_published" else "runtime_publish_rejected")
   unless published $ do
     stopUnwatchedVm live
     throwFailed ("vmStart rejected by a newer lifecycle fence for vmId " <> tshow vmId)
@@ -582,6 +586,7 @@ completeIncomingState sc cfg live savedStateFile = do
 -- timeout reports an error while retaining QEMU, and early exit tears down.
 awaitGuestAgent :: SessionCap -> QemuConfig -> L.VmLiveState -> IO ()
 awaitGuestAgent sc cfg live = do
+  logStartupState sc live "startup_coordinator_start"
   let spec = L.vlsSpec live
       vmId = VS.vsVmId spec
   result <-
@@ -595,6 +600,7 @@ awaitGuestAgent sc cfg live = do
   case result of
     FirstQgaPingSucceeded -> do
       atomically $ writeTVar (L.vlsStartupPending live) False
+      logStartupState sc live "startup_ready"
       runStderrLoggingT . logInfoN $
         "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
@@ -604,6 +610,7 @@ awaitGuestAgent sc cfg live = do
       atomically $ do
         writeTVar (L.vlsStartupError live) (Just reason)
         writeTVar (L.vlsStartupPending live) False
+      logStartupState sc live "startup_timeout"
       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
     FirstQgaPingQemuExited reason -> do
       runStderrLoggingT . logWarnN $
@@ -708,3 +715,30 @@ respawnAfterExit sc spec = do
           <> ": reboot-quirk re-spawn FAILED: "
           <> T.pack (show e)
           <> "; old entry marked errored so daemon will reconcile"
+
+-- | VM IDs survive restarts; record PID and generation to distinguish runtimes.
+logStartupState :: SessionCap -> L.VmLiveState -> Text -> IO ()
+logStartupState sc live event = do
+  (pending, failed) <- atomically $ (,) <$> readTVar (L.vlsStartupPending live) <*> readTVar (L.vlsStartupError live)
+  let spec = L.vlsSpec live
+  logQgaEvent
+    (guestAgentLogger (scQgaConns sc))
+    LevelInfo
+    event
+    ( "vm_id="
+        <> tshow (VS.vsVmId spec)
+        <> " runtime_generation="
+        <> tshow (VS.vsRuntimeGeneration spec)
+        <> " lifecycle_revision="
+        <> tshow (VS.vsLifecycleRevision spec)
+        <> " qemu_pid="
+        <> tshow (L.vlsQemuPid live)
+        <> " startup_pending="
+        <> tshow pending
+        <> " startup_error_present="
+        <> tshow (isJust failed)
+        <> " startup_budget_ms="
+        <> tshow (VS.vsWaitForGuestAgentMs spec)
+        <> " start_paused="
+        <> tshow (VS.vsStartPaused spec)
+    )

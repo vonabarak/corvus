@@ -59,9 +59,11 @@ import Capnp.Rpc (throwFailed)
 import Control.Concurrent (MVar, newMVar, threadDelay, withMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad.Logger (logDebugN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logDebugN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.GuestAgent as NGA
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
+import Corvus.Node.GuestAgent.Transport (logQgaEvent)
 import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
@@ -249,9 +251,23 @@ waitForFirstQgaPing
 waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
   let budgetSec = fromIntegral timeoutMs / 1000 :: Double
   start <- getMonotonicTime
-  loop (start + budgetSec)
+  event LevelInfo "startup_wait_start" ("timeout_ms=" <> tshow timeoutMs)
+  result <-
+    loop (start + budgetSec) (1 :: Int)
+      `E.onException` event LevelWarn "startup_wait_cancelled" "reason=exception_or_cancellation"
+  after <- getMonotonicTime
+  event
+    LevelInfo
+    "startup_wait_end"
+    ( "duration_ms="
+        <> tshow (floor ((after - start) * 1000) :: Integer)
+        <> " result="
+        <> case result of FirstQgaPingSucceeded -> "ready"; FirstQgaPingTimedOut _ -> "timeout"; FirstQgaPingQemuExited _ -> "qemu_exited"
+    )
+  pure result
   where
-    loop deadline = do
+    event level name fields = logQgaEvent (guestAgentLogger conns) level name ("vm_id=" <> tshow vmId <> " caller=startup_readiness " <> fields)
+    loop deadline attempt = do
       mExit <- readTVarIO exitVar
       case mExit of
         Just code -> FirstQgaPingQemuExited <$> earlyExitReason code
@@ -263,7 +279,12 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
               -- A QGA request can wait for its own internal timeout.
               -- Cap it at the remaining startup budget.
               let remainingUs = ceiling ((deadline - now) * 1000000)
+              event LevelInfo "startup_ping_start" ("attempt=" <> tshow attempt <> " outer_timeout_us=" <> tshow remainingUs)
               ping <- timeout remainingUs (NGA.guestPing conns cfg vmId)
+              event
+                (case ping of Nothing -> LevelWarn; _ -> LevelInfo)
+                "startup_ping_end"
+                ("attempt=" <> tshow attempt <> " result=" <> case ping of Nothing -> "outer_timeout"; Just True -> "ready"; Just False -> "unready")
               -- Re-check the reaper after the (potentially slow)
               -- ping attempt: 'guestPing' has its own ~15 s internal
               -- timeout, so QEMU could have died during the call.
@@ -276,7 +297,7 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
                     then pure $ FirstQgaPingTimedOut timeoutReason
                     else case ping of
                       Just True -> pure FirstQgaPingSucceeded
-                      _ -> threadDelay 200000 >> loop deadline
+                      _ -> threadDelay 200000 >> loop deadline (attempt + 1)
 
     timeoutReason =
       "guest agent did not respond within "
