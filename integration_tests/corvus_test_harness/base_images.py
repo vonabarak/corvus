@@ -1,7 +1,7 @@
 """Register pre-baked OS images with the inner Corvus daemon.
 
 The test image's `home-corvus-VMs-BaseImagesRO.mount` (baked in
-[`yaml/gentoo/systemd/corvus-test-node/`](../../yaml/gentoo/systemd/corvus-test-node/)) virtiofs-mounts
+[`yaml/gentoo/scripts/images/corvus-test-node/systemd/`](../../yaml/gentoo/scripts/images/corvus-test-node/systemd/)) virtiofs-mounts
 the host's `~/VMs/BaseImages` read-only at `/home/corvus/VMs/BaseImagesRO`
 inside the test VM. The node's own writable `BaseImages` holds test outputs.
 This module:

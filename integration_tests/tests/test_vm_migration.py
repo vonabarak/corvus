@@ -223,7 +223,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         if base_disk is None:
             pytest.skip(
                 "gentoo (corvus-test-vm) base image not registered — "
-                "run `make image IMAGE=vm` to bake it on the host"
+                "run `make image IMAGE=corvus-test-vm` to bake it on the host"
             )
         self.client_alpha.disks.create_overlay(
             overlay_name, base_disk, ephemeral=ephemeral_overlay

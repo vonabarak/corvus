@@ -195,27 +195,27 @@ templates:
       - <<: *root
         diskImage: corvus-test-node
 
-  - name: gentoo-cloud
+  - name: gentoo-glibc-systemd-upstream-cloudinit
     <<: *cloud
     # Upstream image does not include QGA; install it manually if needed.
     guestAgent: false
     drives:
       - <<: *root
-        diskImage: gentoo-cloud
+        diskImage: gentoo-glibc-systemd-upstream-cloudinit
       - *ovmf_code
       - *ovmf_vars
 
-  - name: gentoo-headless
+  - name: gentoo-glibc-systemd-headless
     <<: *defaults
     drives:
       - <<: *root
-        diskImage: gentoo-headless
+        diskImage: gentoo-glibc-systemd-headless
 
-  - name: gentoo-headless-cloudinit
+  - name: gentoo-glibc-systemd-headless-cloudinit
     <<: *cloud
     drives:
       - <<: *root
-        diskImage: gentoo-headless-cloudinit
+        diskImage: gentoo-glibc-systemd-headless-cloudinit
 
   - name: windows-server-2025-eval
     <<: *windows

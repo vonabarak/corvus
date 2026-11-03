@@ -1,0 +1,243 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Native runtime and offline cloud-init builds; keep package and sizing policies flavor-specific.
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
+pipeline:
+- build:
+    name: gentoo-glibc-systemd-headless
+    description: Minimal headless Gentoo with custom kernel (BIOS+UEFI, GPT, ext4) — no cloud-init
+    template: gentoo-glibc-systemd-builder-cloudinit-bake
+    strategy: from-scratch
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      size: 20G
+      path: BaseImages/Gentoo/
+      compact: true
+    vm:
+      cpuCount: 8
+      ram: 8G
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        IMAGE_LIBC: glibc
+        IMAGE_INIT: systemd
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+    provisioners:
+    - file:
+        from: ./scripts/images/gentoo-glibc-systemd-headless/build.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-headless/build.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/lib/disk.sh
+        to: /usr/local/lib/corvus-build/lib/disk.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/environment.sh
+        to: /usr/local/lib/corvus-build/lib/environment.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/image.sh
+        to: /usr/local/lib/corvus-build/lib/image.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/mounts.sh
+        to: /usr/local/lib/corvus-build/lib/mounts.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/portage.sh
+        to: /usr/local/lib/corvus-build/lib/portage.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/runtime.sh
+        to: /usr/local/lib/corvus-build/lib/runtime.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/stages/kernel/build-kernel.sh
+        to: /usr/local/lib/corvus-build/stages/kernel/build-kernel.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/stages/glibc/configure-root.sh
+        to: /usr/local/lib/corvus-build/stages/glibc/configure-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/stages/glibc/install-root.sh
+        to: /usr/local/lib/corvus-build/stages/glibc/install-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/workflows/build-runtime.sh
+        to: /usr/local/lib/corvus-build/workflows/build-runtime.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/stages/kernel/gentoo-kernel
+        to: /tmp/gentoo-kernel-config
+        mode: '0644'
+    - shell:
+        inline: /bin/bash /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-headless/build.sh
+        timeoutSec: 28800
+    cleanup: onSuccess
+- build:
+    name: gentoo-glibc-systemd-headless-cloudinit
+    description: gentoo-glibc-systemd-headless + cloud-init (NoCloud datasource)
+    template: gentoo-glibc-systemd-builder-cloudinit-bake
+    strategy: offline-overlay
+    sourceImage: gentoo-glibc-systemd-headless
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      path: BaseImages/Gentoo/
+      compact: true
+    vm:
+      cpuCount: 8
+      ram: 8G
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        IMAGE_LIBC: glibc
+        IMAGE_INIT: systemd
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+    provisioners:
+    - file:
+        from: ./scripts/images/gentoo-glibc-systemd-headless-cloudinit/build.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-headless-cloudinit/build.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/lib/environment.sh
+        to: /usr/local/lib/corvus-build/lib/environment.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/image.sh
+        to: /usr/local/lib/corvus-build/lib/image.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/mounts.sh
+        to: /usr/local/lib/corvus-build/lib/mounts.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/portage.sh
+        to: /usr/local/lib/corvus-build/lib/portage.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/runtime.sh
+        to: /usr/local/lib/corvus-build/lib/runtime.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/stages/install-cloud-init.sh
+        to: /usr/local/lib/corvus-build/stages/install-cloud-init.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/workflows/build-cloud-init.sh
+        to: /usr/local/lib/corvus-build/workflows/build-cloud-init.sh
+        mode: '0755'
+    - shell:
+        inline: /bin/bash /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-headless-cloudinit/build.sh
+        timeoutSec: 28800
+    cleanup: onSuccess
+- apply:
+    ifExists: overwrite
+    templates:
+    - name: gentoo-glibc-systemd-headless
+      cpuCount: 8
+      ram: 16G
+      cloudInit: false
+      guestAgent: true
+      headless: true
+      description: Gentoo headless (no cloud-init)
+      drives:
+      - diskImage: gentoo-glibc-systemd-headless
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 20G
+      networkInterfaces:
+      - network: corvus
+    - name: gentoo-glibc-systemd-headless-cloudinit
+      cpuCount: 8
+      ram: 16G
+      cloudInit: true
+      guestAgent: true
+      headless: true
+      description: Gentoo headless (with cloud-init)
+      drives:
+      - diskImage: gentoo-glibc-systemd-headless-cloudinit
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      networkInterfaces:
+      - network: corvus
+      sshKeys:
+      - name: corvus
+      cloudInitConfig:
+        userData:
+          runcmd:
+          - - passwd
+            - -d
+            - root
+    - name: gentoo-glibc-systemd-headless-uefi
+      cpuCount: 8
+      ram: 16G
+      cloudInit: false
+      guestAgent: true
+      headless: true
+      description: Gentoo headless UEFI (no cloud-init)
+      drives:
+      - diskImage: gentoo-glibc-systemd-headless
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 20G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+    - name: gentoo-glibc-systemd-headless-cloudinit-uefi
+      cpuCount: 8
+      ram: 16G
+      cloudInit: true
+      guestAgent: true
+      headless: true
+      description: Gentoo headless UEFI (with cloud-init)
+      drives:
+      - diskImage: gentoo-glibc-systemd-headless-cloudinit
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+      sshKeys:
+      - name: corvus
+      cloudInitConfig:
+        userData:
+          runcmd:
+          - - passwd
+            - -d
+            - root

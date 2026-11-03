@@ -16,6 +16,7 @@ from corvus_client._async.build import preprocess_build_yaml
 
 import yaml
 
+from .fixtures.gentoo_scripts import library_text
 from .fixtures.image_recipe_command import FILENAME, SHA256
 from .fixtures.image_recipes import RecipeRunner
 
@@ -30,7 +31,7 @@ class TestGentooRecipes:
         self, recipes: RecipeRunner
     ) -> None:
         directory = recipes.root / "yaml/gentoo"
-        source = directory / "gentoo-headless.yml"
+        source = directory / "gentoo-glibc-systemd-headless.yml"
         original = yaml.safe_load(source.read_text())
         expanded = yaml.safe_load(preprocess_build_yaml(str(source)))
         builds = {}
@@ -55,25 +56,29 @@ class TestGentooRecipes:
                 )
                 assert inline["shell"]["inline"] == expected
         assert set(builds) == {
-            "gentoo-headless",
-            "gentoo-headless-cloudinit",
+            "gentoo-glibc-systemd-headless",
+            "gentoo-glibc-systemd-headless-cloudinit",
         }
         scripts = [
             Path(item["shell"]["script"]).stem
-            for item in builds["gentoo-headless"]["provisioners"]
+            for item in builds["gentoo-glibc-systemd-headless"]["provisioners"]
             if "shell" in item and "script" in item["shell"]
         ]
         assert scripts == []
         assert any(
-            item.get("shell", {}).get("inline") == "/bin/bash /tmp/build-runtime.sh"
-            for item in builds["gentoo-headless"]["provisioners"]
+            item.get("shell", {}).get("inline")
+            == "/bin/bash /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-headless/build.sh"
+            for item in builds["gentoo-glibc-systemd-headless"]["provisioners"]
         )
 
-    @pytest.mark.parametrize("name", ["gentoo-headless", "gentoo-headless-cloudinit"])
+    @pytest.mark.parametrize(
+        "name",
+        ["gentoo-glibc-systemd-headless", "gentoo-glibc-systemd-headless-cloudinit"],
+    )
     def test_uefi_templates_share_os_images(
         self, recipes: RecipeRunner, name: str
     ) -> None:
-        source = recipes.root / "yaml/gentoo/gentoo-headless.yml"
+        source = recipes.root / "yaml/gentoo/gentoo-glibc-systemd-headless.yml"
         doc = yaml.safe_load(preprocess_build_yaml(str(source)))
         templates = {
             template["name"]: template
@@ -118,7 +123,10 @@ class TestGentooRecipes:
 
     @pytest.mark.parametrize("fail_mount", [False, True])
     def test_cache_mounts(self, recipes: RecipeRunner, fail_mount: bool) -> None:
-        script = (recipes.root / "yaml/gentoo/scripts/prepare-bake-host.sh").read_text()
+        script = (
+            recipes.root
+            / "yaml/gentoo/scripts/images/gentoo-glibc-systemd-builder-cloudinit/build.sh"
+        ).read_text()
         script = script.rsplit('main "$@"', 1)[0] + "\nmount_build_caches\n"
         log = recipes.root / "mounts"
         # Redirect mountpoints to the fixture and stub mounts, never mount on the host.
@@ -137,7 +145,7 @@ class TestGentooRecipes:
             env={
                 **os.environ,
                 "PATH": f"{recipes.bin}:{os.environ['PATH']}",
-                "CORVUS_BUILD_LIB": str(recipes.root / "yaml/gentoo/scripts/lib"),
+                "CORVUS_BUILD_SCRIPTS": str(recipes.root / "yaml/gentoo/scripts"),
                 "MOUNT_LOG": str(log),
             },
             capture_output=True,
@@ -164,10 +172,10 @@ class TestGentooRecipes:
     def test_node_cache_permissions(
         self, recipes: RecipeRunner, failure: str | None
     ) -> None:
-        script = (recipes.root / "yaml/gentoo/scripts/lib/build.sh").read_text()
+        script = library_text(recipes.root / "yaml/gentoo/scripts")
         cache = recipes.root / "cache"
         cache.mkdir()
-        script += '\ncheck_cache_writable "$1"\n'
+        script += '\nenvironment_check_cache_writable "$1"\n'
         commands = {}
         if failure == "directory":
             commands["mktemp"] = "exit 1"
@@ -199,19 +207,25 @@ class TestGentooRecipes:
         build = doc["pipeline"][0]["build"]
         runtime = doc["pipeline"][-1]["apply"]["templates"][0]
         assert not runtime.get("sharedDirs")
-        assert build["template"] == "gentoo-builder-bake"
+        assert build["template"] == "gentoo-glibc-systemd-builder-cloudinit-bake"
         assert build["strategy"] == "offline-overlay"
-        assert build["sourceImage"] == "gentoo-headless"
-        script = (source.parent / "scripts/build-test-node.sh").read_text()
+        assert build["sourceImage"] == "gentoo-glibc-systemd-headless"
+        script = (
+            source.parent / "scripts/images/corvus-test-node/build.sh"
+        ).read_text()
         assert "configure_target_caches" not in script
-        assert "clean_image_temporary_files" in script
+        assert "image_clean_temporary_files" in script
         assert script.index("install_node_packages\n") < script.index(
             "clean_node_build_files\n"
         )
         assert "--reinstall-atoms=dev-python/pycapnp" in script
 
     def test_repository_storage_policy(self, recipes: RecipeRunner) -> None:
-        for recipe in ("gentoo-builder", "gentoo-headless", "gentoo-test"):
+        for recipe in (
+            "gentoo-glibc-systemd-builder-cloudinit",
+            "gentoo-glibc-systemd-headless",
+            "gentoo-corvus-test",
+        ):
             source = recipes.root / f"yaml/gentoo/{recipe}.yml"
             assert (
                 yaml.safe_load(source.read_text())["vars"]["cache_dir"]
@@ -223,31 +237,30 @@ class TestGentooRecipes:
                     shares = template.get("sharedDirs", [])
                     assert all(share["tag"] == "corvus-cache" for share in shares)
                     if template["name"] in {
-                        "gentoo-headless",
-                        "gentoo-headless-cloudinit",
-                        "gentoo-headless-uefi",
-                        "gentoo-headless-cloudinit-uefi",
+                        "gentoo-glibc-systemd-headless",
+                        "gentoo-glibc-systemd-headless-cloudinit",
+                        "gentoo-glibc-systemd-headless-uefi",
+                        "gentoo-glibc-systemd-headless-cloudinit-uefi",
                     }:
                         assert not shares
                 if "build" not in step:
                     continue
                 build = step["build"]
                 if build["name"] == "gentoo-corvus-test":
-                    helper = (source.parent / "scripts/lib/build.sh").read_text()
-                    assert "mount_at /var/db/repos -t tmpfs tmpfs" in helper
-                    assert 'bind /var/db/repos "$root/var/db/repos"' in helper
+                    helper = library_text(source.parent / "scripts")
+                    assert "mounts_mount /var/db/repos -t tmpfs tmpfs" in helper
+                    assert 'mounts_bind /var/db/repos "$root/var/db/repos"' in helper
                     assert (
-                        'bind "/mnt/corvus-cache/$source" "$root/var/cache/$cache"'
+                        'mounts_bind "/mnt/corvus-cache/$source" "$root/var/cache/$cache"'
                         in helper
                     )
-                    assert (
-                        "-userfetch -userpriv"
-                        in (source.parent / "scripts/lib/build.sh").read_text()
+                    assert "-userfetch -userpriv" in library_text(
+                        source.parent / "scripts"
                     )
-                    assert 'ROOT="$root" emerge_packages --root-deps' in helper
+                    assert 'ROOT="$root" portage_emerge --root-deps' in helper
                     continue
                 env = build["shellDefaults"]["env"]
-                if build["name"] == "gentoo-builder":
+                if build["name"] == "gentoo-glibc-systemd-builder-cloudinit":
                     assert env["DISTDIR"] == "/mnt/corvus-cache/distfiles"
                     assert env["PKGDIR"] == "/mnt/corvus-cache/packages/x86-64"
                 else:
@@ -259,7 +272,7 @@ class TestGentooRecipes:
                     for item in build["provisioners"]
                     if "shell" in item
                 )
-                shell += "\n" + (source.parent / "scripts/lib/build.sh").read_text()
+                shell += "\n" + library_text(source.parent / "scripts")
                 shell += "\n" + "\n".join(
                     base64.b64decode(item["file"]["content"]).decode()
                     for item in build["provisioners"]
@@ -272,7 +285,10 @@ class TestGentooRecipes:
                 else:
                     assert "mount -t tmpfs tmpfs /var/db/repos" not in shell
                 assert "emerge-webrsync -k" in shell
-                if build["name"] in {"gentoo-builder", "gentoo-headless"}:
+                if build["name"] in {
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                }:
                     # Native BDEPENDs read the builder's configuration separately;
                     # shell environment overrides alone do not cover that root.
                     assert 'DISTDIR="/mnt/corvus-cache/distfiles"' in shell
@@ -336,7 +352,7 @@ class TestGentooRecipes:
             [
                 "bash",
                 "-eu",
-                str(recipes.root / "yaml/gentoo/scripts/install-cloud-init.sh"),
+                str(recipes.root / "yaml/gentoo/scripts/stages/install-cloud-init.sh"),
             ],
             env={
                 **os.environ,
@@ -345,7 +361,7 @@ class TestGentooRecipes:
                 "IMAGE_LIBC": libc,
                 "SYSROOT": "/invalid",
                 "PACKAGE_LOG": str(log),
-                "CORVUS_BUILD_LIB": str(recipes.root / "yaml/gentoo/scripts/lib"),
+                "CORVUS_BUILD_SCRIPTS": str(recipes.root / "yaml/gentoo/scripts"),
             },
             capture_output=True,
             text=True,
@@ -382,7 +398,13 @@ class TestGentooRecipes:
         assert "--buildpkg" in log.read_text().splitlines()
 
     @pytest.mark.parametrize(
-        "image", ["", "unknown", "gentoo", "gentoo-cloud gentoo-musl"]
+        "image",
+        [
+            "",
+            "unknown",
+            "gentoo",
+            "gentoo-glibc-systemd-upstream-cloudinit gentoo-musl-openrc-headless",
+        ],
     )
     def test_invalid_image_stops_before_external_commands(
         self, recipes: RecipeRunner, image: str
@@ -396,12 +418,18 @@ class TestGentooRecipes:
     @pytest.mark.parametrize(
         "image,pipeline",
         [
-            ("gentoo-cloud", "gentoo-cloud"),
-            ("gentoo-builder", "gentoo-builder"),
-            ("gentoo-musl-builder", "gentoo-musl-builder"),
-            ("gentoo-headless", "gentoo-headless"),
-            ("gentoo-musl", "gentoo-musl"),
-            ("gentoo-corvus-test", "gentoo-test"),
+            (
+                "gentoo-glibc-systemd-upstream-cloudinit",
+                "gentoo-glibc-systemd-upstream-cloudinit",
+            ),
+            (
+                "gentoo-glibc-systemd-builder-cloudinit",
+                "gentoo-glibc-systemd-builder-cloudinit",
+            ),
+            ("gentoo-musl-openrc-builder", "gentoo-musl-openrc-builder"),
+            ("gentoo-glibc-systemd-headless", "gentoo-glibc-systemd-headless"),
+            ("gentoo-musl-openrc-headless", "gentoo-musl-openrc-headless"),
+            ("gentoo-corvus-test", "gentoo-corvus-test"),
         ],
     )
     def test_check_inspects_exactly_the_recipe_outputs(
@@ -429,7 +457,7 @@ class TestGentooRecipes:
             "gentoo",
             "build",
             (
-                "IMAGE=gentoo-headless",
+                "IMAGE=gentoo-glibc-systemd-headless",
                 "BUILD_DEPENDENCIES=dependencies",
                 "IMAGE_POLICY=overwrite",
                 "GENTOO_CACHE_DIR=/srv/build cache",
@@ -440,68 +468,109 @@ class TestGentooRecipes:
         assert not any(call.command == "curl" for call in calls)
         builds = [call for call in calls if call.args[0] == "build"]
         assert len(builds) == 1
-        assert builds[0].args[1] == "gentoo-headless.yml"
+        assert builds[0].args[1] == "gentoo-glibc-systemd-headless.yml"
         assert "image_if_exists=overwrite" in builds[0].args
         assert "cache_dir=/srv/build cache" in builds[0].args
 
     @pytest.mark.parametrize(
         "recipe,target,variables,pipelines,policy",
         [
-            ("gentoo", "build", ("IMAGE=gentoo-cloud",), ["gentoo-cloud"], "update"),
             (
                 "gentoo",
                 "build",
-                ("IMAGE=gentoo-builder",),
-                ["gentoo-cloud", "gentoo-builder"],
+                ("IMAGE=gentoo-glibc-systemd-upstream-cloudinit",),
+                ["gentoo-glibc-systemd-upstream-cloudinit"],
+                "update",
+            ),
+            (
+                "gentoo",
+                "build",
+                ("IMAGE=gentoo-glibc-systemd-builder-cloudinit",),
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                ],
                 "update",
             ),
             (
                 "gentoo",
                 "build",
                 (),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless", "gentoo-test"],
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                    "gentoo-corvus-test",
+                ],
                 "update",
             ),
             (
                 "gentoo",
                 "build",
-                ("IMAGE=gentoo-headless",),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless"],
+                ("IMAGE=gentoo-glibc-systemd-headless",),
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                ],
                 "update",
             ),
             (
                 "gentoo",
                 "build",
                 ("IMAGE=gentoo-corvus-test",),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless", "gentoo-test"],
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                    "gentoo-corvus-test",
+                ],
                 "update",
             ),
             (
                 "gentoo",
                 "rebuild",
-                ("IMAGE=gentoo-headless",),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless"],
+                ("IMAGE=gentoo-glibc-systemd-headless",),
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                ],
                 "overwrite",
             ),
             (
                 "gentoo",
                 "rebuild",
                 ("IMAGE_POLICY=skip",),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless", "gentoo-test"],
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                    "gentoo-corvus-test",
+                ],
                 "overwrite",
             ),
             (
                 "",
                 "image",
-                ("IMAGE=gentoo-headless",),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless"],
+                ("IMAGE=gentoo-glibc-systemd-headless",),
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                ],
                 "update",
             ),
             (
                 "",
                 "image",
-                ("IMAGE=gentoo",),
-                ["gentoo-cloud", "gentoo-builder", "gentoo-headless", "gentoo-test"],
+                ("IMAGE=gentoo-corvus-test",),
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit",
+                    "gentoo-glibc-systemd-builder-cloudinit",
+                    "gentoo-glibc-systemd-headless",
+                    "gentoo-corvus-test",
+                ],
                 "update",
             ),
         ],
@@ -542,11 +611,11 @@ class TestGentooRecipes:
     @pytest.mark.parametrize(
         "image",
         [
-            "gentoo-cloud",
-            "gentoo-builder",
-            "gentoo-musl-builder",
-            "gentoo-headless",
-            "gentoo-musl",
+            "gentoo-glibc-systemd-upstream-cloudinit",
+            "gentoo-glibc-systemd-builder-cloudinit",
+            "gentoo-musl-openrc-builder",
+            "gentoo-glibc-systemd-headless",
+            "gentoo-musl-openrc-headless",
             "gentoo-corvus-test",
         ],
     )
@@ -565,53 +634,57 @@ class TestGentooRecipes:
         "image,missing,pipeline,downloads",
         [
             (
-                "gentoo-cloud",
-                "disk:gentoo-cloud",
-                "gentoo-cloud.yml",
+                "gentoo-glibc-systemd-upstream-cloudinit",
+                "disk:gentoo-glibc-systemd-upstream-cloudinit",
+                "gentoo-glibc-systemd-upstream-cloudinit.yml",
                 2,
             ),
             (
-                "gentoo-headless",
-                "disk:gentoo-headless",
-                "gentoo-headless.yml",
+                "gentoo-glibc-systemd-headless",
+                "disk:gentoo-glibc-systemd-headless",
+                "gentoo-glibc-systemd-headless.yml",
                 0,
             ),
             (
-                "gentoo-builder",
-                "disk:gentoo-builder",
-                "gentoo-builder.yml",
+                "gentoo-glibc-systemd-builder-cloudinit",
+                "disk:gentoo-glibc-systemd-builder-cloudinit",
+                "gentoo-glibc-systemd-builder-cloudinit.yml",
                 0,
             ),
             (
-                "gentoo-builder",
-                "template:gentoo-builder-bake",
-                "gentoo-builder.yml",
+                "gentoo-glibc-systemd-builder-cloudinit",
+                "template:gentoo-glibc-systemd-builder-cloudinit-bake",
+                "gentoo-glibc-systemd-builder-cloudinit.yml",
                 0,
             ),
             (
-                "gentoo-musl-builder",
-                "disk:gentoo-musl-builder",
-                "gentoo-musl-builder.yml",
+                "gentoo-musl-openrc-builder",
+                "disk:gentoo-musl-openrc-builder",
+                "gentoo-musl-openrc-builder.yml",
                 2,
             ),
             (
-                "gentoo-musl-builder",
-                "template:gentoo-musl-builder-bake",
-                "gentoo-musl-builder.yml",
+                "gentoo-musl-openrc-builder",
+                "template:gentoo-musl-openrc-builder-bake",
+                "gentoo-musl-openrc-builder.yml",
                 2,
             ),
-            ("gentoo-corvus-test", "disk:gentoo-corvus-test", "gentoo-test.yml", 0),
             (
                 "gentoo-corvus-test",
-                "template:gentoo-test-builder",
-                "gentoo-test.yml",
+                "disk:gentoo-corvus-test",
+                "gentoo-corvus-test.yml",
                 0,
             ),
-            ("gentoo-musl", "disk:gentoo-musl", "gentoo-musl.yml", 0),
             (
-                "gentoo-musl",
-                "template:gentoo-musl-cloudinit-uefi",
-                "gentoo-musl.yml",
+                "gentoo-musl-openrc-headless",
+                "disk:gentoo-musl-openrc-headless",
+                "gentoo-musl-openrc-headless.yml",
+                0,
+            ),
+            (
+                "gentoo-musl-openrc-headless",
+                "template:gentoo-musl-openrc-headless-cloudinit-uefi",
+                "gentoo-musl-openrc-headless.yml",
                 0,
             ),
         ],
@@ -642,14 +715,24 @@ class TestGentooRecipes:
             ({"DOWNLOAD_ERROR": "checksum"}, []),
             ({"INVALID_DOWNLOAD": "manifest"}, []),
             ({"INVALID_DOWNLOAD": "checksum"}, []),
-            ({"FAIL_BUILD": "gentoo-cloud.yml"}, ["gentoo-cloud.yml"]),
             (
-                {"FAIL_BUILD": "gentoo-builder.yml"},
-                ["gentoo-cloud.yml", "gentoo-builder.yml"],
+                {"FAIL_BUILD": "gentoo-glibc-systemd-upstream-cloudinit.yml"},
+                ["gentoo-glibc-systemd-upstream-cloudinit.yml"],
             ),
             (
-                {"FAIL_BUILD": "gentoo-headless.yml"},
-                ["gentoo-cloud.yml", "gentoo-builder.yml", "gentoo-headless.yml"],
+                {"FAIL_BUILD": "gentoo-glibc-systemd-builder-cloudinit.yml"},
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit.yml",
+                    "gentoo-glibc-systemd-builder-cloudinit.yml",
+                ],
+            ),
+            (
+                {"FAIL_BUILD": "gentoo-glibc-systemd-headless.yml"},
+                [
+                    "gentoo-glibc-systemd-upstream-cloudinit.yml",
+                    "gentoo-glibc-systemd-builder-cloudinit.yml",
+                    "gentoo-glibc-systemd-headless.yml",
+                ],
             ),
         ],
     )
@@ -672,10 +755,10 @@ class TestGentooRecipes:
     @pytest.mark.parametrize(
         "recipe",
         [
-            "gentoo/gentoo-cloud.yml",
-            "gentoo/gentoo-builder.yml",
-            "gentoo/gentoo-headless.yml",
-            "gentoo/gentoo-test.yml",
+            "gentoo/gentoo-glibc-systemd-upstream-cloudinit.yml",
+            "gentoo/gentoo-glibc-systemd-builder-cloudinit.yml",
+            "gentoo/gentoo-glibc-systemd-headless.yml",
+            "gentoo/gentoo-corvus-test.yml",
         ],
     )
     @pytest.mark.parametrize("policy", ["update", "skip", "overwrite"])
@@ -696,10 +779,10 @@ class TestGentooRecipes:
             for disk in step.get("apply", {}).get("disks", [])
             if "import" in disk
         ]
-        if source.name == "gentoo-cloud.yml":
+        if source.name == "gentoo-glibc-systemd-upstream-cloudinit.yml":
             assert import_variables <= doc["vars"].keys()
             assert [disk["name"] for disk in imports] == [
-                "gentoo-cloud:{{ gentoo_cloud_tag }}"
+                "gentoo-glibc-systemd-upstream-cloudinit:{{ gentoo_cloud_tag }}"
             ]
         else:
             assert import_variables.isdisjoint(doc["vars"])
@@ -725,7 +808,10 @@ class TestGentooRecipes:
                     assert disk["ifExists"] == policy
                     assert disk["checksum"]["value"] == SHA256
                     if disk.get("import"):
-                        assert disk["name"] == "gentoo-cloud:20261004T164559Z"
+                        assert (
+                            disk["name"]
+                            == "gentoo-glibc-systemd-upstream-cloudinit:20261004T164559Z"
+                        )
             if "build" in step:
                 build = step["build"]
                 assert build["target"]["ifExists"] == policy
@@ -737,8 +823,10 @@ class TestGentooRecipes:
                         kernel_inputs.append(
                             base64.b64decode(provisioner["file"]["content"])
                         )
-        if source.name == "gentoo-headless.yml":
-            assert kernel_inputs == [(source.parent / "gentoo-kernel").read_bytes()]
+        if source.name == "gentoo-glibc-systemd-headless.yml":
+            assert kernel_inputs == [
+                (source.parent / "scripts/stages/kernel/gentoo-kernel").read_bytes()
+            ]
 
 
 @pytest.mark.parametrize("usepkg", ["true", "false"])
@@ -759,7 +847,7 @@ def test_binary_controls_forwarded(
     ]
     assert len(builds) == 4
     for call in builds:
-        if "gentoo-cloud.yml" in call.args:
+        if "gentoo-glibc-systemd-upstream-cloudinit.yml" in call.args:
             continue
         assert f"USEPKG={usepkg}" in call.args
         assert f"GETBINPKG={getbinpkg}" in call.args
@@ -770,7 +858,7 @@ def test_binary_controls_declared_in_all_installing_recipes(
 ) -> None:
     directory = recipes.root / "yaml/gentoo"
     for recipe in directory.glob("*.yml"):
-        if recipe.stem == "gentoo-cloud":
+        if recipe.stem == "gentoo-glibc-systemd-upstream-cloudinit":
             continue
         original = yaml.safe_load(recipe.read_text())
         for name in ("USEPKG", "GETBINPKG"):

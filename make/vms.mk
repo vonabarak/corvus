@@ -7,7 +7,7 @@ image image-ensure image-clean image-rebuild image-check image-cache-clean image
 	+$(MAKE) -C yaml $@
 
 # Instantiate a one-off VM from the `corvus-test-node` template
-# (built by `make image IMAGE=node`), attach the developer's
+# (built by `make image IMAGE=corvus-test-node`), attach the developer's
 # freshly built binaries over virtiofs at the `corvus_host` tag —
 # matching the image's `opt-corvus-bin.mount` — and start it. The
 # `corvus_host` mount makes /opt/corvus/bin inside the VM the

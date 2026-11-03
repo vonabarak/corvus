@@ -468,7 +468,7 @@ class IntegrationTestCase:
         if not host_key_path.exists():
             raise RuntimeError(
                 f"SSH private key not found at {host_key_path} — "
-                "run `make image IMAGE=vm` to generate it"
+                "run `make image IMAGE=corvus-test-vm` to generate it"
             )
         node = self.nodes[node_index]
         if vm_tcp_port is not None:

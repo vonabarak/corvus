@@ -89,12 +89,16 @@ class TestImageRecipes:
         if recipe == "freebsd":
             expected = ["freebsd.yml"]
         if recipe == "corvus-test-node":
-            expected = ["gentoo-cloud.yml", "gentoo-builder.yml", "gentoo-headless.yml"]
+            expected = [
+                "gentoo-glibc-systemd-upstream-cloudinit.yml",
+                "gentoo-glibc-systemd-builder-cloudinit.yml",
+                "gentoo-glibc-systemd-headless.yml",
+            ]
         if recipe == "corvus-test-vm":
             expected = [
-                "gentoo-cloud.yml",
-                "gentoo-builder.yml",
-                "gentoo-musl-builder.yml",
+                "gentoo-glibc-systemd-upstream-cloudinit.yml",
+                "gentoo-glibc-systemd-builder-cloudinit.yml",
+                "gentoo-musl-openrc-builder.yml",
             ]
         if recipe.startswith("almalinux-"):
             expected = ["almalinux-10-media.yml"]
@@ -239,9 +243,9 @@ class TestImageRecipes:
     @pytest.mark.parametrize(
         "recipe,failed",
         [
-            ("corvus-test-node", "gentoo-cloud.yml"),
-            ("corvus-test-node", "gentoo-headless.yml"),
-            ("corvus-test-vm", "gentoo-musl-builder.yml"),
+            ("corvus-test-node", "gentoo-glibc-systemd-upstream-cloudinit.yml"),
+            ("corvus-test-node", "gentoo-glibc-systemd-headless.yml"),
+            ("corvus-test-vm", "gentoo-musl-openrc-builder.yml"),
             ("corvus-test-vm-alpine", "multi-os.yml"),
             ("almalinux-10-desktop", "almalinux-10-media.yml"),
             ("debian-nginx", "multi-os.yml"),
@@ -285,12 +289,12 @@ class TestImageRecipes:
         builds = publications(recipes)
         pipelines = [call.args[1] for call in builds]
         expected = [
-            "gentoo-cloud.yml",
-            "gentoo-builder.yml",
-            "gentoo-headless.yml",
-            "gentoo-test.yml",
-            "gentoo-musl-builder.yml",
-            "gentoo-musl.yml",
+            "gentoo-glibc-systemd-upstream-cloudinit.yml",
+            "gentoo-glibc-systemd-builder-cloudinit.yml",
+            "gentoo-glibc-systemd-headless.yml",
+            "gentoo-corvus-test.yml",
+            "gentoo-musl-openrc-builder.yml",
+            "gentoo-musl-openrc-headless.yml",
             "multi-os.yml",
             "freebsd.yml",
             "freebsd-headless.yml",
@@ -306,10 +310,10 @@ class TestImageRecipes:
             "corvus-monitor.yml",
         ]
         assert sorted(pipelines) == sorted(expected)
-        assert pipelines.index("gentoo-headless.yml") < pipelines.index(
+        assert pipelines.index("gentoo-glibc-systemd-headless.yml") < pipelines.index(
             "corvus-test-node.yml"
         )
-        assert pipelines.index("gentoo-musl-builder.yml") < pipelines.index(
+        assert pipelines.index("gentoo-musl-openrc-builder.yml") < pipelines.index(
             "corvus-test-vm.yml"
         )
         for consumer in (

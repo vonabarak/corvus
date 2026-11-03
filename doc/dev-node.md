@@ -16,7 +16,7 @@ The outer daemon must be running, with the
 `corvus-test-node` runtime template available. Networks referenced by that
 template must exist for instantiation (the shipped template references
 `corvus`); creation replaces its interfaces before boot. To prepare a missing test-node
-image and template, use `make image-ensure IMAGE=node`; see
+image and template, use `make image-ensure IMAGE=corvus-test-node`; see
 [Image builds](test-images.md) for prerequisites and image management.
 The VM targets do not build or refresh the test-node image themselves.
 
@@ -279,7 +279,7 @@ time within the dev node's memory budget.
 
 Cloud-init Linux and FreeBSD templates create user `corvus`, inject the
 `dev-node` SSH key, and set the test password to `corvus`. Linux templates use
-baked QGA or install and start it, except upstream `gentoo-cloud`: its template
+baked QGA or install and start it, except upstream `gentoo-glibc-systemd-upstream-cloudinit`: its template
 disables guest-agent readiness because the image does not include QGA.
 Install and configure QGA manually there, then enable the VM's guest-agent
 setting while stopped if you need `vm exec`.

@@ -1,0 +1,214 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Common builder; bootstrap runs before QGA can upload external scripts.
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
+pipeline:
+- apply:
+    ifExists: overwrite
+    templates:
+    - name: gentoo-glibc-systemd-builder-cloudinit-bootstrap
+      cpuCount: 8
+      ram: 8G
+      cloudInit: true
+      guestAgent: true
+      startupTimeoutSec: 1200
+      description: Bootstrap the common Gentoo builder from the official cloud image
+      cloudInitConfig:
+        userData:
+          bootcmd:
+          - - sh
+            - -ec
+            - |
+              set -eu
+              #!/bin/sh
+              # Cache and network helpers for disposable Gentoo build hosts.
+
+              # Wait for DNS before downloading repository metadata or packages.
+              wait_for_network() {
+                  for attempt in $(seq 1 60); do
+                      getent hosts distfiles.gentoo.org >/dev/null && return 0
+                      sleep 2
+                  done
+                  echo 'Network DNS did not become ready after 120 seconds' >&2
+                  return 1
+              }
+
+              # Test both directory creation and file writes through virtiofs.
+              check_cache_writable() (
+                  cache_path=$1
+                  probe=$(mktemp -d "$cache_path/.corvus-write-test.XXXXXX") || {
+                      echo "Cannot create directories in cache $cache_path; check host cache permissions for the user running virtiofsd." >&2
+                      exit 1
+                  }
+                  if ! (umask 077; : > "$probe/package"); then
+                      rmdir "$probe"
+                      echo "Cannot write files in cache $cache_path; check host cache permissions." >&2
+                      exit 1
+                  fi
+                  rm "$probe/package"
+                  rmdir "$probe"
+              )
+
+              # Mount the shared cache and expose the paths expected by native Portage.
+              mount_build_caches() {
+                  mkdir -p /mnt/corvus-cache
+                  mountpoint -q /mnt/corvus-cache || mount -t virtiofs corvus-cache /mnt/corvus-cache
+                  for cache in distfiles binpkgs binhost; do
+                      # Keep native Portage paths while matching Gentoo binpackage variants.
+                      case "$cache" in
+                          binpkgs) cache_source=packages/x86-64 ;;
+                          *) cache_source=$cache ;;
+                      esac
+                      mkdir -p "/mnt/corvus-cache/$cache_source" "/var/cache/$cache"
+                      mountpoint -q "/var/cache/$cache" || mount --bind "/mnt/corvus-cache/$cache_source" "/var/cache/$cache"
+                      check_cache_writable "/var/cache/$cache"
+                  done
+              }
+
+              mount_build_caches
+          runcmd:
+          - |
+            set -eu
+            export FEATURES="${FEATURES:-} -userfetch -userpriv binpkg-multi-instance parallel-fetch -binpkg-request-signature binpkg-ignore-signature -getbinpkg"
+            # Cloud-init can continue after bootcmd failure; fail before installing packages.
+            require_caches() {
+                for path in /mnt/corvus-cache /var/cache/distfiles /var/cache/binpkgs /var/cache/binhost; do
+                    mountpoint -q "$path" || exit 1
+                done
+            }
+
+            # Use the glibc binhost and shared package caches for guest-agent bootstrap.
+            configure_packages() {
+                sed -i -E '/^[[:space:]]*(export[[:space:]]+)?(FEATURES|EMERGE_DEFAULT_OPTS)[[:space:]]*=/d' /etc/portage/make.conf
+                cat >> /etc/portage/make.conf <<'EOF'
+            DISTDIR="/mnt/corvus-cache/distfiles"
+            PKGDIR="/mnt/corvus-cache/packages/x86-64"
+            GPG_VERIFY_USER_DROP=""
+            GPG_VERIFY_GROUP_DROP=""
+            EOF
+                mkdir -p /etc/portage/binrepos.conf
+                cat > /etc/portage/binrepos.conf/gentoo.conf <<'EOF'
+            [binhost]
+            location = /mnt/corvus-cache/binhost/x86-64
+            priority = 9999
+            sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
+            verify-signature = false
+            EOF
+            }
+
+            # Generate the Portage locale, sync metadata, and start the first guest agent.
+            install_guest_agent() {
+                LC_ALL=C localedef -i C -f UTF-8 C.UTF-8
+                emerge-webrsync -k
+                emerge --ignore-default-opts --buildpkg --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
+                systemctl enable --now qemu-guest-agent.service
+            }
+
+            require_caches
+            configure_packages
+            install_guest_agent
+      sharedDirs:
+      - path: '{{ cache_dir }}'
+        tag: corvus-cache
+      drives:
+      - diskImage: gentoo-glibc-systemd-upstream-cloudinit:latest
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+      sshKeys:
+      - name: corvus
+- build:
+    name: gentoo-glibc-systemd-builder-cloudinit
+    description: Gentoo bake host with builder tools pre-installed
+    template: gentoo-glibc-systemd-builder-cloudinit-bootstrap
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      size: 40G
+      path: BaseImages/Gentoo/
+      compact: true
+      ephemeral: true
+    strategy: overlay
+    vm:
+      cpuCount: 8
+      ram: 8G
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        FEATURES: -userfetch -userpriv
+        DISTDIR: /mnt/corvus-cache/distfiles
+        PKGDIR: /mnt/corvus-cache/packages/x86-64
+    provisioners:
+    - file:
+        from: ./scripts/images/gentoo-glibc-systemd-builder-cloudinit/build.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-builder-cloudinit/build.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/lib/environment.sh
+        to: /usr/local/lib/corvus-build/lib/environment.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/image.sh
+        to: /usr/local/lib/corvus-build/lib/image.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/mounts.sh
+        to: /usr/local/lib/corvus-build/lib/mounts.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/portage.sh
+        to: /usr/local/lib/corvus-build/lib/portage.sh
+        mode: '0644'
+    - shell:
+        inline: /bin/bash /usr/local/lib/corvus-build/images/gentoo-glibc-systemd-builder-cloudinit/build.sh
+        timeoutSec: 7680
+        env:
+          IMAGE_ROOT: /
+    cleanup: onSuccess
+- apply:
+    ifExists: overwrite
+    templates:
+    - name: gentoo-glibc-systemd-builder-cloudinit-bake
+      cpuCount: 8
+      ram: 8G
+      cloudInit: true
+      guestAgent: true
+      startupTimeoutSec: 1200
+      description: Glibc build host for runtime builds and musl builder bootstrap
+      sharedDirs:
+      - path: '{{ cache_dir }}'
+        tag: corvus-cache
+      drives:
+      - diskImage: gentoo-glibc-systemd-builder-cloudinit:latest
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+      sshKeys:
+      - name: corvus

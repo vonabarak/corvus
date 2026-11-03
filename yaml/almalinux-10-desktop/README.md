@@ -66,7 +66,7 @@ The real installation test requires only the node image and vendor DVD, not a
 prebuilt desktop:
 
 ```sh
-make image-ensure IMAGE=node
+make image-ensure IMAGE=corvus-test-node
 make image-ensure IMAGE=almalinux-10-media
 make integration-tests MATCH=TestBuildAlmaLinuxInstaller
 ```

@@ -25,7 +25,7 @@ def test_publication(
         recipe,
         target,
         (
-            "IMAGE=gentoo-musl",
+            "IMAGE=gentoo-musl-openrc-headless",
             f"IMAGE_POLICY={policy}",
             "GENTOO_CACHE_DIR=/srv/build cache",
         ),
@@ -37,10 +37,10 @@ def test_publication(
         if call.command == "crv" and call.args[0] == "build"
     ]
     assert [call.args[1] for call in builds] == [
-        "gentoo-cloud.yml",
-        "gentoo-builder.yml",
-        "gentoo-musl-builder.yml",
-        "gentoo-musl.yml",
+        "gentoo-glibc-systemd-upstream-cloudinit.yml",
+        "gentoo-glibc-systemd-builder-cloudinit.yml",
+        "gentoo-musl-openrc-builder.yml",
+        "gentoo-musl-openrc-headless.yml",
     ]
     assert f"image_if_exists={policy}" in builds[-1].args
     assert "cache_dir=/srv/build cache" in builds[-1].args
@@ -62,7 +62,10 @@ def test_bad_upstream_does_not_publish(
     recipes: RecipeRunner, resource: str, failure: str
 ) -> None:
     result = recipes.run(
-        "gentoo", "publish", ("IMAGE=gentoo-musl-builder",), env={failure: resource}
+        "gentoo",
+        "publish",
+        ("IMAGE=gentoo-musl-openrc-builder",),
+        env={failure: resource},
     )
     assert result.returncode != 0
     assert not any(call.command == "crv" for call in recipes.calls())
@@ -71,7 +74,7 @@ def test_bad_upstream_does_not_publish(
 def test_ensure_does_not_resolve_or_publish_present_images(
     recipes: RecipeRunner,
 ) -> None:
-    result = recipes.run("", "image-ensure", ("IMAGE=gentoo-musl",))
+    result = recipes.run("", "image-ensure", ("IMAGE=gentoo-musl-openrc-headless",))
     assert result.returncode == 0, result.stdout + result.stderr
     assert all(
         call.command == "crv" and call.args[0] != "build" for call in recipes.calls()
@@ -79,18 +82,28 @@ def test_ensure_does_not_resolve_or_publish_present_images(
 
 
 @pytest.mark.parametrize(
-    "failed", ["gentoo-cloud.yml", "gentoo-builder.yml", "gentoo-musl-builder.yml"]
+    "failed",
+    [
+        "gentoo-glibc-systemd-upstream-cloudinit.yml",
+        "gentoo-glibc-systemd-builder-cloudinit.yml",
+        "gentoo-musl-openrc-builder.yml",
+    ],
 )
 def test_failed_import_stops_derivative(recipes: RecipeRunner, failed: str) -> None:
     result = recipes.run(
-        "gentoo", "build", ("IMAGE=gentoo-musl",), env={"FAIL_BUILD": failed}
+        "gentoo",
+        "build",
+        ("IMAGE=gentoo-musl-openrc-headless",),
+        env={"FAIL_BUILD": failed},
     )
     assert result.returncode != 0
-    assert not any("gentoo-musl.yml" in call.args for call in recipes.calls())
+    assert not any(
+        "gentoo-musl-openrc-headless.yml" in call.args for call in recipes.calls()
+    )
 
 
 def test_offline_flavor_and_runtime_templates(recipes: RecipeRunner) -> None:
-    source = recipes.root / "yaml/gentoo/gentoo-musl.yml"
+    source = recipes.root / "yaml/gentoo/gentoo-musl-openrc-headless.yml"
     document = yaml.safe_load(preprocess_build_yaml(str(source)))
     base, cloudinit = [
         step["build"] for step in document["pipeline"] if "build" in step
@@ -98,7 +111,9 @@ def test_offline_flavor_and_runtime_templates(recipes: RecipeRunner) -> None:
     assert base["strategy"] == "from-scratch"
     assert cloudinit["strategy"] == "offline-overlay"
     assert cloudinit["sourceImage"] == base["name"]
-    assert base["template"] == cloudinit["template"] == "gentoo-musl-builder-bake"
+    assert (
+        base["template"] == cloudinit["template"] == "gentoo-musl-openrc-builder-bake"
+    )
     templates = document["pipeline"][-1]["apply"]["templates"]
     assert len(templates) == 4
     for template in templates:

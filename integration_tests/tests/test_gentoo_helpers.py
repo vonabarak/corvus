@@ -1,6 +1,7 @@
 """Run shared shell helpers against temporary roots, without mounting host disks."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -8,7 +9,53 @@ import pytest
 
 import yaml
 
+from .fixtures.gentoo_scripts import library_text, write_fake_libraries
+
 ROOT = Path(__file__).resolve().parents[2] / "yaml/gentoo"
+
+
+@pytest.fixture(autouse=True)
+def scripts_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORVUS_BUILD_SCRIPTS", str(ROOT / "scripts"))
+
+
+@pytest.mark.parametrize(
+    ("failures", "attempts", "status"), [(0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 3, 7)]
+)
+def test_repository_sync_retries(
+    tmp_path: Path, failures: int, attempts: int, status: int
+) -> None:
+    executable = tmp_path / "emerge"
+    executable.write_text(
+        "#!/bin/bash\n"
+        "set -eu\n"
+        '[[ ! ${ROOT+x} && ! ${SYSROOT+x} && "$*" == --sync ]]\n'
+        'count=0\n[[ ! -f "$SYNC_COUNT" ]] || read -r count < "$SYNC_COUNT"\n'
+        'count=$((count + 1))\nprintf "%s\\n" "$count" > "$SYNC_COUNT"\n'
+        "if (( count <= SYNC_FAILURES )); then exit 7; fi\n"
+    )
+    executable.chmod(0o755)
+    counter = tmp_path / "count"
+    result = subprocess.run(
+        [
+            "bash",
+            "-euc",
+            '. "$CORVUS_BUILD_SCRIPTS/lib/portage.sh"; portage_sync_repository',
+        ],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "ROOT": "/mnt/sysroot",
+            "SYSROOT": "/mnt/sysroot",
+            "SYNC_COUNT": str(counter),
+            "SYNC_FAILURES": str(failures),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == status, result.stderr
+    assert int(counter.read_text()) == attempts
+    assert result.stderr.count("retrying") == attempts - 1
 
 
 def test_library_sourcing_has_no_side_effects() -> None:
@@ -18,6 +65,7 @@ def test_library_sourcing_has_no_side_effects() -> None:
             "bash",
             "-euc",
             r"""
+module=
 before_variables= after_variables= before_options= before_traps= before_directory=
 before_variables=$(compgen -v)
 before_options=$(set +o)
@@ -25,23 +73,23 @@ trap ':' USR1
 before_traps=$(trap -p)
 before_directory=$PWD
 # An empty PATH catches external commands executed while loading the library.
-PATH= . "$1"
-PATH= . "$1"
+for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do PATH= . "$module"; done
+for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do PATH= . "$module"; done
 after_variables=$(compgen -v)
 [[ "$before_variables" == "$after_variables" ]]
 [[ "$before_options" == "$(set +o)" ]]
 [[ "$before_traps" == "$(trap -p)" ]]
 [[ "$before_directory" == "$PWD" ]]
-initialize_mount_tracking
+mounts_initialize
 [[ ${#mounts[@]} == 0 ]]
 mounts=(parent child)
-PATH= . "$1"
+for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do PATH= . "$module"; done
 [[ ${mounts[*]} == 'parent child' ]]
-initialize_mount_tracking
+mounts_initialize
 [[ ${#mounts[@]} == 0 ]]
 """,
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
         ],
         capture_output=True,
         text=True,
@@ -70,25 +118,48 @@ def test_recipe_script_and_library_provisioning() -> None:
                 assert source.is_file(), source
                 if "scripts/lib/" in provisioner["from"]:
                     libraries.append(provisioner)
-            # The cloud import has no shell library consumer.
-            if recipe.stem != "gentoo-cloud":
-                assert libraries == [
-                    {
-                        "from": "./scripts/lib/build.sh",
-                        "to": "/usr/local/lib/corvus-build/build.sh",
-                        "mode": "0644",
-                    },
-                ]
-    document = yaml.safe_load((ROOT / "gentoo-builder.yml").read_text())
-    build = next(step["build"] for step in document["pipeline"] if "build" in step)
-    shells = [item["shell"] for item in build["provisioners"] if "shell" in item]
-    assert shells == [
-        {
-            "inline": "/bin/bash /tmp/prepare-bake-host.sh",
-            "timeoutSec": 7680,
-            "env": {"IMAGE_ROOT": "/"},
-        }
-    ]
+            if recipe.stem != "gentoo-glibc-systemd-upstream-cloudinit":
+                assert libraries
+                assert len({item["to"] for item in files}) == len(files)
+                build = step["build"]
+                entry = f"images/{build['name']}/build.sh"
+                assert any(
+                    item["to"] == "/usr/local/lib/corvus-build/" + entry
+                    for item in files
+                )
+                assert any(
+                    item.get("shell", {}).get("inline")
+                    == "/bin/bash /usr/local/lib/corvus-build/" + entry
+                    for item in build["provisioners"]
+                )
+                destinations = {item["to"] for item in files}
+                for item in files:
+                    if "/scripts/" not in item["from"] or not item["from"].endswith(
+                        ".sh"
+                    ):
+                        continue
+                    body = (ROOT / item["from"]).read_text()
+                    env = build.get("shellDefaults", {}).get("env", {})
+                    libc = env.get("IMAGE_LIBC", "glibc")
+                    body = body.replace("${IMAGE_LIBC}", libc)
+                    for dependency in re.findall(
+                        r"(?:\$\{CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build\}|/usr/local/lib/corvus-build)/([\w/.-]+\.sh)",
+                        body,
+                    ):
+                        if (
+                            dependency.startswith("images/corvus-test-vm/")
+                            and env.get("IMAGE_PROFILE") != "test-vm"
+                        ):
+                            continue
+                        assert (
+                            "/usr/local/lib/corvus-build/" + dependency in destinations
+                        )
+                    relative = str(Path(item["from"]).relative_to("scripts"))
+                    assert item["to"] == "/usr/local/lib/corvus-build/" + relative
+                    is_library = relative.startswith("lib/") or relative.endswith(
+                        "/lib.sh"
+                    )
+                    assert item["mode"] == ("0644" if is_library else "0755")
 
 
 @pytest.mark.parametrize(
@@ -101,7 +172,9 @@ def test_builder_preparation_order_and_failure(tmp_path: Path, failure: str) -> 
         (tmp_path / directory).mkdir(parents=True, exist_ok=True)
     for directory in ("tmp", "var/tmp", "var/cache"):
         (tmp_path / directory / "sentinel").touch()
-    script = (ROOT / "scripts/prepare-bake-host.sh").read_text()
+    script = (
+        ROOT / "scripts/images/gentoo-glibc-systemd-builder-cloudinit/build.sh"
+    ).read_text()
     definitions = script.rsplit('main "$@"', 1)[0]
     result = subprocess.run(
         [
@@ -113,7 +186,7 @@ record_step() {
     printf '%s\n' "$1"
     if [[ "$1" == "$FAIL_STEP" ]]; then return 7; fi
 }
-wait_for_network() { record_step network; }
+environment_wait_for_network() { record_step network; }
 mount_build_caches() { record_step caches; }
 prepare_repository() {
     [[ ! -v ROOT && ! -v SYSROOT ]]
@@ -130,7 +203,7 @@ main
         ],
         env={
             **os.environ,
-            "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib"),
+            "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts"),
             "IMAGE_ROOT": str(tmp_path),
             "CORVUS_BUILD_NAME": "test-builder",
             "ROOT": "/invalid",
@@ -195,10 +268,10 @@ def test_boot_configuration(tmp_path: Path) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; write_target_fstab "$2"; '
-            'write_target_grub_config "$2" "Gentoo guest"',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; disk_write_fstab "$2"; '
+            'disk_write_grub_config "$2" "Gentoo guest"',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             str(tmp_path),
         ],
         check=True,
@@ -217,9 +290,9 @@ def test_missing_kernel_fails(tmp_path: Path) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; write_target_grub_config "$2" Gentoo',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; disk_write_grub_config "$2" Gentoo',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             str(tmp_path),
         ],
         check=False,
@@ -237,9 +310,9 @@ def test_grub_failure_stops_second_install(tmp_path: Path) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; install_target_grub /target /dev/example',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; disk_install_grub /target /dev/example',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
         ],
         env={
             **os.environ,
@@ -267,8 +340,14 @@ def test_kernel_archive_reused_and_config_invalidates(tmp_path: Path) -> None:
     version = tmp_path / "version"
     version.write_text("6.18")
     commands = {
-        "portageq": 'printf sys-kernel/gentoo-sources-; cat "$VERSION_FILE"\n',
-        "emerge": 'echo install >> "$INSTALL_LOG"\n',
+        "portageq": (
+            'test "$ROOT" = / && test "$SYSROOT" = / || exit 42\n'
+            'printf sys-kernel/gentoo-sources-; cat "$VERSION_FILE"\n'
+        ),
+        "emerge": (
+            'test "$ROOT" = / && test "${SYSROOT+x}" != x || exit 43\n'
+            'echo install >> "$INSTALL_LOG"\n'
+        ),
         "mountpoint": "exit 0\n",
         "make": """case " $* " in
   *" kernelrelease "*) echo 6.18-gentoo ;;
@@ -283,7 +362,7 @@ esac
         command = binary / name
         command.write_text("#!/bin/sh\n" + body)
         command.chmod(0o755)
-    script = (ROOT / "scripts/build-kernel.sh").read_text()
+    script = (ROOT / "scripts/stages/kernel/build-kernel.sh").read_text()
     script = script.replace("/usr/src", str(tmp_path / "sources"))
     script = script.replace("/tmp/gentoo-kernel-config", str(config))
     script = script.replace("/mnt/corvus-cache", str(cache))
@@ -292,7 +371,7 @@ esac
         "PATH": f"{binary}:{os.environ['PATH']}",
         "SYSROOT": str(target),
         "COMPILE_LOG": str(log),
-        "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib"),
+        "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts"),
         "VERSION_FILE": str(version),
         "INSTALL_LOG": str(tmp_path / "installs"),
     }
@@ -323,13 +402,13 @@ def test_finalization_trims_only_image_filesystems(tmp_path: Path) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; sync() { echo sync >> "$TRIM_LOG"; }; '
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; sync() { echo sync >> "$TRIM_LOG"; }; '
             "mountpoint() { return 0; }; "
             'fstrim() { test -s "$TRIM_ROOT/etc/corvus-image-info"; '
             'echo "$1" >> "$TRIM_LOG"; return 1; }; '
-            'finalize_image "$2" test-image',
+            'image_finalize "$2" test-image',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             str(tmp_path),
             str(log),
         ],
@@ -358,7 +437,7 @@ def test_scratch_cleanup_skips_only_tmpfs(tmp_path: Path, filesystem: str) -> No
             "bash",
             "-ec",
             r"""
-. "$1"
+for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done
 findmnt() {
     if [[ "$*" == *FSTYPE* ]]; then
         [[ "$3" == "$IMAGE_ROOT/tmp" ]] || return 1
@@ -367,10 +446,10 @@ findmnt() {
         printf '%s\n' "$IMAGE_ROOT/tmp"
     fi
 }
-clean_image_scratch_files "$IMAGE_ROOT"
+image_clean_scratch_files "$IMAGE_ROOT"
 """,
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
         ],
         env={**os.environ, "IMAGE_ROOT": str(tmp_path), "FILESYSTEM": filesystem},
         capture_output=True,
@@ -393,10 +472,10 @@ def test_cleanup_protects_mounted_cache(tmp_path: Path) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; findmnt() { printf "%s\n" "$CACHE/nested"; }; '
-            'clear_image_directory "$CACHE"',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; findmnt() { printf "%s\n" "$CACHE/nested"; }; '
+            'image_clear_directory "$CACHE"',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
         ],
         env={**os.environ, "CACHE": str(cache)},
         capture_output=True,
@@ -421,12 +500,12 @@ def test_mount_cleanup_preserves_failure_and_reverses_order(
         [
             "bash",
             "-ec",
-            'source "$1"; mount() { :; }; '
+            'source "$1/lib/mounts.sh"; mount() { :; }; '
             'umount() { echo "$1" >> "$MOUNT_LOG"; return "$UNMOUNT_STATUS"; }; '
-            'initialize_mount_tracking; trap cleanup EXIT; mount_at "$2/parent" device; '
-            'mount_at "$2/parent/child" device; exit "$BUILD_STATUS"',
+            'mounts_initialize; trap mounts_cleanup EXIT; mounts_mount "$2/parent" device; '
+            'mounts_mount "$2/parent/child" device; exit "$BUILD_STATUS"',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             str(tmp_path),
         ],
         env={
@@ -454,8 +533,8 @@ def test_runtime_recipe_alignment() -> None:
     documents = {
         flavor: yaml.safe_load((ROOT / recipe).read_text())
         for flavor, recipe in (
-            ("glibc", "gentoo-headless.yml"),
-            ("musl", "gentoo-musl.yml"),
+            ("glibc", "gentoo-glibc-systemd-headless.yml"),
+            ("musl", "gentoo-musl-openrc-headless.yml"),
         )
     }
     user_data = []
@@ -469,14 +548,14 @@ def test_runtime_recipe_alignment() -> None:
             cloud["template"]
             == base["template"]
             == (
-                "gentoo-builder-bake"
+                "gentoo-glibc-systemd-builder-cloudinit-bake"
                 if flavor == "glibc"
-                else "gentoo-musl-builder-bake"
+                else "gentoo-musl-openrc-builder-bake"
             )
         )
-        for build, entry in (
-            (base, "build-runtime.sh"),
-            (cloud, "build-cloud-init.sh"),
+        for build, _entry in (
+            (base, "workflows/build-runtime.sh"),
+            (cloud, "workflows/build-cloud-init.sh"),
         ):
             env = build["shellDefaults"]["env"]
             assert env["IMAGE_LIBC"] == flavor
@@ -484,7 +563,7 @@ def test_runtime_recipe_alignment() -> None:
             assert env["IMAGE_ROOT"] == "/mnt/sysroot"
             assert env["TARGET_DISK"] == "/dev/vdb"
             assert build["provisioners"][-1]["shell"] == {
-                "inline": f"/bin/bash /tmp/{entry}",
+                "inline": f"/bin/bash /usr/local/lib/corvus-build/images/{build['name']}/build.sh",
                 "timeoutSec": 28800,
             }
         for step in document["pipeline"]:
@@ -497,7 +576,7 @@ def test_runtime_recipe_alignment() -> None:
         document = yaml.safe_load(recipe.read_text())
         for step in document["pipeline"]:
             for template in step.get("apply", {}).get("templates", []):
-                assert template["name"] != "gentoo-headless-bake"
+                assert template["name"] != "gentoo-glibc-systemd-headless-bake"
                 for drive in template.get("drives", []):
                     if drive.get("interface") != "pflash":
                         assert drive["cacheType"] == "writeback"
@@ -513,13 +592,13 @@ def test_native_workspace_cache_isolation(tmp_path: Path) -> None:
             [
                 "bash",
                 "-euc",
-                '. "$CORVUS_BUILD_LIB/build.sh"\n'
-                "wait_for_network() { :; }\n"
+                '. "$CORVUS_BUILD_SCRIPTS/lib/environment.sh"\n'
+                "environment_wait_for_network() { :; }\n"
                 "mkdir() { :; }\n"
                 "mountpoint() { return 0; }\n"
-                'check_cache_writable() { printf "%s\\n" "$1"; }\n'
-                'refresh_build_repository() { test -z "${ROOT+x}"; test -z "${SYSROOT+x}"; }\n'
-                "prepare_workspace\n"
+                'environment_check_cache_writable() { printf "%s\\n" "$1"; }\n'
+                'portage_refresh_repository() { test -z "${ROOT+x}"; test -z "${SYSROOT+x}"; }\n'
+                "environment_prepare_workspace\n"
                 'printf "%s\\n" "$DISTDIR" "$PKGDIR"',
             ],
             env={
@@ -527,7 +606,7 @@ def test_native_workspace_cache_isolation(tmp_path: Path) -> None:
                 "ROOT": "/invalid",
                 "SYSROOT": "/invalid",
                 "IMAGE_LIBC": flavor,
-                "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib"),
+                "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts"),
             },
             capture_output=True,
             text=True,
@@ -546,26 +625,30 @@ def test_offline_entry_failure_cleanup(tmp_path: Path) -> None:
     """Both entry points stop on installer failure and preserve every tracked mount."""
     library = tmp_path / "lib"
     library.mkdir()
-    (library / "build.sh").write_text(
-        (ROOT / "scripts/lib/build.sh").read_text() + "\n"
-        "prepare_workspace() { :; }\n"
-        "partition_target_disk() { :; }\n"
-        "mount_target_disk() { mounts+=(root efi proc); }\n"
+    write_fake_libraries(
+        library,
+        library_text(ROOT / "scripts") + "\n"
+        "environment_prepare_workspace() { :; }\n"
+        "disk_partition() { :; }\n"
+        "mounts_target_disk() { mounts+=(root efi proc); }\n"
         'umount() { echo "$1" >> "$LOG"; }\n'
-        'finish_runtime() { echo published >> "$LOG"; }\n'
+        'runtime_finish() { echo published >> "$LOG"; }\n',
     )
-    for entry, installer in (
-        ("build-runtime.sh", "install-glibc-root.sh"),
-        ("build-cloud-init.sh", "install-cloud-init.sh"),
+    for entry, _installer in (
+        ("workflows/build-runtime.sh", "stages/glibc/install-root.sh"),
+        ("workflows/build-cloud-init.sh", "stages/install-cloud-init.sh"),
     ):
         log = tmp_path / entry
-        (tmp_path / installer).write_text("#!/bin/sh\nexit 7\n")
-        script = (ROOT / "scripts" / entry).read_text().replace("/tmp/", f"{tmp_path}/")
+        script = (ROOT / "scripts" / entry).read_text()
+        for rel in ("stages/glibc/install-root.sh", "stages/install-cloud-init.sh"):
+            target = library / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("#!/bin/sh\nexit 7\n")
         result = subprocess.run(
             ["bash", "-c", script],
             env={
                 **os.environ,
-                "CORVUS_BUILD_LIB": str(library),
+                "CORVUS_BUILD_SCRIPTS": str(library),
                 "IMAGE_LIBC": "glibc",
                 "IMAGE_INIT": "systemd",
                 "IMAGE_ROOT": "/unused",
@@ -587,9 +670,9 @@ def test_binhost_configuration_is_libc_specific(tmp_path: Path) -> None:
             [
                 "bash",
                 "-ec",
-                '. "$1"; configure_binhost "$2" "$3"',
+                'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; portage_configure_binhost "$2" "$3"',
                 "bash",
-                str(ROOT / "scripts/lib/build.sh"),
+                str(ROOT / "scripts"),
                 libc,
                 str(root),
             ],
@@ -607,9 +690,9 @@ def test_binhost_configuration_is_libc_specific(tmp_path: Path) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; configure_binhost invalid "$2"',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; portage_configure_binhost invalid "$2"',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             str(invalid),
         ],
         capture_output=True,
@@ -627,7 +710,7 @@ def test_musl_bootstrap_binhost_and_minimal_policy(tmp_path: Path) -> None:
     (config / "make.conf").write_text(
         'FEATURES="getbinpkg"\nEMERGE_DEFAULT_OPTS="--usepkgonly"\nMAKEOPTS="-j2"\n'
     )
-    script = (ROOT / "scripts/build-musl-builder.sh").read_text()
+    script = (ROOT / "scripts/images/gentoo-musl-openrc-builder/build.sh").read_text()
     definitions = script.rsplit('main "$@"', 1)[0]
     subprocess.run(
         [
@@ -637,7 +720,7 @@ def test_musl_bootstrap_binhost_and_minimal_policy(tmp_path: Path) -> None:
             "bash",
             str(tmp_path),
         ],
-        env={**os.environ, "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib")},
+        env={**os.environ, "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts")},
         check=True,
         capture_output=True,
     )
@@ -655,20 +738,22 @@ def test_musl_bootstrap_binhost_and_minimal_policy(tmp_path: Path) -> None:
     binhost = (config / "binrepos.conf/zz-corvus-cache.conf").read_text()
     assert "binhost/x86-64_musl\n" in binhost
     # The same namespace works before and after boot; detach it before cleaning.
-    assert 'bind /mnt/corvus-cache "$work/mnt/corvus-cache"' in script
+    assert 'mounts_bind /mnt/corvus-cache "$work/mnt/corvus-cache"' in script
     assert script.index('umount "$work/mnt/corvus-cache"') < script.index(
-        'clean_image_temporary_files "$IMAGE_ROOT"'
+        'image_clean_temporary_files "$IMAGE_ROOT"'
     )
 
 
 def run_test_builder(code: str, *args: str) -> subprocess.CompletedProcess[str]:
     """Exercise entrypoint functions without invoking its main or privileged tools."""
     definitions = (
-        (ROOT / "scripts/build-test-offline.sh").read_text().rsplit('main "$@"', 1)[0]
+        (ROOT / "scripts/images/gentoo-corvus-test/build.sh")
+        .read_text()
+        .rsplit('main "$@"', 1)[0]
     )
     return subprocess.run(
         ["bash", "-euc", definitions + "\nset +x\n" + code, "bash", *args],
-        env={**os.environ, "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib")},
+        env={**os.environ, "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts")},
         capture_output=True,
         text=True,
     )
@@ -698,7 +783,6 @@ install_development_packages
     assert result.stdout.splitlines() == [
         "policy /",
         f"policy {tmp_path}",
-        "ROOT=/ emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --noreplace --buildpkg --quiet-build dev-vcs/git",
         f"ROOT={tmp_path} emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --root-deps --noreplace --buildpkg --quiet-build dev-vcs/git",
         "ROOT=unset emerge --sync",
         f"ROOT={tmp_path} emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --root-deps --buildpkg --quiet-build --onlydeps app-emulation/corvus",
@@ -717,10 +801,10 @@ root=$1
 systemctl() { printf '%s\n' "$*"; }
 configure_target_caches
 write_package_policy "$root"
-configure_vde_service
-configure_vde_network
-configure_nat
-configure_dhcp
+vde_network_configure_service
+vde_network_configure_network
+vde_network_configure_nat
+vde_network_configure_dhcp
 configure_login_banner
 """,
         str(root),
@@ -749,6 +833,7 @@ configure_login_banner
     assert not (root / "etc/nftables.conf").exists()
     assert "nftables" in result.stdout
     assert "dnsmasq" in result.stdout
+    assert "\nbind-dynamic\n" in (root / "etc/dnsmasq.conf").read_text()
 
 
 @pytest.mark.parametrize("failure", ["none", "install", "postgres", "stop", "unmount"])
@@ -761,29 +846,29 @@ def test_development_build_cleanup(tmp_path: Path, failure: str) -> None:
         r"""
 export LOG=$1 FAILURE=$2 IMAGE_ROOT=$3
 export ROOT=/incorrect SYSROOT=/incorrect PORTAGE_CONFIGROOT=/incorrect
-check_build_prerequisites() {
+corvus_build_check_prerequisites() {
     [[ ! ${ROOT+x} && ! ${SYSROOT+x} && ! ${PORTAGE_CONFIGROOT+x} ]]
 }
-prepare_build_mounts() { workspace=$IMAGE_ROOT/workspace; mounts=(root run); }
+corvus_build_prepare_mounts() { workspace=$IMAGE_ROOT/workspace; mounts=(root run); }
 configure_target_caches() { :; }
 install_development_packages() { [[ $FAILURE != install ]] || return 17; }
-initialize_postgres() {
+postgres_initialize() {
     postgres_active=true
     [[ $FAILURE != postgres ]] || return 19
-    stop_postgres
+    postgres_stop
 }
 chroot() { echo stop >> "$LOG"; [[ $FAILURE != stop ]] || return 23; }
-unmount_tracked() {
+mounts_unmount() {
     echo "unmount ${mounts[*]}" >> "$LOG"
     [[ $FAILURE != unmount ]] || return 29
 }
-configure_vde_service() { :; }
-configure_vde_network() { :; }
-configure_nat() { :; }
-configure_dhcp() { :; }
+vde_network_configure_service() { :; }
+vde_network_configure_network() { :; }
+vde_network_configure_nat() { :; }
+vde_network_configure_dhcp() { :; }
 configure_login_banner() { :; }
 write_test_metadata() { :; }
-finalize_image() { echo finalize >> "$LOG"; }
+image_finalize() { echo finalize >> "$LOG"; }
 main
 """,
         str(log),
@@ -829,7 +914,7 @@ chroot() {
 }
 export -f chroot
 systemctl() { printf 'service %s\n' "$*"; }
-initialize_postgres
+postgres_initialize
 [[ $postgres_active == false ]]
 """,
         str(tmp_path),
@@ -857,12 +942,12 @@ def test_development_workspace_allows_unprivileged_sync(tmp_path: Path) -> None:
 root=$1/root
 expected_workspace=$1/workspace
 mktemp() { printf '%s\n' "$expected_workspace"; }
-mount_at() { :; }
-prepare_workspace() { :; }
-mount_target_disk() { :; }
-bind() { :; }
-configure_glibc_caches() { :; }
-prepare_build_mounts
+mounts_mount() { :; }
+environment_prepare_workspace() { :; }
+mounts_target_disk() { :; }
+mounts_bind() { :; }
+portage_configure_glibc_caches() { :; }
+corvus_build_prepare_mounts
 [[ $PORTAGE_TMPDIR == "$expected_workspace" ]]
 """,
         str(tmp_path),
@@ -874,7 +959,9 @@ prepare_build_mounts
 def test_node_kernel_checks_artifact_not_helper(tmp_path: Path) -> None:
     """Offline validation follows the artifact symlink, regardless of helper uname."""
     definitions = (
-        (ROOT / "scripts/build-test-node.sh").read_text().rsplit('main "$@"', 1)[0]
+        (ROOT / "scripts/images/corvus-test-node/build.sh")
+        .read_text()
+        .rsplit('main "$@"', 1)[0]
     )
     (tmp_path / "boot").mkdir()
     (tmp_path / "boot/vmlinuz").symlink_to("vmlinuz-6.12.1-gentoo")
@@ -894,7 +981,7 @@ def test_node_kernel_checks_artifact_not_helper(tmp_path: Path) -> None:
                 "bash",
                 str(tmp_path),
             ],
-            env={**os.environ, "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib")},
+            env={**os.environ, "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts")},
             capture_output=True,
             text=True,
         )
@@ -904,7 +991,9 @@ def test_node_kernel_checks_artifact_not_helper(tmp_path: Path) -> None:
 def test_node_configuration_preserves_runtime_policy(tmp_path: Path) -> None:
     """Only harness-independent services start; debug files retain runtime expansion."""
     definitions = (
-        (ROOT / "scripts/build-test-node.sh").read_text().rsplit('main "$@"', 1)[0]
+        (ROOT / "scripts/images/corvus-test-node/build.sh")
+        .read_text()
+        .rsplit('main "$@"', 1)[0]
     )
     # Redirect only upload staging; all generated target paths stay beneath the fixture.
     staging = tmp_path / "staging/systemd"
@@ -927,7 +1016,7 @@ configure_node_debugging
             "bash",
             str(root),
         ],
-        env={**os.environ, "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib")},
+        env={**os.environ, "CORVUS_BUILD_SCRIPTS": str(ROOT / "scripts")},
         capture_output=True,
         text=True,
     )
@@ -967,10 +1056,11 @@ def test_runtime_cleanup_is_profile_scoped(tmp_path: Path, profile: str) -> None
         [
             "bash",
             "-euc",
-            '. "$1"; clean_image_temporary_files() { :; }; '
-            "reset_image_identity() { :; }; finalize_image() { :; }; finish_runtime",
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; image_clean_temporary_files() { :; }; '
+            "image_reset_identity() { :; }; image_finalize() { :; }; "
+            'runtime_verify; if [[ "$IMAGE_PROFILE" == test-vm ]]; then test_vm_finish; fi; runtime_finish',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
         ],
         env={
             **os.environ,
@@ -1006,9 +1096,9 @@ def test_test_vm_verifies_packages_before_removing_records(
         [
             "bash",
             "-euc",
-            '. "$1"; finish_runtime',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; runtime_verify; test_vm_finish',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
         ],
         env={
             **os.environ,
@@ -1028,11 +1118,11 @@ def test_test_vm_verifies_packages_before_removing_records(
 @pytest.mark.parametrize(
     "entry",
     [
-        "build-runtime.sh",
-        "build-cloud-init.sh",
-        "build-musl-builder.sh",
-        "build-test-offline.sh",
-        "build-test-node.sh",
+        "workflows/build-runtime.sh",
+        "workflows/build-cloud-init.sh",
+        "images/gentoo-musl-openrc-builder/build.sh",
+        "images/gentoo-corvus-test/build.sh",
+        "images/corvus-test-node/build.sh",
     ],
 )
 @pytest.mark.parametrize("signal,status", [("HUP", 129), ("INT", 130), ("TERM", 143)])
@@ -1045,30 +1135,31 @@ def test_build_interrupt_preserves_resources(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "sentinel").touch()
-    log = tmp_path / "cleanup"
-    (library / "build.sh").write_text(
-        (ROOT / "scripts/lib/build.sh").read_text()
+    log = tmp_path / "mounts_cleanup"
+    write_fake_libraries(
+        library,
+        library_text(ROOT / "scripts")
         + r"""
-initialize_mount_tracking() { mounts=(root run); }
+mounts_initialize() { mounts=(root run); }
 interrupt_build() {
     workspace=$WORKSPACE
     postgres_active=true
     kill -s "$SIGNAL" "$$"
     exit 99
 }
-prepare_workspace() { interrupt_build; }
-check_build_prerequisites() { interrupt_build; }
-stop_postgres() { echo stop >> "$LOG"; }
+environment_prepare_workspace() { interrupt_build; }
+corvus_build_check_prerequisites() { interrupt_build; }
+postgres_stop() { echo stop >> "$LOG"; }
 umount() { echo unmount >> "$LOG"; }
 cloud-init() { :; }
 export -f cloud-init
-"""
+""",
     )
     result = subprocess.run(
         ["bash", str(ROOT / "scripts" / entry)],
         env={
             **os.environ,
-            "CORVUS_BUILD_LIB": str(library),
+            "CORVUS_BUILD_SCRIPTS": str(library),
             "IMAGE_ROOT": "/unused",
             "TARGET_DISK": "/unused",
             "IMAGE_INIT": "systemd",
@@ -1088,14 +1179,14 @@ export -f cloud-init
 def test_bind_isolates_mount_events_and_tracks_before_propagation(
     tmp_path: Path, propagation_status: int
 ) -> None:
-    """Even a bind whose propagation setup fails remains tracked for inspection."""
+    """Even a mounts_bind whose propagation setup fails remains tracked for inspection."""
     result = subprocess.run(
         [
             "bash",
             "-euc",
             r"""
-. "$1"
-initialize_mount_tracking
+for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done
+mounts_initialize
 mount() {
     printf '%s\n' "$*"
     if [[ $1 == --make-rprivate ]]; then
@@ -1103,10 +1194,10 @@ mount() {
         return "$PROPAGATION_STATUS"
     fi
 }
-bind /source "$2/target"
+mounts_bind /source "$2/target"
 """,
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             str(tmp_path),
         ],
         env={**os.environ, "PROPAGATION_STATUS": str(propagation_status)},
@@ -1166,9 +1257,9 @@ def test_emerge_binary_policy(
         [
             "bash",
             "-ec",
-            '. "$1"; shift; emerge_packages "$@"',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; shift; portage_emerge "$@"',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             "--oneshot",
             "package with space",
         ],
@@ -1199,9 +1290,9 @@ def test_emerge_rejects_invalid_policy(name: str, value: str) -> None:
         [
             "bash",
             "-ec",
-            '. "$1"; shift; emerge_packages "$@"',
+            'for module in "$1"/lib/*.sh "$1"/images/corvus-test-vm/lib.sh; do . "$module"; done; shift; portage_emerge "$@"',
             "bash",
-            str(ROOT / "scripts/lib/build.sh"),
+            str(ROOT / "scripts"),
             "category/package",
         ],
         env={**os.environ, name: value},
@@ -1214,7 +1305,9 @@ def test_emerge_rejects_invalid_policy(name: str, value: str) -> None:
 
 
 def test_bootstrap_guest_agent_always_uses_binary_packages(tmp_path: Path) -> None:
-    document = yaml.safe_load((ROOT / "gentoo-builder.yml").read_text())
+    document = yaml.safe_load(
+        (ROOT / "gentoo-glibc-systemd-builder-cloudinit.yml").read_text()
+    )
     template = document["pipeline"][0]["apply"]["templates"][0]
     script = template["cloudInitConfig"]["userData"]["runcmd"][0]
     definitions = script.rsplit("\nrequire_caches", 1)[0]
@@ -1244,3 +1337,41 @@ def test_bootstrap_guest_agent_always_uses_binary_packages(tmp_path: Path) -> No
     assert "--getbinpkg" in lines
     assert "--ignore-default-opts" in lines
     assert "--buildpkg" in lines
+
+
+def test_builder_package_ownership() -> None:
+    """Native tools are prepared once; target packages remain image-specific."""
+    glibc = (
+        ROOT / "scripts/images/gentoo-glibc-systemd-builder-cloudinit/build.sh"
+    ).read_text()
+    musl = (
+        ROOT / "scripts/images/gentoo-musl-openrc-builder/prepare-root.sh"
+    ).read_text()
+    assert "dev-vcs/git" in glibc
+    for builder in (glibc, musl):
+        assert "dev-python/gpep517" in builder
+        assert "dev-python/setuptools" in builder
+    for image in ("gentoo-corvus-test", "corvus-test-node"):
+        script = (ROOT / f"scripts/images/{image}/build.sh").read_text()
+        assert "command -v git" in script
+        assert "ROOT=/ portage_emerge" not in script
+        assert "dev-vcs/git" in script
+    installer = (ROOT / "scripts/stages/install-cloud-init.sh").read_text()
+    assert "dev-python/gpep517" not in installer
+    assert "dev-python/installer" not in installer
+    assert "dev-libs/glib" in musl
+    assert (
+        "dev-libs/glib"
+        not in (ROOT / "scripts/stages/musl/install-root.sh").read_text()
+    )
+
+
+def test_development_uses_shared_builder() -> None:
+    document = yaml.safe_load((ROOT / "gentoo-corvus-test.yml").read_text())
+    build = document["pipeline"][0]["build"]
+    assert build["template"] == "gentoo-glibc-systemd-builder-cloudinit-bake"
+    assert build["sourceImage"] == "gentoo-glibc-systemd-headless-cloudinit"
+    assert build["vm"] == {"cpuCount": 8, "ram": "16G"}
+    assert all(
+        not step.get("apply", {}).get("templates") for step in document["pipeline"]
+    )

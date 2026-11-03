@@ -1,7 +1,7 @@
 # Select a complete recipe, including its cloud-init variants and templates.
 .DEFAULT_GOAL := all
 IMAGE ?= gentoo-corvus-test
-IMAGES := gentoo-cloud gentoo-builder gentoo-musl-builder gentoo-headless gentoo-musl gentoo-corvus-test corvus-test-node corvus-test-vm
+IMAGES := gentoo-glibc-systemd-upstream-cloudinit gentoo-glibc-systemd-builder-cloudinit gentoo-musl-openrc-builder gentoo-glibc-systemd-headless gentoo-musl-openrc-headless gentoo-corvus-test corvus-test-node corvus-test-vm
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
@@ -9,36 +9,35 @@ ifneq ($(filter $(IMAGES),$(IMAGE)),$(IMAGE))
 $(error Unknown IMAGE '$(IMAGE)'. Use: $(IMAGES))
 endif
 
-PIPELINE_gentoo-builder := gentoo-builder.yml
-PIPELINE_gentoo-musl := gentoo-musl.yml
-PIPELINE_gentoo-headless := gentoo-headless.yml
-PIPELINE_gentoo-corvus-test := gentoo-test.yml
+PIPELINE_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-cloudinit.yml
+PIPELINE_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless.yml
+PIPELINE_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless.yml
+PIPELINE_gentoo-corvus-test := gentoo-corvus-test.yml
 PIPELINE_corvus-test-vm := corvus-test-vm.yml
 PIPELINE_corvus-test-node := corvus-test-node.yml
 
-DISKS_gentoo-cloud := gentoo-cloud
-DISKS_gentoo-builder := gentoo-builder
-DISKS_gentoo-headless := gentoo-headless gentoo-headless-cloudinit
-DISKS_gentoo-musl-builder := gentoo-musl-builder
-DISKS_gentoo-musl := gentoo-musl gentoo-musl-cloudinit
+DISKS_gentoo-glibc-systemd-upstream-cloudinit := gentoo-glibc-systemd-upstream-cloudinit
+DISKS_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-cloudinit
+DISKS_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit
+DISKS_gentoo-musl-openrc-builder := gentoo-musl-openrc-builder
+DISKS_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless gentoo-musl-openrc-headless-cloudinit
 DISKS_gentoo-corvus-test := gentoo-corvus-test
 DISKS_corvus-test-vm := corvus-test-vm
 DISKS_corvus-test-node := corvus-test-node
 
-TEMPLATES_gentoo-builder := gentoo-builder-bootstrap gentoo-builder-bake
-TEMPLATES_gentoo-headless := gentoo-headless gentoo-headless-cloudinit gentoo-headless-uefi gentoo-headless-cloudinit-uefi
-TEMPLATES_gentoo-musl-builder := gentoo-musl-builder-bake
-TEMPLATES_gentoo-musl := gentoo-musl gentoo-musl-cloudinit gentoo-musl-uefi gentoo-musl-cloudinit-uefi
-TEMPLATES_gentoo-corvus-test := gentoo-test-builder
+TEMPLATES_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-cloudinit-bootstrap gentoo-glibc-systemd-builder-cloudinit-bake
+TEMPLATES_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit gentoo-glibc-systemd-headless-uefi gentoo-glibc-systemd-headless-cloudinit-uefi
+TEMPLATES_gentoo-musl-openrc-builder := gentoo-musl-openrc-builder-bake
+TEMPLATES_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless gentoo-musl-openrc-headless-cloudinit gentoo-musl-openrc-headless-uefi gentoo-musl-openrc-headless-cloudinit-uefi
 TEMPLATES_corvus-test-node := corvus-test-node
 
-PARENT_gentoo-builder := gentoo-cloud
-PARENT_gentoo-headless := gentoo-builder
-PARENT_gentoo-musl-builder := gentoo-builder
-PARENT_gentoo-musl := gentoo-musl-builder
-PARENT_gentoo-corvus-test := gentoo-headless
-PARENT_corvus-test-vm := gentoo-musl-builder
-PARENT_corvus-test-node := gentoo-headless
+PARENT_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-upstream-cloudinit
+PARENT_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-builder-cloudinit
+PARENT_gentoo-musl-openrc-builder := gentoo-glibc-systemd-builder-cloudinit
+PARENT_gentoo-musl-openrc-headless := gentoo-musl-openrc-builder
+PARENT_gentoo-corvus-test := gentoo-glibc-systemd-headless
+PARENT_corvus-test-vm := gentoo-musl-openrc-builder
+PARENT_corvus-test-node := gentoo-glibc-systemd-headless
 
 PIPELINE := $(PIPELINE_$(IMAGE))
 DISKS := $(DISKS_$(IMAGE))
@@ -90,7 +89,7 @@ LATEST_SHA256_SH = "$(CURL)" -fsS "$(GENTOO_AUTOBUILDS)/$(GENTOO_BRANCH)/$${file
     | awk -v file="$${file}" 'length($$1) == 64 && $$2 == file {print $$1; exit}'
 
 # Recipes with upstream downloads resolve a filename and its matching checksum.
-ifeq ($(IMAGE),gentoo-musl-builder)
+ifeq ($(IMAGE),gentoo-musl-openrc-builder)
 MUSL_BASE := $(GENTOO_AUTOBUILDS)/current-stage3-amd64-musl-openrc
 publish:
 	@file=$$( "$(CURL)" -fsS "$(MUSL_BASE)/latest-stage3-amd64-musl-openrc.txt" \
@@ -99,10 +98,10 @@ publish:
 	sha256=$$( "$(CURL)" -fsS "$(MUSL_BASE)/$$file.sha256" \
 	  | awk -v file="$$file" 'length($$1) == 64 && $$1 !~ /[^0-9a-fA-F]/ && ($$2 == file || $$2 == "*" file) {print $$1; exit}' ); \
 	if [ -z "$$sha256" ]; then echo "ERROR: invalid musl stage3 SHA256" >&2; exit 1; fi; \
-	"$(CRV)" build gentoo-musl-builder.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) \
+	"$(CRV)" build gentoo-musl-openrc-builder.yml $(BUILD_ARGS) --var image_if_exists=$(IMAGE_POLICY) \
 	  --var musl_stage3_url="$(MUSL_BASE)/$$file" --var musl_stage3_sha256="$$sha256" --wait
 
-else ifeq ($(IMAGE),gentoo-cloud)
+else ifeq ($(IMAGE),gentoo-glibc-systemd-upstream-cloudinit)
 publish:
 	@file=$$( $(LATEST_FILE_SH) ); \
 	if [ -z "$$file" ]; then \
@@ -123,7 +122,7 @@ publish:
 	echo "Latest Gentoo cloud-init URL: $$url"; \
 	echo "Latest Gentoo cloud-init tag: $$tag"; \
 	echo "Latest Gentoo cloud-init SHA256: $$sha256"; \
-	"$(CRV)" build gentoo-cloud.yml --var image_if_exists=$(IMAGE_POLICY) --var gentoo_cloud_url="$$url" --var gentoo_cloud_tag="$$tag" --var gentoo_cloud_sha256="$$sha256" --wait
+	"$(CRV)" build gentoo-glibc-systemd-upstream-cloudinit.yml --var image_if_exists=$(IMAGE_POLICY) --var gentoo_cloud_url="$$url" --var gentoo_cloud_tag="$$tag" --var gentoo_cloud_sha256="$$sha256" --wait
 
 endif
 

@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Build dependencies through the Gentoo Makefile before running this recipe.
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
+
+pipeline:
+  - build:
+      name: gentoo-corvus-test
+      description: Gentoo image preloaded with everything Corvus builds against
+      template: gentoo-glibc-systemd-builder-cloudinit-bake
+      strategy: offline-overlay
+      sourceImage: gentoo-glibc-systemd-headless-cloudinit
+      vm:
+        cpuCount: 8
+        ram: 16G
+      target:
+        ifExists: '{{ image_if_exists }}'
+        compact: true
+      shellDefaults:
+        preamble: set -eux
+        env:
+          USEPKG: '{{ USEPKG }}'
+          GETBINPKG: '{{ GETBINPKG }}'
+      provisioners:
+      - file:
+          from: ./scripts/images/gentoo-corvus-test/build.sh
+          to: /usr/local/lib/corvus-build/images/gentoo-corvus-test/build.sh
+          mode: '0755'
+      - file:
+          from: ./scripts/lib/corvus-build.sh
+          to: /usr/local/lib/corvus-build/lib/corvus-build.sh
+          mode: '0644'
+      - file:
+          from: ./scripts/lib/environment.sh
+          to: /usr/local/lib/corvus-build/lib/environment.sh
+          mode: '0644'
+      - file:
+          from: ./scripts/lib/image.sh
+          to: /usr/local/lib/corvus-build/lib/image.sh
+          mode: '0644'
+      - file:
+          from: ./scripts/lib/mounts.sh
+          to: /usr/local/lib/corvus-build/lib/mounts.sh
+          mode: '0644'
+      - file:
+          from: ./scripts/lib/portage.sh
+          to: /usr/local/lib/corvus-build/lib/portage.sh
+          mode: '0644'
+      - file:
+          from: ./scripts/lib/postgres.sh
+          to: /usr/local/lib/corvus-build/lib/postgres.sh
+          mode: '0644'
+      - file:
+          from: ./scripts/lib/vde-network.sh
+          to: /usr/local/lib/corvus-build/lib/vde-network.sh
+          mode: '0644'
+      - shell:
+          inline: /bin/bash /usr/local/lib/corvus-build/images/gentoo-corvus-test/build.sh
+          timeoutSec: 18000
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      vms:
+        - name: gentoo-corvus-test
+          cpuCount: 8
+          ram: 16G
+          cloudInit: true
+          guestAgent: true
+          headless: true
+          description: Test Gentoo VM for Corvus
+          drives:
+            - disk: gentoo-corvus-test
+              interface: virtio
+              cacheType: writeback
+              discard: true
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - corvus
+          cloudInitConfig:
+            userData:
+              runcmd:
+                - [passwd, -d, root]
+              users:
+                - name: corvus
+                  groups: [kvm]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+          sharedDirs:
+            - path: '{{ cache_dir }}'
+              tag: corvus-cache

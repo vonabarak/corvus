@@ -7,11 +7,11 @@ with `make images`, remove local intermediates with `make images-clean`, or publ
 
 ```sh
 make image-list
-make image IMAGE=node
-make image-ensure IMAGE=node
-make image-check IMAGE=node
-make image-clean IMAGE=node
-make image-rebuild IMAGE=node
+make image IMAGE=corvus-test-node
+make image-ensure IMAGE=corvus-test-node
+make image-check IMAGE=corvus-test-node
+make image-clean IMAGE=corvus-test-node
+make image-rebuild IMAGE=corvus-test-node
 make image-cache-clean IMAGE=installer
 ```
 
@@ -47,17 +47,17 @@ VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 
 All Gentoo recipes share `yaml/gentoo/` and its Makefile, kernel configuration,
 and `scripts/` provisioners. The Corvus development image builds from
-`gentoo-headless`. The default `build` target runs the full chain. Manage the stages
+`gentoo-glibc-systemd-headless`. The default `build` target runs the full chain. Manage the stages
 with `IMAGE` (default: `gentoo-corvus-test`):
 
 ```sh
-make -C yaml/gentoo build IMAGE=gentoo-cloud
-make -C yaml/gentoo build IMAGE=gentoo-builder
-make -C yaml/gentoo build IMAGE=gentoo-musl-builder
-make -C yaml/gentoo build IMAGE=gentoo-headless
+make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-upstream-cloudinit
+make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-builder-cloudinit
+make -C yaml/gentoo build IMAGE=gentoo-musl-openrc-builder
+make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-headless
 make -C yaml/gentoo build IMAGE=gentoo-corvus-test
-make image IMAGE=gentoo-headless
-make image IMAGE=gentoo
+make image IMAGE=gentoo-glibc-systemd-headless
+make image IMAGE=gentoo-corvus-test
 ```
 
 Use the same selector with `ensure`, `publish`, `rebuild`, `check`, `clean`,
@@ -65,10 +65,10 @@ and `cache-clean`. Each selector covers the complete recipe and its templates;
 headless and musl recipes include both base and cloud-init variants.
 `publish` submits only the selected recipe; `build` refreshes dependencies first.
 
-Ordinary Gentoo builds use `ifExists: update`. `build IMAGE=gentoo-cloud`
+Ordinary Gentoo builds use `ifExists: update`. `build IMAGE=gentoo-glibc-systemd-upstream-cloudinit`
 fetches the current upstream manifest and the SHA256 for its selected filename.
 An unchanged checksum reuses the imported image without downloading it again.
-`build IMAGE=gentoo-headless` checks that import first, then evaluates the
+`build IMAGE=gentoo-glibc-systemd-headless` checks that import first, then evaluates the
 builder, headless, and headless cloud-init builds in order.
 `build IMAGE=gentoo-corvus-test` evaluates that whole chain before the
 development image. Each build skips when its stored metadata matches the
@@ -78,14 +78,14 @@ intermediate causes dependent builds to rebuild. See
 
 The Gentoo pipelines use official Gentoo mirrors and a writable
 virtiofs cache; the build host does not need Gentoo or a Portage tree. The
-`gentoo-cloud.yml` recipe owns the upstream import, tagged with the timestamp
-in Gentoo's filename. `gentoo-builder.yml` prepares `gentoo-builder` and the
-common `gentoo-builder-bake` template, then `gentoo-headless.yml` builds
-`gentoo-headless` from scratch, then adds cloud-init with `offline-overlay`
+`gentoo-glibc-systemd-upstream-cloudinit.yml` recipe owns the upstream import, tagged with the timestamp
+in Gentoo's filename. `gentoo-glibc-systemd-builder-cloudinit.yml` prepares `gentoo-glibc-systemd-builder-cloudinit` and the
+common `gentoo-glibc-systemd-builder-cloudinit-bake` template, then `gentoo-glibc-systemd-headless.yml` builds
+`gentoo-glibc-systemd-headless` from scratch, then adds cloud-init with `offline-overlay`
 using that same external builder.
 The base runtime is never booted as a cloud-init build host.
 Both headless image flavors support BIOS and UEFI boot. The
-`gentoo-headless-uefi` and `gentoo-headless-cloudinit-uefi` templates share the
+`gentoo-glibc-systemd-headless-uefi` and `gentoo-glibc-systemd-headless-cloudinit-uefi` templates share the
 same OS images as their respective BIOS templates and use independent clones
 of the registered `ovmf-vars` firmware image alongside read-only `ovmf-code`.
 Each OS disk uses GPT: partition 1 is a 1 MiB BIOS boot partition, partition 2
@@ -97,8 +97,8 @@ not require preconfigured firmware boot entries.
 
 Rebuild previously published headless images and their development/test-node
 derivatives before using this layout; existing images with root on partition 2
-are not converted. Use `make image-rebuild IMAGE=gentoo` for the headless and
-development chain, then `make image-rebuild IMAGE=node` for the test node.
+are not converted. Use `make image-rebuild IMAGE=gentoo-corvus-test` for the headless and
+development chain, then `make image-rebuild IMAGE=corvus-test-node` for the test node.
 
 Gentoo runtime builds share finalization: clear disposable files, reset clone
 identity, write image metadata, flush writes, and trim the root and mounted EFI
@@ -121,19 +121,11 @@ recreated after a later failure. Cleanup failures can leave partially released
 resources; inspect the remaining mounts before removing any workspace. Use a
 fresh helper for another build rather than rerunning over preserved mounts.
 
-Both recipes use `build-runtime.sh` and `build-cloud-init.sh`, with explicit
-`IMAGE_LIBC`, `IMAGE_INIT`, `IMAGE_ROOT`, and `TARGET_DISK` inputs. Shared
-`lib/build.sh` contains all shared helpers, grouped by responsibility, and only
-declares functions when sourced. Bash callers explicitly initialize mount tracking
-before installing cleanup traps or mounting filesystems. Each consuming build stage
-provisions this library once. The glibc builder uses `prepare-bake-host.sh` to prepare
-caches, configure Portage, install/update tools, and finalize the live overlay in
-one ordered step; a failed preparation phase prevents finalization. Matching
-`install-{glibc,musl}-root.sh` and `configure-{glibc,musl}-root.sh` scripts own
-package and guest configuration differences. The cloud-init installer uses native
-`ROOT` installation for both libraries, leaving build dependencies on the helper.
-All Gentoo templates use explicit `writeback` caching for OS disks; firmware
-policies are unchanged. Resource sizes and package sets remain flavor-specific.
+Each image has a dedicated entry point under `scripts/images/<image>/`.
+Shared workflows, stages, and responsibility-based libraries live under
+`scripts/workflows/`, `scripts/stages/`, and `scripts/lib/` respectively.
+See the [Gentoo development rules](../yaml/gentoo/README.md) for naming,
+script ownership, package ownership, and the entry-point inventory.
 
 Both runtimes refresh repository metadata before package selection and use UTC,
 localhost defaults, locked root passwords, and fresh machine/SSH identities.
@@ -145,26 +137,26 @@ Builder and standalone development user-data retain their separate policies.
 Locale handling, service setup, package sets, and musl documentation/toolchain
 removal remain specific to each image.
 
-The independent `gentoo-musl.yml` pipeline builds a smaller musl/OpenRC runtime:
+The independent `gentoo-musl-openrc-headless.yml` pipeline builds a smaller musl/OpenRC runtime:
 
 ```sh
-make image IMAGE=gentoo-musl
-make image-ensure IMAGE=gentoo-musl
-make image-rebuild IMAGE=gentoo-musl
+make image IMAGE=gentoo-musl-openrc-headless
+make image-ensure IMAGE=gentoo-musl-openrc-headless
+make image-rebuild IMAGE=gentoo-musl-openrc-headless
 # Equivalent entry point:
-make -C yaml/gentoo build IMAGE=gentoo-musl
+make -C yaml/gentoo build IMAGE=gentoo-musl-openrc-headless
 ```
 
-It consumes the native `gentoo-musl-builder-bake` template. Its dedicated
-`gentoo-musl-builder.yml` recipe bootstraps a persistent musl/OpenRC image from
+It consumes the native `gentoo-musl-openrc-builder-bake` template. Its dedicated
+`gentoo-musl-openrc-builder.yml` recipe bootstraps a persistent musl/OpenRC image from
 the official stage3 using the glibc builder. This one-time bootstrap enters
 the new disk with chroot to install Portage, GCC, binutils,
 GRUB, disk tools, networking, and QGA. The resulting builder boots independently
 with 8 CPUs, 8 GiB RAM, and a 40 GiB disk.
-The dependency chain is `gentoo-cloud → gentoo-builder → gentoo-musl-builder →
-gentoo-musl`; the headless and development images are not required.
-`ensure IMAGE=gentoo-musl-builder` checks presence only;
-`build IMAGE=gentoo-musl-builder` propagates the selected image policy.
+The dependency chain is `gentoo-glibc-systemd-upstream-cloudinit → gentoo-glibc-systemd-builder-cloudinit → gentoo-musl-openrc-builder →
+gentoo-musl-openrc-headless`; the headless and development images are not required.
+`ensure IMAGE=gentoo-musl-openrc-builder` checks presence only;
+`build IMAGE=gentoo-musl-openrc-builder` propagates the selected image policy.
 
 Shared shell libraries in `scripts/lib/` implement cache mounts, glibc cache
 configuration, disk layout, GRUB, and image metadata. Entry scripts own their
@@ -182,12 +174,12 @@ Bootstrap and native musl builds use the official `23.0/x86-64_musl` binhost,
 with downloads cached in `binhost/x86-64_musl`. Portage uses compatible binary
 packages and compiles from source when none match. The minimal USE flags remain
 unchanged, so packages such as OpenRC with `-netifrc` may still require compilation.
-Rebuild `gentoo-musl-builder` before building derivatives to apply this policy.
+Rebuild `gentoo-musl-openrc-builder` before building derivatives to apply this policy.
 
-`gentoo-musl` contains OpenRC/sysvinit, DHCP networking, DNS and CA support,
+`gentoo-musl-openrc-headless` contains OpenRC/sysvinit, DHCP networking, DNS and CA support,
 OpenSSH, a system logger, and QEMU guest agent. Root starts locked and there is
 no preset SSH credential; provision users and keys through the guest agent or
-use the cloud-init flavor. `gentoo-musl-cloudinit` adds Python, NoCloud
+use the cloud-init flavor. `gentoo-musl-openrc-headless-cloudinit` adds Python, NoCloud
 cloud-init, and sudo in an offline overlay. Its distribution default user is
 `gentoo`; Corvus-generated user-data can override this. Inject SSH keys through
 NoCloud or the template. Networking stays under dhcpcd
@@ -201,7 +193,7 @@ The cloud-init flavor grows root partition 3 when the disk is enlarged. musl
 provides UTF-8 without glibc's `locale-gen`; the locale-generation module is
 disabled. The Gentoo cloud-init backend calls OpenRC's `rc-service` directly.
 
-To compare footprint, build current `gentoo-headless` and `gentoo-musl` with the
+To compare footprint, build current `gentoo-glibc-systemd-headless` and `gentoo-musl-openrc-headless` with the
 same kernel, boot both at 512 MiB with identical disks and no user workload,
 and wait for startup services to settle. Record allocated image bytes on the
 storage node (`du -B1`), root filesystem usage (`df -B1 /`), and
@@ -216,8 +208,8 @@ A local smoke test on 2026-10-30, using 1 vCPU, 512 MiB RAM, and kernel
 
 | Image | Allocated qcow2 | Root filesystem used | RAM used |
 |---|---:|---:|---:|
-| `gentoo-headless` | 1453.0 MiB | 1303.2 MiB | 58.6 MiB |
-| `gentoo-musl` | 358.0 MiB | 236.7 MiB | 48.1 MiB |
+| `gentoo-glibc-systemd-headless` | 1453.0 MiB | 1303.2 MiB | 58.6 MiB |
+| `gentoo-musl-openrc-headless` | 358.0 MiB | 236.7 MiB | 48.1 MiB |
 
 These are observations, not size limits. The existing regular image had a
 20 GiB virtual disk and musl had 4 GiB, so filesystem metadata also differs.
@@ -256,7 +248,7 @@ Existing `binhost/x86-64`, `distfiles`, and `kernels` caches remain valid.
 Override the host path throughout the dependency chain with:
 
 ```sh
-make image IMAGE=gentoo GENTOO_CACHE_DIR=/srv/corvus-cache
+make image IMAGE=gentoo-corvus-test GENTOO_CACHE_DIR=/srv/corvus-cache
 ```
 
 For direct CLI builds, pass `--var cache_dir=/srv/corvus-cache` to each consuming
@@ -315,8 +307,8 @@ systemd automounts at `/mnt/corvus-cache` and dependent bind automounts at
 Other runtime templates do not attach caches.
 The external host cache survives both `clean` and `cache-clean`.
 
-The development recipe uses `offline-overlay` with `gentoo-headless-cloudinit`
-as its artifact source. A separate 40 GB helper boots the same base and waits
+The development recipe uses `offline-overlay` with `gentoo-glibc-systemd-headless-cloudinit`
+as its artifact source. A separate 40 GB helper boots the shared glibc builder and waits
 for Cloud-init to grow its filesystem. Package installation runs natively on the helper with `ROOT=/mnt/sysroot` and
 `--root-deps`, retaining development/build dependencies in the artifact as well
 as on the helper. Compilation uses a temporary workspace on the helper's
@@ -347,8 +339,8 @@ with `skip`. When all outputs exist, it performs no upstream downloads or
 publication. Node-image ensure operations use this presence-only path; ordinary
 node builds evaluate the headless chain first.
 
-To force the chain, use `make image-rebuild IMAGE=gentoo-headless`; use
-`IMAGE=gentoo` to force the development image and its upstream chain too.
+To force the chain, use `make image-rebuild IMAGE=gentoo-glibc-systemd-headless`; use
+`IMAGE=gentoo-corvus-test` to force the development image and its upstream chain too.
 Forced builds publish fresh versions and retain old ones. Build metadata does
 not detect changes inside external Portage repositories, mirrors, or shared
 directories; force a rebuild to pick up those
@@ -379,7 +371,7 @@ Conditional builds do not detect changes in external package repositories or
 host-mounted directories. Use `image-rebuild` when those undeclared inputs
 must be refreshed. Direct CLI invocation requires preparing dependencies first.
 
-For direct Gentoo CLI use, run `make -C yaml/gentoo build IMAGE=gentoo-builder` before
+For direct Gentoo CLI use, run `make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-builder-cloudinit` before
 invoking the headless YAML. Its Make build targets prepare the source
 automatically, including with parallel Make.
 
@@ -412,7 +404,7 @@ artifacts above.
 
 | Image | Directory | Artifact and use |
 | --- | --- | --- |
-| `node` | `yaml/gentoo/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-headless` from `yaml/gentoo/` when needed. |
+| `node` | `yaml/gentoo/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-glibc-systemd-headless` from `yaml/gentoo/` when needed. |
 | `vm` | `yaml/gentoo/` (`IMAGE=corvus-test-vm`) | `BaseImages/Gentoo/<id>-corvus-test-vm.qcow2`, the inner musl/OpenRC VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures the native musl builder first. |
 | `freebsd` | `yaml/freebsd/` | FreeBSD 15.1 NoCloud source and `freebsd15` template. |
 | `freebsd-headless` | `yaml/freebsd/` | [Serial-console FreeBSD with preinstalled QGA](../yaml/freebsd/README.md); prepares `freebsd` first. |
@@ -424,8 +416,8 @@ artifacts above.
 | `windows` | `yaml/windows-server-2025/` | `BaseImages/WindowsServer2025/<id>-windows-server-2025-eval.qcow2`, used by Windows and cloudbase-init integration coverage. (Image ID `windows` is a Make selector; the registered disk is `windows-server-2025-eval`.) |
 | `installer` | `yaml/corvus-test-installer/` | `BaseImages/SyntheticInstaller/<id>-corvus-test-installer-iso.raw`, a small ISO used by `test_build_installer.py` to exercise the installer strategy. Its download cache is `yaml/corvus-test-installer/cache/`. |
 | `key` | `integration_tests/keys/` | The SSH keypair embedded in the node and inner-VM images, used by the harness tunnel. |
-| `gentoo-headless` | `yaml/gentoo/` | `gentoo-cloud`, `gentoo-builder`, `gentoo-headless`, and `gentoo-headless-cloudinit`. The `gentoo-headless` image is the base for both the Corvus development and node images. |
-| `gentoo-musl` | `yaml/gentoo/` | `gentoo-musl` and `gentoo-musl-cloudinit`, musl/OpenRC runtimes with BIOS/UEFI templates. Consumes the native musl builder, bootstrapped through the shared glibc builder and cloud import. |
+| `gentoo-glibc-systemd-headless` | `yaml/gentoo/` | `gentoo-glibc-systemd-upstream-cloudinit`, `gentoo-glibc-systemd-builder-cloudinit`, `gentoo-glibc-systemd-headless`, and `gentoo-glibc-systemd-headless-cloudinit`. The `gentoo-glibc-systemd-headless` image is the base for both the Corvus development and node images. |
+| `gentoo-musl-openrc-headless` | `yaml/gentoo/` | `gentoo-musl-openrc-headless` and `gentoo-musl-openrc-headless-cloudinit`, musl/OpenRC runtimes with BIOS/UEFI templates. Consumes the native musl builder, bootstrapped through the shared glibc builder and cloud import. |
 | `gentoo` | `yaml/gentoo/` | `gentoo-corvus-test`, the Corvus development image. Builds or ensures the regular headless chain first. |
 | `windows-11` | [yaml/windows-11/](../yaml/windows-11/README.md) | `BaseImages/Windows11/<id>-windows-11-pro-base.qcow2`, a generalized, decrypted Windows 11 Pro overlay base. The runtime template gives each VM its own TPM. Requires registered `windows-11-iso` media; missing VirtIO-Win media is downloaded automatically. |
 | `windows-11-desktop` | [yaml/windows-11-desktop/](../yaml/windows-11-desktop/README.md) | Generalized Windows 11 desktop with Total Commander, Firefox, PDF-XChange Editor and Process Explorer; consumes the Windows 11 base and publishes `windows-11-desktop`. |
@@ -434,12 +426,12 @@ artifacts above.
 | `monitor` | `yaml/corvus-monitor/` | `corvus-monitor`, a Debian 12 Prometheus and Grafana image. Set `CORVUS_WEB_TARGET=host:port` when building to bake a Corvus metrics endpoint into its dashboard configuration. |
 
 The test-node recipe lives in `yaml/gentoo/corvus-test-node.yml`. Build it with
-`make image IMAGE=node` or `make -C yaml/gentoo build IMAGE=corvus-test-node`;
+`make image IMAGE=corvus-test-node` or `make -C yaml/gentoo build IMAGE=corvus-test-node`;
 both prepare the registered dependencies and integration SSH key.
 It uses the same Gentoo cache as the headless and development images. Run
-`make image IMAGE=node GENTOO_CACHE_DIR=/srv/corvus-cache` to override the default `/data/corvus-cache` throughout its dependency chain.
-The shared `gentoo-builder-bake` template builds an offline overlay of
-`gentoo-headless` and attaches this directory through
+`make image IMAGE=corvus-test-node GENTOO_CACHE_DIR=/srv/corvus-cache` to override the default `/data/corvus-cache` throughout its dependency chain.
+The shared `gentoo-glibc-systemd-builder-cloudinit-bake` template builds an offline overlay of
+`gentoo-glibc-systemd-headless` and attaches this directory through
 virtiofs; downloads, built packages, and official binaries use its `distfiles`,
 `packages/x86-64`, and `binhost/x86-64` subdirectories. The recipe checks directory creation and
 file writes, disables `userfetch` and `userpriv` only during provisioning, and
@@ -463,7 +455,7 @@ when deliberately publishing a replacement fixture.
 
 ### Default integration-test guest
 
-`make image IMAGE=vm` builds a 1 GiB Gentoo musl/OpenRC guest using the
+`make image IMAGE=corvus-test-vm` builds a 1 GiB Gentoo musl/OpenRC guest using the
 shared Gentoo kernel and native musl builder. It includes SSH over TCP/VSOCK,
 QGA, ACPI shutdown, TPM tools, hardware inspection tools, and passwordless doas
 for `corvus`. The test-only credentials are `corvus:corvus`; its SSH key is the

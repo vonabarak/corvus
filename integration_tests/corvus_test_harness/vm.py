@@ -560,7 +560,7 @@ class VmCloudInit(VmSsh):
     Subclasses MUST set:
 
       * `base_image_key` — which disk in `register_base_images()` to
-        overlay (e.g. `"alpine"`, `"gentoo-headless"`).
+        overlay (e.g. `"alpine"`, `"gentoo-glibc-systemd-headless"`).
 
     Subclasses MAY override:
 

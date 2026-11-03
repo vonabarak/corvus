@@ -1,5 +1,5 @@
 ---
-# An apply setup using images built by `make image IMAGE=vm` and
+# An apply setup using images built by `make image IMAGE=corvus-test-vm` and
 # `make image IMAGE=windows`.
 ifExists: skip
 

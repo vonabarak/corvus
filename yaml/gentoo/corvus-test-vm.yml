@@ -9,7 +9,7 @@ pipeline:
 - build:
     name: corvus-test-vm
     description: Gentoo musl/OpenRC integration-test guest
-    template: gentoo-musl-builder-bake
+    template: gentoo-musl-openrc-builder-bake
     strategy: from-scratch
     target:
       ifExists: '{{ image_if_exists }}'
@@ -35,42 +35,70 @@ pipeline:
         FEATURES: -userfetch -userpriv
     provisioners:
     - file:
-        from: ./scripts/lib/build.sh
-        to: /usr/local/lib/corvus-build/build.sh
+        from: ./scripts/images/corvus-test-vm/build.sh
+        to: /usr/local/lib/corvus-build/images/corvus-test-vm/build.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/corvus-test-vm/configure-root.sh
+        to: /usr/local/lib/corvus-build/images/corvus-test-vm/configure-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/corvus-test-vm/install-root.sh
+        to: /usr/local/lib/corvus-build/images/corvus-test-vm/install-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/corvus-test-vm/lib.sh
+        to: /usr/local/lib/corvus-build/images/corvus-test-vm/lib.sh
         mode: '0644'
     - file:
-        from: ./scripts/build-kernel.sh
-        to: /tmp/build-kernel.sh
+        from: ./scripts/lib/disk.sh
+        to: /usr/local/lib/corvus-build/lib/disk.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/environment.sh
+        to: /usr/local/lib/corvus-build/lib/environment.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/image.sh
+        to: /usr/local/lib/corvus-build/lib/image.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/mounts.sh
+        to: /usr/local/lib/corvus-build/lib/mounts.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/portage.sh
+        to: /usr/local/lib/corvus-build/lib/portage.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/runtime.sh
+        to: /usr/local/lib/corvus-build/lib/runtime.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/stages/kernel/build-kernel.sh
+        to: /usr/local/lib/corvus-build/stages/kernel/build-kernel.sh
         mode: '0755'
     - file:
-        from: ./scripts/install-musl-root.sh
-        to: /tmp/install-musl-root.sh
+        from: ./scripts/stages/musl/configure-root.sh
+        to: /usr/local/lib/corvus-build/stages/musl/configure-root.sh
         mode: '0755'
     - file:
-        from: ./scripts/configure-musl-root.sh
-        to: /tmp/configure-musl-root.sh
+        from: ./scripts/stages/musl/install-root.sh
+        to: /usr/local/lib/corvus-build/stages/musl/install-root.sh
         mode: '0755'
     - file:
-        from: ./scripts/build-runtime.sh
-        to: /tmp/build-runtime.sh
+        from: ./scripts/workflows/build-runtime.sh
+        to: /usr/local/lib/corvus-build/workflows/build-runtime.sh
         mode: '0755'
     - file:
-        from: ./gentoo-kernel
+        from: ./scripts/stages/kernel/gentoo-kernel
         to: /tmp/gentoo-kernel-config
         mode: '0644'
-    - file:
-        from: ./scripts/install-test-vm-root.sh
-        to: /tmp/install-test-vm-root.sh
-        mode: '0755'
-    - file:
-        from: ./scripts/configure-test-vm-root.sh
-        to: /tmp/configure-test-vm-root.sh
-        mode: '0755'
     - file:
         from: ../../integration_tests/keys/corvus-test-key.pub
         to: /tmp/corvus-test-key.pub
         mode: '0644'
     - shell:
-        inline: /bin/bash /tmp/build-runtime.sh
+        inline: /bin/bash /usr/local/lib/corvus-build/images/corvus-test-vm/build.sh
         timeoutSec: 28800
     cleanup: onSuccess

@@ -96,7 +96,7 @@ class TestVirtiofs(SingleNodeCase):
         if base is None:
             pytest.skip(
                 "gentoo (corvus-test-vm) base image not registered — "
-                "run `make image IMAGE=vm` to bake it on the host"
+                "run `make image IMAGE=corvus-test-vm` to bake it on the host"
             )
         name = _uniq("virtiofs-missing")
         bad_path = f"/tmp/nonexistent-virtiofs-{secrets.token_hex(4)}"

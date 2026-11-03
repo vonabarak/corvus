@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# `make build IMAGE=gentoo-glibc-systemd-upstream-cloudinit` checks the latest upstream checksum before importing.
+vars:
+  image_if_exists: update
+  gentoo_cloud_url: ~
+  gentoo_cloud_tag: ~
+  gentoo_cloud_sha256: ~
+
+pipeline:
+  - apply:
+      ifExists: skip
+      disks:
+        - name: gentoo-glibc-systemd-upstream-cloudinit:{{ gentoo_cloud_tag }}
+          ifExists: "{{ image_if_exists }}"
+          import: "{{ gentoo_cloud_url }}"
+          format: qcow2
+          path: BaseImages/Gentoo/
+          checksum:
+            algorithm: sha256
+            value: "{{ gentoo_cloud_sha256 }}"

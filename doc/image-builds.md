@@ -256,7 +256,7 @@ the current inputs:
 2. The daemon reads the template, its resolved source image versions, and its
    SSH public key material in one database transaction. Each source-backed
    drive contributes its immutable disk image ID, including firmware and
-   installation media. A floating selector such as `gentoo-cloud:latest`
+   installation media. A floating selector such as `gentoo-glibc-systemd-upstream-cloudinit:latest`
    is replaced by the version it selects at that moment. The same captured
    template and source versions are used if the build proceeds; moving a tag
    afterwards does not change the inputs of that bake.
@@ -328,11 +328,11 @@ publishes a fresh version.
 
 Combine disk-level `ifExists: update` and a verified import checksum with build
 `target.ifExists: update`: the dedicated
-[`gentoo-cloud.yml`](../yaml/gentoo/gentoo-cloud.yml) recipe
+[`gentoo-glibc-systemd-upstream-cloudinit.yml`](../yaml/gentoo/gentoo-glibc-systemd-upstream-cloudinit.yml) recipe
 owns the import, while
-[`gentoo-headless.yml`](../yaml/gentoo/gentoo-headless.yml)
+[`gentoo-glibc-systemd-headless.yml`](../yaml/gentoo/gentoo-glibc-systemd-headless.yml)
 consumes the shared builder derived from that registered image.
-`make -C yaml/gentoo build IMAGE=gentoo-headless` runs the import, shared
+`make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-headless` runs the import, shared
 builder, and headless recipes in separate CLI invocations, forwarding the
 selected policy throughout.
 An unchanged checksum keeps the source version and skips matching downstream
@@ -871,16 +871,16 @@ once before building):
 
 Offline-overlay builds:
 
-- [yaml/gentoo/gentoo-test.yml](../yaml/gentoo/gentoo-test.yml) —
+- [yaml/gentoo/gentoo-corvus-test.yml](../yaml/gentoo/gentoo-corvus-test.yml) —
   Gentoo development image built with `offline-overlay` from
-  `gentoo-headless-cloudinit`, using a separate 40 GB helper. The artifact keeps
+  `gentoo-glibc-systemd-headless-cloudinit`, using a separate 40 GB helper. The artifact keeps
   its base size and first-boot state. Writable virtiofs package caches are shared
   during the bake and automounted in the runtime VM; repositories use tmpfs
   during the bake and must be synchronized once after boot.
 
 From-scratch builds:
 
-- [yaml/gentoo/gentoo-headless.yml](../yaml/gentoo/gentoo-headless.yml) —
+- [yaml/gentoo/gentoo-glibc-systemd-headless.yml](../yaml/gentoo/gentoo-glibc-systemd-headless.yml) —
   minimal headless Gentoo on an empty target disk, custom kernel
   (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
   kernel `.config` next to the YAML. Uses official mirrors and a persistent

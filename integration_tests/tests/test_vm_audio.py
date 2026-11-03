@@ -63,7 +63,7 @@ class TestVmAudio(SingleNodeCase):
         available = self.node.run("qemu-system-x86_64 -audiodev help").stdout.decode()
         assert qemu_backend in available.splitlines(), (
             f"QEMU lacks the {qemu_backend} audio driver; rebuild the test node "
-            "with `make image-rebuild IMAGE=node`"
+            "with `make image-rebuild IMAGE=corvus-test-node`"
         )
 
         with self._audio_server(backend):

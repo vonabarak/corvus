@@ -25,7 +25,7 @@ emerged at test time — they have to be baked in by
 ``yaml/gentoo/corvus-test-node.yml``. Rebuild the
 image after pulling this commit:
 
-    make image-rebuild IMAGE=node
+    make image-rebuild IMAGE=corvus-test-node
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from corvus_test_harness.topology import NodeRole, Topology
 
 # Where the harness mounts the host's repo when ``attach_source=True``.
 # Matches the systemd mount unit baked into the test-node image at
-# yaml/gentoo/systemd/corvus-test-node/mnt-corvus.mount.
+# yaml/gentoo/scripts/images/corvus-test-node/systemd/mnt-corvus.mount.
 SRC_MOUNT = "/mnt/corvus"
 
 # User on the node that runs everything (matches the test-node

@@ -196,7 +196,7 @@ this host.
   Drop `packages:` from the template's userData and retain the `runcmd:`
   that enables the agent; first boot can then avoid downloading packages.
 * **Switch the build to a template that ships QGA pre-installed**
-  (e.g. `gentoo-cloud` on this host boots cleanly in ~75 s). This
+  (e.g. `gentoo-glibc-systemd-upstream-cloudinit` on this host boots cleanly in ~75 s). This
   requires rewriting the build's `apt` / `systemctl` provisioners
   for the new distro's package manager.
 * **Run the build on a faster host.** Bare-metal with a nearby

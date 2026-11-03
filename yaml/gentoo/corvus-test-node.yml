@@ -10,9 +10,9 @@ pipeline:
     name: corvus-test-node
     description: Corvus integration-test target; runs the freshly built daemon over
       vsock
-    template: gentoo-builder-bake
+    template: gentoo-glibc-systemd-builder-cloudinit-bake
     strategy: offline-overlay
-    sourceImage: gentoo-headless
+    sourceImage: gentoo-glibc-systemd-headless
     target:
       ifExists: '{{ image_if_exists }}'
       format: qcow2
@@ -33,39 +33,63 @@ pipeline:
         FEATURES: -userfetch -userpriv
     provisioners:
     - file:
-        from: ./scripts/lib/build.sh
-        to: /usr/local/lib/corvus-build/build.sh
-        mode: '0644'
-    - file:
-        from: ./scripts/build-test-node.sh
-        to: /tmp/build-test-node.sh
+        from: ./scripts/images/corvus-test-node/build.sh
+        to: /usr/local/lib/corvus-build/images/corvus-test-node/build.sh
         mode: '0755'
     - file:
-        from: ./systemd/corvus-test-node/corvus-netd.service
+        from: ./scripts/lib/corvus-build.sh
+        to: /usr/local/lib/corvus-build/lib/corvus-build.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/environment.sh
+        to: /usr/local/lib/corvus-build/lib/environment.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/image.sh
+        to: /usr/local/lib/corvus-build/lib/image.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/mounts.sh
+        to: /usr/local/lib/corvus-build/lib/mounts.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/portage.sh
+        to: /usr/local/lib/corvus-build/lib/portage.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/postgres.sh
+        to: /usr/local/lib/corvus-build/lib/postgres.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/vde-network.sh
+        to: /usr/local/lib/corvus-build/lib/vde-network.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/images/corvus-test-node/systemd/corvus-netd.service
         to: /tmp/corvus-test-node/systemd/corvus-netd.service
         mode: '0644'
     - file:
-        from: ./systemd/corvus-test-node/corvus-nodeagent.service
+        from: ./scripts/images/corvus-test-node/systemd/corvus-nodeagent.service
         to: /tmp/corvus-test-node/systemd/corvus-nodeagent.service
         mode: '0644'
     - file:
-        from: ./systemd/corvus-test-node/corvus-tcp-relay.service
+        from: ./scripts/images/corvus-test-node/systemd/corvus-tcp-relay.service
         to: /tmp/corvus-test-node/systemd/corvus-tcp-relay.service
         mode: '0644'
     - file:
-        from: ./systemd/corvus-test-node/corvus.service
+        from: ./scripts/images/corvus-test-node/systemd/corvus.service
         to: /tmp/corvus-test-node/systemd/corvus.service
         mode: '0644'
     - file:
-        from: ./systemd/corvus-test-node/home-corvus-VMs-BaseImagesRO.mount
+        from: ./scripts/images/corvus-test-node/systemd/home-corvus-VMs-BaseImagesRO.mount
         to: /tmp/corvus-test-node/systemd/home-corvus-VMs-BaseImagesRO.mount
         mode: '0644'
     - file:
-        from: ./systemd/corvus-test-node/mnt-corvus.mount
+        from: ./scripts/images/corvus-test-node/systemd/mnt-corvus.mount
         to: /tmp/corvus-test-node/systemd/mnt-corvus.mount
         mode: '0644'
     - file:
-        from: ./systemd/corvus-test-node/opt-corvus-bin.mount
+        from: ./scripts/images/corvus-test-node/systemd/opt-corvus-bin.mount
         to: /tmp/corvus-test-node/systemd/opt-corvus-bin.mount
         mode: '0644'
     - file:
@@ -73,7 +97,7 @@ pipeline:
         to: /tmp/corvus-test-node/authorized_keys
         mode: '0600'
     - shell:
-        inline: /bin/bash /tmp/build-test-node.sh
+        inline: /bin/bash /usr/local/lib/corvus-build/images/corvus-test-node/build.sh
         timeoutSec: 18000
     cleanup: onSuccess
 - apply:

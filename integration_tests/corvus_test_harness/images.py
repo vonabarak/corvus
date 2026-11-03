@@ -3,7 +3,7 @@
 This module is a *precondition check only* — it confirms the
 `corvus-test-node` disk is already registered with the outer daemon
 and fails fast otherwise. Image baking lives entirely in the
-Makefile (`make image IMAGE=node`); running it
+Makefile (`make image IMAGE=corvus-test-node`); running it
 from inside a pytest fixture used to race under pytest-xdist
 because session scope is per-worker, so two workers could both
 spawn `crv build` against the same outer daemon when the disk was
@@ -15,8 +15,8 @@ see `topology.py`.
 
 Build path (run once per machine, lives outside pytest):
 
-    make image IMAGE=node
-    make image-rebuild IMAGE=node
+    make image IMAGE=corvus-test-node
+    make image-rebuild IMAGE=corvus-test-node
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class ImageReady:
         if not _disk_exists(crv, disk_name):
             raise RuntimeError(
                 f"Integration-test image {disk_name!r} is not registered "
-                f"with the outer daemon. Run `make image IMAGE=node` before "
+                f"with the outer daemon. Run `make image IMAGE=corvus-test-node` before "
                 f"`make integration-tests`."
             )
         return cls(disk_name=disk_name, yaml_path=path)
