@@ -1,6 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 # Build or restore the kernel in the offline target, using the shared virtiofs cache.
 set -eu
+. "${CORVUS_BUILD_LIB:-/usr/local/lib/corvus-build}/build.sh"
 
 CACHE_DIR=/mnt/corvus-cache/kernels
 TEMP_ARCHIVE=""
@@ -34,7 +35,7 @@ select_kernel() {
 
 # Install exactly the selected sources only when their compiled archive is absent.
 install_sources() {
-    ROOT=/ SYSROOT=/ emerge --buildpkg --oneshot --noreplace --quiet-build "=$PACKAGE"
+    ROOT=/ SYSROOT=/ emerge_packages --buildpkg --oneshot --noreplace --quiet-build "=$PACKAGE"
     case "$VERSION" in
         *-r*) KSRC="/usr/src/linux-${VERSION%-r*}-gentoo-r${VERSION##*-r}" ;;
         *) KSRC="/usr/src/linux-${VERSION}-gentoo" ;;

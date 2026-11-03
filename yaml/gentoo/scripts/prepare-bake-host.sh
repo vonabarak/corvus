@@ -41,13 +41,10 @@ configure_builder() {
 sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes
 EOF
 
-    # Apply this block even when the cloud image already enables getbinpkg.
     # Local and official caches can contain unsigned or partially signed gpkgs.
     # The empty GPG drops also avoid Gentoo's missing nobody:nogroup lookup.
     cat >> /etc/portage/make.conf <<'EOF'
 
-FEATURES="${FEATURES} -userfetch -userpriv buildpkg binpkg-multi-instance getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
-EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
 ACCEPT_LICENSE="*"
 USE="bash-completion"
 GPG_VERIFY_USER_DROP=""
@@ -59,25 +56,25 @@ EOF
 
 # Install native tools once; the musl builder is bootstrapped separately.
 install_builder_tools() {
-    command -v getuto >/dev/null || emerge --buildpkg -1q app-portage/getuto
+    command -v getuto >/dev/null || emerge_packages --buildpkg -1q app-portage/getuto
     getuto
 
-    emerge --buildpkg --noreplace --quiet-build \
+    emerge_packages --buildpkg --noreplace --quiet-build \
       sys-apps/gptfdisk \
       sys-block/parted \
       sys-fs/e2fsprogs \
       sys-fs/dosfstools \
       sys-boot/grub:2
-    emerge --buildpkg --noreplace --quiet-build net-misc/curl app-arch/tar app-arch/xz-utils
+    emerge_packages --buildpkg --noreplace --quiet-build net-misc/curl app-arch/tar app-arch/xz-utils
 }
 
 # Retry with the new Portage after a Python-target transition.
 update_builder() {
     # Portage can crash after installing its replacement during a Python-target
     # transition. The second pass runs the new Portage and completes the update.
-    emerge --buildpkg --update --deep --newuse --getbinpkg --usepkg \
+    emerge_packages --buildpkg --update --deep --newuse \
       --binpkg-respect-use=y --quiet-build --keep-going=y -v @world || \
-    emerge --buildpkg --update --deep --newuse --getbinpkg --usepkg \
+    emerge_packages --buildpkg --update --deep --newuse \
       --binpkg-respect-use=y --quiet-build --keep-going=y -v @world
 }
 

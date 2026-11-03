@@ -240,8 +240,11 @@ class TestGentooRecipes:
                         'bind "/mnt/corvus-cache/$source" "$root/var/cache/$cache"'
                         in helper
                     )
-                    assert "-userfetch -userpriv" in helper
-                    assert 'ROOT="$root" emerge --root-deps' in helper
+                    assert (
+                        "-userfetch -userpriv"
+                        in (source.parent / "scripts/lib/build.sh").read_text()
+                    )
+                    assert 'ROOT="$root" emerge_packages --root-deps' in helper
                     continue
                 env = build["shellDefaults"]["env"]
                 if build["name"] == "gentoo-builder":
@@ -274,7 +277,9 @@ class TestGentooRecipes:
                     # shell environment overrides alone do not cover that root.
                     assert 'DISTDIR="/mnt/corvus-cache/distfiles"' in shell
                     assert 'PKGDIR="/mnt/corvus-cache/packages/x86-64"' in shell
-                    assert 'FEATURES="${FEATURES} -userfetch -userpriv' in shell
+                    assert (
+                        'export FEATURES="${FEATURES:-} -userfetch -userpriv' in shell
+                    )
                 for line in shell.splitlines():
                     if (
                         not line.lstrip().startswith("#")
@@ -734,3 +739,44 @@ class TestGentooRecipes:
                         )
         if source.name == "gentoo-headless.yml":
             assert kernel_inputs == [(source.parent / "gentoo-kernel").read_bytes()]
+
+
+@pytest.mark.parametrize("usepkg", ["true", "false"])
+@pytest.mark.parametrize("getbinpkg", ["true", "false"])
+def test_binary_controls_forwarded(
+    recipes: RecipeRunner, usepkg: str, getbinpkg: str
+) -> None:
+    result = recipes.run(
+        "gentoo",
+        "build",
+        ("IMAGE=corvus-test-vm", f"USEPKG={usepkg}", f"GETBINPKG={getbinpkg}"),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    builds = [
+        call
+        for call in recipes.calls()
+        if call.command == "crv" and call.args[0] == "build"
+    ]
+    assert len(builds) == 4
+    for call in builds:
+        if "gentoo-cloud.yml" in call.args:
+            continue
+        assert f"USEPKG={usepkg}" in call.args
+        assert f"GETBINPKG={getbinpkg}" in call.args
+
+
+def test_binary_controls_declared_in_all_installing_recipes(
+    recipes: RecipeRunner,
+) -> None:
+    directory = recipes.root / "yaml/gentoo"
+    for recipe in directory.glob("*.yml"):
+        if recipe.stem == "gentoo-cloud":
+            continue
+        original = yaml.safe_load(recipe.read_text())
+        for name in ("USEPKG", "GETBINPKG"):
+            assert original["vars"][name] == "true"
+        expanded = yaml.safe_load(preprocess_build_yaml(str(recipe)))
+        for step in expanded["pipeline"]:
+            if "build" in step:
+                env = step["build"]["shellDefaults"]["env"]
+                assert env["USEPKG"] == env["GETBINPKG"] == "true"

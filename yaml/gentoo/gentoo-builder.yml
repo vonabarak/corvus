@@ -3,6 +3,8 @@
 vars:
   image_if_exists: update
   cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
 pipeline:
 - apply:
     ifExists: overwrite
@@ -70,7 +72,7 @@ pipeline:
           runcmd:
           - |
             set -eu
-            export FEATURES="${FEATURES:-} -userfetch -userpriv"
+            export FEATURES="${FEATURES:-} -userfetch -userpriv binpkg-multi-instance parallel-fetch -binpkg-request-signature binpkg-ignore-signature -getbinpkg"
             # Cloud-init can continue after bootcmd failure; fail before installing packages.
             require_caches() {
                 for path in /mnt/corvus-cache /var/cache/distfiles /var/cache/binpkgs /var/cache/binhost; do
@@ -80,11 +82,10 @@ pipeline:
 
             # Use the glibc binhost and shared package caches for guest-agent bootstrap.
             configure_packages() {
+                sed -i -E '/^[[:space:]]*(export[[:space:]]+)?(FEATURES|EMERGE_DEFAULT_OPTS)[[:space:]]*=/d' /etc/portage/make.conf
                 cat >> /etc/portage/make.conf <<'EOF'
             DISTDIR="/mnt/corvus-cache/distfiles"
             PKGDIR="/mnt/corvus-cache/packages/x86-64"
-            FEATURES="${FEATURES} -userfetch -userpriv buildpkg binpkg-multi-instance getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
-            EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
             GPG_VERIFY_USER_DROP=""
             GPG_VERIFY_GROUP_DROP=""
             EOF
@@ -102,7 +103,7 @@ pipeline:
             install_guest_agent() {
                 LC_ALL=C localedef -i C -f UTF-8 C.UTF-8
                 emerge-webrsync -k
-                emerge --buildpkg --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
+                emerge --ignore-default-opts --buildpkg --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 systemctl enable --now qemu-guest-agent.service
             }
 
@@ -148,6 +149,8 @@ pipeline:
     shellDefaults:
       preamble: set -eux
       env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
         FEATURES: -userfetch -userpriv
         DISTDIR: /mnt/corvus-cache/distfiles
         PKGDIR: /mnt/corvus-cache/packages/x86-64

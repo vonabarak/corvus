@@ -46,7 +46,10 @@ TEMPLATES := $(TEMPLATES_$(IMAGE))
 PARENT := $(PARENT_$(IMAGE))
 IMAGE_POLICY ?= update
 export GENTOO_CACHE_DIR ?= /data/corvus-cache
-BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)"
+USEPKG ?= true
+GETBINPKG ?= true
+export USEPKG GETBINPKG
+BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)" --var USEPKG="$(USEPKG)" --var GETBINPKG="$(GETBINPKG)"
 BUILD_DEPENDENCIES := build-dependencies
 
 # The key is a local input, not an image dependency; generate it before publication.

@@ -3,6 +3,8 @@
 vars:
   image_if_exists: update
   cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
 pipeline:
 - build:
     name: gentoo-headless
@@ -21,6 +23,8 @@ pipeline:
     shellDefaults:
       preamble: set -eux
       env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
         IMAGE_LIBC: glibc
         IMAGE_INIT: systemd
         IMAGE_ROOT: /mnt/sysroot
@@ -72,6 +76,8 @@ pipeline:
     shellDefaults:
       preamble: set -eux
       env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
         IMAGE_LIBC: glibc
         IMAGE_INIT: systemd
         IMAGE_ROOT: /mnt/sysroot

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Install native tools into the persistent musl/OpenRC builder root.
 set -euxo pipefail
+. "${CORVUS_BUILD_LIB:-/usr/local/lib/corvus-build}/build.sh"
 
 # Configure both GRUB targets and provisioning dependencies before package resolution.
 configure_packages() {
@@ -13,7 +14,7 @@ EOF
 # Keep the complete stage3 system and install tools needed by all derivative images.
 install_tools() {
     unset ROOT SYSROOT
-    emerge --buildpkg --noreplace --quiet-build @system \
+    emerge_packages --buildpkg --noreplace --quiet-build @system \
         sys-devel/gcc \
         sys-devel/binutils \
         sys-apps/portage \

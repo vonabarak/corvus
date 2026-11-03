@@ -36,12 +36,40 @@ refresh_build_repository() {
 
 # --- Portage configuration ---
 
+# Install natively with invocation policy; isolate options and environment from callers.
+emerge_packages() (
+    set -eu
+    case "${USEPKG-true}" in
+        true) usepkg=y ;;
+        false) usepkg=n ;;
+        *) echo 'USEPKG must be true or false' >&2; exit 2 ;;
+    esac
+    case "${GETBINPKG-true}" in
+        true) getbinpkg=y ;;
+        false) getbinpkg=n ;;
+        *) echo 'GETBINPKG must be true or false' >&2; exit 2 ;;
+    esac
+
+    # Keep profile defaults, but never let FEATURES implicitly enable downloads.
+    unset SYSROOT
+    export FEATURES="${FEATURES:-} -userfetch -userpriv binpkg-multi-instance parallel-fetch -binpkg-request-signature binpkg-ignore-signature -getbinpkg"
+    exec emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y \
+        --binpkg-changed-deps=n --usepkg="$usepkg" --getbinpkg="$getbinpkg" "$@"
+)
+
+# Remove inherited command policy before configuring imported or previously built roots.
+remove_portage_defaults() {
+    local config="${1%/}/etc/portage/make.conf"
+    if [ -f "$config" ]; then
+        sed -i -E '/^[[:space:]]*(export[[:space:]]+)?(FEATURES|EMERGE_DEFAULT_OPTS)[[:space:]]*=/d' "$config"
+    fi
+}
+
 # Configure native dependencies and interactive recovery to use shared caches.
 configure_glibc_caches() {
     cat >> /etc/portage/make.conf <<'CONF'
 DISTDIR="/mnt/corvus-cache/distfiles"
 PKGDIR="/mnt/corvus-cache/packages/x86-64"
-FEATURES="${FEATURES} -userfetch -userpriv"
 CONF
     configure_binhost glibc /
 }
@@ -51,6 +79,7 @@ CONF
 configure_binhost() (
     libc=$1
     config_root=${2%/}
+    remove_portage_defaults "$2"
     cache_base=${3:-/mnt/corvus-cache/binhost}
     case "$libc" in
         glibc) variant=x86-64 ;;
@@ -123,6 +152,7 @@ mount_target_disk() {
     mount_at "$1" "${2}3"
     mount_at "$1/boot/efi" "${2}2"
     mount_target_interfaces "$1"
+    remove_portage_defaults "$1"
 }
 
 # --- Disk layout and bootloader ---
@@ -432,7 +462,7 @@ prepare_build_mounts() {
 
 # Install natively into ROOT while retaining the target dependency closure.
 install_target_packages() {
-    env -u SYSROOT ROOT="$root" emerge --root-deps "$@"
+    ROOT="$root" emerge_packages --root-deps "$@"
 }
 
 # Initialize the target cluster and database without starting its init system.

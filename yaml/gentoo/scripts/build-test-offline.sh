@@ -7,7 +7,6 @@ set -euxo pipefail
 configure_target_caches() {
     cat >> "$root/etc/portage/make.conf" <<'EOF'
 # This development image uses writable host caches through virtiofs.
-FEATURES="${FEATURES} -userfetch -userpriv"
 DISTDIR="/var/cache/distfiles"
 PKGDIR="/var/cache/binpkgs"
 EOF
@@ -54,12 +53,12 @@ install_development_packages() {
     write_package_policy /
     write_package_policy "$root"
     # Git must also be executable on the helper for native overlay synchronization.
-    env -u SYSROOT ROOT=/ emerge --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git
-    install_target_packages --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git
+    ROOT=/ emerge_packages --noreplace --buildpkg --quiet-build dev-vcs/git
+    install_target_packages --noreplace --buildpkg --quiet-build dev-vcs/git
     emerge --sync
-    install_target_packages --usepkg --buildpkg --quiet-build --onlydeps app-emulation/corvus
+    install_target_packages --buildpkg --quiet-build --onlydeps app-emulation/corvus
     # Rebuild the live Corvus ebuild rather than reusing a potentially stale binary.
-    install_target_packages --verbose app-emulation/corvus
+    install_target_packages --verbose --usepkg-exclude=app-emulation/corvus app-emulation/corvus
 }
 
 # Share the console banner with PAM without duplicate SSH messages.

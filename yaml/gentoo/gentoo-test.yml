@@ -3,6 +3,8 @@
 vars:
   image_if_exists: update
   cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
 
 pipeline:
   - apply:
@@ -41,6 +43,9 @@ pipeline:
         compact: true
       shellDefaults:
         preamble: set -eux
+        env:
+          USEPKG: '{{ USEPKG }}'
+          GETBINPKG: '{{ GETBINPKG }}'
       provisioners:
         - file:
             from: ./scripts/lib/build.sh

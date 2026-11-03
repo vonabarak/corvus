@@ -277,16 +277,32 @@ The first build can take substantially longer than subsequent builds. Bake
 commands disable Portage’s `userfetch` and `userpriv` features: downloads and
 ebuild phases run as guest root, including live-package Git fetches during
 `src_unpack`. Root can write through the share even when the host cannot map
-the guest `portage` UID. The development image also retains these overrides so
-operators can write to the same shared caches; other installed images retain
-their normal Portage privilege settings.
-Native build dependencies also receive these settings in the bake host's
-`make.conf`; Portage resolves them separately from packages installed into the
-target root. Build environments explicitly set `DISTDIR` and `PKGDIR` to
+the guest `portage` UID. These features are applied to each package installation, including native build
+dependencies, rather than saved in `make.conf`. Managed configurations remove
+inherited `FEATURES` and `EMERGE_DEFAULT_OPTS` assignments. Build environments explicitly set `DISTDIR` and `PKGDIR` to
 `/mnt/corvus-cache/distfiles` and `/mnt/corvus-cache/packages/x86-64`, so selecting another
 ROOT or SYSROOT does not redirect the caches. The from-scratch target's
 distfiles and package cache directories stay empty during the build; those
 shared caches are not mounted inside SYSROOT.
+
+Gentoo recipes accept `USEPKG` and `GETBINPKG`, both defaulting to `true`.
+Pass them as Make variables or YAML build variables (`--var USEPKG=false`).
+For a build that installs packages from source, run:
+
+```sh
+make -C yaml/gentoo build IMAGE=gentoo-corvus-test USEPKG=false GETBINPKG=false
+```
+
+The controls propagate through dependency builds and musl bootstrap installations.
+`USEPKG` enables cached binary packages; `GETBINPKG` enables binhost downloads
+and, following Portage semantics, also enables binary package use. Disable both
+to select sources. Values must be `true` or `false`. Every installation still
+uses `--buildpkg` to cache compiled packages. Already installed packages and
+cached kernel archives are reused; these controls do not force reinstallation.
+The live Corvus ebuild and pycapnp keep their explicit source-build exceptions.
+The builder's cloud-init first-start guest-agent installation always passes
+`--usepkg --getbinpkg` explicitly, regardless of these controls; its later build
+provisioning honors them.
 
 The intermediate builder retains `/var/db/repos` on its filesystem so the
 from-scratch build can use it. The new headless root has an empty repository

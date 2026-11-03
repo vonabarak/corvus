@@ -31,9 +31,9 @@ EOF
 install_node_packages() {
     write_node_package_policy /
     write_node_package_policy "$root"
-    env -u SYSROOT ROOT=/ emerge --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git
+    ROOT=/ emerge_packages --noreplace --buildpkg --quiet-build dev-vcs/git
     emerge --sync
-    install_target_packages --noreplace --usepkg --buildpkg --quiet-build \
+    install_target_packages --noreplace --buildpkg --quiet-build \
       net-misc/socat \
       app-emulation/qemu \
       media-video/pipewire \
@@ -72,7 +72,7 @@ install_node_packages() {
     # the removed ABI. Rebuild just pycapnp from source against
     # the installed library; all of its build dependencies may
     # still come from the shared binary package cache.
-    install_target_packages --usepkg --quiet-build \
+    install_target_packages --quiet-build \
       --usepkg-exclude=dev-python/pycapnp \
       --buildpkg \
       --reinstall-atoms=dev-python/pycapnp \

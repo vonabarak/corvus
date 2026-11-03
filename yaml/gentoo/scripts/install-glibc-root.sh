@@ -49,8 +49,6 @@ FFLAGS="${COMMON_FLAGS}"
 
 DISTDIR="/var/cache/distfiles"
 PKGDIR="/var/cache/binpkgs"
-FEATURES="buildpkg binpkg-multi-instance getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
-EMERGE_DEFAULT_OPTS="--getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
 ACCEPT_LICENSE="*"
 USE="bash-completion"
 
@@ -147,7 +145,7 @@ install_base_system() {
     # amd64 systemd build, with sources downloaded into the shared cache.
     #
     # SYSROOT would enable cross-compilation; ROOT alone redirects native output.
-    env -u SYSROOT ROOT="$IMAGE_ROOT" emerge --buildpkg --quiet-build @system
+    ROOT="$IMAGE_ROOT" emerge_packages --buildpkg --quiet-build @system
 }
 
 # Remove bootstrap overrides and restore full systemd integration.
@@ -156,7 +154,7 @@ restore_full_packages() {
     # bootstrapped packages with full USE now that
     # sys-apps/systemd is on disk in the sysroot.
     rm /etc/portage/package.use/zz-corvus-bootstrap
-    env -u SYSROOT ROOT="$IMAGE_ROOT" emerge --buildpkg --quiet-build -1 sys-apps/util-linux sys-libs/pam
+    ROOT="$IMAGE_ROOT" emerge_packages --buildpkg --quiet-build -1 sys-apps/util-linux sys-libs/pam
 }
 
 # Create the mountpoints required during the first guest boot.
@@ -193,7 +191,7 @@ install_runtime_packages() {
     # look for build-host libclang inside the unfinished image.
     # Keep thin-provisioning-tools explicit: it was shipped by the regular flavor,
     # but Portage can treat it as a bake-host dependency when installing LVM.
-    env -u SYSROOT ROOT="$IMAGE_ROOT" emerge --buildpkg --quiet-build \
+    ROOT="$IMAGE_ROOT" emerge_packages --buildpkg --quiet-build \
       app-emulation/qemu-guest-agent \
       mail-mta/msmtp \
       app-admin/sudo \

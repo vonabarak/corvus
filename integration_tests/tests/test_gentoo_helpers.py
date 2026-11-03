@@ -51,7 +51,7 @@ initialize_mount_tracking
 
 
 def test_recipe_script_and_library_provisioning() -> None:
-    """Every file reference resolves and each consumer receives just one library."""
+    """Every file reference resolves and each consumer receives the shared library once."""
     for recipe in ROOT.glob("*.yml"):
         document = yaml.safe_load(recipe.read_text())
         for step in document["pipeline"]:
@@ -77,7 +77,7 @@ def test_recipe_script_and_library_provisioning() -> None:
                         "from": "./scripts/lib/build.sh",
                         "to": "/usr/local/lib/corvus-build/build.sh",
                         "mode": "0644",
-                    }
+                    },
                 ]
     document = yaml.safe_load((ROOT / "gentoo-builder.yml").read_text())
     build = next(step["build"] for step in document["pipeline"] if "build" in step)
@@ -292,6 +292,7 @@ esac
         "PATH": f"{binary}:{os.environ['PATH']}",
         "SYSROOT": str(target),
         "COMPILE_LOG": str(log),
+        "CORVUS_BUILD_LIB": str(ROOT / "scripts/lib"),
         "VERSION_FILE": str(version),
         "INSTALL_LOG": str(tmp_path / "installs"),
     }
@@ -304,7 +305,9 @@ esac
         if attempt == 3:
             version.write_text("6.18-r1")
             source.rename(source.with_name("linux-6.18-gentoo-r1"))
-        subprocess.run(["sh", "-ec", script], env=env, check=True, capture_output=True)
+        subprocess.run(
+            ["bash", "-ec", script], env=env, check=True, capture_output=True
+        )
         assert (target / "boot/vmlinuz-6.18-gentoo").read_text() == "kernel"
         assert (target / "lib/modules/6.18-gentoo/example.ko").read_text() == "module\n"
         assert len(log.read_text().splitlines()) == max(1, attempt)
@@ -621,7 +624,9 @@ def test_musl_bootstrap_binhost_and_minimal_policy(tmp_path: Path) -> None:
     config = tmp_path / "etc/portage"
     (config / "binrepos.conf").mkdir(parents=True)
     (config / "binrepos.conf/glibc.conf").write_text("incorrect glibc host")
-    (config / "make.conf").touch()
+    (config / "make.conf").write_text(
+        'FEATURES="getbinpkg"\nEMERGE_DEFAULT_OPTS="--usepkgonly"\nMAKEOPTS="-j2"\n'
+    )
     script = (ROOT / "scripts/build-musl-builder.sh").read_text()
     definitions = script.rsplit('main "$@"', 1)[0]
     subprocess.run(
@@ -640,9 +645,9 @@ def test_musl_bootstrap_binhost_and_minimal_policy(tmp_path: Path) -> None:
     assert 'PKGDIR="/mnt/corvus-cache/packages/x86-64_musl"' in make_conf
     assert 'DISTDIR="/mnt/corvus-cache/distfiles"' in make_conf
     assert 'USE="-systemd -X -nls -doc -test"' in make_conf
-    assert "--getbinpkg --usepkg --binpkg-respect-use=y" in make_conf
-    assert " -getbinpkg" not in make_conf
-    assert "--usepkgonly" not in make_conf
+    assert "FEATURES=" not in make_conf
+    assert "EMERGE_DEFAULT_OPTS=" not in make_conf
+    assert 'MAKEOPTS="-j2"' in make_conf
     assert not (config / "binrepos.conf/glibc.conf").exists()
     assert (
         "sys-apps/openrc -netifrc" in (config / "package.use/corvus-musl").read_text()
@@ -693,11 +698,11 @@ install_development_packages
     assert result.stdout.splitlines() == [
         "policy /",
         f"policy {tmp_path}",
-        "ROOT=/ emerge --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git",
-        f"ROOT={tmp_path} emerge --root-deps --noreplace --usepkg --buildpkg --quiet-build dev-vcs/git",
+        "ROOT=/ emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --noreplace --buildpkg --quiet-build dev-vcs/git",
+        f"ROOT={tmp_path} emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --root-deps --noreplace --buildpkg --quiet-build dev-vcs/git",
         "ROOT=unset emerge --sync",
-        f"ROOT={tmp_path} emerge --root-deps --usepkg --buildpkg --quiet-build --onlydeps app-emulation/corvus",
-        f"ROOT={tmp_path} emerge --root-deps --verbose app-emulation/corvus",
+        f"ROOT={tmp_path} emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --root-deps --buildpkg --quiet-build --onlydeps app-emulation/corvus",
+        f"ROOT={tmp_path} emerge --ignore-default-opts --buildpkg --binpkg-respect-use=y --binpkg-changed-deps=n --usepkg=y --getbinpkg=y --root-deps --verbose --usepkg-exclude=app-emulation/corvus app-emulation/corvus",
     ]
 
 
@@ -1126,3 +1131,116 @@ def test_all_gentoo_builds_preserve_helper_and_use_visible_mounts() -> None:
             for provisioner in build.get("provisioners", []):
                 if "shell" in provisioner:
                     assert "unshare" not in provisioner["shell"]["inline"], recipe
+
+
+@pytest.mark.parametrize(
+    ("usepkg", "getbinpkg", "expected"),
+    [
+        (None, None, ("y", "y")),
+        ("true", "true", ("y", "y")),
+        ("false", "true", ("n", "y")),
+        ("true", "false", ("y", "n")),
+        ("false", "false", ("n", "n")),
+    ],
+)
+def test_emerge_binary_policy(
+    tmp_path: Path, usepkg: str | None, getbinpkg: str | None, expected: tuple[str, str]
+) -> None:
+    """Each install carries explicit policy, preserves arguments and returns failures."""
+    executable = tmp_path / "emerge"
+    executable.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$FEATURES" "$ROOT" "$@"\nexit 17\n'
+    )
+    executable.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "FEATURES": "test",
+        "ROOT": "/target root",
+    }
+    for name, value in (("USEPKG", usepkg), ("GETBINPKG", getbinpkg)):
+        env.pop(name, None)
+        if value is not None:
+            env[name] = value
+    result = subprocess.run(
+        [
+            "bash",
+            "-ec",
+            '. "$1"; shift; emerge_packages "$@"',
+            "bash",
+            str(ROOT / "scripts/lib/build.sh"),
+            "--oneshot",
+            "package with space",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 17
+    lines = result.stdout.splitlines()
+    assert {"test", "-userfetch", "-userpriv", "-getbinpkg"} <= set(lines[0].split())
+    assert lines[1:] == [
+        "/target root",
+        "--ignore-default-opts",
+        "--buildpkg",
+        "--binpkg-respect-use=y",
+        "--binpkg-changed-deps=n",
+        f"--usepkg={expected[0]}",
+        f"--getbinpkg={expected[1]}",
+        "--oneshot",
+        "package with space",
+    ]
+
+
+@pytest.mark.parametrize("name", ["USEPKG", "GETBINPKG"])
+@pytest.mark.parametrize("value", ["", "yes", "0"])
+def test_emerge_rejects_invalid_policy(name: str, value: str) -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            "-ec",
+            '. "$1"; shift; emerge_packages "$@"',
+            "bash",
+            str(ROOT / "scripts/lib/build.sh"),
+            "category/package",
+        ],
+        env={**os.environ, name: value},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert f"{name} must be true or false" in result.stderr
+
+
+def test_bootstrap_guest_agent_always_uses_binary_packages(tmp_path: Path) -> None:
+    document = yaml.safe_load((ROOT / "gentoo-builder.yml").read_text())
+    template = document["pipeline"][0]["apply"]["templates"][0]
+    script = template["cloudInitConfig"]["userData"]["runcmd"][0]
+    definitions = script.rsplit("\nrequire_caches", 1)[0]
+    for name in ("localedef", "emerge-webrsync", "systemctl", "emerge"):
+        executable = tmp_path / name
+        executable.write_text(
+            '#!/bin/sh\n[ "'
+            + name
+            + '" != emerge ] || printf "%s\\n" "$FEATURES" "$@"\n'
+        )
+        executable.chmod(0o755)
+    result = subprocess.run(
+        ["sh", "-ec", definitions + "\ninstall_guest_agent\n"],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "USEPKG": "false",
+            "GETBINPKG": "false",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert "-userpriv" in lines[0].split()
+    assert "--usepkg" in lines
+    assert "--getbinpkg" in lines
+    assert "--ignore-default-opts" in lines
+    assert "--buildpkg" in lines

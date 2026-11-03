@@ -33,10 +33,8 @@ CFLAGS="${COMMON_FLAGS}"
 CXXFLAGS="${COMMON_FLAGS}"
 MAKEOPTS="-j8"
 USE="-systemd -X -nls -doc -test"
-FEATURES="buildpkg binpkg-multi-instance -userfetch -userpriv getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
 DISTDIR="/mnt/corvus-cache/distfiles"
 PKGDIR="/mnt/corvus-cache/packages/x86-64_musl"
-EMERGE_DEFAULT_OPTS="--getbinpkg --usepkg --binpkg-respect-use=y"
 GPG_VERIFY_USER_DROP=""
 GPG_VERIFY_GROUP_DROP=""
 ACCEPT_LICENSE="*"
@@ -64,8 +62,10 @@ populate_builder() {
     cp -a /var/db/repos/gentoo/. "$work/var/db/repos/gentoo/"
     # Stage3 builds use musl packages only, even though bootstrap runs on glibc.
     bind /mnt/corvus-cache "$work/mnt/corvus-cache"
+    install -d "$work/usr/local/lib/corvus-build"
+    install -m 0644 "${CORVUS_BUILD_LIB:-/usr/local/lib/corvus-build}/build.sh" "$work/usr/local/lib/corvus-build/build.sh"
     cp /tmp/prepare-musl-builder.sh "$work/tmp/"
-    chroot "$work" /usr/bin/env DISTDIR=/mnt/corvus-cache/distfiles PKGDIR=/mnt/corvus-cache/packages/x86-64_musl \
+    chroot "$work" /usr/bin/env -u CORVUS_BUILD_LIB DISTDIR=/mnt/corvus-cache/distfiles PKGDIR=/mnt/corvus-cache/packages/x86-64_musl \
         /bin/bash /tmp/prepare-musl-builder.sh
     # Detach shared caches before image cleanup removes target cache contents.
     umount "$work/mnt/corvus-cache"
@@ -78,7 +78,7 @@ configure_build_host() {
     # Keep any native kernel-source dependencies out of the musl package cache.
     mkdir -p /mnt/corvus-cache/packages/x86-64
     check_cache_writable /mnt/corvus-cache/packages/x86-64
-    PKGDIR=/mnt/corvus-cache/packages/x86-64 SYSROOT=/mnt/sysroot /bin/sh -eux /tmp/build-kernel.sh
+    PKGDIR=/mnt/corvus-cache/packages/x86-64 SYSROOT=/mnt/sysroot /bin/bash -eux /tmp/build-kernel.sh
     install_target_grub /mnt/sysroot /dev/vdb
     /bin/bash /tmp/configure-musl-root.sh
     clean_image_temporary_files "$IMAGE_ROOT"

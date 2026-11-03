@@ -3,6 +3,8 @@
 vars:
   image_if_exists: update
   cache_dir: /data/corvus-cache
+  USEPKG: "true"
+  GETBINPKG: "true"
 pipeline:
 - build:
     name: corvus-test-vm
@@ -21,6 +23,8 @@ pipeline:
     shellDefaults:
       preamble: set -eux
       env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
         IMAGE_LIBC: musl
         IMAGE_INIT: openrc
         IMAGE_PROFILE: test-vm

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Add integration-test capabilities to the shared minimal musl runtime.
 set -euxo pipefail
+. "${CORVUS_BUILD_LIB:-/usr/local/lib/corvus-build}/build.sh"
 
 # Disable optional desktop and TPM policy stacks that the test guest never uses.
 configure_package_features() {
@@ -15,7 +16,7 @@ CONF
 
 # Install runtime tools into the artifact; build dependencies stay on the builder.
 install_test_packages() {
-    ROOT="${IMAGE_ROOT:?}" emerge --buildpkg --quiet-build \
+    ROOT="${IMAGE_ROOT:?}" emerge_packages --buildpkg --quiet-build \
         app-admin/doas \
         app-crypt/tpm2-tools \
         app-crypt/tpm2-tss \

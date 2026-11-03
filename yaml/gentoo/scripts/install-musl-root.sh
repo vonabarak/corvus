@@ -1,17 +1,18 @@
 #!/bin/bash
 # Install from the native musl builder; build dependencies remain outside the target.
 set -euxo pipefail
+. "${CORVUS_BUILD_LIB:-/usr/local/lib/corvus-build}/build.sh"
 
 # Install GLib on the builder because its post-install hooks execute cache tools outside the target chroot.
 prepare_native_install_hooks() {
     unset ROOT SYSROOT
-    emerge --noreplace --buildpkg --quiet-build dev-libs/glib
+    emerge_packages --noreplace --buildpkg --quiet-build dev-libs/glib
 }
 
 # Install the explicit minimal runtime instead of @system, which would include Portage and a compiler.
 install_base_packages() {
     # ROOT redirects runtime dependencies; native DEPEND/BDEPEND stay on the builder.
-    emerge --buildpkg --quiet-build \
+    emerge_packages --buildpkg --quiet-build \
         sys-apps/baselayout \
         sys-libs/musl \
         sys-apps/openrc \

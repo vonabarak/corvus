@@ -7,11 +7,11 @@ set -eu
 install_packages() {
     if [ "$IMAGE_LIBC" = musl ]; then
         # Build dependencies stay on the builder; ROOT receives runtime packages.
-        env -u SYSROOT ROOT="$IMAGE_ROOT" emerge --buildpkg --quiet-build app-emulation/cloud-init sys-fs/growpart app-admin/sudo app-alternatives/awk
+        ROOT="$IMAGE_ROOT" emerge_packages --buildpkg --quiet-build app-emulation/cloud-init sys-fs/growpart app-admin/sudo app-alternatives/awk
         return
     fi
-    env -u SYSROOT ROOT="$IMAGE_ROOT" emerge --buildpkg \
-      --noreplace --usepkg --binpkg-respect-use=y --quiet-build \
+    ROOT="$IMAGE_ROOT" emerge_packages --buildpkg \
+      --noreplace --binpkg-respect-use=y --quiet-build \
       app-emulation/cloud-init \
       dev-python/gpep517 \
       dev-python/installer
