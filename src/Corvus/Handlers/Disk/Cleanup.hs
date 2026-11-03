@@ -12,7 +12,6 @@ import Corvus.Handlers.Disk.Agent (deleteImageViaAgent)
 import Corvus.Handlers.Disk.CleanupGraph
 import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
-import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
@@ -36,7 +35,7 @@ instance Action DiskCleanup where
   actionSubsystem _ = SubDisk
   actionCommand _ = "cleanup"
   actionEntityName = dcName
-  actionImageResources _ _ = pure []
+  actionResources _ _ = pure []
   actionValidate = validateCleanup
   actionExecute ctx options = do
     graph <- loadGraph (acState ctx)
@@ -52,7 +51,7 @@ instance Action CleanupVersion where
   actionSubsystem _ = SubDisk
   actionCommand _ = "cleanup-version"
   actionEntityId (CleanupVersion _ key) = Just (fromIntegral (fromSqlKey key))
-  actionImageResources _ _ = pure []
+  actionResources _ _ = pure []
   actionExecute ctx (CleanupVersion options key) = do
     graph <- loadGraph (acState ctx)
     let process leased current = do
@@ -61,8 +60,8 @@ instance Action CleanupVersion where
     if not (T.null (versionReason graph (dcIncludeTagged options) key))
       then process ctx graph
       else do
-        resources <- (++) <$> imageResources (acState ctx) ExclusiveImage (fromSqlKey key) <*> imageFamilyResources (acState ctx) (fromSqlKey key)
-        withContextImageLeases ctx resources $ \leased -> loadGraph (acState ctx) >>= process leased
+        resources <- (++) <$> imageResources (acState ctx) ExclusiveAccess (fromSqlKey key) <*> imageFamilyResources (acState ctx) (fromSqlKey key)
+        withContextOperationLeases ctx resources $ \leased -> loadGraph (acState ctx) >>= process leased
 
 executeVersion :: ActionContext -> DiskCleanup -> DiskImageId -> IO DiskCleanupVersion
 executeVersion ctx options key = do

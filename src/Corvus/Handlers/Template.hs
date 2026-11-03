@@ -11,15 +11,11 @@ module Corvus.Handlers.Template
   , getTemplateDetails
 
     -- * Handlers
-  , handleTemplateCreate
-  , handleTemplateUpdate
   , handleTemplateList
   , handleTemplateShow
-  , handleTemplateDelete
-  , handleTemplateInstantiate
 
     -- * DB helpers for inserting template YAML (used by Apply)
-  , templateImageResources
+  , templateOperationResources
   , insertTemplateYaml
   )
 where
@@ -27,7 +23,6 @@ where
 import Corvus.Action
 import Corvus.DiskSelector
 import Corvus.Handlers.Vm (VmCreate (..))
-import Corvus.ImageOperationGuard (ImageAccess (..), ImageResource)
 import Corvus.Images
 
 import Control.Monad (forM, forM_, when)
@@ -39,6 +34,7 @@ import Corvus.Handlers.Disk.Attach (DiskAttach (..))
 import Corvus.Handlers.Disk.Create (DiskCreate (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
 import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Scheduler (pickNodeForVm)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
@@ -691,9 +687,10 @@ instantiateDriveIO ctx vmId guestName td = do
 newtype TemplateCreate = TemplateCreate {tcrYaml :: Text}
 
 instance Action TemplateCreate where
-  actionImageResources state a = case decodeEither' (T.encodeUtf8 (tcrYaml a)) of
+  actionEntityName a = either (const Nothing) (Just . tyName) (decodeEither' (T.encodeUtf8 (tcrYaml a)))
+  actionResources state a = case decodeEither' (T.encodeUtf8 (tcrYaml a)) of
     Left _ -> pure []
-    Right ty -> templateImageResources state ty
+    Right ty -> templateOperationResources state ty
   actionSubsystem _ = SubTemplate
   actionCommand _ = "create"
   actionExecute ctx a = handleTemplateCreate (acState ctx) (tcrYaml a)
@@ -704,9 +701,10 @@ data TemplateUpdate = TemplateUpdate
   }
 
 instance Action TemplateUpdate where
-  actionImageResources state a = case decodeEither' (T.encodeUtf8 (tupYaml a)) of
+  actionEntityName a = either (const Nothing) (Just . tyName) (decodeEither' (T.encodeUtf8 (tupYaml a)))
+  actionResources state a = case decodeEither' (T.encodeUtf8 (tupYaml a)) of
     Left _ -> pure []
-    Right ty -> templateImageResources state ty
+    Right ty -> templateOperationResources state ty
   actionSubsystem _ = SubTemplate
   actionCommand _ = "update"
   actionEntityId = Just . fromIntegral . tupOldId
@@ -730,6 +728,14 @@ data TemplateInstantiate = TemplateInstantiate
   }
 
 instance Action TemplateInstantiate where
+  actionPrepare state a = do
+    details <- runSqlPool (getTemplateDetails (toSqlKey (tiTemplateId a))) (ssDbPool state)
+    case details of
+      Nothing -> pure $ Left RespTemplateNotFound
+      Just info -> fmap (fmap (\node -> a {tiNodeRef = node})) (pinNode state (tiNodeRef a) (pickNodeForVm state (tvdRam info)))
+  actionResources state a = do
+    details <- runSqlPool (getTemplateDetails (toSqlKey (tiTemplateId a))) (ssDbPool state)
+    maybe (pure []) (instantiateResources state (tiName a) (tiNodeRef a)) details
   actionSubsystem _ = SubTemplate
   actionCommand _ = "instantiate"
   actionEntityId = Just . fromIntegral . tiTemplateId
@@ -743,9 +749,9 @@ data InstantiateDrive = InstantiateDrive
   }
 
 instance Action InstantiateDrive where
-  actionImageResources state a = case tvdiDiskImage (idDriveInfo a) of
+  actionResources state a = case tvdiDiskImage (idDriveInfo a) of
     Nothing -> pure []
-    Just ref -> imageResources state (if tvdiCloneStrategy (idDriveInfo a) == StrategyDirect && not (tvdiReadOnly (idDriveInfo a)) then ExclusiveImage else SharedImage) (nrId ref)
+    Just ref -> imageResources state (if tvdiCloneStrategy (idDriveInfo a) == StrategyDirect && not (tvdiReadOnly (idDriveInfo a)) then ExclusiveAccess else SharedAccess) (nrId ref)
   actionSubsystem _ = SubDisk
   actionCommand _ = "instantiate"
   actionEntityName a = nrName <$> tvdiDiskImage (idDriveInfo a)
@@ -759,13 +765,38 @@ instance Action InstantiateDrive where
 data TemplateInstantiateResolved = TemplateInstantiateResolved TemplateDetails Text Text
 
 instance Action TemplateInstantiateResolved where
+  actionPrepare state (TemplateInstantiateResolved details name ref) =
+    fmap (fmap (TemplateInstantiateResolved details name)) (pinNode state ref (pickNodeForVm state (tvdRam details)))
+  actionResources state (TemplateInstantiateResolved details name node) = instantiateResources state name node details
   actionSubsystem _ = SubTemplate
   actionCommand _ = "instantiate"
   actionEntityId (TemplateInstantiateResolved details _ _) = Just (fromIntegral (tvdId details))
   actionExecute ctx (TemplateInstantiateResolved details name node) =
     handleTemplateInstantiateWith ctx (tvdId details) name node (Just details)
 
-templateImageResources :: ServerState -> TemplateYaml -> IO [(ImageResource, ImageAccess)]
-templateImageResources state ty = do
+templateOperationResources :: ServerState -> TemplateYaml -> IO [(OperationResource, ResourceAccess)]
+templateOperationResources state ty = do
+  keyResources <- fmap concat $ forM (tySshKeys ty) $ \key -> do
+    found <- runSqlPool (getBy (UniqueSshKeyName (tkyName key))) (ssDbPool state)
+    refs <- maybe (pure []) (objectResources state SharedAccess SshKeyObject . fromSqlKey . entityKey) found
+    pure $ (ObjectName SshKeyObject Nothing (tkyName key), SharedAccess) : refs
+  images <- templateDriveResources state ty
+  pure $ keyResources ++ images
+
+templateDriveResources :: ServerState -> TemplateYaml -> IO [(OperationResource, ResourceAccess)]
+templateDriveResources state ty = do
   keys <- runSqlPool (mapM resolveImage [selector | drive <- tyDrives ty, Just selector <- [tdyDiskImage drive]]) (ssDbPool state)
-  concat <$> mapM (imageResources state SharedImage . fromSqlKey) (catMaybes keys)
+  concat <$> mapM (imageResources state SharedAccess . fromSqlKey) (catMaybes keys)
+
+-- Reserve the destination until drives, keys and cloud-init are attached.
+instantiateResources :: ServerState -> Text -> Text -> TemplateDetails -> IO [(OperationResource, ResourceAccess)]
+instantiateResources state name node details = do
+  destination <- nodeNameResources state VmObject node name
+  images <- concat <$> mapM (actionResources state . InstantiateDrive (toSqlKey 0) name) (tvdDrives details)
+  keys <- concat <$> mapM (objectResources state SharedAccess SshKeyObject . tvskiId) (tvdSshKeys details)
+  networks <- runSqlPool (selectList [NetworkName <-. [network | ni <- tvdNetIfs details, Just network <- [tvniNetwork ni]]] []) (ssDbPool state)
+  refs <- concat <$> mapM (objectResources state SharedAccess NetworkObject . fromSqlKey . entityKey) networks
+  let prefix = if T.null name || not (isDigit (T.head name)) then name else "vm-" <> name
+      derived drive = prefix <> "-" <> fromMaybe (maybe "disk" nrName (tvdiDiskImage drive)) (tvdiDiskName drive) <> if tvdiCloneStrategy drive == StrategyOverlay then "-overlay" else ""
+      outputs = concatMap (familyResource . derived) [drive | drive <- tvdDrives details, tvdiCloneStrategy drive /= StrategyDirect]
+  pure $ destination ++ images ++ keys ++ refs ++ outputs

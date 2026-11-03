@@ -19,7 +19,6 @@ where
 import Corvus.Action
 import Corvus.Handlers.Disk.Db (getRunningAttachedVms, isCircularBacking)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
-import Corvus.ImageOperationGuard (ImageAccess (..))
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
@@ -141,9 +140,9 @@ data DiskRebase = DiskRebase
   }
 
 instance Action DiskRebase where
-  actionImageResources state a = do
-    target <- imageResources state ExclusiveImage (drbDiskId a)
-    source <- maybe (pure []) (imageResources state SharedImage) (drbNewBackingId a)
+  actionResources state a = do
+    target <- imageResources state ExclusiveAccess (drbDiskId a)
+    source <- maybe (pure []) (imageResources state SharedAccess) (drbNewBackingId a)
     pure $ target ++ source
   actionSubsystem _ = SubDisk
   actionCommand (DiskRebase _ Nothing _) = "flatten"

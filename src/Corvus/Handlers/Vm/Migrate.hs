@@ -87,7 +87,12 @@ data VmMigrate = VmMigrate
   }
 
 instance Action VmMigrate where
-  actionImageResources state a = vmImageResources state (vmiVmId a)
+  actionObjectResources state a = do
+    old <- objectResources state ExclusiveAccess VmObject (vmiVmId a)
+    vm <- runSqlPool (get (toSqlKey (vmiVmId a) :: M.VmId)) (ssDbPool state)
+    destination <- objectResources state SharedAccess NodeObject (vmiDestNodeId a)
+    pure $ old ++ destination ++ maybe [] (\row -> [(ObjectName VmObject (Just (vmiDestNodeId a)) (M.vmName row), ExclusiveAccess)]) vm
+  actionResources state a = vmImageResources state (vmiVmId a)
   actionSubsystem _ = M.SubMigration
   actionCommand _ = "migrate"
   actionEntityId = Just . fromIntegral . vmiVmId

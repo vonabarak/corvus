@@ -26,6 +26,17 @@ import Database.Persist.Sql (runSqlPool)
 
 data ApplyVmCreate = ApplyVmCreate {avcKeyMap :: Map.Map Text Int64, avcDiskMap :: Map.Map Text Int64, avcNwMap :: Map.Map Text Int64, avcVm :: ApplyVm}
 instance Action ApplyVmCreate where
+  actionObjectResources state a = nodeNameResources state VmObject (avNode (avcVm a)) (avName (avcVm a))
+  actionResources state a = do
+    let v = avcVm a
+    disks <- mapM (resolveDiskName state (avcDiskMap a) . adrDisk) (avDrives v)
+    images <- concat <$> mapM (maybe (pure []) (imageResources state SharedAccess)) disks
+    keys <- mapM (resolveByName state UniqueSshKeyName (avcKeyMap a)) (avSshKeys v)
+    keyResources <- concat <$> mapM (maybe (pure []) (objectResources state SharedAccess SshKeyObject)) keys
+    networks <- mapM (\name -> resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) (avcNwMap a) name (avNode v)) [name | ni <- avNetworkInterfaces v, Just name <- [aniNetwork ni]]
+    networkResources <- concat <$> mapM (maybe (pure []) (objectResources state SharedAccess NetworkObject)) networks
+    node <- nodeNameResources state VmObject (avNode v) (avName v)
+    pure $ node ++ images ++ keyResources ++ networkResources
   actionSubsystem _ = SubVm
   actionCommand _ = "create"
   actionEntityName = Just . avName . avcVm
@@ -57,7 +68,7 @@ createOneVmAttachments ctx keyMap diskMap nwMap v vmId = do
             Right () -> do
               forM_ (avCloudInitConfig v) $ \cic -> runSqlPool (insert_ $ CloudInit vmId (cicyUserData cic) (cicyNetworkConfig cic) (cicyInjectSshKeys cic)) (ssDbPool state)
               when (effectiveCloudInit v) $ do
-                _ <- runAction state (acClientName ctx) (RegenerateCloudInit (fromSqlKey vmId) (avName v))
+                _ <- runActionAsSubtask ctx (RegenerateCloudInit (fromSqlKey vmId) (avName v))
                 pure ()
               pure $ Right $ fromSqlKey vmId
 attachDrives :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyDrive] -> Text -> IO (Either Text ())

@@ -11,27 +11,100 @@
 -- which is pure-DB.
 module Corvus.ApplySpec (spec) where
 
+import Control.Concurrent (forkFinally)
+import Control.Concurrent.MVar
+import Control.Exception (SomeException)
+import Control.Monad (void, when)
 import Corvus.Action (mkActionContext)
 import qualified Corvus.Action as Action
-import Corvus.Handlers.Apply.Execute (executeApply)
+import Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply)
 import Corvus.Handlers.Apply.Validation (handleApplyValidate)
+import Corvus.Handlers.SshKey (SshKeyCreate (..))
 import Corvus.Model
   ( SshKey (..)
   , Unique (..)
   )
+import qualified Corvus.Model as M
 import Corvus.Protocol (ApplyEvent (..), ApplyResult (..), SshKeyInfo (..), VmDetails (..))
 import Corvus.Schema.Apply (IfExists (..))
 import Corvus.Types (ssDbPool)
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (getBy, insert)
-import Database.Persist.Sql (runSqlPool)
+import Database.Persist (getBy, insert, selectList, (==.))
+import Database.Persist.Sql (runSqlPool, toSqlKey)
+import System.Timeout (timeout)
 import Test.DSL.Core (runDb)
 import Test.Prelude
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "parallel apply identities" $ do
+    mapM_
+      ( \(label, yaml, phaseName) -> do
+          testCase (label <> " overwrite serializes lookup through complete creation") $ parallelApply yaml phaseName IfExistsOverwrite False
+          testCase (label <> " overwrite also handles an existing target") $ parallelApply yaml phaseName IfExistsOverwrite True
+          testCase (label <> " error returns a domain duplicate") $ parallelApply yaml phaseName IfExistsError False
+          testCase (label <> " skip returns the winner's ID") $ parallelApply yaml phaseName IfExistsSkip False
+      )
+      [ ("template", "templates: [{name: parallel, cpuCount: 1, ram: 1G, cloudInit: false, drives: []}]", "templates")
+      , ("SSH key", "sshKeys: [{name: parallel, publicKey: ssh-ed25519 AAAA}]", "sshKeys")
+      , ("network", "networks: [{name: parallel, node: test-node, subnet: 10.77.0.0/24}]", "networks")
+      , ("VM", "vms: [{name: parallel, node: test-node, cpuCount: 1, ram: 1G, cloudInit: false, vsock: false}]", "vms")
+      ]
+
+  describe "shared action reservations" $ do
+    testCase "direct creation waits for an apply and returns a domain duplicate" $ do
+      _ <- withState $ \state -> do
+        Right config <- handleApplyValidate state "sshKeys: [{name: mixed, publicKey: ssh-ed25519 AAAA}]"
+        task <- Action.createTaskRecord state "test" (ApplyAction config False) Nothing
+        entered <- newEmptyMVar
+        release <- newEmptyMVar
+        applied <- newEmptyMVar
+        direct <- newEmptyMVar
+        let sink = \case
+              EntityStart "sshKeys" _ _ -> putMVar entered () >> takeMVar release
+              _ -> pure ()
+            ctx = (mkActionContext state task "test") {Action.acApplySink = sink}
+        _ <- forkFinally (executeApply ctx config IfExistsOverwrite) (putMVar applied)
+        timeout 2000000 (takeMVar entered) `shouldReturn` Just ()
+        _ <- forkFinally (Action.runAction state "test" (SshKeyCreate "mixed" "ssh-ed25519 BBBB")) (putMVar direct)
+        blocked <- timeout 50000 (takeMVar direct)
+        putMVar release ()
+        blocked `shouldSatisfy` isNothing
+        timeout 5000000 (takeMVar applied) >>= (`shouldSatisfy` \case Just (Right (Right _)) -> True; _ -> False)
+        result <- timeout 5000000 (takeMVar direct)
+        case result of
+          Just (Right response) -> do
+            let (status, message) = Action.classifyResponse response
+            status `shouldBe` TaskError
+            message `shouldSatisfy` maybe False (T.isInfixOf "already exists")
+          other -> expectationFailure (show other)
+        pure RespOk
+      pure ()
+    testCase "revalidates changed identities before executing after a wait" $ do
+      _ <- withState $ \state -> do
+        let ctx = mkActionContext state (toSqlKey 0) "test"
+            key name = [(Action.ObjectName Action.TemplateObject Nothing name, Action.ExclusiveAccess)]
+        identity <- newIORef ("old" :: T.Text)
+        entered <- newEmptyMVar
+        finished <- newEmptyMVar
+        Action.withContextOperationLeases ctx (key "old") $ \_ -> do
+          let prepare = do
+                name <- readIORef identity
+                when (name == "old") $ putMVar entered ()
+                pure (name, key name)
+          _ <- forkFinally (Action.withPreparedOperationLeases ctx prepare (\_ name -> pure name)) (putMVar finished)
+          timeout 2000000 (takeMVar entered) `shouldReturn` Just ()
+          writeIORef identity "new"
+        result <- timeout 5000000 (takeMVar finished)
+        case result of
+          Just (Right name) -> name `shouldBe` "new"
+          other -> expectationFailure (show other)
+        pure RespOk
+      pure ()
+
   ------------------------------------------------------------------
   -- empty config
 
@@ -360,3 +433,54 @@ captureApplyEvents yaml = do
         , arVms = []
         , arTemplates = []
         }
+
+-- The first apply is held inside its entity reservation. The competing apply
+-- must wait, then resolve the state left by the first operation.
+parallelApply :: T.Text -> T.Text -> IfExists -> Bool -> TestM ()
+parallelApply yaml phaseName policy preexisting = do
+  when (phaseName `elem` ["vms", "networks"]) $ void seedTestNode
+  _ <- withState $ \state -> do
+    Right config <- handleApplyValidate state yaml
+    let action = ApplyAction config False
+        makeContext sink = do
+          task <- Action.createTaskRecord state "parallel-test" action Nothing
+          pure $ (mkActionContext state task "parallel-test") {Action.acApplySink = sink}
+    when preexisting $ do
+      ctx <- makeContext (const (pure ()))
+      executeApply ctx config IfExistsError >>= (`shouldSatisfy` either (const False) (const True))
+    entered <- newEmptyMVar
+    release <- newEmptyMVar
+    firstDone <- newEmptyMVar
+    secondDone <- newEmptyMVar
+    let sink = \case
+          EntityStart phase _ _ | phase == phaseName -> putMVar entered () >> takeMVar release
+          _ -> pure ()
+    first <- makeContext sink
+    second <- makeContext (const (pure ()))
+    _ <- forkFinally (executeApply first config policy) (putMVar firstDone)
+    timeout 2000000 (takeMVar entered) `shouldReturn` Just ()
+    _ <- forkFinally (executeApply second config policy) (putMVar secondDone)
+    blocked <- timeout 50000 (takeMVar secondDone)
+    putMVar release ()
+    blocked `shouldSatisfy` isNothing
+    a <- timeout 5000000 (takeMVar firstDone)
+    b <- timeout 5000000 (takeMVar secondDone)
+    let success (Just (Right (Right _))) = True
+        success _ = False
+    a `shouldSatisfy` success
+    if policy == IfExistsError
+      then case b of
+        Just (Right (Left message)) -> T.unpack message `shouldContain` "already exists"
+        other -> expectationFailure (show (other :: Maybe (Either SomeException (Either T.Text ApplyResult))))
+      else b `shouldSatisfy` success
+    if phaseName == "templates"
+      then runSqlPool (selectList [M.TemplateVmName ==. "parallel"] []) (ssDbPool state) >>= (\rows -> length rows `shouldBe` 1)
+      else
+        if phaseName == "sshKeys"
+          then runSqlPool (selectList [M.SshKeyName ==. "parallel"] []) (ssDbPool state) >>= (\rows -> length rows `shouldBe` 1)
+          else
+            if phaseName == "networks"
+              then runSqlPool (selectList [M.NetworkName ==. "parallel"] []) (ssDbPool state) >>= (\rows -> length rows `shouldBe` 1)
+              else runSqlPool (selectList [M.VmName ==. "parallel"] []) (ssDbPool state) >>= (\rows -> length rows `shouldBe` 1)
+    pure RespOk
+  pure ()

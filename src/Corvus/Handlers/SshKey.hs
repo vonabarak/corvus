@@ -12,13 +12,9 @@ module Corvus.Handlers.SshKey
   , SshKeyInject (..)
 
     -- * SSH key handlers
-  , handleSshKeyCreate
-  , handleSshKeyDelete
   , handleSshKeyList
 
     -- * VM association handlers
-  , handleSshKeyAttach
-  , handleSshKeyDetach
   , handleSshKeyListForVm
   )
 where
@@ -94,7 +90,9 @@ handleSshKeyDelete state keyId = runServerLogging state $ do
     Just _ -> do
       -- Check if key is attached to any VMs
       attachments <- liftIO $ runSqlPool (selectList [VmSshKeySshKeyId ==. keyKey] []) pool
+      templateRefs <- liftIO $ runSqlPool (selectList [TemplateSshKeySshKeyId ==. keyKey] []) pool
       case attachments of
+        [] | not (null templateRefs) -> pure $ RespError "SSH key is referenced by a template"
         [] -> do
           -- No attachments, safe to delete
           liftIO $ runSqlPool (delete keyKey) pool
@@ -141,100 +139,104 @@ handleSshKeyList state = runServerLogging state $ do
 
 -- | Attach an SSH key to a VM
 -- This also regenerates the cloud-init ISO and registers/attaches it as a disk
-handleSshKeyAttach :: ServerState -> Text -> Int64 -> Int64 -> IO Response
-handleSshKeyAttach state clientName vmId keyId = runServerLogging state $ do
-  logInfoN $ "Attaching SSH key " <> T.pack (show keyId) <> " to VM " <> T.pack (show vmId)
+handleSshKeyAttach :: ActionContext -> Int64 -> Int64 -> IO Response
+handleSshKeyAttach ctx vmId keyId =
+  let state = acState ctx
+   in runServerLogging state $ do
+        logInfoN $ "Attaching SSH key " <> T.pack (show keyId) <> " to VM " <> T.pack (show vmId)
 
-  let pool = ssDbPool state
-  let vmKey = toSqlKey vmId :: VmId
-  let sshKeyKey = toSqlKey keyId :: SshKeyId
+        let pool = ssDbPool state
+        let vmKey = toSqlKey vmId :: VmId
+        let sshKeyKey = toSqlKey keyId :: SshKeyId
 
-  -- Check VM exists
-  mVm <- liftIO $ runSqlPool (get vmKey) pool
-  case mVm of
-    Nothing -> pure RespVmNotFound
-    Just vm -> do
-      -- Check key exists
-      mKey <- liftIO $ runSqlPool (get sshKeyKey) pool
-      case mKey of
-        Nothing -> pure RespSshKeyNotFound
-        Just _ -> do
-          -- Check if already attached
-          existing <-
-            liftIO $
-              runSqlPool
-                (getBy (UniqueVmSshKey vmKey sshKeyKey))
-                pool
-          case existing of
-            Just _ -> do
-              logWarnN "SSH key is already attached to this VM"
-              pure $ RespError "SSH key is already attached to this VM"
-            Nothing -> do
-              -- Create attachment
-              liftIO $
-                runSqlPool
-                  ( insert_
-                      VmSshKey
-                        { vmSshKeyVmId = vmKey
-                        , vmSshKeySshKeyId = sshKeyKey
-                        }
-                  )
-                  pool
-              logInfoN "SSH key attached"
+        -- Check VM exists
+        mVm <- liftIO $ runSqlPool (get vmKey) pool
+        case mVm of
+          Nothing -> pure RespVmNotFound
+          Just vm -> do
+            -- Check key exists
+            mKey <- liftIO $ runSqlPool (get sshKeyKey) pool
+            case mKey of
+              Nothing -> pure RespSshKeyNotFound
+              Just _ -> do
+                -- Check if already attached
+                existing <-
+                  liftIO $
+                    runSqlPool
+                      (getBy (UniqueVmSshKey vmKey sshKeyKey))
+                      pool
+                case existing of
+                  Just _ -> do
+                    logWarnN "SSH key is already attached to this VM"
+                    pure $ RespError "SSH key is already attached to this VM"
+                  Nothing -> do
+                    -- Create attachment
+                    liftIO $
+                      runSqlPool
+                        ( insert_
+                            VmSshKey
+                              { vmSshKeyVmId = vmKey
+                              , vmSshKeySshKeyId = sshKeyKey
+                              }
+                        )
+                        pool
+                    logInfoN "SSH key attached"
 
-              if vmCloudInit vm
-                then do
-                  -- Regenerate cloud-init ISO
-                  result <- liftIO $ classifyRegenResponse <$> runAction state clientName (RegenerateCloudInit vmId (vmName vm))
-                  case result of
-                    Left err -> do
-                      logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
-                      pure $ RespError $ "Key attached but ISO generation failed: " <> err
-                    Right _ -> do
-                      logInfoN "Cloud-init ISO regenerated"
-                      pure RespSshKeyOk
-                else pure RespSshKeyOk
+                    if vmCloudInit vm
+                      then do
+                        -- Regenerate cloud-init ISO
+                        result <- liftIO $ classifyRegenResponse <$> runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
+                        case result of
+                          Left err -> do
+                            logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
+                            pure $ RespError $ "Key attached but ISO generation failed: " <> err
+                          Right _ -> do
+                            logInfoN "Cloud-init ISO regenerated"
+                            pure RespSshKeyOk
+                      else pure RespSshKeyOk
 
 -- | Detach an SSH key from a VM
 -- This also regenerates/removes the cloud-init ISO
-handleSshKeyDetach :: ServerState -> Text -> Int64 -> Int64 -> IO Response
-handleSshKeyDetach state clientName vmId keyId = runServerLogging state $ do
-  logInfoN $ "Detaching SSH key " <> T.pack (show keyId) <> " from VM " <> T.pack (show vmId)
+handleSshKeyDetach :: ActionContext -> Int64 -> Int64 -> IO Response
+handleSshKeyDetach ctx vmId keyId =
+  let state = acState ctx
+   in runServerLogging state $ do
+        logInfoN $ "Detaching SSH key " <> T.pack (show keyId) <> " from VM " <> T.pack (show vmId)
 
-  let pool = ssDbPool state
-  let vmKey = toSqlKey vmId :: VmId
-  let sshKeyKey = toSqlKey keyId :: SshKeyId
+        let pool = ssDbPool state
+        let vmKey = toSqlKey vmId :: VmId
+        let sshKeyKey = toSqlKey keyId :: SshKeyId
 
-  -- Check VM exists
-  mVm <- liftIO $ runSqlPool (get vmKey) pool
-  case mVm of
-    Nothing -> pure RespVmNotFound
-    Just vm -> do
-      -- Check if attachment exists
-      mAttachment <-
-        liftIO $
-          runSqlPool
-            (getBy (UniqueVmSshKey vmKey sshKeyKey))
-            pool
-      case mAttachment of
-        Nothing -> pure RespSshKeyNotFound
-        Just (Entity attachmentId _) -> do
-          -- Remove attachment
-          liftIO $ runSqlPool (delete attachmentId) pool
-          logInfoN "SSH key detached"
+        -- Check VM exists
+        mVm <- liftIO $ runSqlPool (get vmKey) pool
+        case mVm of
+          Nothing -> pure RespVmNotFound
+          Just vm -> do
+            -- Check if attachment exists
+            mAttachment <-
+              liftIO $
+                runSqlPool
+                  (getBy (UniqueVmSshKey vmKey sshKeyKey))
+                  pool
+            case mAttachment of
+              Nothing -> pure RespSshKeyNotFound
+              Just (Entity attachmentId _) -> do
+                -- Remove attachment
+                liftIO $ runSqlPool (delete attachmentId) pool
+                logInfoN "SSH key detached"
 
-          -- Regenerate cloud-init ISO if cloud-init is enabled
-          if vmCloudInit vm
-            then do
-              result <- liftIO $ classifyRegenResponse <$> runAction state clientName (RegenerateCloudInit vmId (vmName vm))
-              case result of
-                Left err -> do
-                  logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
-                  pure $ RespError $ "Key detached but ISO update failed: " <> err
-                Right _ -> do
-                  logInfoN "Cloud-init ISO updated"
-                  pure RespSshKeyOk
-            else pure RespSshKeyOk
+                -- Regenerate cloud-init ISO if cloud-init is enabled
+                if vmCloudInit vm
+                  then do
+                    result <- liftIO $ classifyRegenResponse <$> runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
+                    case result of
+                      Left err -> do
+                        logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
+                        pure $ RespError $ "Key detached but ISO update failed: " <> err
+                      Right _ -> do
+                        logInfoN "Cloud-init ISO updated"
+                        pure RespSshKeyOk
+                  else pure RespSshKeyOk
 
 -- | List SSH keys attached to a VM
 handleSshKeyListForVm :: ServerState -> Int64 -> IO Response
@@ -305,10 +307,11 @@ data SshKeyAttach = SshKeyAttach
   }
 
 instance Action SshKeyAttach where
+  actionObjectResources state a = (++) <$> objectResources state SharedAccess SshKeyObject (skaKeyId a) <*> objectResources state ExclusiveAccess VmObject (skaVmId a)
   actionSubsystem _ = SubSshKey
   actionCommand _ = "attach"
   actionEntityId = Just . fromIntegral . skaKeyId
-  actionExecute ctx a = handleSshKeyAttach (acState ctx) (acClientName ctx) (skaVmId a) (skaKeyId a)
+  actionExecute ctx a = handleSshKeyAttach ctx (skaVmId a) (skaKeyId a)
 
 data SshKeyDetach = SshKeyDetach
   { skdetVmId :: Int64
@@ -316,10 +319,11 @@ data SshKeyDetach = SshKeyDetach
   }
 
 instance Action SshKeyDetach where
+  actionObjectResources state a = (++) <$> objectResources state SharedAccess SshKeyObject (skdetKeyId a) <*> objectResources state ExclusiveAccess VmObject (skdetVmId a)
   actionSubsystem _ = SubSshKey
   actionCommand _ = "detach"
   actionEntityId = Just . fromIntegral . skdetKeyId
-  actionExecute ctx a = handleSshKeyDetach (acState ctx) (acClientName ctx) (skdetVmId a) (skdetKeyId a)
+  actionExecute ctx a = handleSshKeyDetach ctx (skdetVmId a) (skdetKeyId a)
 
 --------------------------------------------------------------------------------
 -- Internal Helpers

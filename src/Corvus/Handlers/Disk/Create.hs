@@ -11,7 +11,7 @@ where
 import qualified Control.Monad.IO.Class
 import qualified Control.Monad.Logger
 import Corvus.Action
-import Corvus.ImageOperationGuard (ImageAccess (..))
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Images
 
 import Control.Monad (void)
@@ -162,10 +162,12 @@ data DiskCreate = DiskCreate
   }
 
 instance Action DiskCreate where
+  actionPrepare state a = fmap (fmap (\node -> a {dcrNodeRef = node})) (pinNode state (dcrNodeRef a) (pickNodeForDisk state))
+  actionObjectResources state a = nodePathResources state (read (T.unpack (dcrNodeRef a))) (dcrPath a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "create"
   actionEntityName = Just . dcrName
-  actionExecute ctx a = handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSize a) (dcrPath a) (dcrEphemeral a) (dcrNodeRef a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (read (T.unpack (dcrNodeRef a))) (dcrPath a) $ handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSize a) (dcrPath a) (dcrEphemeral a) (dcrNodeRef a)
 
 data DiskRegister = DiskRegister
   { drgName :: Text
@@ -179,10 +181,12 @@ data DiskRegister = DiskRegister
   }
 
 instance Action DiskRegister where
-  actionImageResources state a = do
-    source <- maybe (pure []) (imageResources state SharedImage) (drgBackingDiskId a)
+  actionPrepare state a = fmap (fmap (\node -> a {drgNodeRef = node})) (pinNode state (drgNodeRef a) (pickNodeForDisk state))
+  actionObjectResources state a = nodePathResources state (read (T.unpack (drgNodeRef a))) (Just (drgPath a))
+  actionResources state a = do
+    source <- maybe (pure []) (imageResources state SharedAccess) (drgBackingDiskId a)
     pure $ source ++ familyResource (drgName a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "register"
   actionEntityName = Just . drgName
-  actionExecute ctx a = handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a) (drgEphemeral a) (drgNodeRef a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (read (T.unpack (drgNodeRef a))) (Just (drgPath a)) $ handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a) (drgEphemeral a) (drgNodeRef a)

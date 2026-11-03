@@ -9,7 +9,6 @@ module Corvus.Handlers.Disk.Derive
 where
 
 import Corvus.Action
-import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Images
 
 import Control.Monad (forM_)
@@ -215,13 +214,17 @@ data DiskCreateOverlay = DiskCreateOverlay
   }
 
 instance Action DiskCreateOverlay where
-  actionImageResources state a = do
-    source <- imageResources state SharedImage (dcoBaseDiskId a)
+  actionPrepare state a = do
+    selected <- selectDerivationNode state (dcoBaseDiskId a) (dcoNode a)
+    pure $ either (Left . RespError) (\node -> Right a {dcoNode = Just node}) selected
+  actionObjectResources state a = maybe (pure []) (\node -> nodePathResources state (fromSqlKey node) (dcoPath a)) (dcoNode a)
+  actionResources state a = do
+    source <- imageResources state SharedAccess (dcoBaseDiskId a)
     pure $ source ++ familyResource (dcoName a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "overlay"
   actionEntityName = Just . dcoName
-  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a) (dcoNode a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (maybe 0 fromSqlKey (dcoNode a)) (dcoPath a) $ handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a) (dcoNode a)
 
 data DiskClone = DiskClone
   { dclName :: Text
@@ -233,13 +236,17 @@ data DiskClone = DiskClone
   }
 
 instance Action DiskClone where
-  actionImageResources state a = do
-    source <- imageResources state SharedImage (dclBaseDiskId a)
+  actionPrepare state a = do
+    selected <- selectDerivationNode state (dclBaseDiskId a) (dclNode a)
+    pure $ either (Left . RespError) (\node -> Right a {dclNode = Just node}) selected
+  actionObjectResources state a = maybe (pure []) (\node -> nodePathResources state (fromSqlKey node) (dclPath a)) (dclNode a)
+  actionResources state a = do
+    source <- imageResources state SharedAccess (dclBaseDiskId a)
     pure $ source ++ familyResource (dclName a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "clone"
   actionEntityName = Just . dclName
-  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a) (dclNode a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (maybe 0 fromSqlKey (dclNode a)) (dclPath a) $ handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a) (dclNode a)
 
 -- | Honor the VM placement when deriving attached media.
 selectDerivationNode :: ServerState -> Int64 -> Maybe NodeId -> IO (Either Text NodeId)

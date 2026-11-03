@@ -61,10 +61,10 @@ import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Database (DatabaseRuntimeInfo, unknownDatabaseRuntimeInfo)
-import Corvus.ImageOperationGuard (ImageOperationGuard, newImageOperationGuard)
 import qualified Corvus.Model as M
 import Corvus.NetAgentClient (NetAgentClient)
 import Corvus.NodeAgentClient (NodeAgentClient)
+import Corvus.OperationGuard (OperationGuard, newOperationGuard)
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Tls (TlsConfig)
 import qualified Data.ByteString as BS
@@ -93,7 +93,7 @@ vmStatsRingCapacity = 60
 
 -- | Shared server state
 data ServerState = ServerState
-  { ssImageOperations :: !ImageOperationGuard
+  { ssOperations :: !OperationGuard
   , ssStartTime :: !UTCTime
   -- ^ When the server started
   , ssConnectionCount :: TVar Int
@@ -237,7 +237,7 @@ newServerStateWithDatabase pool qemuConfig dbRuntimeInfo = do
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO Map.empty
   taskCancels <- newTVarIO Map.empty
-  imageOperations <- newImageOperationGuard
+  operations <- newOperationGuard
   taskThreads <- newTVarIO Map.empty
   pure
     ServerState
@@ -256,7 +256,7 @@ newServerStateWithDatabase pool qemuConfig dbRuntimeInfo = do
       , ssVsockCidLocks = vsockLocks
       , ssSpicePortLock = spiceLock
       , ssTaskCancels = taskCancels
-      , ssImageOperations = imageOperations
+      , ssOperations = operations
       , ssTaskThreads = taskThreads
       , ssReservedRam = reservedRam
       , ssTlsConfig = Nothing

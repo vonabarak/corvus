@@ -12,7 +12,6 @@ module Corvus.Handlers.Disk.Placement
 where
 
 import Corvus.Action
-import Corvus.ImageOperationGuard (ImageAccess (..))
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
@@ -449,7 +448,7 @@ data DiskCopy = DiskCopy
   }
 
 instance Action DiskCopy where
-  actionImageResources state a = imageResources state SharedImage (dcpDiskId a)
+  actionResources state a = transferResources state (dcpDiskId a) (dcpDestNodeId a) (dcpToPath a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "copy"
   actionEntityId = Just . fromIntegral . dcpDiskId
@@ -471,6 +470,7 @@ data DiskMove = DiskMove
   }
 
 instance Action DiskMove where
+  actionResources state a = (++) <$> transferResources state (dmvDiskId a) (dmvDestNodeId a) (dmvToPath a) <*> imageFamilyResources state (dmvDiskId a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "move"
   actionEntityId = Just . fromIntegral . dmvDiskId
@@ -481,3 +481,27 @@ instance Action DiskMove where
       (dmvDestNodeId a)
       (dmvToPath a)
       (dmvWithBackingChain a)
+
+-- Reserve every placement the transfer may stage, including shared ancestors.
+-- Path discovery is repeated by the action runner after waiting.
+transferResources :: ServerState -> Int64 -> Int64 -> Maybe Text -> IO [(OperationResource, ResourceAccess)]
+transferResources state disk dest requestedPath = do
+  chain <- runSqlPool (getBackingChainIds disk) (ssDbPool state)
+  concat <$> mapM resources (toSqlKey disk : chain)
+  where
+    resources image = do
+      versions <- imageResources state ExclusiveAccess (fromSqlKey image)
+      placements <- runSqlPool (listDiskImageNodes image) (ssDbPool state)
+      base <- nodeBasePathFor state (toSqlKey dest)
+      paths <- case [row | Entity _ row <- placements, M.diskImageNodeNodeId row /= toSqlKey dest] of
+        [] -> nodePathResources state dest Nothing
+        row : _ -> do
+          sourceBase <- nodeBasePathFor state (M.diskImageNodeNodeId row)
+          let stored = M.diskImageNodeFilePath row
+              absolute = "/" `T.isPrefixOf` stored
+              source = if absolute then T.unpack stored else sourceBase </> T.unpack stored
+              override = if image == toSqlKey disk then requestedPath else Nothing
+          case computeDestPaths absolute stored source base override of
+            Left _ -> nodePathResources state dest Nothing
+            Right (path, _) -> nodePathResources state dest (Just (T.pack path))
+      pure $ versions ++ paths

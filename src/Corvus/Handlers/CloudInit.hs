@@ -11,9 +11,7 @@ module Corvus.Handlers.CloudInit
   , RegenerateCloudInit (..)
 
     -- * Handlers
-  , handleCloudInitSet
   , handleCloudInitGet
-  , handleCloudInitDelete
   )
 where
 
@@ -59,44 +57,46 @@ import Database.Persist.Sql (SqlBackend, runSqlPool)
 -- 'clientName' is propagated to the inner 'RegenerateCloudInit'
 -- task so the regeneration row reflects the same caller as the
 -- CloudInitSet action that triggered it.
-handleCloudInitSet :: ServerState -> Text -> Int64 -> Maybe Text -> Maybe Text -> Bool -> IO Response
-handleCloudInitSet state clientName vmId mUserData mNetworkConfig injectKeys = runServerLogging state $ do
-  logInfoN $ "Setting cloud-init config for VM " <> T.pack (show vmId)
+handleCloudInitSet :: ActionContext -> Int64 -> Maybe Text -> Maybe Text -> Bool -> IO Response
+handleCloudInitSet ctx vmId mUserData mNetworkConfig injectKeys =
+  let state = acState ctx
+   in runServerLogging state $ do
+        logInfoN $ "Setting cloud-init config for VM " <> T.pack (show vmId)
 
-  let pool = ssDbPool state
-  let vmKey = toSqlKey vmId :: VmId
+        let pool = ssDbPool state
+        let vmKey = toSqlKey vmId :: VmId
 
-  -- Check VM exists and has cloud-init enabled
-  mVm <- liftIO $ runSqlPool (get vmKey) pool
-  case mVm of
-    Nothing -> pure RespVmNotFound
-    Just vm
-      | not (vmCloudInit vm) ->
-          pure $ RespError "Cloud-init is not enabled on this VM"
-      | otherwise -> do
-          -- Upsert the cloud-init config
-          _ <-
-            liftIO $
-              runSqlPool
-                ( upsertBy
-                    (UniqueCloudInitVm vmKey)
-                    CloudInit
-                      { cloudInitVmId = vmKey
-                      , cloudInitUserData = mUserData
-                      , cloudInitNetworkConfig = mNetworkConfig
-                      , cloudInitInjectSshKeys = injectKeys
-                      }
-                    [ CloudInitUserData =. mUserData
-                    , CloudInitNetworkConfig =. mNetworkConfig
-                    , CloudInitInjectSshKeys =. injectKeys
-                    ]
-                )
-                pool
-          -- Regenerate ISO with new config
-          ciResp <- liftIO $ runAction state clientName (RegenerateCloudInit vmId (vmName vm))
-          case ciResp of
-            RespError err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
-            _ -> pure RespCloudInitOk
+        -- Check VM exists and has cloud-init enabled
+        mVm <- liftIO $ runSqlPool (get vmKey) pool
+        case mVm of
+          Nothing -> pure RespVmNotFound
+          Just vm
+            | not (vmCloudInit vm) ->
+                pure $ RespError "Cloud-init is not enabled on this VM"
+            | otherwise -> do
+                -- Upsert the cloud-init config
+                _ <-
+                  liftIO $
+                    runSqlPool
+                      ( upsertBy
+                          (UniqueCloudInitVm vmKey)
+                          CloudInit
+                            { cloudInitVmId = vmKey
+                            , cloudInitUserData = mUserData
+                            , cloudInitNetworkConfig = mNetworkConfig
+                            , cloudInitInjectSshKeys = injectKeys
+                            }
+                          [ CloudInitUserData =. mUserData
+                          , CloudInitNetworkConfig =. mNetworkConfig
+                          , CloudInitInjectSshKeys =. injectKeys
+                          ]
+                      )
+                      pool
+                -- Regenerate ISO with new config
+                ciResp <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
+                case ciResp of
+                  RespError err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
+                  _ -> pure RespCloudInitOk
 
 -- | Get cloud-init config for a VM
 handleCloudInitGet :: ServerState -> Int64 -> IO Response
@@ -123,27 +123,29 @@ handleCloudInitGet state vmId = do
 
 -- | Delete custom cloud-init config for a VM (revert to defaults).
 -- 'clientName' is forwarded to the inner regeneration task.
-handleCloudInitDelete :: ServerState -> Text -> Int64 -> IO Response
-handleCloudInitDelete state clientName vmId = runServerLogging state $ do
-  logInfoN $ "Deleting cloud-init config for VM " <> T.pack (show vmId)
+handleCloudInitDelete :: ActionContext -> Int64 -> IO Response
+handleCloudInitDelete ctx vmId =
+  let state = acState ctx
+   in runServerLogging state $ do
+        logInfoN $ "Deleting cloud-init config for VM " <> T.pack (show vmId)
 
-  let pool = ssDbPool state
-  let vmKey = toSqlKey vmId :: VmId
+        let pool = ssDbPool state
+        let vmKey = toSqlKey vmId :: VmId
 
-  mVm <- liftIO $ runSqlPool (get vmKey) pool
-  case mVm of
-    Nothing -> pure RespVmNotFound
-    Just vm
-      | not (vmCloudInit vm) ->
-          pure $ RespError "Cloud-init is not enabled on this VM"
-      | otherwise -> do
-          -- Delete the custom config
-          liftIO $ runSqlPool (deleteBy (UniqueCloudInitVm vmKey)) pool
-          -- Regenerate ISO with defaults
-          ciResp <- liftIO $ runAction state clientName (RegenerateCloudInit vmId (vmName vm))
-          case ciResp of
-            RespError err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
-            _ -> pure RespCloudInitOk
+        mVm <- liftIO $ runSqlPool (get vmKey) pool
+        case mVm of
+          Nothing -> pure RespVmNotFound
+          Just vm
+            | not (vmCloudInit vm) ->
+                pure $ RespError "Cloud-init is not enabled on this VM"
+            | otherwise -> do
+                -- Delete the custom config
+                liftIO $ runSqlPool (deleteBy (UniqueCloudInitVm vmKey)) pool
+                -- Regenerate ISO with defaults
+                ciResp <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
+                case ciResp of
+                  RespError err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
+                  _ -> pure RespCloudInitOk
 
 --------------------------------------------------------------------------------
 -- Action Types
@@ -160,7 +162,7 @@ instance Action CloudInitSet where
   actionSubsystem _ = SubVm
   actionCommand _ = "cloud-init-set"
   actionEntityId = Just . fromIntegral . cisVmId
-  actionExecute ctx a = handleCloudInitSet (acState ctx) (acClientName ctx) (cisVmId a) (cisUserData a) (cisNetworkConfig a) (cisInjectKeys a)
+  actionExecute ctx a = handleCloudInitSet ctx (cisVmId a) (cisUserData a) (cisNetworkConfig a) (cisInjectKeys a)
 
 newtype CloudInitDelete = CloudInitDelete {cidVmId :: Int64}
 
@@ -168,7 +170,7 @@ instance Action CloudInitDelete where
   actionSubsystem _ = SubVm
   actionCommand _ = "cloud-init-delete"
   actionEntityId = Just . fromIntegral . cidVmId
-  actionExecute ctx a = handleCloudInitDelete (acState ctx) (acClientName ctx) (cidVmId a)
+  actionExecute ctx a = handleCloudInitDelete ctx (cidVmId a)
 
 -- | Regenerate cloud-init ISO for a VM (collects SSH keys + config from DB).
 data RegenerateCloudInit = RegenerateCloudInit
@@ -179,6 +181,7 @@ data RegenerateCloudInit = RegenerateCloudInit
 instance Action RegenerateCloudInit where
   actionSubsystem _ = SubVm
   actionCommand _ = "cloud-init"
+  actionEntityId = Just . fromIntegral . rciVmId
   actionEntityName = Just . rciVmName
   actionExecute ctx a = do
     let state = acState ctx

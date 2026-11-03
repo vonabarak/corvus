@@ -16,10 +16,6 @@ module Corvus.Handlers.Node
   , NodeDrain (..)
 
     -- * Handlers
-  , handleNodeAdd
-  , handleNodeDelete
-  , handleNodeEdit
-  , handleNodeDrain
   , handleNodeList
   , handleNodeShow
   )
@@ -303,22 +299,6 @@ handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath m
 -- handleNodeDrain
 --------------------------------------------------------------------------------
 
--- | Operator shortcut for marking a node as draining; subsequent
--- scheduler picks (Phase 2) skip it.
-handleNodeDrain :: ServerState -> Int64 -> IO Response
-handleNodeDrain state nodeId =
-  handleNodeEdit
-    state
-    nodeId
-    Nothing
-    Nothing
-    Nothing
-    Nothing
-    Nothing
-    Nothing
-    (Just M.NodeDraining)
-    Nothing
-
 --------------------------------------------------------------------------------
 -- Toggle-block check
 --------------------------------------------------------------------------------
@@ -488,6 +468,7 @@ data NodeAdd = NodeAdd
   }
 
 instance Action NodeAdd where
+  actionResources _ a = pure [(NodeEndpoint (naHost a) (naNodeAgentPort a), ExclusiveAccess)]
   actionSubsystem _ = M.SubNode
   actionCommand _ = "add"
   actionEntityName = Just . naName
@@ -525,21 +506,39 @@ data NodeEdit = NodeEdit
   }
 
 instance Action NodeEdit where
+  actionResources state a = do
+    node <- runSqlPool (get (toSqlKey (nedNodeId a) :: M.NodeId)) (ssDbPool state)
+    pure $ case node of
+      Nothing -> []
+      Just row -> [(ObjectName NodeObject Nothing (Data.Maybe.fromMaybe (nodeName row) (nedName a)), ExclusiveAccess), (NodeEndpoint (Data.Maybe.fromMaybe (nodeHost row) (nedHost a)) (Data.Maybe.fromMaybe (nodeNodeAgentPort row) (nedNodeAgentPort a)), ExclusiveAccess)]
   actionSubsystem _ = M.SubNode
   actionCommand _ = "edit"
   actionEntityId = Just . fromIntegral . nedNodeId
-  actionExecute ctx a =
-    handleNodeEdit
-      (acState ctx)
-      (nedNodeId a)
-      (nedName a)
-      (nedHost a)
-      (nedNodeAgentPort a)
-      (nedNetAgentPort a)
-      (nedBasePath a)
-      (nedDescription a)
-      (nedAdminState a)
-      (nedNetdDisabled a)
+  actionExecute ctx a = do
+    let pool = ssDbPool (acState ctx)
+        key = toSqlKey (nedNodeId a) :: M.NodeId
+    current <- runSqlPool (get key) pool
+    case current of
+      Nothing -> pure RespNodeNotFound
+      Just row -> do
+        let name = Data.Maybe.fromMaybe (nodeName row) (nedName a)
+            host = Data.Maybe.fromMaybe (nodeHost row) (nedHost a)
+            port = Data.Maybe.fromMaybe (nodeNodeAgentPort row) (nedNodeAgentPort a)
+        duplicates <- runSqlPool ((,) <$> getBy (M.UniqueNodeName name) <*> getBy (M.UniqueNodeAddress host port)) pool
+        if any (maybe False ((/= key) . entityKey)) [fst duplicates, snd duplicates]
+          then pure $ RespError "A node with this name or endpoint already exists"
+          else
+            handleNodeEdit
+              (acState ctx)
+              (nedNodeId a)
+              (nedName a)
+              (nedHost a)
+              (nedNodeAgentPort a)
+              (nedNetAgentPort a)
+              (nedBasePath a)
+              (nedDescription a)
+              (nedAdminState a)
+              (nedNetdDisabled a)
 
 newtype NodeDrain = NodeDrain {ndrNodeId :: Int64}
 
@@ -547,4 +546,4 @@ instance Action NodeDrain where
   actionSubsystem _ = M.SubNode
   actionCommand _ = "drain"
   actionEntityId = Just . fromIntegral . ndrNodeId
-  actionExecute ctx a = handleNodeDrain (acState ctx) (ndrNodeId a)
+  actionExecute ctx a = runActionAsSubtask ctx (NodeEdit (ndrNodeId a) Nothing Nothing Nothing Nothing Nothing Nothing (Just M.NodeDraining) Nothing)

@@ -12,8 +12,18 @@
 module Corvus.Action
   ( -- * Context
     ActionContext (..)
-  , withContextImageLeases
-  , executeWithImageLeases
+  , withContextOperationLeases
+  , executeWithOperationLeases
+  , pinNode
+  , nodeNameResources
+  , nodePathResources
+  , withAvailableNodePath
+  , scopedNameResource
+  , objectResources
+  , ObjectKind (..)
+  , OperationResource (..)
+  , ResourceAccess (..)
+  , withPreparedOperationLeases
   , vmImageResources
   , imageResources
   , imageFamilyResources
@@ -58,9 +68,11 @@ import Control.Monad (when)
 import qualified Control.Monad.Catch as MC
 import Corvus.DiskSelector (publicationSelector)
 import Corvus.Handlers.Disk.Db (getBackingChainIds)
-import Corvus.ImageOperationGuard
+import Corvus.Handlers.Disk.Path (makeRelativeToBase)
+import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode)
 import Corvus.Model
 import qualified Corvus.Model as M
+import Corvus.OperationGuard
 import Corvus.Protocol
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types
@@ -74,6 +86,8 @@ import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (SqlBackend, runSqlPool)
+import GHC.Clock (getMonotonicTimeNSec)
+import System.FilePath (isRelative, normalise, (</>))
 
 --------------------------------------------------------------------------------
 -- Action Context
@@ -99,7 +113,7 @@ data ActionContext = ActionContext
   , acTaskId :: !TaskId
   , acClientName :: !Text
   , acApplySink :: !ApplySink
-  , acImageLeases :: ![ImageLease]
+  , acOperationLeases :: ![OperationLease]
   , acIgnoreCancellation :: !Bool
   -- ^ Cleanup must finish releasing resources after the root is cancelled.
   , acRootTaskId :: !TaskId
@@ -123,7 +137,7 @@ mkActionContext state taskId clientName =
     , acTaskId = taskId
     , acClientName = clientName
     , acApplySink = silentApplySink
-    , acImageLeases = []
+    , acOperationLeases = []
     , acIgnoreCancellation = False
     , acRootTaskId = taskId
     }
@@ -163,12 +177,34 @@ throwIfCancelled ctx = do
 -- Each handler is a data type that implements this class.
 class Action a where
   -- | Which subsystem this action belongs to (vm, disk, network, etc.)
-  actionImageResources :: ServerState -> a -> IO [(ImageResource, ImageAccess)]
-  actionImageResources state action
+  actionResources :: ServerState -> a -> IO [(OperationResource, ResourceAccess)]
+  actionResources state action
     | actionSubsystem action `elem` [SubDisk, SubSnapshot] = do
-        versions <- maybe (pure []) (\key -> (++) <$> imageResources state ExclusiveImage (fromIntegral key) <*> imageFamilyResources state (fromIntegral key)) (actionEntityId action)
+        versions <- maybe (pure []) (\key -> (++) <$> imageResources state ExclusiveAccess (fromIntegral key) <*> imageFamilyResources state (fromIntegral key)) (actionEntityId action)
         pure $ versions ++ if actionSubsystem action == SubDisk then maybe [] familyResource (actionEntityName action) else []
     | otherwise = pure []
+
+  -- | Pin scheduling decisions before discovering resources. Preparation must
+  -- be read-only; it may be repeated if identities change while waiting.
+  actionPrepare :: ServerState -> a -> IO (Either Response a)
+  actionPrepare _ = pure . Right
+
+  -- | Database identities are combined with actionResources atomically.
+  actionObjectResources :: ServerState -> a -> IO [(OperationResource, ResourceAccess)]
+  actionObjectResources state action = do
+    let kind = case actionSubsystem action of
+          SubTemplate -> Just TemplateObject
+          SubSshKey -> Just SshKeyObject
+          SubVm -> Just VmObject
+          SubSharedDir -> Just VmObject
+          SubNetwork -> Just NetworkObject
+          SubNode -> Just NodeObject
+          _ -> Nothing
+    case kind of
+      Nothing -> pure []
+      Just k -> do
+        old <- maybe (pure []) (objectResources state ExclusiveAccess k . fromIntegral) (actionEntityId action)
+        pure $ old ++ [(ObjectName k Nothing name, ExclusiveAccess) | k `elem` [TemplateObject, SshKeyObject, NodeObject], Just name <- [actionEntityName action]]
 
   actionSubsystem :: a -> TaskSubsystem
 
@@ -329,7 +365,7 @@ runAndFinalizeResult :: (Action a) => ServerState -> ActionContext -> a -> IO (E
 runAndFinalizeResult state ctx action = do
   let taskKey = acTaskId ctx
       pool = ssDbPool state
-  result <- try (executeWithImageLeases ctx action)
+  result <- try (executeWithOperationLeases ctx action)
   finishTime <- getCurrentTime
   -- Was cancellation requested for this task tree? Read BEFORE
   -- unregistering, since the top-level task's token is dropped by
@@ -389,7 +425,7 @@ runAndFinalizeResult state ctx action = do
           pool
         pushTaskFinished state (fromSqlKey taskKey) TaskError (Just errMsg)
         let errResp = RespError $ case fromException err of
-              Just (ImageLeaseTimeout message) -> message
+              Just (OperationLeaseTimeout message) -> message
               Nothing -> "Internal error: " <> errMsg
         pure $ Left errResp
 
@@ -422,7 +458,7 @@ orElse Nothing b = b
 executeCreate :: (Action a) => ActionContext -> a -> TaskId -> IO (Either Text Int64)
 executeCreate parentCtx action taskId = do
   let ctx = parentCtx {acTaskId = taskId}
-  result <- try $ executeWithImageLeases ctx action
+  result <- try $ executeWithOperationLeases ctx action
   case result of
     Left (err :: SomeException) -> pure $ Left $ T.pack $ show err
     Right resp -> do
@@ -628,48 +664,130 @@ pushTaskProgress state tid label (completed, total) = do
       }
 
 -- | Include ancestors so deleting or rewriting a backing file cannot race reads.
-imageResources :: ServerState -> ImageAccess -> Int64 -> IO [(ImageResource, ImageAccess)]
+imageResources :: ServerState -> ResourceAccess -> Int64 -> IO [(OperationResource, ResourceAccess)]
 imageResources state mode imageId = do
   ancestors <- runSqlPool (getBackingChainIds imageId) (ssDbPool state)
-  pure $ (ImageVersion imageId, mode) : [(ImageVersion (fromSqlKey key), SharedImage) | key <- ancestors]
+  pure $ (ImageVersion imageId, mode) : [(ImageVersion (fromSqlKey key), SharedAccess) | key <- ancestors]
 
-familyResource :: Text -> [(ImageResource, ImageAccess)]
+familyResource :: Text -> [(OperationResource, ResourceAccess)]
 familyResource name = case publicationSelector name of
   Left _ -> []
-  Right (family, _) -> [(ImageFamily family, ExclusiveImage)]
+  Right (family, _) -> [(ImageFamily family, ExclusiveAccess)]
 
-executeWithImageLeases :: (Action a) => ActionContext -> a -> IO Response
-executeWithImageLeases ctx action = do
-  throwIfCancelled ctx
-  resources <- actionImageResources (acState ctx) action
-  withImageLeases
-    (ssImageOperations (acState ctx))
-    60000000
-    ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))) <> " (" <> actionCommand action <> ")")
-    (acImageLeases ctx)
-    resources
-    $ \leases -> do
-      current <- actionImageResources (acState ctx) action
-      if Map.fromListWith max current /= Map.fromListWith max resources
-        then pure (RespError "Image dependencies changed while waiting for access; retry the task")
-        else actionExecute (ctx {acImageLeases = leases}) action
+-- | Resolve the complete set again after acquisition. Stale preparation is
+-- retried only before executing mutations, within the original deadline.
+withPreparedOperationLeases :: (Eq p) => ActionContext -> IO (p, [(OperationResource, ResourceAccess)]) -> (ActionContext -> p -> IO a) -> IO a
+withPreparedOperationLeases ctx prepare operation = do
+  started <- getMonotonicTimeNSec
+  let deadline = started + 60000000000
+      loop = do
+        throwIfCancelled ctx
+        (prepared, resources) <- prepare
+        now <- getMonotonicTimeNSec
+        when (now >= deadline) $ throwIO (OperationLeaseTimeout "Timed out preparing operation resources")
+        result <- withOperationLeasesWithBudget
+          (ssOperations (acState ctx))
+          60000000
+          (fromIntegral ((deadline - now) `div` 1000))
+          ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))))
+          (acOperationLeases ctx)
+          resources
+          $ \leases -> do
+            (current, required) <- prepare
+            if current /= prepared || Map.fromListWith max required /= Map.fromListWith max resources
+              then pure Nothing
+              else Just <$> operation (ctx {acOperationLeases = leases}) prepared
+        maybe loop pure result
+  loop
 
-imageFamilyResources :: ServerState -> Int64 -> IO [(ImageResource, ImageAccess)]
+executeWithOperationLeases :: (Action a) => ActionContext -> a -> IO Response
+executeWithOperationLeases ctx action = do
+  prepared <- actionPrepare (acState ctx) action
+  case prepared of
+    Left response -> pure response
+    Right pinned -> withPreparedOperationLeases
+      ctx
+      ( do
+          resources <- (++) <$> actionResources (acState ctx) pinned <*> actionObjectResources (acState ctx) pinned
+          pure ((), resources)
+      )
+      $ \leased () -> actionExecute leased pinned
+
+-- | Both the stable row identity and its current uniqueness namespace are
+-- protected. This also makes deletes conflict with references to the row.
+objectResources :: ServerState -> ResourceAccess -> ObjectKind -> Int64 -> IO [(OperationResource, ResourceAccess)]
+objectResources state mode kind ident = do
+  names <-
+    runSqlPool
+      ( case kind of
+          TemplateObject -> maybe [] (\row -> [(ObjectName kind Nothing (templateVmName row), mode)]) <$> get (toSqlKey ident :: TemplateVmId)
+          SshKeyObject -> maybe [] (\row -> [(ObjectName kind Nothing (sshKeyName row), mode)]) <$> get (toSqlKey ident :: SshKeyId)
+          VmObject -> maybe [] (\row -> [(ObjectName kind (Just (fromSqlKey (vmNodeId row))) (vmName row), mode)]) <$> get (toSqlKey ident :: VmId)
+          NetworkObject -> maybe [] (\row -> [(ObjectName kind (Just (fromSqlKey (networkNodeId row))) (networkName row), mode)]) <$> get (toSqlKey ident :: NetworkId)
+          NodeObject -> maybe [] (\row -> [(ObjectName kind Nothing (nodeName row), mode), (NodeEndpoint (nodeHost row) (nodeNodeAgentPort row), mode)]) <$> get (toSqlKey ident :: NodeId)
+      )
+      (ssDbPool state)
+  pure $ (ObjectId kind ident, mode) : names
+
+imageFamilyResources :: ServerState -> Int64 -> IO [(OperationResource, ResourceAccess)]
 imageFamilyResources state imageId = do
   family <- runSqlPool (fmap diskImageName <$> get (toSqlKey imageId :: DiskImageId)) (ssDbPool state)
   pure $ maybe [] familyResource family
 
-vmImageResources :: ServerState -> Int64 -> IO [(ImageResource, ImageAccess)]
+vmImageResources :: ServerState -> Int64 -> IO [(OperationResource, ResourceAccess)]
 vmImageResources state vmId = do
   drives <- runSqlPool (selectList [DriveVmId ==. toSqlKey vmId] []) (ssDbPool state)
-  concat <$> mapM (imageResources state ExclusiveImage . fromSqlKey) [key | Entity _ drive <- drives, Just key <- [driveDiskImageId drive]]
+  concat <$> mapM (imageResources state ExclusiveAccess . fromSqlKey) [key | Entity _ drive <- drives, Just key <- [driveDiskImageId drive]]
 
-withContextImageLeases :: ActionContext -> [(ImageResource, ImageAccess)] -> (ActionContext -> IO a) -> IO a
-withContextImageLeases ctx resources operation =
-  withImageLeases
-    (ssImageOperations (acState ctx))
+withContextOperationLeases :: ActionContext -> [(OperationResource, ResourceAccess)] -> (ActionContext -> IO a) -> IO a
+withContextOperationLeases ctx resources operation =
+  withOperationLeases
+    (ssOperations (acState ctx))
     60000000
     ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))))
-    (acImageLeases ctx)
+    (acOperationLeases ctx)
     resources
-    $ \leases -> operation (ctx {acImageLeases = leases})
+    $ \leases -> operation (ctx {acOperationLeases = leases})
+
+-- | Canonicalize aliases and choose automatic placement once, before locking.
+pinNode :: ServerState -> Text -> IO (Either Text NodeId) -> IO (Either Response Text)
+pinNode state ref automatic
+  | T.null ref || ref == "0" = fmap (either (Left . RespError) (Right . T.pack . show . fromSqlKey)) automatic
+  | otherwise = do
+      selected <- resolveNode (Ref ref) (ssDbPool state)
+      pure $ case selected of
+        Left (RefNotFound _ _) -> Left RespNodeNotFound
+        Left err -> Left (RespAmbiguousRef (resolveErrorMessage err))
+        Right node -> Right (T.pack (show node))
+
+scopedNameResource :: ObjectKind -> Text -> Text -> [(OperationResource, ResourceAccess)]
+scopedNameResource kind node name = case reads (T.unpack node) of
+  [(ident, "")] -> [(ObjectName kind (Just ident) name, ExclusiveAccess)]
+  _ -> []
+
+nodeNameResources :: ServerState -> ObjectKind -> Text -> Text -> IO [(OperationResource, ResourceAccess)]
+nodeNameResources state kind ref name = do
+  node <- case reads (T.unpack ref) of
+    [(ident, "")] -> objectResources state SharedAccess NodeObject ident
+    _ -> pure []
+  pure $ scopedNameResource kind ref name ++ node
+
+-- | File identities are scoped to the node that owns the storage. Generated
+-- destinations include an image ID and need no additional name reservation.
+nodePathResources :: ServerState -> Int64 -> Maybe Text -> IO [(OperationResource, ResourceAccess)]
+nodePathResources state node path = do
+  refs <- objectResources state SharedAccess NodeObject node
+  row <- runSqlPool (get (toSqlKey node :: NodeId)) (ssDbPool state)
+  let base = maybe "" (T.unpack . nodeBasePath) row
+      canonical raw = makeRelativeToBase (normalise base) (normalise (if isRelative (T.unpack raw) then base </> T.unpack raw else T.unpack raw))
+  pure $ refs ++ [(ChildIdentity "disk path" node (canonical raw), ExclusiveAccess) | Just raw <- [path], not (T.isSuffixOf "/" raw)]
+
+-- | Check explicit destinations while the caller holds their path reservation,
+-- before asking a nodeagent to overwrite an already registered file.
+withAvailableNodePath :: ServerState -> Int64 -> Maybe Text -> IO Response -> IO Response
+withAvailableNodePath state node path operation = do
+  resources <- nodePathResources state node path
+  collisions <- runSqlPool (mapM (getBy . UniqueDiskImagePathPerNode (toSqlKey node)) [name | (ChildIdentity "disk path" _ name, _) <- resources]) (ssDbPool state)
+  if any Data.Maybe.isJust collisions
+    then pure $ RespError "Disk path is already registered on this node"
+    else operation

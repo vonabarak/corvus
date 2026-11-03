@@ -40,9 +40,9 @@ import Corvus.Handlers.Build.Run (runBakeAndPublish)
 import Corvus.Handlers.Build.Template (instantiateBakeVm, resolveTemplateAndValidate, sanitizeNameFragment, setupTargetDisk)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (getTemplateDetails)
-import Corvus.ImageOperationGuard
 import Corvus.Images (resolveImage)
 import Corvus.Model
+import Corvus.OperationGuard
 import Corvus.Protocol
 import Corvus.Schema.Build
 import Corvus.Types
@@ -340,8 +340,8 @@ runOneBuildBody ctx sink stack b = do
               case validation of
                 Left err -> pure (Left err)
                 Right _ -> do
-                  let drives = [(nrId ref, if tvdiCloneStrategy drive == StrategyDirect && not (tvdiReadOnly drive) then ExclusiveImage else SharedImage) | drive <- tvdDrives details, ref <- maybeToList (tvdiDiskImage drive)]
-                      sources = drives ++ [(key, SharedImage) | key <- maybeToList source]
+                  let drives = [(nrId ref, if tvdiCloneStrategy drive == StrategyDirect && not (tvdiReadOnly drive) then ExclusiveAccess else SharedAccess) | drive <- tvdDrives details, ref <- maybeToList (tvdiDiskImage drive)]
+                      sources = drives ++ [(key, SharedAccess) | key <- maybeToList source]
                       -- Direct ephemeral inputs are reaped by VmDelete, even when
                       -- attached read-only. Reserve deletion access up front.
                       snapshotResources = do
@@ -353,7 +353,7 @@ runOneBuildBody ctx sink stack b = do
                                   Just ref | tvdiCloneStrategy drive == StrategyDirect -> do
                                     disk <- runSqlPool (get (toSqlKey (nrId ref))) (ssDbPool state)
                                     if maybe False diskImageEphemeral disk
-                                      then (++) <$> imageResources state ExclusiveImage (nrId ref) <*> imageFamilyResources state (nrId ref)
+                                      then (++) <$> imageResources state ExclusiveAccess (nrId ref) <*> imageFamilyResources state (nrId ref)
                                       else pure []
                                   _ -> pure []
                               )
@@ -421,13 +421,13 @@ runPlacedBake ctx sink stack b = do
                 needFlatten
                 b
 
-withBuildLeases :: ActionContext -> [(ImageResource, ImageAccess)] -> (ActionContext -> LoggingT IO a) -> LoggingT IO a
+withBuildLeases :: ActionContext -> [(OperationResource, ResourceAccess)] -> (ActionContext -> LoggingT IO a) -> LoggingT IO a
 withBuildLeases ctx resources operation = LoggingT $ \logger ->
-  withImageLeases
-    (ssImageOperations (acState ctx))
+  withOperationLeases
+    (ssOperations (acState ctx))
     60000000
     ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))) <> " (build)")
-    (acImageLeases ctx)
+    (acOperationLeases ctx)
     resources
     $ \leases ->
-      runLoggingT (operation (ctx {acImageLeases = leases})) logger
+      runLoggingT (operation (ctx {acOperationLeases = leases})) logger

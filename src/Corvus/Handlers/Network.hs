@@ -18,15 +18,8 @@ module Corvus.Handlers.Network
   , NetworkDetachNode (..)
 
     -- * Handlers
-  , handleNetworkCreate
-  , handleNetworkDelete
-  , handleNetworkStart
-  , handleNetworkStop
   , handleNetworkList
   , handleNetworkShow
-  , handleNetworkEdit
-  , handleNetworkAttachNode
-  , handleNetworkDetachNode
 
     -- * Shared helpers (used by NetIf + NodeSupervisor)
   , pushNetworkToAllMembers
@@ -719,6 +712,8 @@ data NetworkCreate = NetworkCreate
   }
 
 instance Action NetworkCreate where
+  actionPrepare state a = fmap (fmap (\node -> a {ncrNodeRef = node})) (pinNode state (ncrNodeRef a) (pickNodeForNetwork state))
+  actionObjectResources state a = nodeNameResources state NetworkObject (ncrNodeRef a) (ncrName a)
   actionSubsystem _ = SubNetwork
   actionCommand _ = "create"
   actionEntityName = Just . ncrName
@@ -797,6 +792,8 @@ data NetworkAttachNode = NetworkAttachNode
   }
 
 instance Action NetworkAttachNode where
+  actionPrepare state a = fmap (fmap (\node -> a {nanNodeRef = node})) (pinNode state (nanNodeRef a) (pickNodeForNetwork state))
+  actionResources state a = objectResources state SharedAccess NodeObject (read (T.unpack (nanNodeRef a)))
   actionSubsystem _ = SubNetwork
   actionCommand _ = "attach-node"
   actionEntityId = Just . fromIntegral . nanNetworkId

@@ -13,17 +13,12 @@ module Corvus.Handlers.Disk.Attach
   ( -- * Action types
     DiskAttach (..)
   , DiskDetachByDisk (..)
-
-    -- * Handlers
-  , handleDiskAttach
-  , handleDiskDetach
   )
 where
 
 import Corvus.Action
 import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor, getOverlayIds)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
-import Corvus.ImageOperationGuard (ImageAccess (..))
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN)
@@ -248,7 +243,8 @@ data DiskAttach = DiskAttach
   }
 
 instance Action DiskAttach where
-  actionImageResources state a = imageResources state (if datReadOnly a then SharedImage else ExclusiveImage) (datDiskId a)
+  actionObjectResources state a = objectResources state ExclusiveAccess VmObject (datVmId a)
+  actionResources state a = imageResources state (if datReadOnly a then SharedAccess else ExclusiveAccess) (datDiskId a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "attach"
   actionEntityId = Just . fromIntegral . datVmId
@@ -260,7 +256,8 @@ data DiskDetachByDisk = DiskDetachByDisk
   }
 
 instance Action DiskDetachByDisk where
-  actionImageResources state a = imageResources state ExclusiveImage (ddbDiskId a)
+  actionObjectResources state a = objectResources state ExclusiveAccess VmObject (ddbVmId a)
+  actionResources state a = imageResources state ExclusiveAccess (ddbDiskId a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "detach"
   actionEntityId = Just . fromIntegral . ddbVmId

@@ -37,6 +37,18 @@ Controls what apply does when a resource it would create already exists in the d
 | `skip` | Existing resources are silently treated as success and their IDs are reused for dependent references. Same as `--skip-existing`. |
 | `overwrite` | Disks publish a new version; other existing resources are deleted and re-created from the new YAML. Use this when you've edited an entry (template's cloud-init userData, disk's import URL, network's subnet, etc.) and want the next apply to replace the old DB row outright. Refuses with an actionable error — naming the attaching VM(s) / template(s) — when the existing resource is in use; the operator must detach (or `crv vm delete`) first. Built on the same per-entity `*Delete` actions as `crv <thing> delete`, so each delete is recorded as a subtask. Stream events for the overwrite arm are tagged `kind: "overwrite"` (sibling of `skip` and the regular create kinds). |
 
+Concurrent applies and direct mutations use the same object reservations.
+Requests for the same identity wait and then recheck existence, so two
+`overwrite` requests can both succeed sequentially; `skip` returns the existing
+ID and `error` reports a duplicate. VM and network identities include their node,
+so equal names on different nodes can proceed independently. Waiting has a
+60-second deadline with a diagnostic identifying the blocking task. Cancellation
+and exceptions release reservations.
+
+Overwrite still deletes and re-creates non-disk objects with new IDs. It is not
+a transaction across external operations: a failure after deletion can leave the
+object absent. Reservations coordinate a single daemon's requests.
+
 Per-entity refusal rules under `overwrite`:
 
 | Entity | Refused when | Recovery |

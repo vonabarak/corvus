@@ -110,7 +110,7 @@ library:
   exposed-modules:
     - Corvus.DiskSelector
     - Corvus.Node.DirectoryCleanup
-    - Corvus.ImageOperationGuard
+    - Corvus.OperationGuard
     - Corvus.Images
     - Corvus.Protocol
     - Corvus.Protocol.JsonOptions

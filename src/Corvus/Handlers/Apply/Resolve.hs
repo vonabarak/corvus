@@ -25,12 +25,13 @@ resolveByNameFilter state mkFilter mkNodeFilter localMap name nodeRef = case Map
   Nothing -> do
     nodeFilter <-
       if T.null nodeRef
-        then pure []
-        else do
-          mNid <- resolveNode (Ref nodeRef) (ssDbPool state)
-          pure $ either (const []) (mkNodeFilter . toSqlKey) mNid
-    entities <- runSqlPool (selectList (mkFilter name ++ nodeFilter) []) (ssDbPool state)
-    pure $ case entities of [e] -> Just (fromSqlKey $ entityKey e); _ -> Nothing
+        then pure (Right [])
+        else fmap (fmap (mkNodeFilter . toSqlKey)) (resolveNode (Ref nodeRef) (ssDbPool state))
+    case nodeFilter of
+      Left _ -> pure Nothing
+      Right filters -> do
+        entities <- runSqlPool (selectList (mkFilter name ++ filters) []) (ssDbPool state)
+        pure $ case entities of [e] -> Just (fromSqlKey $ entityKey e); _ -> Nothing
 
 resolveDiskName :: ServerState -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
 resolveDiskName state localMap name = case Map.lookup name localMap of

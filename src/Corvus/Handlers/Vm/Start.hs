@@ -16,7 +16,6 @@ import Corvus.Action
 import Corvus.Handlers.Vm.CloudInit (ensureCloudInitIso)
 import Corvus.Handlers.Vm.Db
 import Corvus.Handlers.Vm.Monitor (attachVmMonitor)
-import Corvus.ImageOperationGuard (ImageAccess (..))
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
@@ -473,9 +472,9 @@ checkNetworksRunning vmId = do
 newtype VmStart = VmStart {vsVmId :: Int64}
 
 instance Action VmStart where
-  actionImageResources state a = do
+  actionResources state a = do
     drives <- runSqlPool (selectList [DriveVmId ==. toSqlKey (vsVmId a)] []) (ssDbPool state)
-    concat <$> mapM (\(Entity _ drive) -> maybe (pure []) (imageResources state (if driveReadOnly drive then SharedImage else ExclusiveImage) . fromSqlKey) (driveDiskImageId drive)) drives
+    concat <$> mapM (\(Entity _ drive) -> maybe (pure []) (imageResources state (if driveReadOnly drive then SharedAccess else ExclusiveAccess) . fromSqlKey) (driveDiskImageId drive)) drives
   actionSubsystem _ = SubVm
   actionCommand _ = "start"
   actionEntityId = Just . fromIntegral . vsVmId

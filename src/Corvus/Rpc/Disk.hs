@@ -28,7 +28,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, finally, onException, throwIO, try)
 import Control.Monad (void, when)
-import Corvus.Action (ActionContext (acIgnoreCancellation), executeWithImageLeases, runAction, runActionAsSubtask, runActionAsyncWithId)
+import Corvus.Action (ActionContext (acIgnoreCancellation), executeWithOperationLeases, runAction, runActionAsSubtask, runActionAsyncWithId)
 import Corvus.Handlers.Disk.Cleanup (DiskCleanup (..), previewDiskCleanup)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
@@ -343,7 +343,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
                 `finally` ( do
                               abort
                               owned <- readIORef written
-                              when owned $ void (executeWithImageLeases (ctx {acIgnoreCancellation = True}) (DiskUploadDiscard plan))
+                              when owned $ void (executeWithOperationLeases (ctx {acIgnoreCancellation = True}) (DiskUploadDiscard plan))
                           )
         void $ tryPutMVar ready (Left response)
         putMVar completed response

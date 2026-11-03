@@ -316,3 +316,31 @@ error classes, but never command arguments, scripts, stdin, file data, keys,
 raw reply JSON, or error descriptions. Synchronous logger failures do not fail
 QGA operations. These diagnostics do not establish why a guest stopped replying;
 retain guest console output and QEMU/QGA logs alongside the nodeagent journal.
+
+### Concurrent mutations
+
+Mutating Actions declare their image dependencies with `actionResources` and
+object identities with `actionObjectResources`. The runner acquires their union
+atomically through `Corvus.OperationGuard`. Names use the database uniqueness
+scope: templates, SSH keys and nodes are global; VM and network names include
+the numeric node ID. Node edits reserve both old and new names and endpoints;
+VM migration reserves both source and destination namespaces. Operations on
+unique children reserve their owning object before checking or inserting.
+
+Use shared access for referenced objects and exclusive access for identities
+being changed or deleted. Include every resource needed by a composite operation
+before its first mutation. Resolve automatic placement in `actionPrepare` and
+execute on that same node. Preparation must be read-only. Resource discovery is
+repeated after acquisition; stale sets are released and retried within the
+original 60-second deadline, before executing any mutation.
+
+Pass the leased `ActionContext` to nested Actions with `runActionAsSubtask` or
+`executeCreate`. Starting an independent `runAction` loses inherited leases and
+can deadlock against the parent. Shared-to-exclusive upgrades are rejected;
+request the strongest access needed by the entire operation initially.
+
+Apply holds an entity's reservation from lookup through policy selection,
+overwrite preflight, deletion and complete creation. Keep all of those steps
+inside the reservation when adding new apply entity types. These reservations
+coordinate requests within one daemon; running multiple daemons against one
+database is not supported.

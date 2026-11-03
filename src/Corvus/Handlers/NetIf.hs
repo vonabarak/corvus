@@ -279,6 +279,7 @@ data NetIfAdd = NetIfAdd
   }
 
 instance Action NetIfAdd where
+  actionResources state a = maybe (pure []) (objectResources state SharedAccess NetworkObject) (niaNetworkId a)
   actionSubsystem _ = SubVm
   actionCommand _ = "add-netif"
   actionEntityId = Just . fromIntegral . niaVmId

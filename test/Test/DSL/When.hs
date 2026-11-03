@@ -110,9 +110,9 @@ import Corvus.Handlers.Node (NodeEdit (..))
 import qualified Corvus.Handlers.Vm as VmHandlers
 import Corvus.Handlers.Vm.Balloon (VmSetBalloon (..))
 import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..), VmSnapshotRollback (..), handleVmSnapshotList)
-import Corvus.ImageOperationGuard (newImageOperationGuard)
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, NetworkDeviceModel (..), SharedDirCache)
 import qualified Corvus.Model as M
+import Corvus.OperationGuard (newOperationGuard)
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Types (NodeConns (..), ServerState (..), newAutostartFlags, registerNodeConns)
@@ -145,7 +145,7 @@ createTestServerState pool basePath = do
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO mempty
   taskCancels <- newTVarIO mempty
-  imageOperations <- newImageOperationGuard
+  imageOperations <- newOperationGuard
   taskThreads <- newTVarIO mempty
   logLevel <- getTestLogLevel
   let state =
@@ -165,7 +165,7 @@ createTestServerState pool basePath = do
           , ssVsockCidLocks = vsockLocks
           , ssSpicePortLock = spiceLock
           , ssTaskCancels = taskCancels
-          , ssImageOperations = imageOperations
+          , ssOperations = imageOperations
           , ssTaskThreads = taskThreads
           , ssReservedRam = reservedRam
           , ssTlsConfig = Nothing

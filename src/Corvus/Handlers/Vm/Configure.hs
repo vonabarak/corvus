@@ -64,6 +64,11 @@ handleVmCreate state name nodeRefText cpuCount ram description headless guestAge
           -- older wire clients keep working unchanged.
           cpuModel = if T.null cpuModel0 then "host" else cpuModel0
           placeOn nodeKey = do
+            duplicate <- runSqlPool (getBy (UniqueVmNamePerNode nodeKey name)) pool
+            case duplicate of
+              Just _ -> pure $ RespError ("VM already exists on this node: " <> name)
+              Nothing -> createOn nodeKey
+          createOn nodeKey = do
             -- Try to allocate a CID via the target node's agent.
             -- A 'Left' here typically means the agent's host has no
             -- vhost-vsock support (or the agent is unreachable);
@@ -351,6 +356,8 @@ data VmCreate = VmCreate
   }
 
 instance Action VmCreate where
+  actionPrepare state a = fmap (fmap (\node -> a {vcrNodeRef = node})) (pinNode state (vcrNodeRef a) (pickNodeForVm state (vcrRam a)))
+  actionObjectResources state a = nodeNameResources state VmObject (vcrNodeRef a) (vcrName a)
   actionSubsystem _ = SubVm
   actionCommand _ = "create"
   actionEntityName = Just . vcrName
