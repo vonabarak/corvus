@@ -270,8 +270,12 @@ commands disable Portage’s `userfetch` and `userpriv` features: downloads and
 ebuild phases run as guest root, including live-package Git fetches during
 `src_unpack`. Root can write through the share even when the host cannot map
 the guest `portage` UID. These features are applied to each package installation, including native build
-dependencies, rather than saved in `make.conf`. Managed configurations remove
-inherited `FEATURES` and `EMERGE_DEFAULT_OPTS` assignments. Build environments explicitly set `DISTDIR` and `PKGDIR` to
+dependencies. Portage discards environment `FEATURES` overrides for native build
+dependencies when `ROOT` points at another root, so the build host's `make.conf`
+also disables `userfetch`, `userpriv`, and implicit `getbinpkg`. This policy is
+not written into the resulting guest's configuration. Managed configurations remove
+inherited `FEATURES` and `EMERGE_DEFAULT_OPTS` assignments before applying the
+build host policy. Build environments explicitly set `DISTDIR` and `PKGDIR` to
 `/mnt/corvus-cache/distfiles` and `/mnt/corvus-cache/packages/x86-64`, so selecting another
 ROOT or SYSROOT does not redirect the caches. The from-scratch target's
 distfiles and package cache directories stay empty during the build; those

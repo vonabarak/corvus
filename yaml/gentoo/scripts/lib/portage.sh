@@ -52,6 +52,16 @@ portage_remove_defaults() {
     fi
 }
 
+# ROOT builds ignore environment FEATURES for native build dependencies.
+# Persist only the shared-cache policy in the build host, never in the guest root.
+portage_configure_build_host() {
+    local config_root=${1%/}
+    portage_remove_defaults "$1"
+    cat >> "$config_root/etc/portage/make.conf" <<'CONF'
+FEATURES="-userfetch -userpriv -getbinpkg"
+CONF
+}
+
 # Configure native dependencies and interactive recovery to use shared caches.
 portage_configure_glibc_caches() {
     cat >> /etc/portage/make.conf <<'CONF'
@@ -59,6 +69,7 @@ DISTDIR="/mnt/corvus-cache/distfiles"
 PKGDIR="/mnt/corvus-cache/packages/x86-64"
 CONF
     portage_configure_binhost glibc /
+    portage_configure_build_host /
 }
 
 # Select the matching official binhost; optional cache base supports runtime binds.

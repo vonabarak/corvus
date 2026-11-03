@@ -81,7 +81,10 @@ The helper owns native compilation. Use target `ROOT` installs without moving
 whole workflows into chroots; only bootstrap and individual target commands
 enter a chroot. Keep glibc and musl package caches separate. Preserve the shared
 distfile/binhost caches and kernel-cache inputs. Refresh repositories before
-selection. Initialize mount tracking before traps; clean up in reverse order
+selection. Configure the build host's Portage cache policy before target `ROOT`
+installs: native build dependencies ignore environment `FEATURES` overrides.
+Keep this policy out of the resulting guest's configuration.
+Initialize mount tracking before traps; clean up in reverse order
 on success, and preserve resources on failure or interruption for inspection.
 
 ## Changing a build

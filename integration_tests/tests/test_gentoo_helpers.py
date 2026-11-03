@@ -597,6 +597,7 @@ def test_native_workspace_cache_isolation(tmp_path: Path) -> None:
                 "mkdir() { :; }\n"
                 "mountpoint() { return 0; }\n"
                 'environment_check_cache_writable() { printf "%s\\n" "$1"; }\n'
+                'portage_configure_build_host() { test "$1" = /; }\n'
                 'portage_refresh_repository() { test -z "${ROOT+x}"; test -z "${SYSROOT+x}"; }\n'
                 "environment_prepare_workspace\n"
                 'printf "%s\\n" "$DISTDIR" "$PKGDIR"',
@@ -700,6 +701,44 @@ def test_binhost_configuration_is_libc_specific(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert not invalid.exists()
+
+
+def test_native_build_dependency_cache_policy(tmp_path: Path) -> None:
+    """Native dependency settings must work even when Portage drops environment overrides."""
+    config = tmp_path / "etc/portage/make.conf"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        'FEATURES="userfetch getbinpkg"\nEMERGE_DEFAULT_OPTS="--usepkgonly"\n'
+        'MAKEOPTS="-j2"\n'
+    )
+    subprocess.run(
+        [
+            "bash",
+            "-euc",
+            '. "$CORVUS_BUILD_SCRIPTS/lib/portage.sh"; '
+            'portage_configure_build_host "$1"; portage_configure_build_host "$1"',
+            "bash",
+            str(tmp_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-euc",
+            '. "$1"; printf "%s\\n" "$FEATURES" "$MAKEOPTS"',
+            "bash",
+            str(config),
+        ],
+        env={"PATH": os.environ["PATH"]},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.splitlines() == ["-userfetch -userpriv -getbinpkg", "-j2"]
+    assert config.read_text().count("FEATURES=") == 1
+    assert "EMERGE_DEFAULT_OPTS" not in config.read_text()
 
 
 def test_musl_bootstrap_binhost_and_minimal_policy(tmp_path: Path) -> None:
