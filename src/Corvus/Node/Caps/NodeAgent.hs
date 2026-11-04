@@ -29,7 +29,7 @@ import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
-import Corvus.Rpc.Common (handleParsed)
+import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle)
 import Data.Int (Int64)
@@ -123,7 +123,7 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
       client <- export @CGNA.Session (nacSup nac) (SessionServer impl)
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
 
-  nodeAgent'defaultBasePath _ = handleParsed $ \_ -> do
+  nodeAgent'defaultBasePath _ = handleParsedAsync $ \_ -> do
     logLine "defaultBasePath"
     -- Resolves against the agent process's own $HOME — so a node
     -- whose nodeagent runs as alice answers /home/alice/VMs and

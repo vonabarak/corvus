@@ -45,7 +45,7 @@ import Corvus.Types
   , vsockCidLockFor
   )
 
-foreign import ccall unsafe "corvus_vsock_cid_available"
+foreign import ccall safe "corvus_vsock_cid_available"
   c_vsock_cid_available :: CULLong -> IO CInt
 
 -- | Allocate a free AF_VSOCK CID on the given node. Returns

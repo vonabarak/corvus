@@ -49,6 +49,8 @@ module Corvus.Node.Transfer
 
     -- * Server caps
   , FileReader (..)
+  , superviseReader
+  , superviseWriter
   , newFileReader
   , FileWriterSink (..)
   , newFileWriterSink
@@ -60,6 +62,7 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc.Server (SomeServer)
+import Control.Concurrent (ThreadId, killThread, myThreadId)
 import Control.Concurrent.MVar
   ( MVar
   , modifyMVar
@@ -68,14 +71,17 @@ import Control.Concurrent.MVar
   , readMVar
   , withMVar
   )
+import Control.Concurrent.STM (TVar, atomically, check, newTVarIO, readTVar, writeTVar)
 import qualified Control.Exception as E
-import Corvus.Rpc.Common (handleParsed)
+import Control.Monad (unless, void)
+import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import Corvus.Rpc.Streams (callSink)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Numeric (showHex)
+import Supervisors (Supervisor, supervise)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO
@@ -90,6 +96,7 @@ import System.IO
   )
 import System.Posix.Files (createLink)
 import qualified System.Random as Random
+import System.Timeout (timeout)
 
 -- ---------------------------------------------------------------------------
 -- Configuration
@@ -162,8 +169,12 @@ redeemReader (TokenRegistry mv) token =
 -- | A 'DiskReader' server impl. Owns an open file handle and
 -- streams its contents through a caller-supplied 'ByteSink' when
 -- @pipeInto@ is invoked. Closing is idempotent.
-newtype FileReader = FileReader
-  { frHandle :: MVar (Maybe Handle)
+data FileReader = FileReader
+  { frFinished :: TVar Bool
+  , frWorker :: TVar (Maybe ThreadId)
+  , frStarted :: TVar Bool
+  , frCancelled :: TVar Bool
+  , frHandle :: MVar (Maybe Handle)
   -- ^ 'Nothing' once the file has been closed (after EOF or
   -- explicit cancel).
   }
@@ -172,13 +183,24 @@ instance SomeServer FileReader
 
 instance CGNA.DiskReader'server_ FileReader where
   diskReader'pipeInto fr =
-    handleParsed $ \CGNA.DiskReader'pipeInto'params {CGNA.sink = sink} -> do
-      streamToSink fr sink
+    handleParsedAsync $ \CGNA.DiskReader'pipeInto'params {CGNA.sink = sink} -> E.mask $ \restore -> do
+      worker <- myThreadId
+      admitted <- atomically $ do
+        started <- readTVar (frStarted fr)
+        cancelled <- readTVar (frCancelled fr)
+        if started || cancelled
+          then pure False
+          else do
+            writeTVar (frStarted fr) True
+            writeTVar (frWorker fr) (Just worker)
+            pure True
+      unless admitted $ ioError (userError "Disk reader is already consumed or cancelled")
+      restore (streamToSink fr sink) `E.finally` atomically (writeTVar (frWorker fr) Nothing)
       pure CGNA.DiskReader'pipeInto'results
 
   diskReader'cancel fr =
-    handleParsed $ \_ -> do
-      closeReader fr
+    handleParsedAsync $ \_ -> do
+      cancelReader fr
       pure CGNA.DiskReader'cancel'results
 
 -- | Build a 'FileReader' for @path@. Opens the file in binary
@@ -188,10 +210,14 @@ newFileReader path = do
   h <- openBinaryFile path ReadMode
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   mv <- newMVar (Just h)
-  pure FileReader {frHandle = mv}
+  worker <- newTVarIO Nothing
+  started <- newTVarIO False
+  cancelled <- newTVarIO False
+  finished <- newTVarIO False
+  pure FileReader {frHandle = mv, frWorker = worker, frStarted = started, frCancelled = cancelled, frFinished = finished}
 
 closeReader :: FileReader -> IO ()
-closeReader fr =
+closeReader fr = flip E.finally (atomically $ writeTVar (frFinished fr) True) $
   modifyMVar_ (frHandle fr) $ \case
     Nothing -> pure Nothing
     Just h -> do
@@ -199,38 +225,25 @@ closeReader fr =
       pure Nothing
 
 streamToSink :: FileReader -> C.Client CGS.ByteSink -> IO ()
-streamToSink fr sink = do
+streamToSink fr sink = flip E.finally (closeReader fr) $ do
   mh <- readMVar (frHandle fr)
   case mh of
-    Nothing -> do
-      -- File already closed. Behave as EOF.
-      callSinkEnd sink
-    Just h -> do
-      r <-
-        E.try @E.SomeException
-          ( do
-              loop h
-              callSinkEnd sink
-          )
-      -- Regardless of outcome, drop the file handle.
-      closeReader fr
-      case r of
-        Left e -> E.throwIO e
-        Right () -> pure ()
+    Nothing -> callSinkEnd sink
+    Just h -> loop h >> callSinkEnd sink
   where
     loop h = do
       chunk <- BS.hGet h transferChunkBytes
       if BS.null chunk
         then pure ()
         else do
-          callSink
-            #write
-            CGS.ByteSink'write'params {CGS.chunk = chunk}
-            sink
+          boundedTransfer $ callSink #write CGS.ByteSink'write'params {CGS.chunk = chunk} sink
           loop h
 
 callSinkEnd :: C.Client CGS.ByteSink -> IO ()
-callSinkEnd = callSink #end CGS.ByteSink'end'params
+callSinkEnd sink = boundedTransfer $ callSink #end CGS.ByteSink'end'params sink
+
+boundedTransfer :: IO a -> IO a
+boundedTransfer action = timeout 60000000 action >>= maybe (ioError (userError "Disk transfer operation timed out after 60s")) pure
 
 -- ---------------------------------------------------------------------------
 -- ByteSink server (destination side)
@@ -238,7 +251,8 @@ callSinkEnd = callSink #end CGS.ByteSink'end'params
 -- | A 'ByteSink' server impl that writes bytes received over
 -- 'write' into a local file handle and flushes and closes on 'end'.
 data FileWriterSink = FileWriterSink
-  { fwsHandle :: !(MVar (Maybe Handle))
+  { fwsFinished :: TVar Bool
+  , fwsHandle :: !(MVar (Maybe Handle))
   , fwsOnClose :: !(IO ())
   , fwsOnAbort :: !(IO ())
   }
@@ -248,19 +262,16 @@ instance SomeServer FileWriterSink
 instance CGS.ByteSink'server_ FileWriterSink where
   byteSink'write fws =
     handleParsed $ \CGS.ByteSink'write'params {CGS.chunk = chunk} -> do
-      writeChunk fws chunk
+      boundedTransfer (writeChunk fws chunk) `E.onException` void (timeout 1000000 (abortWriter fws))
       pure CGS.ByteSink'write'results
 
   byteSink'end fws =
     handleParsed $ \_ -> do
-      closeWriter fws
+      boundedTransfer (closeWriter fws)
       pure CGS.ByteSink'end'results
 
   byteSink'abort fws = handleParsed $ \_ -> do
-    modifyMVar_ (fwsHandle fws) $ \mh -> do
-      mapM_ hClose mh
-      fwsOnAbort fws
-      pure Nothing
+    boundedTransfer (abortWriter fws)
     pure CGS.ByteSink'abort'results
 
 -- | Build a 'FileWriterSink' that writes to @path@. The 'end' call
@@ -285,9 +296,11 @@ newFileWriterSinkWithHandle :: Handle -> IO () -> IO () -> IO FileWriterSink
 newFileWriterSinkWithHandle h onClose onAbort = do
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   hv <- newMVar (Just h)
+  finished <- newTVarIO False
   let fws =
         FileWriterSink
-          { fwsHandle = hv
+          { fwsFinished = finished
+          , fwsHandle = hv
           , fwsOnClose = onClose
           , fwsOnAbort = onAbort
           }
@@ -301,7 +314,7 @@ writeChunk fws chunk =
       BS.hPut h chunk
 
 closeWriter :: FileWriterSink -> IO ()
-closeWriter fws = do
+closeWriter fws = flip E.finally (atomically $ writeTVar (fwsFinished fws) True) $ do
   result <- modifyMVar (fwsHandle fws) $ \case
     Nothing -> pure (Nothing, Right ())
     Just h -> do
@@ -314,3 +327,32 @@ closeWriter fws = do
         Right () -> pure ()
       pure (Nothing, closed)
   either E.throwIO pure result
+
+-- Connection-scoped supervision closes abandoned capabilities as well as active
+-- streams. Completed capabilities remove their watcher immediately.
+superviseReader :: Supervisor -> FileReader -> IO ()
+superviseReader sup reader =
+  supervise sup $
+    atomically (readTVar (frFinished reader) >>= check) `E.finally` cancelReader reader
+
+cancelReader :: FileReader -> IO ()
+cancelReader reader = do
+  worker <- atomically $ do
+    writeTVar (frCancelled reader) True
+    readTVar (frWorker reader)
+  case worker of
+    Nothing -> void $ timeout 1000000 (closeReader reader)
+    Just tid -> void $ timeout 1000000 (killThread tid)
+
+superviseWriter :: Supervisor -> FileWriterSink -> IO ()
+superviseWriter sup writer =
+  supervise sup $
+    atomically (readTVar (fwsFinished writer) >>= check) `E.finally` void (timeout 1000000 (abortWriter writer))
+
+abortWriter :: FileWriterSink -> IO ()
+abortWriter writer = flip E.finally (atomically $ writeTVar (fwsFinished writer) True) $
+  modifyMVar_ (fwsHandle writer) $ \mh -> do
+    case mh of
+      Nothing -> pure ()
+      Just h -> hClose h `E.finally` fwsOnAbort writer
+    pure Nothing

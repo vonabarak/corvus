@@ -288,18 +288,20 @@ spawnSwtpmHelperSafe cfg vmId vmName = do
 reapEntryGracefully :: (Word32, ProcessHandle) -> IO ()
 reapEntryGracefully (pid, ph) = do
   let label = "virtiofsd pid=" <> tshow pid
-  _ <-
-    runStderrLoggingT $
-      P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
+  result <- runStderrLoggingT $ P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
+  case result of
+    P.StopFailed reason -> ioError (userError (T.unpack reason))
+    _ -> pure ()
   runStderrLoggingT $ P.waitForProcessBounded label 5 ph
 
 -- | Best-effort termination + reap of the per-VM swtpm helper.
 reapSwtpmEntryGracefully :: (Word32, ProcessHandle) -> IO ()
 reapSwtpmEntryGracefully (pid, ph) = do
   let label = "swtpm pid=" <> tshow pid
-  _ <-
-    runStderrLoggingT $
-      P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
+  result <- runStderrLoggingT $ P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
+  case result of
+    P.StopFailed reason -> ioError (userError (T.unpack reason))
+    _ -> pure ()
   runStderrLoggingT $ P.waitForProcessBounded label 5 ph
 
 reapSpawnedHelpers

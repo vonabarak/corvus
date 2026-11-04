@@ -4,7 +4,7 @@ module Corvus.NodeStartupSpec (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Async (withAsync)
-import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
+import Control.Concurrent.STM (atomically, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (bracket)
 import Control.Monad (void)
 import Corvus.Model (GraphicsAdapter (..))
@@ -27,6 +27,14 @@ import Test.Hspec
 
 spec :: Spec
 spec = describe "QEMU startup failures" $ do
+  it "waits for an invalidated unpublished start to finish cleanup" $ do
+    ledger <- L.newVmLedger
+    _ <- atomically $ L.admitVmStart ledger 7 1 1
+    _ <- atomically $ L.fenceVmReset ledger 7 2
+    timeout 10000 (atomically $ L.waitForVmStarts ledger 7) `shouldReturn` Nothing
+    atomically $ L.clearVmStartReservation ledger 7 1 1
+    timeout 1000000 (atomically $ L.waitForVmStarts ledger 7) `shouldReturn` Just ()
+
   it "includes stderr even when the reader finishes after process exit" $ do
     (_, _, Just stderrHandle, process) <-
       createProcess (proc "sh" ["-c", "echo 'Could not open vde: No such file or directory' >&2; exit 1"]) {std_err = CreatePipe}
@@ -112,6 +120,13 @@ spec = describe "QEMU startup failures" $ do
       atomically $ writeTVar startupError (Just "startup timed out")
       probe
       connected `shouldReturn` False
+
+      _ <- atomically $ L.fenceVmReset ledger 7 2
+      atomically (L.publishVmStart ledger 7 1 1 live) `shouldReturn` False
+      readTVarIO stopRequested `shouldReturn` True
+      -- A rejected publication must stay owned until its process is reaped.
+      owned <- atomically $ L.readVms ledger
+      length owned `shouldBe` 1
 
 -- A cold boot whose first QGA handshake belongs to the startup coordinator.
 startupSpec :: VmSpec

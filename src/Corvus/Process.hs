@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Shared lifecycle helpers for external processes spawned by Corvus.
 --
@@ -26,18 +25,25 @@ module Corvus.Process
   )
 where
 
-import Control.Concurrent (threadDelay)
-import qualified Control.Concurrent.Async as Async
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar)
 import Control.Exception (SomeException, try)
 import qualified Control.Exception as E
+import Control.Monad (filterM, void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (doesFileExist)
+import System.Exit (ExitCode)
+import System.IO.Unsafe (unsafePerformIO)
+import System.Mem.StableName (StableName, makeStableName)
+import System.Mem.Weak (Weak, deRefWeak, mkWeakPtr)
 import System.Posix.Signals (sigKILL, sigTERM, signalProcess)
 import System.Posix.Types (ProcessID)
-import System.Process (ProcessHandle, getProcessExitCode, waitForProcess)
+import System.Process (ProcessHandle, waitForProcess)
+import System.Timeout (timeout)
 
 --------------------------------------------------------------------------------
 -- Readiness
@@ -76,12 +82,12 @@ isProcessAlive :: ProcessID -> IO Bool
 isProcessAlive pid = do
   signalOk <- try $ signalProcess 0 pid
   case signalOk of
-    Left (_ :: SomeException) -> pure False
+    Left (_ :: E.IOException) -> pure False
     Right () -> do
       let statusPath = "/proc/" ++ show pid ++ "/status"
       statusRead <- try $ readFile statusPath
       case statusRead of
-        Left (_ :: SomeException) ->
+        Left (_ :: E.IOException) ->
           -- /proc vanished between kill and read → process is gone.
           pure False
         Right contents -> pure $ not (isZombie contents)
@@ -171,7 +177,7 @@ stopProcess name pid mGraceful gracefulWaitSec termWaitSec = do
       Nothing -> trySigTerm
       Just action -> do
         logDebugN $ "Gracefully stopping " <> name <> " (pid " <> pidText <> ")"
-        r <- liftIO $ try action
+        r <- liftIO $ E.tryJust (\err -> case E.fromException err :: Maybe E.SomeAsyncException of Just _ -> Nothing; Nothing -> Just (err :: SomeException)) action
         case r of
           Left (e :: SomeException) ->
             logWarnN $ "Graceful hook for " <> name <> " failed: " <> T.pack (show e)
@@ -192,7 +198,7 @@ stopProcess name pid mGraceful gracefulWaitSec termWaitSec = do
     trySigTerm = do
       r <- liftIO $ try $ signalProcess sigTERM pid
       case r of
-        Left (e :: SomeException) -> handleSignalFailure "SIGTERM" e
+        Left (e :: E.IOException) -> handleSignalFailure "SIGTERM" e
         Right () -> do
           exited <- liftIO $ waitForExit pid termWaitSec
           if exited
@@ -210,14 +216,15 @@ stopProcess name pid mGraceful gracefulWaitSec termWaitSec = do
     trySigKill = do
       r <- liftIO $ try $ signalProcess sigKILL pid
       case r of
-        Left (e :: SomeException) -> handleSignalFailure "SIGKILL" e
+        Left (e :: E.IOException) -> handleSignalFailure "SIGKILL" e
         Right () -> do
           -- Give the kernel a brief moment to reap the process entry; even
           -- SIGKILL is asynchronous. We only log; we do not upgrade to a
           -- stronger signal because there isn't one.
-          _ <- liftIO $ waitForExit pid 2
-          logInfoN $ name <> " killed"
-          pure StoppedByKill
+          exited <- liftIO $ waitForExit pid 2
+          if exited
+            then logInfoN (name <> " killed") >> pure StoppedByKill
+            else pure $ StopFailed (name <> " remains alive after SIGKILL")
 
     handleSignalFailure sig e = do
       let errMsg = T.pack (show e)
@@ -248,8 +255,8 @@ stopProcess name pid mGraceful gracefulWaitSec termWaitSec = do
 --
 -- A bounded reap accepts a small zombie / fd leak when the kernel
 -- isn't cooperating, in exchange for the agent staying responsive.
--- The wait thread is cancelled on timeout; the OS reclaims the
--- zombie at agent exit at the latest.
+-- The single cached waiter survives a caller's timeout; later callers share
+-- its result instead of competing for the process handle's internal lock.
 waitForProcessBounded
   :: (MonadIO m, MonadLogger m)
   => Text
@@ -259,23 +266,30 @@ waitForProcessBounded
   -> ProcessHandle
   -> m ()
 waitForProcessBounded name timeoutSec ph = do
-  -- Fast path: if the handle is already in a ClosedHandle state
-  -- (someone else already waited), 'getProcessExitCode' returns
-  -- 'Just' without blocking and without touching @waitpid@.
-  fast <- liftIO $ try @SomeException (getProcessExitCode ph)
-  case fast of
-    Right (Just _) -> pure ()
-    _ -> do
-      outcome <-
-        liftIO $
-          Async.race
-            (threadDelay (max 0 timeoutSec * 1000000))
-            (E.try @SomeException (waitForProcess ph))
-      case outcome of
-        Right _ -> pure ()
-        Left () ->
-          logWarnN $
-            name
-              <> ": waitForProcess did not return within "
-              <> T.pack (show timeoutSec)
-              <> "s; abandoning (likely reaped externally)"
+  result <- liftIO $ reapResult ph
+  outcome <- liftIO $ timeout (max 0 timeoutSec * 1000000) (readMVar result)
+  case outcome of
+    Just (Right _) -> pure ()
+    Just (Left e) -> logWarnN $ name <> ": waitForProcess failed: " <> T.pack (show e)
+    Nothing -> logWarnN $ name <> ": waitForProcess timed out after " <> T.pack (show timeoutSec) <> "s"
+
+-- One waiter per handle. A deadline never cancels or joins the waiter: process
+-- library internals may hold an uninterruptible lock until the child exits.
+-- Weak keys allow completed handles and their cached results to be reclaimed.
+{-# NOINLINE processReapers #-}
+processReapers :: MVar [(StableName ProcessHandle, Weak ProcessHandle, MVar (Either SomeException ExitCode))]
+processReapers = unsafePerformIO (newMVar [])
+
+reapResult :: ProcessHandle -> IO (MVar (Either SomeException ExitCode))
+reapResult ph = E.mask_ $ do
+  evaluated <- E.evaluate ph
+  key <- makeStableName evaluated
+  modifyMVar processReapers $ \entries -> do
+    live <- filterM (\(_, weak, _) -> isJust <$> deRefWeak weak) entries
+    case [result | (existing, _, result) <- live, existing == key] of
+      result : _ -> pure (live, result)
+      [] -> do
+        result <- newEmptyMVar
+        weak <- mkWeakPtr ph Nothing
+        void $ forkIO $ E.try (waitForProcess ph) >>= putMVar result
+        pure ((key, weak, result) : live, result)

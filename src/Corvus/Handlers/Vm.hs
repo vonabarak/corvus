@@ -24,9 +24,6 @@ module Corvus.Handlers.Vm
   , getVmWithStatus
   , getVmStatusOnly
   , setVmStatus
-  , setVmError
-  , setVmStarted
-  , setVmStopped
   , claimVmReset
   , claimVmStart
   , completeVmReset
@@ -56,13 +53,10 @@ import Corvus.Handlers.Vm.Db
   , getVmStatusOnly
   , getVmWithStatus
   , hasNetdMediatedNetIf
-  , setVmError
   , setVmErrorIfCurrent
   , setVmSpicePortIfCurrent
-  , setVmStarted
   , setVmStartedIfCurrent
   , setVmStatus
-  , setVmStopped
   , setVmVsockCidIfCurrent
   )
 import Corvus.Handlers.Vm.Delete (VmDelete (..))

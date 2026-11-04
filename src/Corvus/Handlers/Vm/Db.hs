@@ -11,15 +11,16 @@ module Corvus.Handlers.Vm.Db
 
     -- * Status updates
   , setVmStatus
-  , setVmStarted
-  , setVmStopped
-  , setVmError
   , claimVmStart
   , setVmStartedIfCurrent
   , setVmErrorIfCurrent
   , setVmSpicePortIfCurrent
   , setVmVsockCidIfCurrent
   , claimVmReset
+  , claimVmStop
+  , claimVmSave
+  , completeVmSave
+  , completeVmStop
   , completeVmReset
   , completeVmMonitor
   )
@@ -30,7 +31,7 @@ import Control.Monad.IO.Class (liftIO)
 import Corvus.Model (Vm (vmLifecycleRevision, vmRuntimeGeneration, vmStatus), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Data.Int (Int64)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
 import Database.Persist (entityVal, get, selectList, update, updateWhere, (<-.), (=.), (==.))
@@ -49,65 +50,10 @@ getVmWithStatus vmId = do
 getVmStatusOnly :: Int64 -> SqlPersistT IO (Maybe VmStatus)
 getVmStatusOnly vmId = fmap vmStatus <$> get (toSqlKey vmId :: VmId)
 
--- | Set VM status (used during start: VmStarting or VmRunning).
--- Clears any prior error reason so a recovered VM doesn't keep
--- showing a stale "Last error" in @crv vm show@.
--- The @_pid@ parameter is kept for caller-side symmetry but is no
--- longer persisted — the agent owns every PID. Drop the parameter
--- on the next breaking change.
-setVmStarted :: Int64 -> VmStatus -> Int -> SqlPersistT IO ()
-setVmStarted vmId status _pid = do
-  let key = toSqlKey vmId :: VmId
-  update
-    key
-    [ M.VmStatus =. status
-    , M.VmErrorMessage =. Nothing
-    , M.VmLastErrorAt =. Nothing
-    ]
-
--- | Set VM status to stopped and clear healthcheck, SPICE port,
--- prior error reason, and guest network data.
-setVmStopped :: Int64 -> SqlPersistT IO ()
-setVmStopped vmId = do
-  let key = toSqlKey vmId :: VmId
-  update
-    key
-    [ M.VmStatus =. VmStopped
-    , M.VmHealthcheck =. Nothing
-    , M.VmSpicePort =. Nothing
-    , M.VmErrorMessage =. Nothing
-    , M.VmLastErrorAt =. Nothing
-    ]
-  updateWhere
-    [M.NetworkInterfaceVmId ==. key]
-    [M.NetworkInterfaceGuestIpAddresses =. Nothing]
-
--- | Set VM status to error, record the reason + timestamp on the
--- VM row, and clear runtime state (healthcheck, SPICE port, guest
--- IPs). The @reason@ surfaces verbatim in @crv vm show@ so the
--- operator sees the actual cause (e.g. "QEMU exited with code 137
--- before first guest-agent ping") instead of having to chase task
--- history.
-setVmError :: Int64 -> Text -> SqlPersistT IO ()
-setVmError vmId reason = do
-  now <- liftIO getCurrentTime
-  let key = toSqlKey vmId :: VmId
-  update
-    key
-    [ M.VmStatus =. VmError
-    , M.VmHealthcheck =. Nothing
-    , M.VmSpicePort =. Nothing
-    , M.VmErrorMessage =. Just reason
-    , M.VmLastErrorAt =. Just now
-    ]
-  updateWhere
-    [M.NetworkInterfaceVmId ==. key]
-    [M.NetworkInterfaceGuestIpAddresses =. Nothing]
-
 -- | Set VM status (without changing PID). Clears any prior error
 -- reason when transitioning out of 'VmError'; leaves it alone for
 -- 'VmError' itself so explicit error setters keep the message
--- they wrote (see 'setVmError').
+-- they wrote.
 setVmStatus :: Int64 -> VmStatus -> SqlPersistT IO ()
 setVmStatus vmId status = do
   let key = toSqlKey vmId :: VmId
@@ -195,6 +141,7 @@ setVmStartedIfCurrent vmId revision generation status = do
       [ M.VmId ==. key
       , M.VmLifecycleRevision ==. revision
       , M.VmRuntimeGeneration ==. Just generation
+      , M.VmStatus <-. [VmStarting, VmLoading, VmRunning, VmPaused]
       ]
       [ M.VmStatus =. status
       , M.VmErrorMessage =. Nothing
@@ -213,6 +160,7 @@ setVmErrorIfCurrent vmId revision generation reason = do
       [ M.VmId ==. key
       , M.VmLifecycleRevision ==. revision
       , M.VmRuntimeGeneration ==. Just generation
+      , M.VmStatus <-. [VmStarting, VmLoading, VmRunning, VmPaused]
       ]
       [ M.VmStatus =. VmError
       , M.VmHealthcheck =. Nothing
@@ -312,4 +260,42 @@ completeVmMonitor vmId observed reason = do
     updateWhere
       [M.NetworkInterfaceVmId ==. key]
       [M.NetworkInterfaceGuestIpAddresses =. Nothing]
+  pure (count == 1)
+
+-- | Settle a stop/reset only while its revision and runtime still own the row.
+-- Failed termination retains runtime resources for an explicit retry.
+completeVmStop :: Int64 -> Int64 -> Maybe Int64 -> Maybe Text -> SqlPersistT IO Bool
+completeVmStop = completeVmTermination VmStopping VmStopped
+
+completeVmSave :: Int64 -> Int64 -> Maybe Int64 -> Maybe Text -> SqlPersistT IO Bool
+completeVmSave = completeVmTermination VmSaving VmSaved
+
+completeVmTermination :: VmStatus -> VmStatus -> Int64 -> Int64 -> Maybe Int64 -> Maybe Text -> SqlPersistT IO Bool
+completeVmTermination pending finished vmId revision generation reason = do
+  now <- liftIO getCurrentTime
+  let key = toSqlKey vmId :: VmId
+  count <-
+    updateWhereCount
+      [M.VmId ==. key, M.VmLifecycleRevision ==. revision, M.VmRuntimeGeneration ==. generation, M.VmStatus ==. pending]
+      ( [M.VmStatus =. maybe finished (const VmError) reason, M.VmErrorMessage =. reason, M.VmLastErrorAt =. (now <$ reason)]
+          ++ case reason of
+            Nothing -> [M.VmRuntimeGeneration =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
+            Just _ -> []
+      )
+  when (count == 1 && isNothing reason) $
+    updateWhere [M.NetworkInterfaceVmId ==. key] [M.NetworkInterfaceGuestIpAddresses =. Nothing]
+  pure (count == 1)
+
+claimVmStop :: Int64 -> Vm -> SqlPersistT IO Bool
+claimVmStop = claimVmTermination VmStopping
+
+claimVmSave :: Int64 -> Vm -> SqlPersistT IO Bool
+claimVmSave = claimVmTermination VmSaving
+
+claimVmTermination :: VmStatus -> Int64 -> Vm -> SqlPersistT IO Bool
+claimVmTermination pending vmId observed = do
+  count <-
+    updateWhereCount
+      [M.VmId ==. toSqlKey vmId, M.VmLifecycleRevision ==. vmLifecycleRevision observed, M.VmRuntimeGeneration ==. vmRuntimeGeneration observed, M.VmStatus ==. vmStatus observed]
+      [M.VmStatus =. pending]
   pure (count == 1)

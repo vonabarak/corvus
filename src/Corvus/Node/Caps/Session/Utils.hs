@@ -21,8 +21,8 @@ module Corvus.Node.Caps.Session.Utils
   , monitorBufferCapacity
 
     -- * QMP helpers
-  , retryBlockdevDel
   , isBlockdevBusy
+  , retryBlockdevDel
   , requireRemovableDrive
 
     -- * QEMU config
@@ -40,6 +40,7 @@ module Corvus.Node.Caps.Session.Utils
   , pollForExit
 
     -- * Tiny helpers
+  , traceNodeRequest
   , tshow
 
     -- * Chardev helpers
@@ -56,10 +57,10 @@ where
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
-import Control.Concurrent (MVar, newMVar, threadDelay, withMVar)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
+import Control.Concurrent (MVar, myThreadId, newMVar, threadDelay, withMVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad.Logger (LogLevel (..), logDebugN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.GuestAgent as NGA
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
@@ -81,7 +82,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word32)
-import GHC.Clock (getMonotonicTime)
+import GHC.Clock (getMonotonicTime, getMonotonicTimeNSec)
 import Supervisors (Supervisor)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Timeout (timeout)
@@ -153,23 +154,17 @@ monitorBufferCapacity = 65536
 -- ---------------------------------------------------------------------------
 -- QMP helpers
 
--- | QEMU @device_del@ completes asynchronously; an immediate
--- @blockdev-del@ on the same node trips a "node N is busy"
--- error. Retry for up to ten seconds with 100 ms backoff; this also
--- leaves time for the guest to acknowledge PCI hot-unplug. Mirrors the
--- pre-Phase-4 daemon-side retry loop in
--- @Corvus.Handlers.Disk.Attach.qmpBlockdevDelRetry@.
-retryBlockdevDel
-  :: QemuConfig -> Int64 -> Text -> Int -> IO NQ.QmpResult
+-- | Retry while the guest still owns the backend. Callers must hold the
+-- VM operation lock and bound the entire operation, including QMP calls.
+retryBlockdevDel :: QemuConfig -> Int64 -> Text -> Int -> IO NQ.QmpResult
 retryBlockdevDel cfg vid nodeName = go
   where
-    go 0 = NQ.qmpBlockdevDel cfg vid nodeName
-    go n = do
+    go remaining = do
       r <- NQ.qmpBlockdevDel cfg vid nodeName
       case r of
-        NQ.QmpError err | isBlockdevBusy err -> do
+        NQ.QmpError err | isBlockdevBusy err && remaining > 0 -> do
           threadDelay 100000
-          go (n - 1)
+          go (remaining - 1)
         _ -> pure r
 
 isBlockdevBusy :: Text -> Bool
@@ -473,7 +468,7 @@ newSessionCap
   -> MVar ()
   -> IO SessionCap
 newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg vsockLaunchLock = do
-  vmOpLocks <- newTVarIO Map.empty
+  let vmOpLocks = L.vmOperationLocks vmLedger
   pure
     SessionCap
       { scOwner = owner
@@ -515,3 +510,17 @@ vmOpLockFor sc vid = do
           Nothing -> do
             writeTVar (scVmOpLocks sc) (Map.insert vid lk m')
             pure lk
+
+-- Log only operation names and correlation IDs; parameters can contain secrets.
+traceNodeRequest :: Text -> (a -> IO b) -> a -> IO b
+traceNodeRequest name handler params = E.mask $ \restore -> do
+  requestId <- myThreadId
+  started <- getMonotonicTimeNSec
+  let prefix = "[nodeagent] request=" <> tshow requestId <> " operation=" <> name
+      finish outcome = do
+        ended <- getMonotonicTimeNSec
+        runStderrLoggingT $ logInfoN (prefix <> " result=" <> outcome <> " duration_ms=" <> tshow ((ended - started) `div` 1000000))
+  runStderrLoggingT $ logInfoN (prefix <> " result=start")
+  result <- restore (handler params) `E.onException` finish "error_or_cancellation"
+  finish "success"
+  pure result

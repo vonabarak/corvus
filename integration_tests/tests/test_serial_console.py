@@ -127,6 +127,23 @@ def _drain_until(stream: SyncByteStream, needle: bytes, timeout: float) -> bytes
 class TestSerialConsole(SingleNodeCase):
     """Buffer lifecycle, safe CLI replay, login, and attachment errors."""
 
+    def test_parallel_subscribers_and_reset(self) -> None:
+        """Both subscribers receive live output; open streams cannot stall reset."""
+        with Vm(self) as vm:
+            with vm.cap.serial_console() as first, vm.cap.serial_console() as second:
+                _drain_until(first, LOGIN_PROMPT, timeout=60.0)
+                _drain_until(second, LOGIN_PROMPT, timeout=60.0)
+                marker = f"CONSOLE-BROADCAST-{secrets.token_hex(4)}".encode()
+                result = vm.cap.guest_exec(
+                    f"/bin/sh -c 'echo {marker.decode()} > /dev/ttyS0'"
+                )
+                assert result.exit_code == 0, result
+                _drain_until(first, marker, timeout=10.0)
+                _drain_until(second, marker, timeout=10.0)
+                started = time.monotonic()
+                vm.cap.reset()
+                assert time.monotonic() - started < 65.0
+
     def test_late_attach_filters_window_queries(self) -> None:
         """Late CLI attachment must not feed boot-time size replies to getty."""
         with Vm(self) as vm:

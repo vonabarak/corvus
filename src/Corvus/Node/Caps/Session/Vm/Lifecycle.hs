@@ -46,6 +46,7 @@ import Corvus.Node.Caps.Session.Utils
   , scQgaConns
   , scVmLedger
   , tshow
+  , withVmOpLock
   )
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
@@ -55,6 +56,7 @@ import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word32)
@@ -65,6 +67,7 @@ import System.Posix.Types (CPid (..))
 import System.Process
   ( readProcessWithExitCode
   )
+import System.Timeout (timeout)
 
 import Corvus.Node.Caps.Session.Vm.Process (reapVmHelpers)
 
@@ -92,6 +95,11 @@ handleVmStopGraceful
   -> Word32
   -> IO (CGNA.Parsed CGNA.Session'vmStopGraceful'results)
 handleVmStopGraceful sc vmId timeoutSec = do
+  result <- timeout ((fromIntegral timeoutSec + 20) * 1000000) (stopGraceful sc vmId timeoutSec)
+  pure $ fromMaybe (CGNA.Session'vmStopGraceful'results {CGNA.result = encodeVmStopResult VS.VmStopTimeout "Graceful stop deadline exceeded; runtime retained"}) result
+
+stopGraceful :: SessionCap -> Int64 -> Word32 -> IO (CGNA.Parsed CGNA.Session'vmStopGraceful'results)
+stopGraceful sc vmId timeoutSec = do
   mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
   case mLive of
     Nothing -> do
@@ -122,7 +130,7 @@ handleVmStopGraceful sc vmId timeoutSec = do
       -- guests with QGA but no acpid (e.g. early cloud-init), guests
       -- with acpid but no QGA, and guests with both. Either one
       -- exiting the QEMU process is good enough.
-      shutdownResult <- E.try @E.SomeException (NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId "powerdown")
+      shutdownResult <- E.try @E.IOException (NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId "powerdown")
       case shutdownResult of
         Left err -> runStderrLoggingT $ logWarnN ("QGA powerdown: " <> tshow err)
         Right (Left err) -> runStderrLoggingT $ logWarnN ("QGA powerdown: " <> err)
@@ -137,11 +145,11 @@ handleVmStopGraceful sc vmId timeoutSec = do
       if exited
         then do
           reapVmHelpers live
-          _ <- atomically $ L.removeVm (scVmLedger sc) vmId
           -- The QGA chardev is gone with QEMU; drop our cached
           -- per-VM socket so its fd doesn't sit in the conns map
           -- until the agent process restarts.
           NGA.releaseConn (scQgaConns sc) vmId
+          _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
           pure
             CGNA.Session'vmStopGraceful'results
               { CGNA.result = encodeVmStopResult VS.VmStopStopped ""
@@ -161,20 +169,30 @@ handleVmStopGraceful sc vmId timeoutSec = do
 handleVmStopHard
   :: SessionCap -> Int64 -> Maybe Int64 -> IO (CGNA.Parsed CGNA.Session'vmStopHard'results)
 handleVmStopHard sc vmId mRevision = do
+  result <- timeout 45000000 (stopHard sc vmId mRevision)
+  pure $ fromMaybe (CGNA.Session'vmStopHard'results {CGNA.result = encodeVmStopResult VS.VmStopFailed "Hard stop timed out after 45s; runtime retained"}) result
+
+stopHard :: SessionCap -> Int64 -> Maybe Int64 -> IO (CGNA.Parsed CGNA.Session'vmStopHard'results)
+stopHard sc vmId mRevision = do
   fenced <- case mRevision of
-    Nothing -> Right <$> atomically (L.removeVm (scVmLedger sc) vmId)
+    Nothing -> atomically (L.fenceVmStop (scVmLedger sc) vmId)
     Just revision -> atomically $ L.fenceVmReset (scVmLedger sc) vmId revision
   mLive <- case fenced of
     Left reason -> throwFailed ("vmStopHard rejected for vmId " <> tshow vmId <> ": " <> reason)
     Right live -> pure live
   case mLive of
     Nothing -> do
-      runStderrLoggingT . logDebugN $
-        "[nodeagent] vmStopHard vm-" <> tshow vmId <> ": not in ledger"
-      pure
-        CGNA.Session'vmStopHard'results
-          { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
-          }
+      atomically $ L.waitForVmStarts (scVmLedger sc) vmId
+      remaining <- atomically $ L.lookupVm (scVmLedger sc) vmId
+      case remaining of
+        Just _ -> stopHard sc vmId mRevision
+        Nothing -> do
+          runStderrLoggingT . logDebugN $
+            "[nodeagent] vmStopHard vm-" <> tshow vmId <> ": not in ledger"
+          pure
+            CGNA.Session'vmStopHard'results
+              { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
+              }
     Just live -> do
       runStderrLoggingT . logInfoN $
         "[nodeagent] vmStopHard vm-"
@@ -182,9 +200,8 @@ handleVmStopHard sc vmId mRevision = do
           <> " pid="
           <> tshow (L.vlsQemuPid live)
       -- Suppress reboot-quirk auto-restart on the impending
-      -- QEMU exit. The ledger entry is already evicted above,
-      -- but the reaper thread still holds a reference to this
-      -- live state's 'vlsStopRequested' TVar.
+      -- QEMU exit. The ledger entry stays available until cleanup
+      -- confirms that this runtime and its helpers have exited.
       atomically $ writeTVar (L.vlsStopRequested live) True
       let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
       stopRes <-
@@ -196,14 +213,23 @@ handleVmStopHard sc vmId mRevision = do
             0
             5
       case stopRes of
-        P.NotRunning -> pure ()
-        _ ->
-          runStderrLoggingT $
-            P.waitForProcessBounded qemuLabel 5 (L.vlsQemuHandle live)
-      reapVmHelpers live
-      -- Same QGA-socket cleanup as 'handleVmStopGraceful'; QEMU's
-      -- gone and our cached fd points at nothing.
-      NGA.releaseConn (scQgaConns sc) vmId
+        P.StopFailed reason -> throwFailed reason
+        _ -> pure ()
+      exited <- pollForExit (L.vlsLastExitCode live) 5
+      unless exited $ throwFailed "QEMU exit was not confirmed; runtime retained"
+      atomically $ L.waitForVmStarts (scVmLedger sc) vmId
+      withVmOpLock sc vmId $ do
+        current <- atomically $ L.lookupVm (scVmLedger sc) vmId
+        case current of
+          Just runtime
+            | VS.vsRuntimeGeneration (L.vlsSpec runtime) /= VS.vsRuntimeGeneration (L.vlsSpec live)
+                || L.vlsQemuPid runtime /= L.vlsQemuPid live ->
+                throwFailed "Hard stop was superseded; runtime retained"
+          _ -> do
+            reapVmHelpers live
+            NGA.releaseConn (scQgaConns sc) vmId
+            _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
+            pure ()
       pure
         CGNA.Session'vmStopHard'results
           { CGNA.result = encodeVmStopResult VS.VmStopStopped ""
@@ -397,11 +423,12 @@ qmpMigrateWithConnectGrace cfg vmId path = go connectGraceTicks
 -- 5 s bound matches the existing stop helpers.
 reapEntryAfterQuit :: SessionCap -> Int64 -> L.VmLiveState -> IO ()
 reapEntryAfterQuit sc vmId live = do
-  runStderrLoggingT $
-    P.waitForProcessBounded ("vm-" <> tshow vmId <> "-qemu (save)") 5 (L.vlsQemuHandle live)
+  exited <- pollForExit (L.vlsLastExitCode live) 5
+  unless exited $ throwFailed "QEMU exit after save was not confirmed; runtime retained"
   reapVmHelpers live
-  _ <- atomically $ L.removeVm (scVmLedger sc) vmId
   NGA.releaseConn (scQgaConns sc) vmId
+  _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
+  pure ()
 
 -- | Unlink @\<basePath\>/\<vmName\>/state.qemu@. Idempotent: a
 -- missing file is success. Lives behind a Cap'n Proto method so the

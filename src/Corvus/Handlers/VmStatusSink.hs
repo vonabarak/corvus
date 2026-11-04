@@ -182,6 +182,7 @@ markGuestAgentTimedOut vmId lifecycleRevision runtimeGeneration reason = do
             [ M.VmId ==. key
             , M.VmLifecycleRevision ==. lifecycleRevision
             , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            , M.VmStatus <-. [M.VmStarting, M.VmLoading, M.VmRunning]
             ]
             [ M.VmStatus =. M.VmError
             , M.VmHealthcheck =. Nothing
@@ -210,6 +211,7 @@ promoteStartingToRunning vmId lifecycleRevision runtimeGeneration = do
             [ M.VmId ==. key
             , M.VmLifecycleRevision ==. lifecycleRevision
             , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            , M.VmStatus <-. [M.VmStarting, M.VmLoading]
             ]
             [ M.VmStatus =. M.VmRunning
             , M.VmErrorMessage =. Nothing
@@ -239,6 +241,7 @@ promoteLoadingToRunning vmId lifecycleRevision runtimeGeneration = do
             [ M.VmId ==. key
             , M.VmLifecycleRevision ==. lifecycleRevision
             , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            , M.VmStatus ==. M.VmLoading
             ]
             [ M.VmStatus =. M.VmRunning
             , M.VmErrorMessage =. Nothing
@@ -265,6 +268,7 @@ markErroredFromAgent vmId lifecycleRevision runtimeGeneration exitCode = do
                     , M.VmError
                     , M.VmSaving
                     , M.VmMigrating
+                    , M.VmStopping
                     ] -> do
           now <- liftIO getCurrentTime
           let msg = "QEMU exited with code " <> T.pack (show exitCode)
@@ -272,6 +276,7 @@ markErroredFromAgent vmId lifecycleRevision runtimeGeneration exitCode = do
             [ M.VmId ==. key
             , M.VmLifecycleRevision ==. lifecycleRevision
             , M.VmRuntimeGeneration ==. Just runtimeGeneration
+            , M.VmStatus <-. [M.VmStarting, M.VmLoading, M.VmRunning, M.VmPaused]
             ]
             [ M.VmStatus =. M.VmError
             , M.VmHealthcheck =. Nothing

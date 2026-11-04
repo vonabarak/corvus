@@ -147,3 +147,44 @@ Enums are text-serializable through `EnumText`. Important examples include
 `TaskResult`, node admin/health states, build event/status types, and network
 IPAM enums. Check `Model.hs`, `Corvus.Protocol.*`, and `Corvus.Wire.Enums`
 before adding or renaming enum values.
+
+## Node-agent request isolation
+
+The node-agent session dispatcher only handles bounded in-memory operations
+inline: ping, status lookup, subscription registration, console-buffer flush,
+and transfer-token lookup. Filesystem, subprocess, QMP/QGA, network and streaming
+operations use `handleParsedAsync`. A stalled request must not delay another
+VM's lifecycle requests or the session heartbeat. Async dispatch does not cancel
+a mutation when its caller disconnects; runtime ownership and lifecycle fences
+still govern its completion.
+
+VM operation locks belong to the process-wide ledger, so reconnecting sessions
+share the same locks. Hard stop fences starts and signals QEMU before waiting
+for that lock. Reset retains the ledger entry until QEMU exit and helper cleanup
+are confirmed. Failed termination retains runtime ownership and network resources
+and records an error; stale completions cannot overwrite a newer generation.
+Interrupted stops discovered on reconnect require explicit recovery rather than
+an automatic start.
+
+Live disk detach accepts asynchronous guest unplug. Delayed backend cleanup is
+connection-supervised, limited to 60 seconds, and checks runtime identity while
+holding the VM operation lock before sending further QMP commands.
+
+Console attachment returns its input capability before awaiting output callbacks.
+A connection-supervised worker sends replay followed by live output, with a
+30-second callback deadline. Subscribers wait on their own buffer positions;
+output and shutdown wake every subscriber. Input writes are bounded too.
+Disk readers stream asynchronously and accept one consumer; cancel remains
+available while a callback is stalled. Transfers bound each callback/write to
+60 seconds, supervise handles on connection closure, and remove abandoned upload
+files. Download progress observers have a five-second deadline and are dropped
+on failure without failing the download.
+
+The daemon pings each node session every five seconds with a ten-second deadline,
+including during reconciliation and autostart, alongside status freshness checks.
+QMP handshakes have a ten-second deadline and ordinary commands a 30-second
+budget; snapshot operations retain longer command budgets. Hard stop has a
+45-second node budget and a 60-second daemon budget. Process waits share a single
+waiter per handle and bound the caller's wait without joining a stuck waiter.
+Node request logs record operation, request thread, outcome and elapsed time;
+request parameters are omitted because they can contain secrets.

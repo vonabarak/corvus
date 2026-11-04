@@ -7,7 +7,7 @@ module Corvus.Node.Qmp.Snapshot (qmpSnapshotSave, qmpSnapshotLoad, qmpSnapshotDe
 
 import Corvus.Node.Qmp.Block (qmpFindBlockNodeByPath)
 import Corvus.Node.Qmp.Runtime (pollQmpJob)
-import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpRaw)
+import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpCommandWithin, sendQmpRaw)
 import Corvus.Node.Qmp.Types (QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Qemu.Config (QemuConfig)
@@ -111,7 +111,8 @@ qmpBlockSnapshotCreate
   -- ^ snapshot name
   -> IO QmpResult
 qmpBlockSnapshotCreate config vmId device name =
-  sendQmpCommand
+  sendQmpCommandWithin
+    300
     config
     vmId
     [qmpQQ|
@@ -138,7 +139,8 @@ qmpBlockSnapshotDelete
   -- ^ snapshot name
   -> IO QmpResult
 qmpBlockSnapshotDelete config vmId device name =
-  sendQmpCommand
+  sendQmpCommandWithin
+    300
     config
     vmId
     [qmpQQ|

@@ -27,10 +27,10 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.Vm.Db
   ( completeVmMonitor
+  , completeVmStop
   , hasNetdMediatedNetIf
-  , setVmError
-  , setVmStarted
-  , setVmStopped
+  , setVmErrorIfCurrent
+  , setVmStartedIfCurrent
   )
 import Corvus.Model (Vm (vmName, vmStatus), VmId, VmStatus (..))
 import qualified Corvus.Model as M
@@ -181,7 +181,7 @@ reattachVmMonitors state = do
     runSqlPool
       ( selectList
           [ M.VmStatus
-              <-. [VmStarting, VmLoading, VmRunning, VmPaused, VmError]
+              <-. [VmStarting, VmLoading, VmRunning, VmPaused, VmStopping, VmError]
           ]
           []
       )
@@ -197,25 +197,24 @@ reattachVmMonitors state = do
           logDebugN $
             "Skipping reattach for VM " <> vmName vm <> ": " <> err
         Right (nac, r) -> case r of
+          Right status | vmStatus vm == VmStopping -> do
+            let reason = Just "Stop was interrupted by a connection loss; reset is required to confirm cleanup"
+            _ <- liftIO $ runSqlPool (completeVmStop vmId (M.vmLifecycleRevision vm) (M.vmRuntimeGeneration vm) reason) pool
+            logWarnN $ "VM " <> vmName vm <> ": interrupted stop retained for recovery (agent state " <> T.pack (show (NOA.vasState status)) <> ")"
           Right status -> case NOA.vasState status of
             NOA.VmAgentRunning -> do
               logInfoN $
                 "Re-attaching monitor for VM " <> vmName vm
               liftIO $ attachVmMonitor state vmId
             NOA.VmAgentStopped -> do
-              when (vmStatus vm == VmError) $
-                liftIO $
-                  releaseManagedTaps state vmId
               when (vmStatus vm /= VmError) $ do
                 logInfoN $
                   "VM "
                     <> vmName vm
                     <> " exited cleanly while daemon was disconnected; reconciling"
-                liftIO $ runSqlPool (setVmStopped vmId) pool
+                committed <- liftIO $ runSqlPool (completeVmMonitor vmId vm Nothing) pool
+                when committed $ liftIO $ releaseManagedTaps state vmId
             NOA.VmAgentErrored -> do
-              when (vmStatus vm == VmError) $
-                liftIO $
-                  releaseManagedTaps state vmId
               when (vmStatus vm /= VmError) $ do
                 let msg =
                       "QEMU exited with error code "
@@ -223,11 +222,9 @@ reattachVmMonitors state = do
                         <> " (observed while daemon was disconnected)"
                 logWarnN $
                   "VM " <> vmName vm <> ": " <> msg
-                liftIO $ runSqlPool (setVmError vmId msg) pool
+                committed <- liftIO $ runSqlPool (completeVmMonitor vmId vm (Just msg)) pool
+                when committed $ liftIO $ releaseManagedTaps state vmId
             NOA.VmAgentUnknown -> do
-              when (vmStatus vm == VmError) $
-                liftIO $
-                  releaseManagedTaps state vmId
               when (vmStatus vm /= VmError) $ do
                 logInfoN $
                   "VM "
@@ -250,6 +247,9 @@ reapplyVm :: ServerState -> NOA.NodeAgentClient -> Int64 -> Vm -> LoggingT IO ()
 reapplyVm state nac vmId vm = do
   let pool = ssDbPool state
       cfg = ssQemuConfig state
+      revision = M.vmLifecycleRevision vm
+      generation = fromMaybe revision (M.vmRuntimeGeneration vm)
+      failReapply message = void $ liftIO $ runSqlPool (setVmErrorIfCurrent vmId revision generation message) pool
   mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
   needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
   let netAgentForSpec = if needsNetd then mNetAgent else Nothing
@@ -261,23 +261,22 @@ reapplyVm state nac vmId vm = do
             "VM "
               <> vmName vm
               <> " disappeared from DB during reapply; marking stopped"
-          liftIO $ runSqlPool (setVmStopped vmId) pool
+          void $ liftIO $ runSqlPool (completeVmMonitor vmId vm Nothing) pool
       | otherwise -> do
           logWarnN $
             "VM " <> vmName vm <> " reapply: assembleVmSpec failed: " <> err
-          liftIO $ runSqlPool (setVmError vmId err) pool
+          failReapply err
     Right spec -> do
       r <- liftIO $ NOA.vmStart nac spec
       case r of
-        Right (NOA.VmStartStarted info) -> do
+        Right (NOA.VmStartStarted _) -> do
           logInfoN $ "VM " <> vmName vm <> " re-applied via vmStart"
-          let pid = fromIntegral (NOA.vriQemuPid info) :: Int
-          liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) pool
-          liftIO $ attachVmMonitor state vmId
+          completed <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId revision generation VmRunning) pool
+          when completed $ liftIO $ attachVmMonitor state vmId
         Right NOA.VmStartVsockCidBusy -> do
           let msg = "vmStart reapply: nodeagent reported a VSOCK CID collision"
           logWarnN $ "vmStart reapply failed for VM " <> vmName vm <> ": " <> msg
-          liftIO $ runSqlPool (setVmError vmId msg) pool
+          failReapply msg
         Left e -> do
           let msg = "vmStart reapply: " <> T.pack (show e)
           logWarnN $
@@ -285,4 +284,4 @@ reapplyVm state nac vmId vm = do
               <> vmName vm
               <> ": "
               <> T.pack (show e)
-          liftIO $ runSqlPool (setVmError vmId msg) pool
+          failReapply msg

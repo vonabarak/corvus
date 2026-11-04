@@ -19,9 +19,13 @@ import Test.Prelude
 
 import Corvus.Handlers.Vm.Db
   ( claimVmReset
+  , claimVmSave
   , claimVmStart
+  , claimVmStop
   , completeVmMonitor
   , completeVmReset
+  , completeVmSave
+  , completeVmStop
   , setVmErrorIfCurrent
   , setVmStartedIfCurrent
   )
@@ -79,6 +83,48 @@ spec = sequential $ withTestDb $ do
         _ -> expectationFailure "expected nodeagent unavailable"
 
   describe "guarded runtime completions" $ do
+    testCase "retains runtime ownership when termination fails" $ do
+      vid <- insertVm "stop-failure" VmRunning
+      let key = toSqlKey vid :: M.VmId
+      runDb $ update key [M.VmRuntimeGeneration =. Just 7, M.VmSpicePort =. Just 5901]
+      observed <- runDb $ getJust key
+      claimed <- runDb $ claimVmStop vid observed
+      completed <- runDb $ completeVmStop vid (M.vmLifecycleRevision observed) (Just 7) (Just "termination deadline")
+      current <- runDb $ getJust key
+      liftIO $ do
+        claimed `shouldBe` True
+        completed `shouldBe` True
+        M.vmStatus current `shouldBe` VmError
+        M.vmRuntimeGeneration current `shouldBe` Just 7
+        M.vmSpicePort current `shouldBe` Just 5901
+        M.vmErrorMessage current `shouldBe` Just "termination deadline"
+
+    testCase "retains resources on save failure and rejects completion after reset" $ do
+      vid <- insertVm "save-failure" VmRunning
+      let key = toSqlKey vid :: M.VmId
+      runDb $ update key [M.VmRuntimeGeneration =. Just 7, M.VmSpicePort =. Just 5901]
+      observed <- runDb $ getJust key
+      claimed <- runDb $ claimVmSave vid observed
+      failed <- runDb $ completeVmSave vid (M.vmLifecycleRevision observed) (Just 7) (Just "save interrupted")
+      current <- runDb $ getJust key
+      runDb $ update key [M.VmLifecycleRevision =. (M.vmLifecycleRevision observed + 1), M.VmStatus =. VmStopping]
+      late <- runDb $ completeVmSave vid (M.vmLifecycleRevision observed) (Just 7) Nothing
+      liftIO $ do
+        claimed `shouldBe` True
+        failed `shouldBe` True
+        M.vmSpicePort current `shouldBe` Just 5901
+        M.vmStatus current `shouldBe` VmError
+        late `shouldBe` False
+
+    testCase "rejects a late stop completion after runtime replacement" $ do
+      vid <- insertVm "late-stop" VmStopping
+      let key = toSqlKey vid :: M.VmId
+      observed <- runDb $ getJust key
+      runDb $ update key [M.VmLifecycleRevision =. (M.vmLifecycleRevision observed + 1), M.VmRuntimeGeneration =. Just 9, M.VmStatus =. VmRunning]
+      completed <- runDb $ completeVmStop vid (M.vmLifecycleRevision observed) (M.vmRuntimeGeneration observed) Nothing
+      liftIO $ completed `shouldBe` False
+      then_ $ vmHasStatus vid VmRunning
+
     testCase "completes a matching start claim" $ do
       given $ do
         _ <- insertVm "claimed" VmStopped
@@ -96,6 +142,20 @@ spec = sequential $ withTestDb $ do
                 VmRunning
           liftIO $ updated `shouldBe` True
           then_ $ vmHasStatus 1 VmRunning
+
+    testCase "rejects start completion after a stop claims the same runtime" $ do
+      _ <- insertVm "starting-stop" VmStopped
+      claimed <- runDb $ claimVmStart 1 VmStopped VmStarting
+      case claimed of
+        Nothing -> liftIO $ expectationFailure "start claim was not acquired"
+        Just vm -> do
+          runDb $ update (toSqlKey 1 :: M.VmId) [M.VmStatus =. VmStopping]
+          updated <- runDb $ setVmStartedIfCurrent 1 (M.vmLifecycleRevision vm) (fromMaybe 0 (M.vmRuntimeGeneration vm)) VmRunning
+          failed <- runDb $ setVmErrorIfCurrent 1 (M.vmLifecycleRevision vm) (fromMaybe 0 (M.vmRuntimeGeneration vm)) "late start failure"
+          liftIO $ do
+            updated `shouldBe` False
+            failed `shouldBe` False
+          then_ $ vmHasStatus 1 VmStopping
 
     testCase "rejects stale start completion without overwriting reset state" $ do
       given $ do

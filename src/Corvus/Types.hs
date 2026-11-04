@@ -58,7 +58,7 @@ import qualified Capnp.Gen.Vm as CGVm
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
-import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Database (DatabaseRuntimeInfo, unknownDatabaseRuntimeInfo)
 import qualified Corvus.Model as M
@@ -492,8 +492,6 @@ data SocketBuffer = SocketBuffer
   -- ^ Current buffer contents (truncated to capacity)
   , sbTotalWritten :: !(TVar Int64)
   -- ^ Monotonically increasing total bytes written
-  , sbNotify :: !(TMVar ())
-  -- ^ Signaled when new data is written
   , sbCapacity :: !Int
   -- ^ Maximum buffer size in bytes
   }

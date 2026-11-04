@@ -4,7 +4,8 @@
 
 -- | Unix-socket transport and reply framing for QMP.
 module Corvus.Node.Qmp.Transport
-  ( sendQmpCommand
+  ( sendQmpCommandWithin
+  , sendQmpCommand
   , sendQmpRaw
   , extractReplyLine
   , withUnixSocket
@@ -13,7 +14,7 @@ module Corvus.Node.Qmp.Transport
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (IOException, SomeException, bracket, catch, onException, try)
+import Control.Exception (IOException, bracket, catch, onException, try)
 import Corvus.Node.Qmp.Types (QmpResult (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Node.Runtime (getQmpSocket)
@@ -27,35 +28,39 @@ import GHC.IO.Exception (IOErrorType (..))
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, connect, defaultProtocol, socket)
 import Network.Socket.ByteString (recv, sendAll)
 import System.IO.Error (ioeGetErrorType)
+import System.Timeout (timeout)
 
 -- | Raw QMP send that returns the response bytes without coercing it to a
 -- command result. Structured-reply commands decode this themselves.
 sendQmpRaw :: QemuConfig -> Int64 -> BS.ByteString -> IO (Either Text BS.ByteString)
-sendQmpRaw config vmId cmd = do
-  qmpSock <- getQmpSocket config vmId
-  result <- try $ withUnixSocket qmpSock $ \sock -> do
-    _ <- recv sock 4096
-    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
-    _ <- drainUntilReply sock BS.empty
-    sendAll sock cmd
-    drainUntilReply sock BS.empty
-  pure $ case result of
-    Left (e :: SomeException) -> Left (T.pack (show e))
-    Right response -> Right response
+sendQmpRaw = sendQmpRawWithin 30
 
--- | Send a QMP command to a VM.
-sendQmpCommand :: QemuConfig -> Int64 -> BS.ByteString -> IO QmpResult
-sendQmpCommand config vmId cmd = do
+sendQmpRawWithin :: Int -> QemuConfig -> Int64 -> BS.ByteString -> IO (Either Text BS.ByteString)
+sendQmpRawWithin seconds config vmId cmd = do
   qmpSock <- getQmpSocket config vmId
-  result <- try $ withUnixSocket qmpSock $ \sock -> do
-    _ <- recv sock 4096
-    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
-    _ <- drainUntilReply sock BS.empty
-    sendAll sock cmd
-    drainUntilReply sock BS.empty
+  result <- timeout ((seconds + 10) * 1000000) $ try $ withUnixSocket qmpSock $ \sock -> do
+    handshake <- timeout 10000000 $ do
+      _ <- recv sock 4096
+      sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
+      drainUntilReply sock BS.empty
+    case handshake of
+      Nothing -> ioError (userError "QMP handshake timed out after 10s")
+      Just _ -> do
+        response <- timeout (seconds * 1000000) $ sendAll sock cmd >> drainUntilReply sock BS.empty
+        maybe (ioError (userError "QMP command timed out")) pure response
   pure $ case result of
-    Left (e :: SomeException) -> QmpConnectionFailed $ T.pack $ show e
-    Right response -> classifyQmpResponse response
+    Nothing -> Left "QMP request timed out"
+    Just (Left (e :: IOException)) -> Left (T.pack (show e))
+    Just (Right response) -> Right response
+
+-- | Send a bounded QMP command to a VM.
+sendQmpCommand :: QemuConfig -> Int64 -> BS.ByteString -> IO QmpResult
+sendQmpCommand = sendQmpCommandWithin 30
+
+sendQmpCommandWithin :: Int -> QemuConfig -> Int64 -> BS.ByteString -> IO QmpResult
+sendQmpCommandWithin seconds config vmId cmd = do
+  result <- sendQmpRawWithin seconds config vmId cmd
+  pure $ either QmpConnectionFailed classifyQmpResponse result
 
 -- | Pick the final command-reply line, ignoring interleaved QMP events.
 extractReplyLine :: BS.ByteString -> Either Text BS.ByteString

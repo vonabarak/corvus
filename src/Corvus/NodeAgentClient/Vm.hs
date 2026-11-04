@@ -272,7 +272,7 @@ vmStopHard
   -> Int64
   -> Maybe Int64
   -> IO (Either NodeAgentError VmStopResult)
-vmStopHard nac vmId mFence = remote $ do
+vmStopHard nac vmId mFence = remoteWithin 60 $ do
   CGNA.Session'vmStopHard'results {CGNA.result = r} <-
     callOn
       #vmStopHard
@@ -285,7 +285,7 @@ vmStopHard nac vmId mFence = remote $ do
   pure (decodeVmStopResult r)
 
 vmPause :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
-vmPause nac vmId = remote $ do
+vmPause nac vmId = remoteWithin 60 $ do
   _ :: C.Parsed CGNA.Session'vmPause'results <-
     callOn
       #vmPause
@@ -294,7 +294,7 @@ vmPause nac vmId = remote $ do
   pure ()
 
 vmResume :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
-vmResume nac vmId = remote $ do
+vmResume nac vmId = remoteWithin 60 $ do
   _ :: C.Parsed CGNA.Session'vmResume'results <-
     callOn
       #vmResume
@@ -413,7 +413,7 @@ vmGuestExecStream nac r stdoutSink stderrSink = remote $ do
   pure (decodeVmGuestExecInfo i)
 
 vmStatus :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError VmAgentStatus)
-vmStatus nac vmId = remote $ do
+vmStatus nac vmId = remoteWithin 10 $ do
   CGNA.Session'vmStatus'results {CGNA.status = s} <-
     callOn
       #vmStatus
@@ -423,7 +423,7 @@ vmStatus nac vmId = remote $ do
 
 vmSetSpiceTicket
   :: NodeAgentClient -> Int64 -> T.Text -> Word32 -> IO (Either NodeAgentError ())
-vmSetSpiceTicket nac vmId password ttlSeconds = remote $ do
+vmSetSpiceTicket nac vmId password ttlSeconds = remoteWithin 60 $ do
   _ :: C.Parsed CGNA.Session'vmSetSpiceTicket'results <-
     callOn
       #vmSetSpiceTicket
@@ -469,7 +469,7 @@ openSerialConsole
   -> Int64
   -> C.Client CGS.ByteSink
   -> IO (Either NodeAgentError (C.Client CGS.ByteSink))
-openSerialConsole nac vmId sink = remote $ do
+openSerialConsole nac vmId sink = remoteWithin 60 $ do
   CGNA.Session'openSerialConsole'results {CGNA.input = inp} <-
     callOn
       #openSerialConsole
@@ -485,7 +485,7 @@ openHmpMonitor
   -> Int64
   -> C.Client CGS.ByteSink
   -> IO (Either NodeAgentError (C.Client CGS.ByteSink))
-openHmpMonitor nac vmId sink = remote $ do
+openHmpMonitor nac vmId sink = remoteWithin 60 $ do
   CGNA.Session'openHmpMonitor'results {CGNA.input = inp} <-
     callOn
       #openHmpMonitor
@@ -545,7 +545,7 @@ vmAttachDrive
   -> Bool
   -- ^ discard
   -> IO (Either NodeAgentError ())
-vmAttachDrive nac vmId driveId filePath fmt ifKind ro media cache discard = remote $ do
+vmAttachDrive nac vmId driveId filePath fmt ifKind ro media cache discard = remoteWithin 60 $ do
   let req =
         CGNA.VmAttachDriveReq
           { CGNA.vmId = vmId
@@ -568,7 +568,7 @@ vmAttachDrive nac vmId driveId filePath fmt ifKind ro media cache discard = remo
 -- | Hot-detach a drive via QMP @device_del@ + @blockdev-del@
 -- (the agent handles the busy-retry).
 vmDetachDrive :: NodeAgentClient -> Int64 -> Int64 -> IO (Either NodeAgentError ())
-vmDetachDrive nac vmId driveId = remote $ do
+vmDetachDrive nac vmId driveId = remoteWithin 60 $ do
   _ :: C.Parsed CGNA.Session'vmDetachDrive'results <-
     callOn
       #vmDetachDrive
@@ -582,7 +582,7 @@ vmDetachDrive nac vmId driveId = remote $ do
 -- | Eject the media of a CD-ROM drive (QMP @eject@). The agent
 -- verifies the drive is removable via @query-block@ first.
 vmEjectMedia :: NodeAgentClient -> Int64 -> Int64 -> IO (Either NodeAgentError ())
-vmEjectMedia nac vmId driveId = remote $ do
+vmEjectMedia nac vmId driveId = remoteWithin 60 $ do
   _ :: C.Parsed CGNA.Session'vmEjectMedia'results <-
     callOn
       #vmEjectMedia
@@ -607,7 +607,7 @@ vmChangeMedia
   -> T.Text
   -- ^ disk format (@"qcow2"@ / @"raw"@ / …)
   -> IO (Either NodeAgentError ())
-vmChangeMedia nac vmId driveId filePath fmt = remote $ do
+vmChangeMedia nac vmId driveId filePath fmt = remoteWithin 60 $ do
   _ :: C.Parsed CGNA.Session'vmChangeMedia'results <-
     callOn
       #vmChangeMedia

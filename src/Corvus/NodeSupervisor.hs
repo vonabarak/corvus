@@ -161,7 +161,7 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
     -- 'Left'-returning dial failure.
     loop = do
       result <-
-        E.try @E.SomeException $
+        E.tryJust (\err -> case E.fromException err :: Maybe E.SomeAsyncException of Just _ -> Nothing; Nothing -> Just (err :: E.SomeException)) $
           NOA.withNodeAgentClient host port owner mTlsCfg onConnect
       shouldStop <- readTVarIO (ssShutdownFlag state)
       if shouldStop
@@ -236,7 +236,7 @@ holdNodeAgentConnection state nodeKey nodeLabel noac = withSupervisor $ \sup -> 
       runFilteredLogging (ssLogLevel state) $
         logInfoN $
           "node " <> nodeLabel <> " subscribed to VM status push"
-      race_ (watch freshness) $ do
+      race_ (race_ (watch freshness) heartbeat) $ do
         reattachVmMonitors state
         -- The lifetime guard survives reconnects; never repeat autostart on a flap.
         shouldFire <- claimAutostartSlot state nodeKey ncVmAutostartFired
@@ -244,6 +244,12 @@ holdNodeAgentConnection state nodeKey nodeLabel noac = withSupervisor $ \sup -> 
         blockUntilShutdown state
   where
     warn message = runFilteredLogging (ssLogLevel state) $ logWarnN $ "node " <> nodeLabel <> " " <> message
+    heartbeat = do
+      threadDelay 5000000
+      result <- timeout 10000000 (NOA.sessionPing noac)
+      case result of
+        Just (Right ()) -> heartbeat
+        _ -> warn "Session ping failed or timed out after 10s; reconnecting in 5s"
     watch freshness = do
       elapsed <- waitForStaleStatus freshness (readTVarIO (ssShutdownFlag state)) (threadDelay 5000000) 45
       forM_ elapsed $ \seconds ->

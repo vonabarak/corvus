@@ -8,7 +8,10 @@ module Corvus.SocketBufferSpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 
-import Corvus.Node.SocketBuffer (stripTerminalQueries)
+import Control.Concurrent.Async (wait, withAsync)
+import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
+import Corvus.Node.SocketBuffer (newSocketBuffer, stripTerminalQueries, waitForData, writeBuffer)
+import System.Timeout (timeout)
 import Test.Hspec
 
 esc :: BS.ByteString
@@ -77,3 +80,26 @@ spec = describe "stripTerminalQueries" $ do
     -- arrives (though for replay, the buffer has already wrapped).
     stripTerminalQueries (esc <> "[12;")
       `shouldBe` (esc <> "[12;")
+
+  describe "subscriber wakeups" $ do
+    it "broadcasts output to all waiting subscribers" $ do
+      buf <- newSocketBuffer 16
+      stopped <- newTVarIO False
+      withAsync (waitForData buf 0 stopped) $ \first ->
+        withAsync (waitForData buf 0 stopped) $ \second -> do
+          writeBuffer buf "boot"
+          timeout 1000000 (wait first) `shouldReturn` Just ("boot", 4)
+          timeout 1000000 (wait second) `shouldReturn` Just ("boot", 4)
+
+    it "observes output written before the subscriber starts waiting" $ do
+      buf <- newSocketBuffer 4
+      stopped <- newTVarIO False
+      writeBuffer buf "abcdef"
+      timeout 1000000 (waitForData buf 0 stopped) `shouldReturn` Just ("cdef", 6)
+
+    it "wakes idle subscribers when QEMU shuts down" $ do
+      buf <- newSocketBuffer 16
+      stopped <- newTVarIO False
+      withAsync (waitForData buf 0 stopped) $ \subscriber -> do
+        atomically $ writeTVar stopped True
+        timeout 1000000 (wait subscriber) `shouldReturn` Just ("", 0)

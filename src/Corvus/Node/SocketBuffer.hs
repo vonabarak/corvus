@@ -11,7 +11,9 @@
 -- into 'startSocketBufferThread'.
 module Corvus.Node.SocketBuffer
   ( -- * Buffer operations
-    readBufferFrom
+    newSocketBuffer
+  , writeBuffer
+  , readBufferFrom
   , waitForData
   , flushBuffer
 
@@ -52,12 +54,10 @@ newSocketBuffer :: Int -> IO SocketBuffer
 newSocketBuffer capacity = do
   d <- newTVarIO BS.empty
   tw <- newTVarIO 0
-  n <- newEmptyTMVarIO
   pure
     SocketBuffer
       { sbData = d
       , sbTotalWritten = tw
-      , sbNotify = n
       , sbCapacity = capacity
       }
 
@@ -72,13 +72,15 @@ writeBuffer sb chunk = atomically $ do
           else new
   writeTVar (sbData sb) trimmed
   modifyTVar' (sbTotalWritten sb) (+ fromIntegral (BS.length chunk))
-  void $ tryPutTMVar (sbNotify sb) ()
 
 -- | Read buffer contents starting from a given absolute position.
 -- Returns (data, newPosition). If the requested position has been
 -- overwritten (buffer wrapped), returns data from the oldest available byte.
 readBufferFrom :: SocketBuffer -> Int64 -> IO (BS.ByteString, Int64)
-readBufferFrom sb fromPos = atomically $ do
+readBufferFrom sb fromPos = atomically $ readBufferFromSTM sb fromPos
+
+readBufferFromSTM :: SocketBuffer -> Int64 -> STM (BS.ByteString, Int64)
+readBufferFromSTM sb fromPos = do
   buf <- readTVar (sbData sb)
   total <- readTVar (sbTotalWritten sb)
   let bufStart = total - fromIntegral (BS.length buf)
@@ -88,10 +90,12 @@ readBufferFrom sb fromPos = atomically $ do
   pure (result, total)
 
 -- | Block until new data is available past the given position, then return it.
-waitForData :: SocketBuffer -> Int64 -> IO (BS.ByteString, Int64)
-waitForData sb fromPos = do
-  atomically $ takeTMVar (sbNotify sb)
-  readBufferFrom sb fromPos
+waitForData :: SocketBuffer -> Int64 -> TVar Bool -> IO (BS.ByteString, Int64)
+waitForData sb fromPos shutdown = atomically $ do
+  total <- readTVar (sbTotalWritten sb)
+  stopped <- readTVar shutdown
+  check (total > fromPos || stopped)
+  readBufferFromSTM sb fromPos
 
 -- | Clear the ring buffer. New writes continue from the current position.
 flushBuffer :: SocketBuffer -> IO ()
@@ -207,6 +211,5 @@ runReader vmId bufferMap capacity qemuSock = do
       cleanup = atomically $ do
         writeTVar shutdownVar True
         writeTVar qemuSockVar Nothing
-        modifyTVar' bufferMap (Map.delete vmId)
-        void $ tryPutTMVar (sbNotify buf) ()
+        modifyTVar' bufferMap (Map.update (\current -> if sbhShutdown current == shutdownVar then Nothing else Just current) vmId)
   loop `finally` cleanup

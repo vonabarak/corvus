@@ -8,15 +8,13 @@ module Corvus.Handlers.Vm.Lifecycle
   )
 where
 
-import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
+import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Action
 import Corvus.Handlers.Vm.Db
 import Corvus.Handlers.Vm.Monitor (releaseManagedTaps)
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
-import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
@@ -50,67 +48,77 @@ handleVmStopExecute ctx vmId timeoutSec forceOnTimeout = do
   validated <- handleVmStopValidate state vmId
   case validated of
     Left errResp -> pure errResp
-    Right (_vm, currentStatus) -> runServerLogging state $ do
-      liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. VmStopping]) (ssDbPool state)
-      let markStopped = do
-            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-            liftIO $ releaseManagedTaps state vmId
-            pure $ RespVmStateChanged VmStopped
-          -- Hard-kill via SIGTERM→SIGKILL. Reused by both the
-          -- graceful-timeout escalation and the @timeoutSec == 0@
-          -- short-circuit. 'vmStopHard' is dispatched synchronously
-          -- and lock-free on the agent, so it can interrupt a stuck
-          -- graceful stop already in flight for the same VM.
-          forceStop = do
-            outerHard <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId Nothing
-            case outerHard of
-              Left err ->
-                pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> err)
-              Right rh -> case rh of
-                Right _ -> markStopped
-                Left e ->
-                  pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> T.pack (show e))
-      if timeoutSec == 0
-        then do
-          logInfoN $
-            "VM "
-              <> T.pack (show vmId)
-              <> " stop requested with timeout=0; hard-killing immediately"
-          forceStop
+    Right (vm, _currentStatus) -> runServerLogging state $ do
+      admitted <- liftIO $ runSqlPool (claimVmStop vmId vm) (ssDbPool state)
+      if not admitted
+        then pure $ RespError "VM lifecycle changed while stop was being admitted"
         else do
-          -- Surface what the task is blocked on (visible via
-          -- @crv task list/show/wait@) before the long graceful RPC.
-          liftIO $
-            pushTaskProgress
-              state
-              (fromSqlKey (acTaskId ctx))
-              ("graceful-shutdown wait, ETA " <> T.pack (show timeoutSec) <> "s")
-              (0, 0)
-          -- The nodeagent sends QGA powerdown and ACPI, then waits for exit.
-          outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopGraceful nac vmId timeoutSec
-          case outer of
-            Left err -> do
-              logWarnN $ "nodeagent unavailable; cannot stop VM: " <> err
-              liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. currentStatus]) (ssDbPool state)
-              pure $ RespInvalidTransition currentStatus err
-            Right r -> case r of
-              Left e -> do
-                logWarnN $ "vmStopGraceful RPC failed: " <> T.pack (show e)
-                pure $ RespInvalidTransition currentStatus ("vmStopGraceful: " <> T.pack (show e))
-              Right res -> case NOA.vsrKind res of
-                NOA.VmStopStopped -> markStopped
-                NOA.VmStopAlreadyStopped -> markStopped
-                NOA.VmStopTimeout
-                  | not forceOnTimeout ->
-                      pure $ RespError "Graceful shutdown timed out; VM preserved and image capture refused"
-                NOA.VmStopTimeout -> do
-                  logWarnN $
-                    "VM "
-                      <> T.pack (show vmId)
-                      <> " did not exit within graceful window; force-stopping"
-                  forceStop
-                NOA.VmStopFailed ->
-                  pure $ RespError ("vmStopGraceful failed: " <> NOA.vsrMessage res)
+          let settle reason = liftIO $ runSqlPool (completeVmStop vmId (vmLifecycleRevision vm) (vmRuntimeGeneration vm) reason) (ssDbPool state)
+              failStop message = do
+                _ <- settle (Just message)
+                pure $ RespError message
+              markStopped = do
+                completed <- settle Nothing
+                if completed
+                  then do
+                    liftIO $ releaseManagedTaps state vmId
+                    pure $ RespVmStateChanged VmStopped
+                  else pure $ RespError "Stop was superseded by another lifecycle operation"
+              -- Hard-kill via SIGTERM→SIGKILL. Reused by both the
+              -- graceful-timeout escalation and the @timeoutSec == 0@
+              -- short-circuit. 'vmStopHard' signals before taking the
+              -- operation lock on the agent, so it can interrupt a stuck
+              -- graceful stop already in flight for the same VM.
+              forceStop = do
+                outerHard <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId Nothing
+                case outerHard of
+                  Left err ->
+                    failStop ("vmStopHard: " <> err)
+                  Right rh -> case rh of
+                    Right res | NOA.vsrKind res `elem` [NOA.VmStopStopped, NOA.VmStopAlreadyStopped] -> markStopped
+                    Right res -> failStop ("vmStopHard: " <> NOA.vsrMessage res)
+                    Left e ->
+                      failStop ("vmStopHard: " <> T.pack (show e))
+          if timeoutSec == 0
+            then do
+              logInfoN $
+                "VM "
+                  <> T.pack (show vmId)
+                  <> " stop requested with timeout=0; hard-killing immediately"
+              forceStop
+            else do
+              -- Surface what the task is blocked on (visible via
+              -- @crv task list/show/wait@) before the long graceful RPC.
+              liftIO $
+                pushTaskProgress
+                  state
+                  (fromSqlKey (acTaskId ctx))
+                  ("graceful-shutdown wait, ETA " <> T.pack (show timeoutSec) <> "s")
+                  (0, 0)
+              -- The nodeagent sends QGA powerdown and ACPI, then waits for exit.
+              outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopGraceful nac vmId timeoutSec
+              case outer of
+                Left err -> do
+                  logWarnN $ "nodeagent unavailable; cannot stop VM: " <> err
+                  failStop err
+                Right r -> case r of
+                  Left e -> do
+                    logWarnN $ "vmStopGraceful RPC failed: " <> T.pack (show e)
+                    if forceOnTimeout then forceStop else failStop ("vmStopGraceful: " <> T.pack (show e))
+                  Right res -> case NOA.vsrKind res of
+                    NOA.VmStopStopped -> markStopped
+                    NOA.VmStopAlreadyStopped -> markStopped
+                    NOA.VmStopTimeout
+                      | not forceOnTimeout ->
+                          failStop "Graceful shutdown timed out; VM preserved and image capture refused"
+                    NOA.VmStopTimeout -> do
+                      logWarnN $
+                        "VM "
+                          <> T.pack (show vmId)
+                          <> " did not exit within graceful window; force-stopping"
+                      forceStop
+                    NOA.VmStopFailed ->
+                      failStop ("vmStopGraceful failed: " <> NOA.vsrMessage res)
 
 -- | Poll until VM status is VmStopped or VmError, or timeout.
 handleVmPause :: ServerState -> Int64 -> IO Response
@@ -153,9 +161,8 @@ handleVmSaveValidate state vmId = do
 
 -- | Execute the save flow.
 --
--- Flips the row to 'VmSaving' (clearing VSOCK CID + SPICE port —
--- both are freed when QEMU exits, and the next @vm start@ will
--- allocate fresh ones), then asks the agent to issue QMP @migrate@
+-- Claims 'VmSaving', retaining runtime resources until confirmed exit,
+-- then asks the agent to issue QMP @migrate@
 -- to the state file, wait for the write to complete, and @quit@
 -- QEMU. The agent owns the state file path
 -- (\<basePath\>/\<vmName\>/state.qemu).
@@ -173,36 +180,29 @@ handleVmSaveExecute state vmId = runServerLogging state $ do
   case validated of
     Left errResp -> pure errResp
     Right currentStatus -> do
-      logInfoN $ "Saving VM " <> T.pack (show vmId) <> " state to disk"
-      liftIO $
-        runSqlPool
-          ( update
-              (toSqlKey vmId :: VmId)
-              [ M.VmStatus =. VmSaving
-              , M.VmVsockCid =. Nothing
-              , M.VmSpicePort =. Nothing
-              ]
-          )
-          (ssDbPool state)
-      outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmSave nac vmId
-      let finishWithFailure :: T.Text -> LoggingT IO Response
-          finishWithFailure msg = do
-            logWarnN $ "vmSave failed for VM " <> T.pack (show vmId) <> ": " <> msg
-            liftIO $ runSqlPool (setVmError vmId ("vmSave: " <> msg)) (ssDbPool state)
-            pure $ RespInvalidTransition currentStatus msg
-      case outer of
-        Left err -> finishWithFailure err
-        Right r -> case r of
-          Left e -> finishWithFailure (T.pack (show e))
-          Right () -> do
-            logInfoN $ "VM " <> T.pack (show vmId) <> " saved"
-            case validateTransition VmSaving ActionSaveDone of
-              Right next -> do
-                liftIO $ runSqlPool (setVmStatus vmId next) (ssDbPool state)
-                pure $ RespVmStateChanged next
-              Left e ->
-                -- Unreachable: VmSaving + ActionSaveDone is allowed.
-                pure $ RespError ("save-done validator rejected: " <> e)
+      observed <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
+      case observed of
+        Nothing -> pure RespVmNotFound
+        Just vm | vmStatus vm /= currentStatus -> pure $ RespError "VM lifecycle changed while save was being admitted"
+        Just vm -> do
+          admitted <- liftIO $ runSqlPool (claimVmSave vmId vm) (ssDbPool state)
+          if not admitted
+            then pure $ RespError "VM lifecycle changed while save was being admitted"
+            else do
+              logInfoN $ "Saving VM " <> T.pack (show vmId) <> " state to disk"
+              outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmSave nac vmId
+              let reason = case outer of
+                    Left err -> Just err
+                    Right (Left err) -> Just (T.pack (show err))
+                    Right (Right ()) -> Nothing
+              completed <- liftIO $ runSqlPool (completeVmSave vmId (vmLifecycleRevision vm) (vmRuntimeGeneration vm) reason) (ssDbPool state)
+              if not completed
+                then pure $ RespError "Save was superseded by another lifecycle operation"
+                else case reason of
+                  Just msg -> pure $ RespInvalidTransition currentStatus msg
+                  Nothing -> do
+                    liftIO $ releaseManagedTaps state vmId
+                    pure $ RespVmStateChanged VmSaved
 
 -- | Handle VM reset command — the universal escape hatch.
 --
@@ -238,31 +238,39 @@ handleVmReset state vmId = runServerLogging state $ do
         mClaim <- liftIO $ runSqlPool (claimVmReset vmId) (ssDbPool state)
         case mClaim of
           Nothing -> pure $ RespInvalidTransition (vmStatus vm) "VM lifecycle changed while reset was being admitted"
-          Just (revision, _) -> do
+          Just (revision, generation) -> do
             let fromStatus = vmStatus vm
+                failReset message = do
+                  _ <- liftIO $ runSqlPool (completeVmStop vmId revision generation (Just message)) (ssDbPool state)
+                  pure $ RespError message
             -- First fence the nodeagent, including the no-live-process case:
             -- this is what invalidates a start still between helper spawn and
             -- ledger publication. Do not claim stopped on transport failure.
             outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId (Just revision)
             case outer of
-              Left err -> pure $ RespError ("nodeagent unavailable; reset remains stopping: " <> err)
-              Right (Left e) -> pure $ RespError ("vmStopHard: " <> T.pack (show e))
+              Left err -> failReset ("nodeagent unavailable during reset: " <> err)
+              Right (Left e) -> failReset ("vmStopHard: " <> T.pack (show e))
               Right (Right res)
                 | NOA.vsrKind res `elem` [NOA.VmStopStopped, NOA.VmStopAlreadyStopped] -> do
-                    when (fromStatus `elem` [VmSaved, VmMigrating]) $ do
-                      _ <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.deleteSavedState nac (vmName vm)
-                      pure ()
-                    completed <- liftIO $ runSqlPool (completeVmReset vmId revision) (ssDbPool state)
-                    if completed
-                      then do
-                        liftIO $ releaseManagedTaps state vmId
-                        pure $ RespVmStateChanged VmStopped
-                      else do
-                        mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-                        pure $ case mCurrent of
-                          Nothing -> RespVmNotFound
-                          Just (_, status) -> RespInvalidTransition status "VM lifecycle operation was superseded"
-                | otherwise -> pure $ RespError ("vmStopHard: " <> NOA.vsrMessage res)
+                    cleanup <-
+                      if fromStatus `elem` [VmSaved, VmMigrating]
+                        then liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.deleteSavedState nac (vmName vm)
+                        else pure (Right (Right ()))
+                    case cleanup of
+                      Left err -> failReset ("deleteSavedState: " <> err)
+                      Right (Left err) -> failReset ("deleteSavedState: " <> T.pack (show err))
+                      Right (Right ()) -> do
+                        completed <- liftIO $ runSqlPool (completeVmReset vmId revision) (ssDbPool state)
+                        if completed
+                          then do
+                            liftIO $ releaseManagedTaps state vmId
+                            pure $ RespVmStateChanged VmStopped
+                          else do
+                            mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+                            pure $ case mCurrent of
+                              Nothing -> RespVmNotFound
+                              Just (_, status) -> RespInvalidTransition status "VM lifecycle operation was superseded"
+                | otherwise -> failReset ("vmStopHard: " <> NOA.vsrMessage res)
 
 newtype VmPause = VmPause {vpVmId :: Int64}
 

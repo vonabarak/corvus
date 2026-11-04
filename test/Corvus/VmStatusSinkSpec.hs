@@ -1,5 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Unit coverage for the 'applyNodeStats' auto-drain gate.
 --
@@ -24,13 +26,16 @@ module Corvus.VmStatusSinkSpec (spec) where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
-import Corvus.Handlers.VmStatusSink (applyNodeStats)
+import qualified Capnp.Gen.Vm as CGVM
+import Corvus.Handlers.VmStatusSink (applyNodeStats, newDaemonVmStatusSink)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.NodeStats as NS
+import Corvus.Node.StatusFreshness (newStatusFreshness)
 import Corvus.Types (ServerState)
 import qualified Data.Text as T
 import Database.Persist (get, update, (=.))
 import Database.Persist.Sql (toSqlKey)
+import Supervisors (withSupervisor)
 import Test.DSL.Core (getDbPool, getTempDir, runDb)
 import Test.Prelude
 
@@ -83,6 +88,41 @@ callApply state ver tick =
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "VM lifecycle ownership" $ do
+    testCase "leaves an intentional QEMU exit to the stop operation" $ do
+      vmId <- insertVm "stopping-push" VmStopping
+      let key = toSqlKey vmId :: M.VmId
+      runDb $ update key [M.VmRuntimeGeneration =. Just 7, M.VmSpicePort =. Just 5901]
+      observed <- runDb $ get key
+      state <- mkState
+      case observed of
+        Nothing -> liftIO $ expectationFailure "VM disappeared"
+        Just vm -> liftIO $ withSupervisor $ \sup -> do
+          freshness <- newStatusFreshness (pure 0)
+          sink <- C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state testNodeId freshness)
+          let stats = CGVM.VmStats 0 0 0 100 0 0 0 [] []
+              entry =
+                CGNA.VmStatusEntry
+                  { CGNA.vmId = vmId
+                  , CGNA.state = CGNA.VmAgentState'errored
+                  , CGNA.qemuPid = 0
+                  , CGNA.lastExitCode = 143
+                  , CGNA.guestAgentOk = False
+                  , CGNA.lastPingMillis = 0
+                  , CGNA.netIfs = []
+                  , CGNA.stats = stats
+                  , CGNA.lifecycleRevision = M.vmLifecycleRevision vm
+                  , CGNA.runtimeGeneration = 7
+                  , CGNA.startupError = ""
+                  }
+              snapshot = CGNA.VmStatusSnapshot 0 [entry] (statsWithVersion NS.agentVersion)
+          _ <- C.callP #onSnapshot CGNA.VmStatusSink'onSnapshot'params {CGNA.snapshot = snapshot} sink >>= C.waitPipeline
+          pure ()
+      current <- runDb $ get key
+      liftIO $ do
+        fmap M.vmStatus current `shouldBe` Just VmStopping
+        fmap M.vmSpicePort current `shouldBe` Just (Just 5901)
+
   describe "applyNodeStats version-mismatch auto-drain" $ do
     testCase "first mismatched push flips an online node to draining" $ do
       state <- mkState

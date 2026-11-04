@@ -32,6 +32,7 @@ flag with-sqlite
 library
   exposed-modules:
       Corvus.DiskSelector
+      Corvus.Node.Transfer
       Corvus.Node.DirectoryCleanup
       Corvus.OperationGuard
       Corvus.Images
@@ -322,7 +323,6 @@ library
       Corvus.Node.Qmp.Runtime
       Corvus.Node.Qmp.Snapshot
       Corvus.Node.QmpQQ
-      Corvus.Node.Transfer
       Corvus.Protocol.NamedRef
       Capnp.Gen.ById.X9b1373e2334a09e9
       Capnp.Gen.ById.X9bd452a518ed3917
@@ -600,6 +600,7 @@ test-suite corvus-test
       Corvus.NetworkSpec
       Corvus.NodeCommandSpec
       Corvus.NodeNetdDisabledSpec
+      Corvus.NodeRequestSpec
       Corvus.NodeRoutingSpec
       Corvus.NodeStartupSpec
       Corvus.OperationGuardSpec

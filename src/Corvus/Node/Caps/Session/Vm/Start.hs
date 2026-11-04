@@ -29,7 +29,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (withMVar)
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
@@ -47,6 +47,7 @@ import Corvus.Node.Caps.Session.Utils
   , serialBufferCapacity
   , tshow
   , waitForFirstQgaPing
+  , withVmOpLock
   )
 import qualified Corvus.Node.Command as NC
 import qualified Corvus.Node.GuestAgent as NGA
@@ -258,7 +259,7 @@ handleVmStart sc spec =
             (VS.vsLifecycleRevision spec)
             (VS.vsRuntimeGeneration spec)
       case admission of
-        L.VmStartAccepted mExited -> do
+        L.VmStartAccepted mExited -> flip E.finally (atomically $ L.clearVmStartReservation ledger vmId (VS.vsLifecycleRevision spec) (VS.vsRuntimeGeneration spec)) $ do
           free <- maybe (pure True) VC.isHostFree mCid
           if not free
             then do
@@ -436,18 +437,22 @@ publishStartedVm sc live = do
         live
   logStartupState sc live (if published then "runtime_published" else "runtime_publish_rejected")
   unless published $ do
-    stopUnwatchedVm live
+    stopUnwatchedVm sc live
+    _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision spec) (VS.vsRuntimeGeneration spec)
     throwFailed ("vmStart rejected by a newer lifecycle fence for vmId " <> tshow vmId)
 
 -- | Stop a process before its reaper is installed, suppressing reboot-quirk
 -- respawn and reaping its helpers. Ledger removal is the caller's decision.
-stopUnwatchedVm :: L.VmLiveState -> IO ()
-stopUnwatchedVm live = do
+stopUnwatchedVm :: SessionCap -> L.VmLiveState -> IO ()
+stopUnwatchedVm sc live = do
   atomically $ writeTVar (L.vlsStopRequested live) True
   let qemuLabel = "vm-" <> tshow (VS.vsVmId (L.vlsSpec live)) <> "-qemu"
-  _ <-
-    runStderrLoggingT $
-      P.stopProcess qemuLabel (CPid (fromIntegral (L.vlsQemuPid live))) Nothing 0 5
+  startVmReaper sc live
+  result <- runStderrLoggingT $ P.stopProcess qemuLabel (CPid (fromIntegral (L.vlsQemuPid live))) Nothing 0 5
+  case result of
+    P.StopFailed reason -> throwFailed reason
+    _ -> pure ()
+  runStderrLoggingT $ P.waitForProcessBounded qemuLabel 5 (L.vlsQemuHandle live)
   reapVmHelpers live
 
 -- | Confirm QMP readiness and ownership while the caller holds the VSOCK
@@ -461,7 +466,7 @@ claimVmVsock sc cfg live = do
     case ready of
       Right () -> pure ()
       Left reason -> do
-        stopUnwatchedVm live
+        stopUnwatchedVm sc live
         _ <-
           atomically $
             L.removeVmIfCurrent
@@ -623,17 +628,17 @@ awaitGuestAgent sc cfg live = do
 -- entry, so buildEntry can read the reaper's exit code and trigger setVmError.
 -- Later polling ticks simply omit the removed VM.
 stopFailedStartup :: SessionCap -> QemuConfig -> L.VmLiveState -> IO ()
-stopFailedStartup sc cfg live =
-  runStderrLoggingT $
-    stopVmAfterStartFailure
-      sc
-      cfg
-      (VS.vsVmId (L.vlsSpec live))
-      (L.vlsQemuPid live)
-      (L.vlsQemuHandle live)
-      (L.vlsStopRequested live)
-      (L.vlsVirtiofsd live)
-      (L.vlsSwtpm live)
+stopFailedStartup sc cfg live = withVmOpLock sc (VS.vsVmId spec) $ do
+  current <- atomically $ L.lookupVm (scVmLedger sc) (VS.vsVmId spec)
+  case current of
+    Just runtime
+      | VS.vsRuntimeGeneration (L.vlsSpec runtime) == VS.vsRuntimeGeneration spec
+          && L.vlsQemuPid runtime == L.vlsQemuPid live ->
+          runStderrLoggingT $
+            stopVmAfterStartFailure sc cfg (VS.vsVmId spec) (L.vlsQemuPid live) (L.vlsQemuHandle live) (L.vlsStopRequested live) (L.vlsVirtiofsd live) (L.vlsSwtpm live)
+    _ -> pure ()
+  where
+    spec = L.vlsSpec live
 
 -- | VSOCK starts already waited for QMP while checking CID ownership.
 -- Paused non-VSOCK starts need the same synchronous guarantee before their
@@ -673,7 +678,17 @@ waitForPausedVm cfg spec =
 -- referenced from the ledger and the write is a harmless
 -- no-op on a garbage-collectable orphan.
 respawnAfterExit :: SessionCap -> VS.VmSpec -> IO ()
-respawnAfterExit sc spec = do
+respawnAfterExit sc spec = withVmOpLock sc (VS.vsVmId spec) $ do
+  current <- atomically $ L.lookupVm (scVmLedger sc) (VS.vsVmId spec)
+  forM_ current $ \live ->
+    when (VS.vsRuntimeGeneration (L.vlsSpec live) == VS.vsRuntimeGeneration spec) $ do
+      stopped <- readTVarIO (L.vlsStopRequested live)
+      if stopped
+        then atomically $ writeTVar (L.vlsLastExitCode live) (Just 0)
+        else respawnCurrent sc spec
+
+respawnCurrent :: SessionCap -> VS.VmSpec -> IO ()
+respawnCurrent sc spec = do
   let vmId = VS.vsVmId spec
   -- Look up — don't remove. We need the virtiofsd handles for
   -- reaping AND we need the entry to stay in the ledger so

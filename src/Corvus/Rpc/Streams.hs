@@ -36,11 +36,11 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc.Server (SomeServer)
-import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.Async (Async, async, cancel, waitCatch)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
-import Control.Exception (SomeException, try)
-import Control.Monad (unless)
+import Control.Exception (SomeException, finally, mask, onException, try)
+import Control.Monad (unless, void)
 import Corvus.Node.SocketBuffer (readBufferFrom, stripTerminalQueries, waitForData)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Types (SocketBufferHandle (..))
@@ -53,7 +53,8 @@ import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word8)
 import Network.Socket (Socket)
 import qualified Network.Socket.ByteString as NSB
-import Supervisors (Supervisor)
+import Supervisors (Supervisor, supervise)
+import System.Timeout (timeout)
 
 -- ---------------------------------------------------------------------
 -- Outbound (daemon → client) helper
@@ -104,22 +105,29 @@ instance CGS.ByteSink'server_ QemuByteSink where
       case mSock of
         Nothing -> pure ()
         Just qSock -> do
-          _ <-
-            try (NSB.sendAll qSock chunk)
-              :: IO (Either SomeException ())
-          pure ()
+          timeout 30000000 (NSB.sendAll qSock chunk) >>= maybe (ioError (userError "console input timed out")) pure
       pure CGS.ByteSink'write'results
 
   byteSink'end (QemuByteSink _ relayVar) =
     handleParsed $ \_ -> do
       mRelay <- readTVarIO relayVar
-      for_ mRelay cancel
+      for_
+        mRelay
+        ( \relay -> do
+            _ <- timeout 1000000 (cancel relay)
+            pure ()
+        )
       pure CGS.ByteSink'end'results
 
   byteSink'abort (QemuByteSink _ relayVar) =
     handleParsed $ \_ -> do
       mRelay <- readTVarIO relayVar
-      for_ mRelay cancel
+      for_
+        mRelay
+        ( \relay -> do
+            _ <- timeout 1000000 (cancel relay)
+            pure ()
+        )
       pure CGS.ByteSink'abort'results
 
 -- ---------------------------------------------------------------------
@@ -249,7 +257,7 @@ runByteSinkRelay
   -- ^ Client-supplied output sink.
   -> IO (C.Client CGS.ByteSink)
   -- ^ Server-side input sink to hand back to the caller.
-runByteSinkRelay sup sbh clientSink = do
+runByteSinkRelay sup sbh clientSink = mask $ \restore -> do
   let buf = sbhBuffer sbh
   -- Replay the existing scrollback first so a reconnecting client
   -- sees recent output. Strip terminal query/response CSI
@@ -261,35 +269,36 @@ runByteSinkRelay sup sbh clientSink = do
   -- Live data after the initial replay is passed through
   -- unchanged so ncurses-style apps inside the guest can still
   -- query and receive cursor positions and terminal sizes normally.
-  -- Failures are swallowed: if the client cap is already dead,
-  -- the live-stream loop below will exit on its own.
-  (buffered, pos0) <- readBufferFrom buf 0
-  _ <-
-    try (pushChunk clientSink (stripTerminalQueries buffered))
-      :: IO (Either SomeException ())
-  -- Live data streamer.
+  -- A failed replay ends this relay; later live output must not overtake it.
   relayBox <- newTVarIO Nothing
-  relayAsync <- async (streamLive buf pos0 clientSink (sbhShutdown sbh))
-  atomically (writeTVar relayBox (Just relayAsync))
-  -- Inbound sink: wraps the QEMU socket TVar from the handle so
-  -- it observes shutdown the same way the read loop does.
-  let qbs = QemuByteSink {qbsQemuSock = sbhQemuSock sbh, qbsRelayAsync = relayBox}
-  C.export @CGS.ByteSink sup qbs
+  relayAsync <- async $ restore $ do
+    (buffered, pos0) <- readBufferFrom buf 0
+    replay <- try (pushChunk clientSink (stripTerminalQueries buffered)) :: IO (Either SomeException ())
+    case replay of
+      Left _ -> pure ()
+      Right () -> streamLive buf pos0 clientSink (sbhShutdown sbh)
+  flip onException (void (timeout 1000000 (cancel relayAsync))) $ do
+    atomically (writeTVar relayBox (Just relayAsync))
+    supervise sup $ do
+      _ <- waitCatch relayAsync `finally` void (timeout 1000000 (cancel relayAsync))
+      pure ()
+    -- Inbound sink: wraps the QEMU socket TVar from the handle so
+    -- it observes shutdown the same way the read loop does.
+    let qbs = QemuByteSink {qbsQemuSock = sbhQemuSock sbh, qbsRelayAsync = relayBox}
+    C.export @CGS.ByteSink sup qbs
   where
     pushChunk client chunk
       | BS.null chunk = pure ()
       | otherwise =
-          callSink
-            #write
-            CGS.ByteSink'write'params {CGS.chunk = chunk}
-            client
+          timeout 30000000 (callSink #write CGS.ByteSink'write'params {CGS.chunk = chunk} client)
+            >>= maybe (ioError (userError "console output timed out")) pure
 
     streamLive buf pos client shutdownVar = do
       shutdown <- readTVarIO shutdownVar
       if shutdown
         then pure ()
         else do
-          (newData, newPos) <- waitForData buf pos
+          (newData, newPos) <- waitForData buf pos shutdownVar
           if BS.null newData
             then do
               shutdown' <- readTVarIO shutdownVar

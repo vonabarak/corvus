@@ -32,6 +32,7 @@ import Corvus.Node.Caps.Session.Utils
   , scQgaConns
   , scVmLedger
   , tshow
+  , withVmOpLock
   )
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
@@ -60,13 +61,14 @@ stopVmAfterStartFailure sc cfg vmId qemuPidW qemuPh stopRequestedVar virtiofsdEn
   stopRes <-
     P.stopProcess qemuLabel (CPid (fromIntegral qemuPidW)) Nothing 0 5
   case stopRes of
-    P.NotRunning -> pure ()
+    P.StopFailed reason -> liftIO $ ioError (userError (show reason))
     _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
   liftIO $
     SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
-  _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
   liftIO $ reapSpawnedHelpers virtiofsdEntries swtpmEntry
   liftIO $ NGA.releaseConn (scQgaConns sc) vmId
+  _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
+  pure ()
 
 -- | Watch QEMU independently of the start RPC. Guest-initiated exits use the
 -- reboot-quirk path; all other exits become visible to status polling and
@@ -101,4 +103,11 @@ forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar respawn =
             <> tshow qemuPidW
             <> " code="
             <> tshow code
-        NGA.releaseConn (scQgaConns sc) vmId
+        withVmOpLock sc vmId $ do
+          current <- atomically $ L.lookupVm (scVmLedger sc) vmId
+          case current of
+            Just live
+              | VS.vsRuntimeGeneration (L.vlsSpec live) == VS.vsRuntimeGeneration spec
+                  && L.vlsLastExitCode live == lastExitVar ->
+                  NGA.releaseConn (scQgaConns sc) vmId
+            _ -> pure ()

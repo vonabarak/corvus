@@ -9,6 +9,8 @@
 module Corvus.ProcessSpec (spec) where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (wait, withAsync)
+import Control.Concurrent.STM (atomically, retry)
 import Control.Exception (bracket)
 import Control.Monad.Logger (NoLoggingT, runNoLoggingT)
 import Corvus.Process
@@ -17,6 +19,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Types (ProcessID)
 import System.Process (getPid, spawnProcess, terminateProcess, waitForProcess)
 import qualified System.Process as P
+import System.Timeout (timeout)
 import Test.Hspec
 
 -- | Spawn a long-running subprocess and pass its PID to the test body.
@@ -71,7 +74,24 @@ spec = do
         let path = dir </> "never-created"
         waitForSocketFile path 300 `shouldReturn` False
 
+  describe "bounded process reaping" $ do
+    it "keeps its deadline when another thread holds the process handle" $
+      bracket (spawnProcess "sleep" ["30"]) (\ph -> terminateProcess ph >> waitForProcess ph) $ \ph ->
+        withAsync (waitForProcess ph) $ \reaper -> do
+          threadDelay 50000
+          timeout 2000000 (runLogged $ waitForProcessBounded "blocked" 1 ph) `shouldReturn` Just ()
+          -- Subsequent callers share the waiter and remain bounded too.
+          timeout 2000000 (runLogged $ waitForProcessBounded "blocked-again" 1 ph) `shouldReturn` Just ()
+          terminateProcess ph
+          _ <- wait reaper
+          pure ()
+
   describe "stopProcess" $ do
+    it "propagates a caller deadline instead of escalating a cancelled hook" $
+      withSleeper 30 $ \pid -> do
+        timeout 100000 (runLogged $ stopProcess "cancelled-hook" pid (Just (atomically retry)) 0 3) `shouldReturn` Nothing
+        isProcessAlive pid `shouldReturn` True
+
     it "returns NotRunning for an already-dead PID" $ do
       result <- runLogged $ stopProcess "ghost" 2147483645 Nothing 1 1
       result `shouldBe` NotRunning

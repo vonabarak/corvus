@@ -3,7 +3,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Connection setup, liveness, and shared RPC helpers for the daemon-side
 -- nodeagent client.
@@ -75,7 +74,7 @@ withNodeAgentClient
   -> (Either NodeAgentError NodeAgentClient -> IO a)
   -> IO a
 withNodeAgentClient host port owner mTlsCfg body = do
-  sockResult <- E.try @E.SomeException (openTcp host port)
+  sockResult <- E.tryJust synchronousException (openTcp host port)
   case sockResult of
     Left e ->
       body (Left (NodeAgentConnectFailed (T.pack (show e))))
@@ -119,7 +118,7 @@ withNodeAgentClient host port owner mTlsCfg body = do
             -- swallow the original exception.
             bodyEntered <- newIORef False
             r <-
-              E.try @E.SomeException $
+              E.tryJust synchronousException $
                 withSupervisor $ \sup ->
                   withConn transport cfg $ \conn -> do
                     rawAgent <- requestBootstrap conn
@@ -157,7 +156,7 @@ buildTransport
 buildTransport Nothing sock =
   pure (Right (socketTransport sock C.defaultLimit, pure ()))
 buildTransport (Just cfg) sock = do
-  r <- E.try @E.SomeException (Tls.wrapClientSocket cfg sock)
+  r <- E.tryJust synchronousException (Tls.wrapClientSocket cfg sock)
   case r of
     Left e -> pure (Left (T.pack ("TLS handshake failed: " <> show e)))
     Right (ctx, ref) -> do
@@ -193,14 +192,15 @@ openTcp host port = do
   ais <- NS.getAddrInfo Nothing (Just host) (Just (show port))
   case ais of
     (ai : _) -> do
-      sock <- NS.socket (NS.addrFamily ai) NS.Stream NS.defaultProtocol
-      NS.connect sock (NS.addrAddress ai)
-      pure sock
+      E.bracketOnError
+        (NS.socket (NS.addrFamily ai) NS.Stream NS.defaultProtocol)
+        NS.close
+        (\sock -> NS.connect sock (NS.addrAddress ai) >> pure sock)
     [] -> E.throwIO (userError ("no addrinfo for " <> host))
 
 remote :: IO a -> IO (Either NodeAgentError a)
 remote action = do
-  r <- E.try @E.SomeException action
+  r <- E.tryJust synchronousException action
   case r of
     Right a -> pure (Right a)
     Left e -> pure (Left (NodeAgentRemoteError (T.pack (show e))))
@@ -216,7 +216,7 @@ remote action = do
 -- probeVsockCid (which sits behind those in the allocator loop).
 remoteWithin :: Int -> IO a -> IO (Either NodeAgentError a)
 remoteWithin deadlineSec action = do
-  r <- E.try @E.SomeException (Timeout.timeout (deadlineSec * 1000000) action)
+  r <- E.tryJust synchronousException (Timeout.timeout (deadlineSec * 1000000) action)
   case r of
     Right (Just a) -> pure (Right a)
     Right Nothing ->
@@ -241,3 +241,10 @@ callOn
 callOn method p client = do
   raw <- (client & C.callP method p) >>= C.waitPipeline
   C.evalLimitT C.defaultLimit (C.parse raw)
+
+-- Reconnection must be able to cancel reconciliation and autostart even when
+-- a remote call has not replied. Only transport/application failures are values.
+synchronousException :: E.SomeException -> Maybe E.SomeException
+synchronousException err = case E.fromException err :: Maybe E.SomeAsyncException of
+  Just _ -> Nothing
+  Nothing -> Just err
