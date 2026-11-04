@@ -9,27 +9,28 @@ set -euxo pipefail
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/postgres.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/vde-network.sh"
 
-# Keep the development VM’s existing native cache paths and lazy automounts.
+# Point Portage directly at the development VM's lazily mounted cache share.
 configure_target_caches() {
-    cat >> "$root/etc/portage/make.conf" <<'EOF'
+    local config="$root/etc/portage/make.conf"
+    if [ -f "$config" ]; then
+        sed -i -E '/^[[:space:]]*(export[[:space:]]+)?(DISTDIR|PKGDIR)[[:space:]]*=/d' "$config"
+    fi
+    cat >> "$config" <<'EOF'
 # This development image uses writable host caches through virtiofs.
-DISTDIR="/var/cache/distfiles"
-PKGDIR="/var/cache/binpkgs"
+DISTDIR="/mnt/corvus-cache/distfiles"
+PKGDIR="/mnt/corvus-cache/packages/x86-64"
 EOF
-    mkdir -p "$root/mnt/corvus-cache" "$root"/var/cache/{distfiles,binpkgs,binhost}
-    portage_configure_binhost glibc "$root" /var/cache/binhost
-    local cache cache_source
+    mkdir -p "$root/mnt/corvus-cache"
+    rm -rf "$root/etc/portage/binrepos.conf"
+    portage_configure_binhost glibc "$root"
+    # The host cache cannot map the guest portage user's ownership changes.
+    cat >> "$config" <<'EOF'
+FEATURES="-userfetch -userpriv"
+EOF
     cat >> "$root/etc/fstab" <<'EOF'
-# Optional development caches; access activates the share and dependent binds.
+# Optional development caches; access activates the share.
 corvus-cache /mnt/corvus-cache virtiofs nofail,x-systemd.automount 0 0
 EOF
-    for cache in distfiles binpkgs binhost; do
-        case "$cache" in
-            binpkgs) cache_source=packages/x86-64 ;;
-            *) cache_source=$cache ;;
-        esac
-        echo "/mnt/corvus-cache/$cache_source /var/cache/$cache none bind,nofail,x-systemd.automount,x-systemd.requires-mounts-for=/mnt/corvus-cache 0 0" >> "$root/etc/fstab"
-    done
 }
 
 # Write identical USE, keyword, and overlay policy for helper and artifact.
@@ -58,9 +59,7 @@ EOF
 install_development_packages() {
     write_package_policy /
     write_package_policy "$root"
-    # Git must also be executable on the helper for native overlay synchronization.
     command -v git >/dev/null
-    portage_install_target_packages --noreplace --buildpkg --quiet-build dev-vcs/git
     portage_sync_repository
     portage_install_target_packages --buildpkg --quiet-build --onlydeps app-emulation/corvus
     # Rebuild the live Corvus ebuild rather than reusing a potentially stale binary.

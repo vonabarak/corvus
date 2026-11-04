@@ -32,7 +32,7 @@ prepare_repository() {
     LC_ALL=C localedef -i C -f UTF-8 C.UTF-8
 
     # Keep the repository on disk in this reusable builder image.
-    emerge-webrsync -k
+    portage_sync_repository
 }
 
 # Choose the native systemd profile and both GRUB platforms.

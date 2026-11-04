@@ -19,6 +19,7 @@ pipeline:
       target:
         ifExists: '{{ image_if_exists }}'
         compact: true
+        ephemeral: true
       shellDefaults:
         preamble: set -eux
         env:

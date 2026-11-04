@@ -1,13 +1,11 @@
 #!/bin/bash
 # Definitions only; callers initialize state and own traps.
 
-# Refresh native repository metadata once before dependency or kernel selection.
-portage_refresh_repository() {
-    env -u ROOT -u SYSROOT emerge-webrsync -k
-}
-
-# Each sync attempt selects a mirror; tolerate transient mirror failures.
+# Refresh the Gentoo snapshot, then sync all configured repositories on the helper.
+# Callers must declare overlays before invoking this function.
 portage_sync_repository() {
+    env -u ROOT -u SYSROOT emerge-webrsync -k || return $?
+    # Each sync attempt selects a mirror; tolerate transient mirror failures.
     local attempt status
     for attempt in 1 2 3; do
         if env -u ROOT -u SYSROOT emerge --sync; then

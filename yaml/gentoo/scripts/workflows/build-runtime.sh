@@ -16,6 +16,7 @@ main() {
     trap 'exit 129' HUP
     : "${IMAGE_ROOT:?}" "${TARGET_DISK:?}" "${IMAGE_INIT:?}"
     environment_prepare_workspace
+    portage_sync_repository
     disk_partition "$TARGET_DISK"
     mounts_target_disk "$IMAGE_ROOT" "$TARGET_DISK"
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/${IMAGE_LIBC}/install-root.sh"

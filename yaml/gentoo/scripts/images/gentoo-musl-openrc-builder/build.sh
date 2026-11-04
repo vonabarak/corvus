@@ -99,6 +99,7 @@ main() {
     trap 'exit 129' HUP
     cloud-init status --wait
     environment_prepare_workspace
+    portage_sync_repository
     disk_partition /dev/vdb
     mounts_target_disk /mnt/sysroot /dev/vdb
     populate_builder

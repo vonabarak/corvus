@@ -51,5 +51,4 @@ environment_prepare_workspace() {
     environment_check_cache_writable "$PKGDIR"
     environment_check_cache_writable "$binhost_cache"
     portage_configure_build_host /
-    portage_refresh_repository
 }

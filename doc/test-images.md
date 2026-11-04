@@ -305,9 +305,11 @@ from-scratch build can use it. The new headless root has an empty repository
 directory. Cloud-init builds mount that directory as tmpfs; development builds
 sync repositories and overlays on helper tmpfs and bind it into the artifact, so their
 published disks contain no Portage tree. The bake host exposes caches at
-`/mnt/corvus-cache` and temporary `/var/cache` bind mounts. The development VM also receives the cache share, with optional
-systemd automounts at `/mnt/corvus-cache` and dependent bind automounts at
-`/var/cache/distfiles`, `/var/cache/binpkgs`, and `/var/cache/binhost`.
+`/mnt/corvus-cache` and temporary `/var/cache` bind mounts. The development VM also receives the cache share, with an optional
+systemd automount at `/mnt/corvus-cache`. Its Portage configuration points directly
+to `distfiles`, `packages/x86-64`, and `binhost/x86-64` inside that share.
+The development guest disables `userfetch` so downloads run as root and avoid
+ownership changes for the guest `portage` user on the host cache.
 Other runtime templates do not attach caches.
 The external host cache survives both `clean` and `cache-clean`.
 
