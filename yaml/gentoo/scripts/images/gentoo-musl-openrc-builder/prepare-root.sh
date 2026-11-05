@@ -15,6 +15,11 @@ EOF
 # Keep the complete stage3 system and install tools needed by all derivative images.
 install_tools() {
     unset ROOT SYSROOT
+    # Portage decodes signed Manifests with GnuPG even when verification is disabled.
+    # Initialize and retain the keyring for this builder and its derivative builds.
+    command -v getuto >/dev/null || portage_emerge --buildpkg -1q app-portage/getuto
+    getuto
+
     portage_emerge --buildpkg --noreplace --quiet-build @system \
         sys-devel/gcc \
         sys-devel/binutils \

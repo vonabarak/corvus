@@ -86,7 +86,6 @@ configure_build_host() {
     PKGDIR=/mnt/corvus-cache/packages/x86-64 SYSROOT=/mnt/sysroot /bin/bash -eux "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/kernel/build-kernel.sh"
     disk_install_grub /mnt/sysroot /dev/vdb
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/musl/configure-root.sh"
-    image_clean_temporary_files "$IMAGE_ROOT"
     image_reset_identity "$IMAGE_ROOT"
 }
 
@@ -104,7 +103,7 @@ main() {
     mounts_target_disk /mnt/sysroot /dev/vdb
     populate_builder
     configure_build_host
-    image_finalize /mnt/sysroot "gentoo-musl-openrc-builder"
+    image_finalize /mnt/sysroot "gentoo-musl-openrc-builder" --keep-repositories
 }
 
 main "$@"

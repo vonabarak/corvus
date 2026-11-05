@@ -92,8 +92,7 @@ prepare_caches() {
 
 # Keep shared package caches intact while publishing the live builder overlay.
 finalize_builder() {
-    image_clean_scratch_files "$IMAGE_ROOT"
-    image_finalize "$IMAGE_ROOT" "${CORVUS_BUILD_NAME:?}"
+    image_finalize "$IMAGE_ROOT" "${CORVUS_BUILD_NAME:?}" --keep-repositories
 }
 
 # Complete each phase before starting the next; failures prevent publication.

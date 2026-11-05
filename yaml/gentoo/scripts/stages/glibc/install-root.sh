@@ -180,17 +180,7 @@ install_runtime_packages() {
     # look for build-host libclang inside the unfinished image.
     # Keep thin-provisioning-tools explicit: it was shipped by the regular flavor,
     # but Portage can treat it as a bake-host dependency when installing LVM.
-    ROOT="$IMAGE_ROOT" portage_emerge --buildpkg --quiet-build \
-      app-emulation/qemu-guest-agent \
-      mail-mta/msmtp \
-      app-admin/sudo \
-      sys-fs/growpart \
-      sys-fs/dosfstools \
-      sys-boot/efibootmgr \
-      net-fs/nfs-utils \
-      sys-block/thin-provisioning-tools \
-      app-editors/vim \
-      app-shells/bash-completion
+    portage_install_runtime_packages "$IMAGE_ROOT"
 }
 
 # Populate the mounted target in dependency order.

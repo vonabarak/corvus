@@ -179,12 +179,16 @@ check_node_kernel() {
     }
 }
 
-# Reset clone identity and record the installed target tool versions.
-finalize_node_image() {
+# Reset clone identity while target device interfaces remain available.
+reset_node_identity() {
     image_reset_identity "$root"
     echo uninitialized > "$root/etc/machine-id"
     install -d -m 0755 "$root/var/lib/dbus"
     ln -sf /etc/machine-id "$root/var/lib/dbus/machine-id"
+}
+
+# Record target tool versions only after the build-residue gate passes.
+finalize_node_image() {
     image_write_metadata "$root" corvus-test-node
     {
         echo "kernel: $kernel_version"
@@ -203,7 +207,7 @@ clean_node_build_files() {
     mounts_initialize
     mounts_mount "$root" "${TARGET_DISK:-/dev/vdb}3"
     mounts_mount "$root/boot/efi" "${TARGET_DISK:-/dev/vdb}2"
-    image_clean_temporary_files "$root"
+    image_clean_and_verify "$root"
 }
 
 # Build the node on a disposable helper without booting the artifact's init system.
@@ -234,8 +238,9 @@ main() {
     configure_node_debugging
     check_node_kernel
     # Identity reset needs target passwd while its device interfaces are available.
-    finalize_node_image
+    reset_node_identity
     clean_node_build_files
+    finalize_node_image
     image_trim "$root"
 }
 

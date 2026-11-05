@@ -51,12 +51,12 @@ portage_remove_defaults() {
 }
 
 # ROOT builds ignore environment FEATURES for native build dependencies.
-# Persist only the shared-cache policy in the build host, never in the guest root.
+# Persist cache and signature policy in the build host, never in the guest root.
 portage_configure_build_host() {
     local config_root=${1%/}
     portage_remove_defaults "$1"
     cat >> "$config_root/etc/portage/make.conf" <<'CONF'
-FEATURES="-userfetch -userpriv -getbinpkg"
+FEATURES="-userfetch -userpriv -getbinpkg -binpkg-request-signature binpkg-ignore-signature"
 CONF
 }
 
@@ -95,4 +95,19 @@ CONF
 # Install natively into ROOT while retaining the target dependency closure.
 portage_install_target_packages() {
     ROOT="$root" portage_emerge --root-deps "$@"
+}
+
+# Install the same extra package set into either ordinary libc flavor.
+portage_install_runtime_packages() {
+    ROOT="$1" portage_emerge --buildpkg --quiet-build \
+      app-emulation/qemu-guest-agent \
+      mail-mta/msmtp \
+      app-admin/sudo \
+      sys-fs/growpart \
+      sys-fs/dosfstools \
+      sys-boot/efibootmgr \
+      net-fs/nfs-utils \
+      sys-block/thin-provisioning-tools \
+      app-editors/vim \
+      app-shells/bash-completion
 }

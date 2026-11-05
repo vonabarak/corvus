@@ -5,7 +5,7 @@ set -euxo pipefail
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/disk.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/environment.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/mounts.sh"
-. "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/runtime.sh"
+. "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/image.sh"
 
 # Populate a fresh target and configure it without booting the guest.
 main() {
@@ -23,11 +23,8 @@ main() {
     SYSROOT="$IMAGE_ROOT" /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/kernel/build-kernel.sh"
     disk_install_grub "$IMAGE_ROOT" "$TARGET_DISK"
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/${IMAGE_LIBC}/configure-root.sh"
-    if [[ "$IMAGE_LIBC" == musl ]] && compgen -G "$IMAGE_ROOT/var/db/pkg/dev-lang/python-[0-9]*" >/dev/null; then
-        echo 'Unexpected runtime package: dev-lang/python' >&2
-        exit 1
-    fi
-    runtime_finish
+    image_reset_identity "$IMAGE_ROOT"
+    image_finalize "$IMAGE_ROOT" "${CORVUS_BUILD_NAME:?}"
 }
 
 main "$@"

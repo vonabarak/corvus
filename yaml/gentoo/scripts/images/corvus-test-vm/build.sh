@@ -5,7 +5,7 @@ set -euxo pipefail
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/disk.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/environment.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/mounts.sh"
-. "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/runtime.sh"
+. "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/image.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/images/corvus-test-vm/lib.sh"
 
 # Populate a fresh target and configure it without booting the guest.
@@ -20,15 +20,14 @@ main() {
     portage_sync_repository
     disk_partition "$TARGET_DISK"
     mounts_target_disk "$IMAGE_ROOT" "$TARGET_DISK"
-    /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/musl/install-root.sh"
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/images/corvus-test-vm/install-root.sh"
     SYSROOT="$IMAGE_ROOT" /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/kernel/build-kernel.sh"
     disk_install_grub "$IMAGE_ROOT" "$TARGET_DISK"
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/musl/configure-root.sh"
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/images/corvus-test-vm/configure-root.sh"
-    runtime_verify
     test_vm_finish
-    runtime_finish
+    image_reset_identity "$IMAGE_ROOT"
+    image_finalize "$IMAGE_ROOT" "${CORVUS_BUILD_NAME:?}"
 }
 
 main "$@"

@@ -100,11 +100,28 @@ derivatives before using this layout; existing images with root on partition 2
 are not converted. Use `make image-rebuild IMAGE=gentoo-corvus-test` for the headless and
 development chain, then `make image-rebuild IMAGE=corvus-test-node` for the test node.
 
-Gentoo runtime builds share finalization: clear disposable files, reset clone
-identity, write image metadata, flush writes, and trim the root and mounted EFI
-filesystems before publication. Unsupported discard emits a warning and does
-not fail the build; image compaction remains enabled separately. Cleanup refuses
-to delete directories containing mounted caches. Offline glibc and musl builds
+### Gentoo image cleanup
+
+Every locally built Gentoo image cleans and verifies build residue before
+publication. The check inspects the root filesystem through a private,
+non-recursive bind mount, exposing stored files beneath transient cache,
+repository, and tmpfs mounts without touching their shared contents.
+Upstream imports are unchanged. Both reusable builders retain `/var/db/repos`;
+all other built images must leave it empty.
+
+The checked directories are `/var/cache/{binpkgs,binhost,distfiles}`, `/var/db/repos`,
+`/tmp`, `/var/tmp` (including Portage build scratch), `/var/log/portage`,
+`/var/lib/portage/{elog,failed,logs}`, and `/usr/local/lib/corvus-build`.
+They must be absent or contain only empty directory trees. `/var/log/emerge*`
+entries must be absent, including zero-byte log files. Cleanup does not follow
+symlinks; unsafe ancestor symlinks fail finalization. Remaining files are listed
+and prevent publication. Installed package records, Portage configuration and
+world files, application data, and unrelated runtime logs are preserved.
+
+Runtime builds also reset clone identity and write image metadata. All builds
+flush writes and trim the root and mounted EFI filesystems before publication.
+Unsupported discard emits a warning and does not fail the build; image
+compaction remains enabled separately. Offline glibc and musl builds
 run in the helper VM's main mount namespace. Successful builds release tracked
 mounts in reverse order; failed builds and HUP/INT/TERM interruptions preserve
 existing mounts, workspaces, and any active build PostgreSQL process for debugging.
@@ -134,10 +151,11 @@ All four end-user cloud-init templates inject the `corvus` SSH key and run
 `passwd -d root` on first boot, enabling passwordless root console login. This
 does not change sshd authentication settings; baked images still lock root.
 Builder and standalone development user-data retain their separate policies.
-Locale handling, service setup, package sets, and musl documentation/toolchain
-removal remain specific to each image.
+Locale handling, service setup, and package sets remain specific to each image.
+Documentation/development-file stripping and forbidden-package checks belong only
+to the immutable `corvus-test-vm` guest.
 
-The independent `gentoo-musl-openrc-headless.yml` pipeline builds a smaller musl/OpenRC runtime:
+The independent `gentoo-musl-openrc-headless.yml` pipeline builds a complete musl/OpenRC system:
 
 ```sh
 make image IMAGE=gentoo-musl-openrc-headless
@@ -166,8 +184,12 @@ cloud-init `write_files` support is required. The Makefile resolves
 an official amd64 musl/OpenRC stage3 and its SHA256 only when publishing the
 builder recipe. Both runtime steps boot the reusable musl builder and compile
 natively with `ROOT=/mnt/sysroot` and `SYSROOT` unset: build dependencies stay
-on the builder. Neither published runtime flavor
-contains Portage or a compiler. Customize packages by rebuilding the recipe.
+on the builder. Both ordinary runtime flavors install `@system`, including
+Portage and the toolchain, and retain documentation, headers, static libraries,
+and sources. Their extra package set matches glibc: QGA, msmtp, sudo, growpart,
+dosfstools, efibootmgr, nfs-utils, thin-provisioning-tools, Vim, and bash-completion.
+The target retains its musl/OpenRC profile, binhost, and guest-local cache paths.
+Run `emerge --sync` after boot to populate its empty repository directory.
 Distfiles share the existing cache; musl binary packages live separately under
 `packages/x86-64_musl`, and never use the glibc binary repository.
 Bootstrap and native musl builds use the official `23.0/x86-64_musl` binhost,
@@ -179,15 +201,15 @@ Rebuild `gentoo-musl-openrc-builder` before building derivatives to apply this p
 `gentoo-musl-openrc-headless` contains OpenRC/sysvinit, DHCP networking, DNS and CA support,
 OpenSSH, a system logger, and QEMU guest agent. Root starts locked and there is
 no preset SSH credential; provision users and keys through the guest agent or
-use the cloud-init flavor. `gentoo-musl-openrc-headless-cloudinit` adds Python, NoCloud
-cloud-init, and sudo in an offline overlay. Its distribution default user is
+use the cloud-init flavor. `gentoo-musl-openrc-headless-cloudinit` adds NoCloud
+cloud-init in an offline overlay. Its distribution default user is
 `gentoo`; Corvus-generated user-data can override this. Inject SSH keys through
 NoCloud or the template. Networking stays under dhcpcd
 (DHCP); cloud-init network rendering is disabled because it has no dhcpcd
-renderer. The base has no Python requirement. Both
-flavors retain package records and licenses, remove documentation and build
-caches, and use the same kernel configuration and dual BIOS/UEFI GPT layout as
-the regular image. Their BIOS templates use the image names; UEFI templates add
+renderer. Both flavors retain package records, licenses, documentation, and
+development files, clean build residue, and use the same kernel configuration
+and dual BIOS/UEFI GPT layout as the glibc image. Their BIOS templates use the
+image names; UEFI templates add
 `-uefi`. Runtime defaults are 1 vCPU, 512 MiB RAM, and a 4 GiB virtual disk.
 The cloud-init flavor grows root partition 3 when the disk is enlarged. musl
 provides UTF-8 without glibc's `locale-gen`; the locale-generation module is
@@ -200,18 +222,20 @@ storage node (`du -B1`), root filesystem usage (`df -B1 /`), and
 `MemTotal - MemAvailable` from `/proc/meminfo`; repeat for both cloud-init
 flavors after `cloud-init status --wait`. Virtual disk capacity alone does not
 measure image footprint. Check BIOS and UEFI boot, guest-agent access, DHCP/DNS,
-SSH key provisioning, and cloud-init disk growth before relying on the smaller
-runtime. Build-time RAM remains 8 GiB, separate from the runtime target.
+SSH key provisioning, and cloud-init disk growth before using the images.
+Build-time RAM remains 8 GiB, separate from the runtime target.
 
-A local smoke test on 2026-10-30, using 1 vCPU, 512 MiB RAM, and kernel
-`6.18.57-gentoo-corvus`, recorded these settled base-image measurements:
+A local smoke test on 2026-10-30, before musl installed `@system` and the shared
+extras, recorded these settled base-image measurements using 1 vCPU, 512 MiB RAM,
+and kernel `6.18.57-gentoo-corvus`:
 
 | Image | Allocated qcow2 | Root filesystem used | RAM used |
 |---|---:|---:|---:|
 | `gentoo-glibc-systemd-headless` | 1453.0 MiB | 1303.2 MiB | 58.6 MiB |
 | `gentoo-musl-openrc-headless` | 358.0 MiB | 236.7 MiB | 48.1 MiB |
 
-These are observations, not size limits. The existing regular image had a
+These historical observations do not describe the current musl package policy
+and are not size limits. The existing regular image had a
 20 GiB virtual disk and musl had 4 GiB, so filesystem metadata also differs.
 
 Small provisioning steps live inline; larger steps remain in `scripts/`.
@@ -272,7 +296,17 @@ ebuild phases run as guest root, including live-package Git fetches during
 the guest `portage` UID. These features are applied to each package installation, including native build
 dependencies. Portage discards environment `FEATURES` overrides for native build
 dependencies when `ROOT` points at another root, so the build host's `make.conf`
-also disables `userfetch`, `userpriv`, and implicit `getbinpkg`. This policy is
+also disables `userfetch`, `userpriv`, and implicit `getbinpkg`, and sets
+`-binpkg-request-signature binpkg-ignore-signature` so signature failures do not
+reject native dependencies. The installation wrapper applies the same flags to
+target packages; `verify-signature = false` in binhost configuration alone does
+not cover every package in the local cache. Portage still invokes GnuPG to decode
+clear-signed Manifests and can print unknown-key errors even though these failures
+are ignored and installation succeeds. Both builders install `app-portage/getuto`
+when needed and run `getuto` during their build to initialize the Gentoo keyring.
+The keyring persists in `/etc/portage/gnupg` for derivative builds, avoiding these
+messages without enabling signature enforcement. Existing musl builders must be
+rebuilt to acquire the keyring. This policy is
 not written into the resulting guest's configuration. Managed configurations remove
 inherited `FEATURES` and `EMERGE_DEFAULT_OPTS` assignments before applying the
 build host policy. Build environments explicitly set `DISTDIR` and `PKGDIR` to
@@ -465,9 +499,13 @@ shared integration-test key. Host keys are generated on first boot. An initial
 512 MiB BIOS/TPM smoke test measured 233 MiB used on the root filesystem and 53 MiB RAM usage after boot;
 actual usage varies with attached devices and workloads.
 
-The test guest build removes installed-package metadata and non-English locales
-after package verification. Other Gentoo images keep their existing cleanup
-policy. The smaller 64 MiB ESP leaves room for the root filesystem; all Gentoo
+The test guest owns its explicit minimal package list; it does not install
+`@system` or the ordinary images’ extra package set. It rejects compilers, Portage,
+glibc, systemd, Python, and sudo before removing documentation, headers, sources,
+static libraries, installed-package metadata, Portage configuration, and
+non-English locales. Other Gentoo images retain their installed development
+files and package records. All built images follow the shared residue policy.
+The smaller 64 MiB ESP leaves room for the root filesystem; all Gentoo
 images share the expanded virtual-hardware kernel configuration and kernel cache.
 
 The full recipe-build integration test deliberately builds the separate Alpine

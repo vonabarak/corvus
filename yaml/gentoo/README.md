@@ -87,12 +87,19 @@ Keep this policy out of the resulting guest's configuration.
 Initialize mount tracking before traps; clean up in reverse order
 on success, and preserve resources on failure or interruption for inspection.
 
+Ordinary glibc and musl images install `@system` and the shared extra package set.
+The nested test guest owns its minimal package list, stripping, and forbidden-package
+checks. Finalization cleans and verifies persisted build residue through a private,
+non-recursive bind view; transient mounts and their shared contents stay untouched.
+Only the two builders pass `--keep-repositories` to finalization. See
+[image cleanup policy](../../doc/test-images.md#gentoo-image-cleanup) for checked paths.
+
 ## Changing a build
 
 1. Choose the owning image, stage, or library; keep exclusive behavior local.
 2. Update entry points, uploaded dependency closures, Make dependencies, and
    all image/template consumers together when names or ownership change.
-3. Update this inventory and the focused Gentoo recipe/helper tests.
+3. Update this inventory and the focused Gentoo recipe tests.
 4. Check shell syntax recursively, run the Gentoo/image-recipe tests and
    `make yaml-schema-check`. Follow the root agent guide for Python formatting,
    checks, and repository tests. Validate changed images with real builds when

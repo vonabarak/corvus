@@ -8,7 +8,7 @@ vars:
 pipeline:
 - build:
     name: gentoo-musl-openrc-headless
-    description: Minimal musl/OpenRC runtime
+    description: Gentoo musl/OpenRC system
     template: gentoo-musl-openrc-builder-bake
     strategy: from-scratch
     target:
@@ -56,10 +56,6 @@ pipeline:
         to: /usr/local/lib/corvus-build/lib/portage.sh
         mode: '0644'
     - file:
-        from: ./scripts/lib/runtime.sh
-        to: /usr/local/lib/corvus-build/lib/runtime.sh
-        mode: '0644'
-    - file:
         from: ./scripts/stages/kernel/build-kernel.sh
         to: /usr/local/lib/corvus-build/stages/kernel/build-kernel.sh
         mode: '0755'
@@ -85,7 +81,7 @@ pipeline:
     cleanup: onSuccess
 - build:
     name: gentoo-musl-openrc-headless-cloudinit
-    description: Minimal musl/OpenRC runtime with NoCloud cloud-init
+    description: Gentoo musl/OpenRC system with NoCloud cloud-init
     template: gentoo-musl-openrc-builder-bake
     strategy: offline-overlay
     sourceImage: gentoo-musl-openrc-headless
@@ -130,10 +126,6 @@ pipeline:
         to: /usr/local/lib/corvus-build/lib/portage.sh
         mode: '0644'
     - file:
-        from: ./scripts/lib/runtime.sh
-        to: /usr/local/lib/corvus-build/lib/runtime.sh
-        mode: '0644'
-    - file:
         from: ./scripts/stages/install-cloud-init.sh
         to: /usr/local/lib/corvus-build/stages/install-cloud-init.sh
         mode: '0755'
@@ -148,7 +140,7 @@ pipeline:
 - apply:
     templates:
     - name: gentoo-musl-openrc-headless
-      description: Minimal Gentoo musl/OpenRC
+      description: Gentoo musl/OpenRC
       cpuCount: 1
       ram: 512M
       cloudInit: false
@@ -163,7 +155,7 @@ pipeline:
       networkInterfaces:
       - network: corvus
     - name: gentoo-musl-openrc-headless-uefi
-      description: Minimal Gentoo musl/OpenRC
+      description: Gentoo musl/OpenRC
       cpuCount: 1
       ram: 512M
       cloudInit: false
@@ -185,7 +177,7 @@ pipeline:
       networkInterfaces:
       - network: corvus
     - name: gentoo-musl-openrc-headless-cloudinit
-      description: Minimal Gentoo musl/OpenRC with cloud-init
+      description: Gentoo musl/OpenRC with cloud-init
       cpuCount: 1
       ram: 512M
       cloudInit: true
@@ -208,7 +200,7 @@ pipeline:
             - -d
             - root
     - name: gentoo-musl-openrc-headless-cloudinit-uefi
-      description: Minimal Gentoo musl/OpenRC with cloud-init
+      description: Gentoo musl/OpenRC with cloud-init
       cpuCount: 1
       ram: 512M
       cloudInit: true

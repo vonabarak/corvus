@@ -4,7 +4,7 @@ set -euxo pipefail
 
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/environment.sh"
 . "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/mounts.sh"
-. "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/runtime.sh"
+. "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/lib/image.sh"
 
 # Mount the existing image, install target services, and publish a clean overlay.
 main() {
@@ -18,7 +18,8 @@ main() {
     portage_sync_repository
     mounts_target_disk "$IMAGE_ROOT" "$TARGET_DISK"
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/install-cloud-init.sh"
-    runtime_finish
+    image_reset_identity "$IMAGE_ROOT"
+    image_finalize "$IMAGE_ROOT" "${CORVUS_BUILD_NAME:?}"
 }
 
 main "$@"

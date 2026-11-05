@@ -70,20 +70,12 @@ pipeline:
         to: /usr/local/lib/corvus-build/lib/portage.sh
         mode: '0644'
     - file:
-        from: ./scripts/lib/runtime.sh
-        to: /usr/local/lib/corvus-build/lib/runtime.sh
-        mode: '0644'
-    - file:
         from: ./scripts/stages/kernel/build-kernel.sh
         to: /usr/local/lib/corvus-build/stages/kernel/build-kernel.sh
         mode: '0755'
     - file:
         from: ./scripts/stages/musl/configure-root.sh
         to: /usr/local/lib/corvus-build/stages/musl/configure-root.sh
-        mode: '0755'
-    - file:
-        from: ./scripts/stages/musl/install-root.sh
-        to: /usr/local/lib/corvus-build/stages/musl/install-root.sh
         mode: '0755'
     - file:
         from: ./scripts/stages/kernel/gentoo-kernel
