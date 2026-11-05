@@ -7,7 +7,6 @@ vars:
   almalinux_sha256: ~
 pipeline:
   - apply:
-      ifExists: skip
       disks:
         - name: almalinux-10-dvd-iso
           ifExists: "{{ image_if_exists }}"

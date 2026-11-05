@@ -5,7 +5,6 @@ vars:
   image_if_exists: update
 pipeline:
   - apply:
-      ifExists: skip
       disks:
         - name: windows-server-2025-iso
           ifExists: "{{ image_if_exists }}"

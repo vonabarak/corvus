@@ -8,7 +8,6 @@ vars:
 
 pipeline:
   - apply:
-      ifExists: skip
       disks:
         - name: gentoo-glibc-systemd-upstream-cloudinit:{{ gentoo_cloud_tag }}
           ifExists: "{{ image_if_exists }}"

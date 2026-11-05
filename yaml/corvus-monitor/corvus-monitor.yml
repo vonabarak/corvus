@@ -173,10 +173,10 @@ pipeline:
   # `systemctl enable` from step 7), so the operator only needs to
   # point Prometheus at their corvus-web target (see README.md).
   - apply:
-      ifExists: skip
       disks:
-        # Per-VM OVMF NVRAM (writable; boot vars).
+        # Preserve writable boot variables when the firmware source is updated.
         - name: corvus-monitor-ovmf-vars
+          ifExists: skip
           clone: ovmf-vars
           ephemeral: true
 

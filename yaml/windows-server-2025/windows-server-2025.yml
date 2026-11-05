@@ -53,7 +53,6 @@ pipeline:
       ifExists: "{{ image_if_exists }}"
 
   - apply:
-      ifExists: skip
       disks:
         # ── UEFI firmware (already present on most cloud images, but
         #    redeclared here so this file stands alone if applied first) ──
@@ -65,7 +64,6 @@ pipeline:
           format: qcow2
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: windows-server-2025-installer
           description: "Windows Server 2025 unattended installer (bake-only)"
@@ -166,7 +164,6 @@ pipeline:
       cleanup: onSuccess
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: windows-server-2025
           cpuCount: 8

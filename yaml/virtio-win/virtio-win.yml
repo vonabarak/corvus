@@ -6,7 +6,6 @@ vars:
   version: 0.1.302-1
 pipeline:
   - apply:
-      ifExists: skip
       disks:
         - name: virtio-win-iso:{{ version }}
           ifExists: "{{ image_if_exists }}"

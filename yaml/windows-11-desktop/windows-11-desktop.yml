@@ -5,7 +5,6 @@ vars:
   image_if_exists: update
 pipeline:
 - apply:
-    ifExists: overwrite
     templates:
     - name: windows-11-desktop-builder
       description: Windows 11 desktop bake VM
@@ -107,7 +106,6 @@ pipeline:
         timeoutSec: 3600
     cleanup: onSuccess
 - apply:
-    ifExists: overwrite
     templates:
     - name: windows-11-desktop
       description: Windows 11 desktop with Total Commander, Firefox, PDF-XChange Editor

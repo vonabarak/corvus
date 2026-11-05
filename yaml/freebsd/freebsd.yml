@@ -20,7 +20,6 @@ pipeline:
             target: download
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: freebsd15
           description: FreeBSD 15.1-RELEASE (upstream cloud image)

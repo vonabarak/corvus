@@ -3,8 +3,7 @@
 #   scripts/crv-it corvus-dev-node apply yaml/dev-node/dev-node.yml --wait
 # Register the dev-node SSH key first; see doc/dev-node.md.
 # No image downloads or builds. Remove entries for unavailable OS images.
-# Existing resources are reused; edit/delete a template to change it on reapply.
-ifExists: skip
+# Reapply updates changed declarations and reuses unchanged resources.
 
 _defaults: &defaults
   cpuCount: 2

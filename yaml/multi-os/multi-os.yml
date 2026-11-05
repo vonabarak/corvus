@@ -91,7 +91,6 @@ pipeline:
             value: "{{ alpine_sha512 }}"
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: debian12
           <<: *defaults

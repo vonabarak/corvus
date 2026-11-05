@@ -1,22 +1,26 @@
 ---
 # An apply setup using images built by `make image IMAGE=corvus-test-vm` and
 # `make image IMAGE=windows`.
-ifExists: skip
 
+# Keep writable guest disks even when their source images are rebuilt.
 disks:
   - name: windows-server-2025
+    ifExists: skip
     overlay: windows-server-2025-eval
     path: BaseImages/WindowsServer2025/
 
   - name: gentoo-test-vm
+    ifExists: skip
     overlay: corvus-test-vm
     path: BaseImages/Gentoo/
 
   - name: gentoo-test-vm-ovmf-vars
+    ifExists: skip
     clone: ovmf-vars
     path: BaseImages/Gentoo/
 
   - name: windows-server-2025-ovmf-vars
+    ifExists: skip
     clone: ovmf-vars
     path: BaseImages/WindowsServer2025/
 

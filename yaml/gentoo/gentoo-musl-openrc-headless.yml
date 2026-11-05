@@ -146,7 +146,6 @@ pipeline:
         timeoutSec: 28800
     cleanup: onSuccess
 - apply:
-    ifExists: overwrite
     templates:
     - name: gentoo-musl-openrc-headless
       description: Minimal Gentoo musl/OpenRC

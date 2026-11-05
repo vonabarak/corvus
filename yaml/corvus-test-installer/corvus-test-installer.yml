@@ -30,7 +30,6 @@
 
 pipeline:
   - apply:
-      ifExists: skip
       templates:
         - name: corvus-test-installer
           description: "Synthetic installer-strategy bake (integration-test fixture)"

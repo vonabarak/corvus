@@ -7,7 +7,6 @@ vars:
   GETBINPKG: "true"
 pipeline:
 - apply:
-    ifExists: overwrite
     templates:
     - name: gentoo-glibc-systemd-builder-cloudinit-bootstrap
       cpuCount: 8
@@ -182,7 +181,6 @@ pipeline:
           IMAGE_ROOT: /
     cleanup: onSuccess
 - apply:
-    ifExists: overwrite
     templates:
     - name: gentoo-glibc-systemd-builder-cloudinit-bake
       cpuCount: 8

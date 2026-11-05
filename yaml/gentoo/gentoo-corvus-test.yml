@@ -64,7 +64,6 @@ pipeline:
       cleanup: onSuccess
 
   - apply:
-      ifExists: skip
       vms:
         - name: gentoo-corvus-test
           cpuCount: 8

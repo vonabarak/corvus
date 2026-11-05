@@ -61,7 +61,6 @@ pipeline:
       ifExists: "{{ image_if_exists }}"
 
   - apply:
-      ifExists: skip
       disks:
         - name: ovmf-code-secboot
           register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.secboot.qcow2"
@@ -71,7 +70,6 @@ pipeline:
           format: qcow2
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: windows-11-installer
           description: "Windows 11 Pro unattended installer (bake-only)"
@@ -159,7 +157,6 @@ pipeline:
       cleanup: onSuccess
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: windows-11-pro
           description: "Windows 11 Pro overlay VM with an independent TPM; BitLocker opt-in"

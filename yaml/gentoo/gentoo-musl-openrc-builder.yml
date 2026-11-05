@@ -77,7 +77,6 @@ pipeline:
         timeoutSec: 28800
     cleanup: onSuccess
 - apply:
-    ifExists: overwrite
     templates:
     - name: gentoo-musl-openrc-builder-bake
       description: Native musl/OpenRC host with Portage, compiler and disk tools

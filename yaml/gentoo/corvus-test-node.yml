@@ -101,7 +101,6 @@ pipeline:
         timeoutSec: 18000
     cleanup: onSuccess
 - apply:
-    ifExists: overwrite
     templates:
     - name: corvus-test-node
       # The harness creates its own VMs with per-class shares; this is for inspection.

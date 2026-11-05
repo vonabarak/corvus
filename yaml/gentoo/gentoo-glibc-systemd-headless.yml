@@ -145,7 +145,6 @@ pipeline:
         timeoutSec: 28800
     cleanup: onSuccess
 - apply:
-    ifExists: overwrite
     templates:
     - name: gentoo-glibc-systemd-headless
       cpuCount: 8

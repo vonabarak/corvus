@@ -13,7 +13,6 @@ pipeline:
       ifExists: "{{ image_if_exists }}"
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: almalinux-10-desktop-installer
           description: AlmaLinux 10 unattended GNOME installer (bake-only)
@@ -68,7 +67,6 @@ pipeline:
       cleanup: onSuccess
 
   - apply:
-      ifExists: overwrite
       templates:
         - name: almalinux-10-desktop
           description: AlmaLinux 10 GNOME desktop (login/password corvus)
