@@ -171,17 +171,17 @@ checkIfExistsPreBake state name target = do
   mExisting <- liftIO $ runSqlPool (imageByName name) pool
   case (btIfExists target, mExisting) of
     (_, Nothing) -> pure $ Right Nothing
-    (BuildIfExistsPolicy IfExistsError, Just _) ->
+    (IfExistsError, Just _) ->
       pure $
         Left $
           "target '"
             <> name
             <> "' already exists; use ifExists: skip, overwrite or update to allow"
-    (BuildIfExistsPolicy IfExistsSkip, Just (Entity existingId _)) -> do
+    (IfExistsSkip, Just (Entity existingId _)) -> do
       logInfoN $ "target '" <> name <> "' exists; skipping bake (ifExists: skip)"
       pure $ Right (Just (fromSqlKey existingId))
-    (BuildIfExistsPolicy IfExistsOverwrite, Just _) -> pure $ Right Nothing
-    (BuildIfExistsUpdate, Just _) -> pure $ Right Nothing
+    (IfExistsOverwrite, Just _) -> pure $ Right Nothing
+    (IfExistsUpdate, Just _) -> pure $ Right Nothing
 
 -- | Reuse only the selected version's matching provenance. Missing metadata
 -- rebuilds once; a failed bake never alters the previous version or tags.

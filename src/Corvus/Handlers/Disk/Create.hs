@@ -13,6 +13,7 @@ import qualified Control.Monad.Logger
 import Corvus.Action
 import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Images
+import Corvus.Images.ApplyIdentity (recordApplyIdentity)
 
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
@@ -41,8 +42,8 @@ import Corvus.Handlers.Disk.Placement (nodeBasePathFor, withSelectedDiskNode)
 
 -- | Create a new disk image. An empty/zero @nodeRefText@ means
 -- "no explicit placement" — defer to 'pickNodeForDisk'.
-handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Response
-handleDiskCreate state name format size mPath ephemeral nodeRefText = runServerLogging state $ do
+handleDiskCreate :: Maybe Text -> ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Response
+handleDiskCreate identity state name format size mPath ephemeral nodeRefText = runServerLogging state $ do
   logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show size) <> " bytes)"
   case sanitizeDiskName name of
     Left err -> do
@@ -50,10 +51,10 @@ handleDiskCreate state name format size mPath ephemeral nodeRefText = runServerL
       pure $ RespError err
     Right safeName ->
       withSelectedDiskNode state nodeRefText $
-        createDiskOnNode state safeName format size mPath ephemeral
+        createDiskOnNode identity state safeName format size mPath ephemeral
 
-createDiskOnNode :: (Control.Monad.IO.Class.MonadIO m, Control.Monad.Logger.MonadLogger m) => ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> NodeId -> m Response
-createDiskOnNode state safeName format size mPath ephemeral nid = do
+createDiskOnNode :: (Control.Monad.IO.Class.MonadIO m, Control.Monad.Logger.MonadLogger m) => Maybe Text -> ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> NodeId -> m Response
+createDiskOnNode identity state safeName format size mPath ephemeral nid = do
   basePath <- liftIO $ nodeBasePathFor state nid
   reservedId <- liftIO $ runSqlPool reserveImageId (ssDbPool state)
   let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
@@ -85,6 +86,7 @@ createDiskOnNode state safeName format size mPath ephemeral nid = do
                       , diskImageEphemeral = ephemeral
                       }
                 recordDiskImageNode dkey nid storedPath
+                recordApplyIdentity identity dkey
                 pure dkey
             )
             (ssDbPool state)
@@ -95,7 +97,8 @@ createDiskOnNode state safeName format size mPath ephemeral nid = do
 -- Format and size are auto-detected via qemu-img info.
 -- If format is provided, it is used instead of auto-detection.
 handleDiskRegister
-  :: ServerState
+  :: Maybe Text
+  -> ServerState
   -> Text
   -> Text
   -> Maybe DriveFormat
@@ -104,19 +107,19 @@ handleDiskRegister
   -> Text
   -- ^ node ref (name or id); empty / @"0"@ defers to the scheduler
   -> IO Response
-handleDiskRegister state name filePath mFormat mBackingDiskId ephemeral nodeRefText =
+handleDiskRegister identity state name filePath mFormat mBackingDiskId ephemeral nodeRefText =
   case void (sanitizeDiskName name) of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
       logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
       withSelectedDiskNode state nodeRefText $
-        registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral
+        registerDiskOnNode identity state name filePath mFormat mBackingDiskId ephemeral
 
 -- | Register a file on one selected node. The caller has already validated
 -- the public name and resolved placement; this routine owns only image
 -- inspection and persistence, including the concurrent-register recovery.
-registerDiskOnNode :: (Control.Monad.IO.Class.MonadIO m) => ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Int64 -> Bool -> NodeId -> m Response
-registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
+registerDiskOnNode :: (Control.Monad.IO.Class.MonadIO m) => Maybe Text -> ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Int64 -> Bool -> NodeId -> m Response
+registerDiskOnNode identity state name filePath mFormat mBackingDiskId ephemeral nid = do
   basePath <- liftIO $ nodeBasePathFor state nid
   let storedPath = makeRelativeToBase basePath (T.unpack filePath)
       resolvedPath =
@@ -145,13 +148,15 @@ registerDiskOnNode state name filePath mFormat mBackingDiskId ephemeral nid = do
                       , diskImageEphemeral = ephemeral
                       }
                 recordDiskImageNode key nid storedPath
+                recordApplyIdentity identity key
                 pure key
             )
             (ssDbPool state)
       pure $ RespDiskCreated $ fromSqlKey diskId
 
 data DiskCreate = DiskCreate
-  { dcrName :: Text
+  { dcrApplyIdentity :: Maybe Text
+  , dcrName :: Text
   , dcrFormat :: DriveFormat
   , dcrSize :: Int64
   , dcrPath :: Maybe Text
@@ -167,10 +172,11 @@ instance Action DiskCreate where
   actionSubsystem _ = SubDisk
   actionCommand _ = "create"
   actionEntityName = Just . dcrName
-  actionExecute ctx a = withAvailableNodePath (acState ctx) (read (T.unpack (dcrNodeRef a))) (dcrPath a) $ handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSize a) (dcrPath a) (dcrEphemeral a) (dcrNodeRef a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (read (T.unpack (dcrNodeRef a))) (dcrPath a) $ handleDiskCreate (dcrApplyIdentity a) (acState ctx) (dcrName a) (dcrFormat a) (dcrSize a) (dcrPath a) (dcrEphemeral a) (dcrNodeRef a)
 
 data DiskRegister = DiskRegister
-  { drgName :: Text
+  { drgApplyIdentity :: Maybe Text
+  , drgName :: Text
   , drgPath :: Text
   , drgFormat :: Maybe DriveFormat
   , drgBackingDiskId :: Maybe Int64
@@ -189,4 +195,4 @@ instance Action DiskRegister where
   actionSubsystem _ = SubDisk
   actionCommand _ = "register"
   actionEntityName = Just . drgName
-  actionExecute ctx a = withAvailableNodePath (acState ctx) (read (T.unpack (drgNodeRef a))) (Just (drgPath a)) $ handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a) (drgEphemeral a) (drgNodeRef a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (read (T.unpack (drgNodeRef a))) (Just (drgPath a)) $ handleDiskRegister (drgApplyIdentity a) (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a) (drgEphemeral a) (drgNodeRef a)

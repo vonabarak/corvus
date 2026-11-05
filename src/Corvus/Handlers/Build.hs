@@ -124,7 +124,7 @@ runPipelineStep state parentTaskId sink step = case step of
           Nothing -> pure ()
           Just txt -> sink (BuildLogLine txt)
         ctx = (mkActionContext state parentTaskId "system") {acApplySink = applySink}
-    resp <- liftIO $ runActionAsSubtask ctx (ApplyAction cfg False)
+    resp <- liftIO $ runActionAsSubtask ctx (ApplyAction cfg)
     let one = case resp of
           RespApplyResult _ ->
             BuildOne {boName = "apply", boArtifactDiskId = Nothing, boError = Nothing}
@@ -371,7 +371,7 @@ runOneBuildBody ctx sink stack b = do
                           Left err -> pure (Left err)
                           Right (Just key) -> pure (Right key)
                           Right Nothing -> do
-                            existing <- if btIfExists target == BuildIfExistsUpdate then checkBuildUpdate state sink (buildName b) target identity else pure Nothing
+                            existing <- if btIfExists target == IfExistsUpdate then checkBuildUpdate state sink (buildName b) target identity else pure Nothing
                             case existing of
                               Just key -> pure (Right key)
                               Nothing -> do

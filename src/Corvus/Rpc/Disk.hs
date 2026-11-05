@@ -119,7 +119,8 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       nodeRef' <- capnpRefToRef node
       let act =
             DiskCreate
-              { dcrName = name
+              { dcrApplyIdentity = Nothing
+              , dcrName = name
               , dcrFormat = fmt
               , dcrSize = size
               , dcrPath = if T.null path then Nothing else Just path
@@ -148,7 +149,8 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
           else pure Nothing
       let act =
             DiskRegister
-              { drgName = name
+              { drgApplyIdentity = Nothing
+              , drgName = name
               , drgPath = filePath
               , drgFormat = mFormat
               , drgBackingDiskId = mBackingId
@@ -168,7 +170,8 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       baseId <- resolveOrThrow =<< resolveDisk baseRef' (ssDbPool st)
       let act =
             DiskCreateOverlay
-              { dcoName = name
+              { dcoApplyIdentity = Nothing
+              , dcoName = name
               , dcoBaseDiskId = baseId
               , dcoResize = Nothing
               , dcoPath = if T.null path then Nothing else Just path
@@ -192,7 +195,8 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       let mPath = if T.null path then Nothing else Just path
           act =
             DiskClone
-              { dclName = newName
+              { dclApplyIdentity = Nothing
+              , dclName = newName
               , dclBaseDiskId = srcId
               , dclResize = Nothing
               , dclPath = mPath
@@ -253,7 +257,8 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
           else pure Nothing
       let act =
             DiskImportAction
-              { diaName = name
+              { diaApplyIdentity = Nothing
+              , diaName = name
               , diaSource = srcPath
               , diaDestPath = if T.null destPath then Nothing else Just destPath
               , diaFormat = enumToText <$> mFormat

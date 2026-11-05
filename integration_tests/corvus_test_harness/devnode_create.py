@@ -79,7 +79,7 @@ def create(target: str) -> None:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as source:
             json.dump(document, source)
             source.flush()
-            crv.apply(source.name, skip_existing=False, wait=True)
+            crv.apply(source.name, wait=True)
         crv.network_start(name)
         interfaces = details.get("net_ifs")
         if not isinstance(interfaces, list):

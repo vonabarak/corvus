@@ -275,7 +275,7 @@ def _create_session_network(crv: Crv) -> str:
         _yaml.safe_dump(apply_doc, tmp)
         tmp_path = Path(tmp.name)
     try:
-        crv.apply(tmp_path, skip_existing=True, wait=True)
+        crv.apply(tmp_path, wait=True)
     finally:
         try:
             tmp_path.unlink()

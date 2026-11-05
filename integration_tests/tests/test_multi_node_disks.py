@@ -13,7 +13,7 @@ Exercises the multi-node refactor's disk-related guarantees:
     stays on beta.
   * ``crv apply`` YAML with explicit per-disk and per-VM
     ``node:`` values respects placement; same-named entities on
-    different nodes round-trip through ``skip_existing`` without
+    different nodes round-trip through the default update policy without
     collision.
   * ``crv vm show`` returns the per-node file path for each
     attached drive (previously the field was always empty).
@@ -318,13 +318,13 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             self._delete_disk_silent(alpha_disk)
             self._delete_disk_silent(beta_disk)
 
-    def test_apply_skip_existing_disambiguates_same_name_across_nodes(self) -> None:
+    def test_apply_update_disambiguates_same_name_across_nodes(self) -> None:
         """Two VMs named the same on different nodes round-trip
-        through `apply --skip-existing` without false-positive
+        through the default update policy without false-positive
         deduplication.
 
         The first apply creates both rows; the second apply with
-        `skip_existing=True` must see each as already-present on
+        the default policy must see each as already-present on
         its own node (rather than ambiguously matching the
         "wrong" row and either over-skipping or over-creating).
         """
@@ -348,7 +348,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         # the apply result.
         created_ids: list[int] = []
         try:
-            r1, _ = self.client_alpha.apply(yaml_body, wait=True, skip_existing=True)
+            r1, _ = self.client_alpha.apply(yaml_body, wait=True)
             assert len(r1.vms) == 2
             created_ids = [v.id for v in r1.vms]
             # Sanity-check: the two rows are on different nodes.
@@ -357,12 +357,12 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 self.alpha_name,
                 self.beta_name,
             }
-            # Second apply with skip_existing: both rows already
+            # Second apply with update: both rows already
             # exist on their respective nodes, so neither is
             # re-created. The daemon's `runSequentialVms` doesn't
             # echo existing rows in the result, so `r2.vms` is
             # empty — and both ids must still resolve.
-            r2, _ = self.client_alpha.apply(yaml_body, wait=True, skip_existing=True)
+            r2, _ = self.client_alpha.apply(yaml_body, wait=True)
             assert r2.vms == []
             for vid in created_ids:
                 # Both rows must still exist; not raising = success.

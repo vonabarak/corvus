@@ -106,12 +106,18 @@ starting schema, with data exercising the transformation.
 
 The version-10 import fixtures freeze the image and version tables needed by
 `V011`, which adds import, SHA-256 upload, and build input identities. The full
-historical upgrade tests exercise all three tables. Schema version remains 11 for
-this unreleased change; development databases created with an earlier revision
+historical upgrade tests exercise all three tables. Development databases created with an earlier unreleased revision
 of version 11 must be recreated.
 
 The version-12 startup fixtures freeze the VM and template columns needed by
 `V013`. They verify that existing rows receive a 120-second budget.
+
+Version 14 adds `disk_image_apply_identity`, with one unique row per disk image,
+a SHA-256 recipe fingerprint, and canonical inputs plus the published metadata
+and placement baseline. Existing images receive no inferred identity; apply
+`update` republishes them once, except registrations that match live metadata.
+Both database backends enforce the image foreign key and uniqueness. Disk
+deletion removes its apply identity alongside the other provenance rows.
 
 The Haskell suite covers planning, missing transitions, fresh creation,
 metadata errors, real upgrades, and transaction rollback. The integration

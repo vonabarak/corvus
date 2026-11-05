@@ -268,8 +268,8 @@ commands =
   , (["cloud-init", "edit", "web"], CloudInitEdit "web")
   , (["cloud-init", "show", "web"], CloudInitShow "web")
   , (["cloud-init", "delete", "web"], CloudInitDelete "web")
-  , (["apply", "env.yaml"], Apply "env.yaml" False (WaitOptions False Nothing))
-  , (["apply", "env.yaml", "--skip-existing", "--wait"], Apply "env.yaml" True (WaitOptions True Nothing))
+  , (["apply", "env.yaml"], Apply "env.yaml" (WaitOptions False Nothing))
+  , (["apply", "env.yaml", "--wait"], Apply "env.yaml" (WaitOptions True Nothing))
   , (["build", "build.yaml"], Build "build.yaml" (BuildClientOptions [] []) (WaitOptions False Nothing))
   , (["build", "build.yaml", "--var", "Name_1=a=b", "--var", "_empty=", "--var-file", "a.yaml", "--var-file", "b.yaml", "--wait"], Build "build.yaml" (BuildClientOptions [("Name_1", "a=b"), ("_empty", "")] ["a.yaml", "b.yaml"]) (WaitOptions True Nothing))
   , (["task", "list"], TaskList 10 Nothing Nothing False)
@@ -282,7 +282,9 @@ commands =
 
 failures :: [([String], String)]
 failures =
-  [ (["vm", "view", "web", "--enable-fullscreen"], "Invalid option")
+  [ (["apply", "env.yaml", "--skip-existing"], "Invalid option")
+  , (["apply", "env.yaml", "-s"], "expects an argument")
+  , (["vm", "view", "web", "--enable-fullscreen"], "Invalid option")
   , (["vm", "view", "web", "--viewer", "unknown"], "expected remmina or virt-viewer")
   , ([], "Missing")
   , (["unknown"], "Invalid argument")

@@ -36,8 +36,8 @@ import System.IO (hFlush, stdout)
 import Text.Printf (printf)
 
 -- | Handle apply command: read YAML file and send to daemon
-handleApply :: OutputFormat -> CapnpConnection -> FilePath -> Bool -> WaitOptions -> IO Bool
-handleApply fmt conn path skipExisting waitOpts = do
+handleApply :: OutputFormat -> CapnpConnection -> FilePath -> WaitOptions -> IO Bool
+handleApply fmt conn path waitOpts = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -50,13 +50,13 @@ handleApply fmt conn path skipExisting waitOpts = do
       let wait = woWait waitOpts
           useStreaming = wait && isHumanFormat fmt
       if useStreaming
-        then runStreaming fmt conn content skipExisting
-        else runLegacy fmt conn content skipExisting wait
+        then runStreaming fmt conn content
+        else runLegacy fmt conn content wait
 
 -- | Streaming path: export an 'ApplyEventSink', render each event
 -- to stdout, block on @end()@.
-runStreaming :: OutputFormat -> CapnpConnection -> Text -> Bool -> IO Bool
-runStreaming fmt conn yaml skipExisting = do
+runStreaming :: OutputFormat -> CapnpConnection -> Text -> IO Bool
+runStreaming fmt conn yaml = do
   done <- newEmptyMVar
   successVar <- newIORef True
   let onEvent ev = do
@@ -68,7 +68,7 @@ runStreaming fmt conn yaml skipExisting = do
       onEnd = do
         _ <- tryPutMVar done ()
         pure ()
-  r <- try @SomeException (CR.rpcApplyStream conn yaml skipExisting onEvent onEnd)
+  r <- try @SomeException (CR.rpcApplyStream conn yaml onEvent onEnd)
   case r of
     Left e -> do
       emitRpcError fmt e $
@@ -79,9 +79,9 @@ runStreaming fmt conn yaml skipExisting = do
       readIORef successVar
 
 -- | Non-streaming path: structured wait results or a task id.
-runLegacy :: OutputFormat -> CapnpConnection -> Text -> Bool -> Bool -> IO Bool
-runLegacy fmt conn yaml skipExisting wait = do
-  r <- try @SomeException (CR.rpcApply conn yaml skipExisting wait)
+runLegacy :: OutputFormat -> CapnpConnection -> Text -> Bool -> IO Bool
+runLegacy fmt conn yaml wait = do
+  r <- try @SomeException (CR.rpcApply conn yaml wait)
   case r of
     Right (result, taskId) ->
       if wait

@@ -64,14 +64,13 @@ callOn method p client = do
 -- Apply (streaming)
 -- =====================================================================
 
-rpcApply :: CapnpConnection -> Text -> Bool -> Bool -> IO (PA.ApplyResult, Int64)
-rpcApply conn yaml skipExisting wait = do
+rpcApply :: CapnpConnection -> Text -> Bool -> IO (PA.ApplyResult, Int64)
+rpcApply conn yaml wait = do
   CGCorvus.Daemon'apply'results {CGCorvus.result = r, CGCorvus.taskId = tid} <-
     callOn
       #apply
       CGCorvus.Daemon'apply'params
         { CGCorvus.yaml = yaml
-        , CGCorvus.skipExisting = skipExisting
         , CGCorvus.wait = wait
         , CGCorvus.sink = fromClient nullClient
         }
@@ -103,11 +102,10 @@ instance CGS.ApplyEventSink'server_ ClientApplyEventSink where
 rpcApplyStream
   :: CapnpConnection
   -> Text
-  -> Bool
   -> (PA.ApplyEvent -> IO ())
   -> IO ()
   -> IO Int64
-rpcApplyStream conn yaml skipExisting onEvent onEnd = do
+rpcApplyStream conn yaml onEvent onEnd = do
   sinkClient <-
     export @CGS.ApplyEventSink (ccSupervisor conn) (ClientApplyEventSink onEvent onEnd)
   CGCorvus.Daemon'apply'results {CGCorvus.taskId = tid} <-
@@ -115,7 +113,6 @@ rpcApplyStream conn yaml skipExisting onEvent onEnd = do
       #apply
       CGCorvus.Daemon'apply'params
         { CGCorvus.yaml = yaml
-        , CGCorvus.skipExisting = skipExisting
         , CGCorvus.wait = True
         , CGCorvus.sink = sinkClient
         }

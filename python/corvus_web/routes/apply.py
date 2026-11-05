@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from corvus_client.exceptions import ConnectError, CorvusError
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..deps import get_client
 from ..lib import JsonObject, to_dict
@@ -31,14 +31,7 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 class ApplyBody(BaseModel):  # type: ignore[explicit-any]
     yaml: str = Field(..., min_length=1, description="The pipeline document.")
-    skip_existing: bool = Field(
-        False,
-        description=(
-            "Reuse existing resources by name instead of erroring on a "
-            "duplicate. Same as ``crv apply --skip-existing`` / per-resource "
-            "``ifExists: skip``."
-        ),
-    )
+    model_config = ConfigDict(extra="forbid")
 
 
 @router.post("/apply")
@@ -49,9 +42,7 @@ async def run_apply(body: ApplyBody, client: ClientDep) -> JsonObject:
     a 400 with the daemon's message verbatim — the operator usually just
     needs to fix the YAML and retry."""
     try:
-        result, task_id = await client.apply(
-            body.yaml, skip_existing=body.skip_existing, wait=True
-        )
+        result, task_id = await client.apply(body.yaml, wait=True)
     except ConnectError:
         raise
     except CorvusError as exc:

@@ -304,7 +304,7 @@ runCommand opts = do
       CloudInitShow vmRef -> handleCloudInitShow fmt conn vmRef
       CloudInitDelete vmRef -> handleCloudInitDelete fmt conn vmRef
       -- Apply
-      Apply path skipExisting waitOpts -> handleApply fmt conn path skipExisting waitOpts
+      Apply path waitOpts -> handleApply fmt conn path waitOpts
       -- Build
       Build path bcOpts waitOpts -> handleBuild fmt conn path bcOpts waitOpts
       -- Task history

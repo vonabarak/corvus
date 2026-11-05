@@ -189,7 +189,7 @@ async def _upload_media(
     format = required_text("format")
     if not source.is_absolute():
         source = base_dir / source
-    policy = upload.get("ifExists", "error")
+    policy = upload.get("ifExists", "update")
     if not isinstance(policy, str) or policy not in {
         "error",
         "skip",

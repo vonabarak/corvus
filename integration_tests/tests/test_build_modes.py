@@ -80,11 +80,11 @@ def _run_pipeline(client: Client, yaml_text: str) -> BuildPipelineEnd:
 class TestBuildModes(SingleNodeCase):
     """ifExists modes + cleanup modes + apply-step-in-pipeline."""
 
-    # ---- ifExists: error (default) ---------------------------------------
+    # ---- ifExists: error -------------------------------------------------
 
     def test_target_ifexists_error_aborts_before_bake(self) -> None:
         """A pre-existing target disk with ``ifExists: error``
-        (the default) fails the pre-bake check immediately — no
+        fails the pre-bake check immediately — no
         ``__build_*`` VM is ever created, and the daemon's error
         names ``ifExists: skip or overwrite`` as the remedy."""
         token = secrets.token_hex(3)
@@ -99,7 +99,6 @@ class TestBuildModes(SingleNodeCase):
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        # No `ifExists:` field → daemon defaults to error.
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
@@ -107,6 +106,7 @@ class TestBuildModes(SingleNodeCase):
                   template: {tpl_name}
                   strategy: overlay
                   target:
+                    ifExists: error
                     format: qcow2
                     size: 1G
                   vm:

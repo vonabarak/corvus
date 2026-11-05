@@ -165,7 +165,6 @@ instance CGCorvus.Daemon'server_ DaemonCap where
     handleParsed $
       \CGCorvus.Daemon'apply'params
         { CGCorvus.yaml = yamlText
-        , CGCorvus.skipExisting = skipExisting
         , CGCorvus.wait = wait
         , CGCorvus.sink = sinkClient
         } -> do
@@ -174,8 +173,8 @@ instance CGCorvus.Daemon'server_ DaemonCap where
             Left resp -> throwError resp
             Right cfg ->
               if wait
-                then runApplyNonStreaming st cn cfg skipExisting sinkClient
-                else runApplyStreaming st cn cfg skipExisting sinkClient
+                then runApplyNonStreaming st cn cfg sinkClient
+                else runApplyStreaming st cn cfg sinkClient
 
   -- Build streaming. The client passes a 'BuildEventSink' cap; we
   -- create the parent task synchronously, then kick the pipeline
@@ -228,11 +227,10 @@ runApplyNonStreaming
   :: ServerState
   -> T.Text
   -> ApplyConfig
-  -> Bool
   -> C.Parsed CGS.ApplyEventSink
   -> IO (C.Parsed CGCorvus.Daemon'apply'results)
-runApplyNonStreaming st cn cfg skipExisting sinkCap = do
-  let action = ApplyAction cfg skipExisting
+runApplyNonStreaming st cn cfg sinkCap = do
+  let action = ApplyAction cfg
       pushEvent ev = do
         let cev = toCapnpApplyEvent ev
             params = CGS.ApplyEventSink'push'params {CGS.event = cev}
@@ -279,10 +277,9 @@ runApplyStreaming
   :: ServerState
   -> T.Text
   -> ApplyConfig
-  -> Bool
   -> C.Parsed CGS.ApplyEventSink
   -> IO (C.Parsed CGCorvus.Daemon'apply'results)
-runApplyStreaming st cn cfg skipExisting sinkCap = do
+runApplyStreaming st cn cfg sinkCap = do
   startedAt <- getCurrentTime
   let pool = ssDbPool st
   taskKey <-
@@ -324,7 +321,7 @@ runApplyStreaming st cn cfg skipExisting sinkCap = do
     -- lifecycle here. In particular this preserves cancellation tokens,
     -- terminal progress events, and the `cancelled` result for streaming
     -- apply (the non-streaming path already gets these through runAction).
-    resp <- runAndFinalize st ctx (ApplyAction cfg skipExisting)
+    resp <- runAndFinalize st ctx (ApplyAction cfg)
     let (taskRes, taskMsg) = classifyResponse resp
     finalize (PA.ApplyEnd taskRes (fromMaybe T.empty taskMsg) tid)
   pure

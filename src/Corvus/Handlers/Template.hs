@@ -644,7 +644,7 @@ instantiateDriveIO ctx vmId guestName td = do
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = imagePrefix <> "-" <> nameSuffix
-        resp <- runActionAsSubtask ctx (DiskClone newName diskIdLong (tvdiSize td) vmDir ephem (vmNodeId <$> mVm))
+        resp <- runActionAsSubtask ctx (DiskClone Nothing newName diskIdLong (tvdiSize td) vmDir ephem (vmNodeId <$> mVm))
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -657,7 +657,7 @@ instantiateDriveIO ctx vmId guestName td = do
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
         let newName = imagePrefix <> "-" <> nameSuffix <> "-overlay"
-        resp <- runActionAsSubtask ctx (DiskCreateOverlay newName diskIdLong (tvdiSize td) vmDir ephem (vmNodeId <$> mVm))
+        resp <- runActionAsSubtask ctx (DiskCreateOverlay Nothing newName diskIdLong (tvdiSize td) vmDir ephem (vmNodeId <$> mVm))
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -669,7 +669,7 @@ instantiateDriveIO ctx vmId guestName td = do
     StrategyCreate -> case (tvdiFormat td, tvdiSize td) of
       (Just fmt, Just size) -> do
         let newName = imagePrefix <> "-" <> nameSuffix
-        resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral size) vmDir ephem vmNodeRef)
+        resp <- runActionAsSubtask ctx (DiskCreate Nothing newName fmt (fromIntegral size) vmDir ephem vmNodeRef)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId

@@ -42,7 +42,7 @@ class _MockBridge(QObject):
         self.cloud_init_calls: list[int] = []
         self.cloud_init_sets: list[tuple[int, dict[str, str | bool | None]]] = []
         self.cloud_init_deletes: list[int] = []
-        self.apply_calls: list[tuple[str, bool]] = []
+        self.apply_calls: list[str] = []
 
     def request_template_list(self) -> None:
         self.template_list_calls += 1
@@ -70,8 +70,8 @@ class _MockBridge(QObject):
     def cloud_init_delete(self, vm_id: int) -> None:
         self.cloud_init_deletes.append(vm_id)
 
-    def apply_yaml(self, yaml_text: str, *, skip_existing: bool = False) -> None:
-        self.apply_calls.append((yaml_text, skip_existing))
+    def apply_yaml(self, yaml_text: str) -> None:
+        self.apply_calls.append(yaml_text)
 
     def request_node_list(self) -> None: ...
 
@@ -221,7 +221,7 @@ def test_apply_button_calls_bridge(
     apply_widget._editor.set_text("vms: []\n")
     apply_widget._apply_btn.click()
     assert len(bridge.apply_calls) == 1
-    assert bridge.apply_calls[0][0] == "vms: []\n"
+    assert bridge.apply_calls[0] == "vms: []\n"
 
 
 def test_apply_result_populates_result_panel(

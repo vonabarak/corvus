@@ -313,8 +313,8 @@ data Command
     CloudInitDelete !Text
   | -- Apply commands
 
-    -- | Apply environment from YAML config file (file path, skipExisting, waitOptions)
-    Apply !FilePath !Bool !WaitOptions
+    -- | Apply environment from YAML config file (file path, waitOptions)
+    Apply !FilePath !WaitOptions
   | -- | Build OS images from a YAML pipeline file. Async by default;
     -- @--wait@ blocks until completion.
     Build !FilePath !BuildClientOptions !WaitOptions

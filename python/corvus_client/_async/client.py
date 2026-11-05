@@ -215,7 +215,7 @@ class AsyncClient:
         await self.daemon.shutdown()
 
     async def apply(
-        self, yaml: str, *, skip_existing: bool = False, wait: bool = False
+        self, yaml: str, *, wait: bool = False
     ) -> tuple[t.ApplyResult, int]:
         """Run `apply` against a YAML pipeline. Returns (ApplyResult, task_id).
 
@@ -225,12 +225,10 @@ class AsyncClient:
         For per-phase / per-entity / download-progress events use
         :meth:`apply_stream` instead.
         """
-        resp = await self.daemon.apply(yaml=yaml, skipExisting=skip_existing, wait=wait)
+        resp = await self.daemon.apply(yaml=yaml, wait=wait)
         return conv.apply_result(resp.result), resp.taskId
 
-    def apply_stream(
-        self, yaml: str, *, skip_existing: bool = False
-    ) -> AsyncIterator[t.ApplyStreamItem]:
+    def apply_stream(self, yaml: str) -> AsyncIterator[t.ApplyStreamItem]:
         """Stream :class:`ApplyEvent` dataclasses for an apply run.
 
         Returns an async generator that yields events as the daemon
@@ -239,7 +237,7 @@ class AsyncClient:
         """
         from .streams import stream_apply_events
 
-        return stream_apply_events(self.daemon, yaml, skip_existing=skip_existing)
+        return stream_apply_events(self.daemon, yaml)
 
     def build_stream(
         self,

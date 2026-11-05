@@ -498,6 +498,9 @@ interface Session {
   # `blockdev-change-medium` against drive-<driveId>; `format` is
   # the qcow2/raw image format name. Throws if the drive is not
   # removable (checked via `query-block` before the command).
+  # Content identity of a local image and its complete local backing chain.
+  diskSourceIdentity @59 (path :Text) -> (identity :Text);
+
   vmChangeMedia @46 (vmId :Int64, driveId :Int64,
                      filePath :Text, format :Text) -> ();
 }

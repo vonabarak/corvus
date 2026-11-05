@@ -151,7 +151,6 @@ class _TaskProgressSinkServer(_schema.streams.TaskProgressSink.Server):  # type:
 async def stream_apply_events(
     daemon: capnp.lib.capnp._DynamicCapabilityClient,
     yaml: str,
-    skip_existing: bool = False,
 ) -> AsyncIterator[t.ApplyStreamItem]:
     """Yield ApplyEvent dataclasses, then a final ``('task_id', N)`` tuple.
 
@@ -176,7 +175,6 @@ async def stream_apply_events(
     sink = _ApplyEventSinkServer(queue)
     promise = daemon.apply(
         yaml=yaml,
-        skipExisting=skip_existing,
         wait=True,
         sink=sink,
     )

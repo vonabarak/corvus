@@ -53,10 +53,8 @@ interface Daemon {
   # When `sink` is null, the legacy behaviour applies: `wait=true`
   # blocks until completion and returns a populated `result`;
   # `wait=false` kicks off an async task and returns `taskId` with
-  # an empty `result`. `skipExisting` skips entities whose names
-  # already exist instead of erroring.
+  # an empty `result`. Resource policy is defined by the YAML.
   apply @10 (yaml         :Text,
-             skipExisting :Bool                     = false,
              wait         :Bool                     = false,
              sink         :Streams.ApplyEventSink)
            -> (result :ApplyResult, taskId :Int64);

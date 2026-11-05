@@ -19,7 +19,6 @@ module Corvus.Schema.Apply
   , ApplyDrive (..)
   , ApplyNetIf (..)
   , ApplySharedDir (..)
-  , DiskIfExists (..)
   , IfExists (..)
   )
 where
@@ -39,28 +38,30 @@ import Data.Yaml (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
 -- artifact disk) already exists at the time the operation would
 -- create it.
 --
---   * 'IfExistsError' (default) — fail loudly. Forces the operator
---     to choose explicitly between skip and overwrite.
+--   * 'IfExistsError' — fail on duplicate names.
 --   * 'IfExistsSkip' — treat existing targets as success and move
 --     on. Lets a partially-failed pipeline be re-run without
 --     redoing already-completed work.
+--   * 'IfExistsUpdate' (default) — reuse identical declarative state.
 --   * 'IfExistsOverwrite' — replace the target; disks publish a new version.
 data IfExists
   = IfExistsError
   | IfExistsSkip
   | IfExistsOverwrite
+  | IfExistsUpdate
   deriving stock (Eq, Show)
 
 instance FromJSON IfExists where
   parseJSON = withText "ifExists" $ \case
     "error" -> pure IfExistsError
     "skip" -> pure IfExistsSkip
+    "update" -> pure IfExistsUpdate
     "overwrite" -> pure IfExistsOverwrite
     other ->
       fail $
         "unknown ifExists value '"
           <> T.unpack other
-          <> "' (expected: error, skip, overwrite)"
+          <> "' (expected: error, skip, overwrite, update)"
 
 data ApplyConfig = ApplyConfig
   { acSshKeys :: [ApplySshKey]
@@ -69,7 +70,7 @@ data ApplyConfig = ApplyConfig
   , acVms :: [ApplyVm]
   , acTemplates :: [TemplateYaml]
   , acIfExists :: IfExists
-  -- ^ Default policy. CLI --skip-existing changes error to skip.
+  -- ^ Default policy, inherited by disks without an override.
   }
   deriving stock (Show)
 
@@ -81,7 +82,7 @@ instance FromJSON ApplyConfig where
       <*> o .:? "networks" .!= []
       <*> o .:? "vms" .!= []
       <*> o .:? "templates" .!= []
-      <*> o .:? "ifExists" .!= IfExistsError
+      <*> o .:? "ifExists" .!= IfExistsUpdate
 
 data ApplySshKey = ApplySshKey
   { askName :: Text
@@ -146,35 +147,6 @@ instance FromJSON ChecksumSpec where
       <*> o .:? "target" .!= ChecksumDownload
 
 -- | Update is restricted to checksummed HTTP(S) disk imports.
-data DiskIfExists = DiskIfExistsPolicy IfExists | DiskIfExistsUpdate
-  deriving stock (Eq, Show)
-
-instance FromJSON DiskIfExists where
-  parseJSON = withText "disk ifExists" $ \case
-    "update" -> pure DiskIfExistsUpdate
-    "error" -> pure $ DiskIfExistsPolicy IfExistsError
-    "skip" -> pure $ DiskIfExistsPolicy IfExistsSkip
-    "overwrite" -> pure $ DiskIfExistsPolicy IfExistsOverwrite
-    _ -> fail "disk ifExists must be error, skip, overwrite, or update"
-
--- | Disk definition in the apply YAML config.
---
--- The @path@ field controls where the disk image file is placed:
---
---   * Not specified: the image is placed in the base images directory
---   * Starts with @\/@: interpreted as an absolute path
---   * Otherwise: relative to the base images directory
---   * Ends with @\/@: treated as a directory (auto-generates filename from disk name + format extension)
---   * Does not end with @\/@: treated as the full file path
---
--- Examples:
---
--- @
--- path: "ws25/"           # -> $BASE/ws25/my-disk.qcow2
--- path: "my-disk.raw"     # -> $BASE/my-disk.raw
--- path: "/data/vms/"      # -> /data/vms/my-disk.qcow2
--- path: "/data/disk.raw"  # -> /data/disk.raw
--- @
 data ApplyDisk = ApplyDisk
   { adName :: Text
   , adFormat :: Maybe DriveFormat
@@ -185,7 +157,7 @@ data ApplyDisk = ApplyDisk
   , adPath :: Maybe Text
   , adRegister :: Maybe Text
   , adBacking :: Maybe Text
-  , adIfExists :: Maybe DiskIfExists
+  , adIfExists :: Maybe IfExists
   , adChecksum :: Maybe ChecksumSpec
   , adEphemeral :: Bool
   , adNode :: Text

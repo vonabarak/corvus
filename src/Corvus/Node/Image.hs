@@ -2,6 +2,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | QEMU disk image management using qemu-img.
 --
@@ -37,6 +38,7 @@ module Corvus.Node.Image
   , decompressXz
 
     -- * Hashing
+  , sourceIdentity
   , hashFile
   , md5HashFile
 
@@ -67,6 +69,7 @@ import Data.Int (Int64)
 import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import qualified System.Directory as D
 import System.Exit (ExitCode (..))
@@ -717,3 +720,26 @@ withNewImagePath destination operation = do
     cleanup temporary = do
       _ <- try (removeFile temporary) :: IO (Either SomeException ())
       pure ()
+
+-- Paths and mtimes do not identify content. Include every backing file,
+-- because qemu-img conversion consumes the whole chain.
+data SourceFile = SourceFile Text Text
+instance FromJSON SourceFile where
+  parseJSON = withObject "source image" $ \o -> SourceFile <$> o .: "filename" <*> o .: "format"
+
+sourceIdentity :: FilePath -> IO (Either Text Text)
+sourceIdentity path = do
+  result <- try $ readProcessWithExitCode qemuImgBinary ["info", "--backing-chain", "--output=json", path] ""
+  case result of
+    Left (err :: SomeException) -> pure $ Left $ T.pack (show err)
+    Right (ExitFailure _, _, err) -> pure $ Left $ T.pack err
+    Right (ExitSuccess, out, _) -> case (eitherDecodeStrict (TE.encodeUtf8 (T.pack out)) :: Either String [SourceFile]) of
+      Left err -> pure $ Left $ T.pack err
+      Right [] -> pure $ Left "No local image in source backing chain"
+      Right files -> do
+        digests <- mapM hashSource files
+        pure $ T.pack . show <$> sequence digests
+  where
+    hashSource (SourceFile name format)
+      | ":" `T.isInfixOf` name = pure $ Left "Apply imports require a fully local backing chain"
+      | otherwise = fmap (format,) <$> hashFile "sha256" (T.unpack name)

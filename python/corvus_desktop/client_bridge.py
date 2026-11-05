@@ -500,8 +500,8 @@ class CorvusBridge(QObject):
     def cloud_init_delete(self, vm_id: int) -> None:
         self._enqueue(self._do_cloud_init_delete(vm_id))
 
-    def apply_yaml(self, yaml_text: str, *, skip_existing: bool = False) -> None:
-        self._enqueue(self._do_apply(yaml_text, skip_existing))
+    def apply_yaml(self, yaml_text: str) -> None:
+        self._enqueue(self._do_apply(yaml_text))
 
     # ---------------------------------------------------- VM editing slots
 
@@ -1466,13 +1466,13 @@ class CorvusBridge(QObject):
 
     # ------------------------------------------------------------ apply
 
-    async def _do_apply(self, yaml_text: str, skip_existing: bool) -> None:
+    async def _do_apply(self, yaml_text: str) -> None:
         client = self._client
         if client is None:
             self.operation_failed.emit("apply", "not connected")
             return
         try:
-            result, task_id = await client.apply(yaml_text, skip_existing=skip_existing)
+            result, task_id = await client.apply(yaml_text)
         except CorvusError as e:
             self.operation_failed.emit("apply", _friendly_error(e))
             return

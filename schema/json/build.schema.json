@@ -352,7 +352,8 @@
           "enum": [
             "error",
             "skip",
-            "overwrite"
+            "overwrite",
+            "update"
           ]
         },
         {
@@ -361,7 +362,7 @@
           "description": "Client-side variable reference; resolved when crv build runs."
         }
       ],
-      "description": "Allowed values: error, skip, overwrite."
+      "description": "Allowed values: error, skip, overwrite, update."
     },
     "diskIfExists": {
       "type": "string",
@@ -1895,13 +1896,13 @@
                   "$ref": "#/definitions/ifExists"
                 }
               ],
-              "default": "error"
+              "default": "update"
             },
             {
               "type": "null"
             }
           ],
-          "description": "Default policy for existing resources: error, skip, or overwrite."
+          "description": "Existing-resource policy; defaults to update."
         }
       },
       "additionalProperties": false,
@@ -1969,13 +1970,13 @@
                   "$ref": "#/definitions/diskIfExists"
                 }
               ],
-              "default": "error"
+              "default": "update"
             },
             {
               "type": "null"
             }
           ],
-          "description": "Policy for an existing uploaded image: error, skip, overwrite, or update."
+          "description": "Existing-resource policy; defaults to update."
         }
       },
       "additionalProperties": false,
@@ -2062,7 +2063,7 @@
                   "$ref": "#/definitions/diskIfExists"
                 }
               ],
-              "default": "error"
+              "default": "update"
             },
             {
               "type": "null"

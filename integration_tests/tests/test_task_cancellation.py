@@ -68,6 +68,7 @@ class TestTaskCancellation(SingleNodeCase):
                     format: qcow2
                   - name: {import_name}
                     import: {url}
+                    ifExists: error
                     format: raw
                 vms:
                   - name: {future_vm}

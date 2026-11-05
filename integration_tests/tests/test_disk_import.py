@@ -384,7 +384,7 @@ class TestDiskImport(SingleNodeCase):
         The test checks that:
         - An unchanged checksum reuses the image ID without a download, even when
           the digest's case or the source URL changes, and emits a skip event.
-        - Explicit disk policies override the top-level skip policy and CLI flag;
+        - Explicit disk policies override the top-level skip policy;
           error and skip avoid downloading, while update imports a changed digest.
         - A checksum failure preserves the selected image, its bytes and its URL;
           a successful update publishes a new ID and keeps the old version intact.
@@ -428,21 +428,17 @@ class TestDiskImport(SingleNodeCase):
 
             try:
 
-                def apply(
-                    expected: str = "success", *, skip_existing: bool = False
-                ) -> list[ApplyStreamItem]:
+                def apply(expected: str = "success") -> list[ApplyStreamItem]:
                     if expected == "error":
                         with pytest.raises(CorvusError):
                             self.client.apply(
                                 yaml.safe_dump({"ifExists": "skip", "disks": [disk]}),
                                 wait=True,
-                                skip_existing=skip_existing,
                             )
                         return []
                     events = list(
                         self.client.apply_stream(
                             yaml.safe_dump({"ifExists": "skip", "disks": [disk]}),
-                            skip_existing=skip_existing,
                         )
                     )
                     ends = [event for event in events if isinstance(event, ApplyEnd)]
@@ -451,7 +447,7 @@ class TestDiskImport(SingleNodeCase):
 
                 checksum_spec["value"] = first_checksum
                 disk["ifExists"] = "overwrite"
-                apply(skip_existing=True)
+                apply()
                 disk["ifExists"] = "update"
                 old = self.client.disks.get(str(disk["name"]))
                 old_info = old.show()
@@ -473,7 +469,7 @@ class TestDiskImport(SingleNodeCase):
                 server.set_payload(second_download)
                 disk["ifExists"] = "error"
                 before = server.request_count()
-                apply("error", skip_existing=True)
+                apply("error")
                 assert server.request_count() == before
                 disk["ifExists"] = "skip"
                 before = server.request_count()
@@ -491,7 +487,7 @@ class TestDiskImport(SingleNodeCase):
 
                 checksum_spec["value"] = second_checksum
                 before = server.request_count()
-                apply(skip_existing=True)
+                apply()
                 new = self.client.disks.get(str(disk["name"]))
                 new_info = new.show()
                 assert new_info.id != old_info.id

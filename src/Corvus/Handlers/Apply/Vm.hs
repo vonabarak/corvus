@@ -1,14 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
-module Corvus.Handlers.Apply.Vm (ApplyVmCreate (..)) where
+module Corvus.Handlers.Apply.Vm (ApplyVmCreate (..), ApplyVmReplaceDelete (..)) where
 
-import Control.Monad (forM_, when)
+import Control.Monad (forM_)
 import Corvus.Action
 import Corvus.Handlers.Apply.Resolve (resolveByName, resolveByNameFilter, resolveDiskName)
 import Corvus.Handlers.Apply.Validation (effectiveCloudInit)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
+import Corvus.Handlers.Disk.Maintenance (DiskDelete (..))
 import qualified Corvus.Handlers.NetIf as NetIfH
-import Corvus.Handlers.Vm (VmCreate (..))
+import Corvus.Handlers.Vm (VmCreate (..), VmDelete (..))
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.Apply
@@ -67,10 +69,10 @@ createOneVmAttachments ctx keyMap diskMap nwMap v vmId = do
             Left err -> pure $ Left err
             Right () -> do
               forM_ (avCloudInitConfig v) $ \cic -> runSqlPool (insert_ $ CloudInit vmId (cicyUserData cic) (cicyNetworkConfig cic) (cicyInjectSshKeys cic)) (ssDbPool state)
-              when (effectiveCloudInit v) $ do
-                _ <- runActionAsSubtask ctx (RegenerateCloudInit (fromSqlKey vmId) (avName v))
-                pure ()
-              pure $ Right $ fromSqlKey vmId
+              result <- if effectiveCloudInit v then runActionAsSubtask ctx (RegenerateCloudInit (fromSqlKey vmId) (avName v)) else pure RespDiskOk
+              pure $ case classifyResponse result of
+                (TaskError, message) -> Left $ fromMaybe "Cloud-init generation failed" message
+                _ -> Right $ fromSqlKey vmId
 attachDrives :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyDrive] -> Text -> IO (Either Text ())
 attachDrives state diskMap vmId drives guestName = go drives
   where
@@ -111,3 +113,33 @@ attachSshKeys state keyMap vmId keyNames guestName = go keyNames
       case mKeyId of
         Nothing -> pure $ Left $ "VM '" <> guestName <> "': SSH key '" <> kn <> "' not found"
         Just keyId -> runSqlPool (insert_ $ VmSshKey vmId (toSqlKey keyId)) (ssDbPool state) >> go kns
+
+-- Replacing a VM must retain its newly declared disk versions, including
+-- ephemeral data disks. Unreferenced old ephemeral disks still get cleaned up.
+data ApplyVmReplaceDelete = ApplyVmReplaceDelete Int64 (Map.Map Text Int64) ApplyVm
+instance Action ApplyVmReplaceDelete where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "delete"
+  actionResources state (ApplyVmReplaceDelete eid _ _) = actionResources state (VmDelete eid False False)
+  actionExecute ctx (ApplyVmReplaceDelete eid disks v) = do
+    let state = acState ctx
+    desired <- mapM (resolveDiskName state disks . adrDisk) (avDrives v)
+    old <-
+      runSqlPool
+        ( do
+            drives <- selectList [DriveVmId ==. toSqlKey eid] []
+            images <- mapM (maybe (pure Nothing) (\key -> fmap ((key,) <$>) (get key)) . driveDiskImageId . entityVal) drives
+            pure [fromSqlKey key | Just (key, image) <- images, diskImageEphemeral image, Just (fromSqlKey key) `notElem` desired]
+        )
+        (ssDbPool state)
+    deleted <- runActionAsSubtask ctx (VmDelete eid True False)
+    case classifyResponse deleted of
+      (TaskError, _) -> pure deleted
+      _ -> cleanup ctx old
+    where
+      cleanup _ [] = pure RespDiskOk
+      cleanup leased (disk : rest) = do
+        result <- runActionAsSubtask leased (DiskDelete disk)
+        case classifyResponse result of
+          (TaskError, _) -> pure result
+          _ -> cleanup leased rest

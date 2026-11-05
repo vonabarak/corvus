@@ -464,7 +464,7 @@ else:
 
         # Minimal apply: the SSH key, OVMF firmware disks (read
         # from the test-node's local /usr/share/edk2/, no
-        # downloads), and the bake template. `skip_existing` makes
+        # downloads), and the bake template. The default update policy makes
         # the test idempotent — re-running in the same topology
         # leaves prior entries untouched.
         bake_template_yaml = textwrap.dedent("""
@@ -512,7 +512,7 @@ else:
                 sshKeys:
                   - name: corvus
         """).strip()
-        self.client.apply(bake_template_yaml, skip_existing=True, wait=True)
+        self.client.apply(bake_template_yaml, wait=True)
 
         # Preprocess the build YAML (inlines file refs like the
         # SSH-key pubkey) then patch the target/build names so we

@@ -587,7 +587,7 @@ class Topology:
             _yaml.safe_dump(doc, f, sort_keys=False)
             tmp_path = Path(f.name)
         try:
-            self.crv.apply(tmp_path, skip_existing=True, wait=True, timeout_sec=300)
+            self.crv.apply(tmp_path, wait=True, timeout_sec=300)
         except Exception:
             # Keep the temp YAML on failure so the developer can inspect
             # exactly what was fed to `crv apply`.

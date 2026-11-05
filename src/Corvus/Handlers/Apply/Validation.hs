@@ -60,7 +60,7 @@ validateConfig config = do
     findDuplicate [] = Nothing
     findDuplicate (x : xs) | x `elem` xs = Just x | otherwise = findDuplicate xs
     validateDisk d
-      | adIfExists d == Just DiskIfExistsUpdate && (not (maybe False isHttpUrl $ adImport d) || isNothing (adChecksum d)) = Left $ "Disk '" <> adName d <> "': ifExists update requires an HTTP/HTTPS import with checksum"
+      | fromMaybe (acIfExists config) (adIfExists d) == IfExistsUpdate && maybe False isHttpUrl (adImport d) && isNothing (adChecksum d) = Left $ "Disk '" <> adName d <> "': ifExists update requires a checksum for HTTP/HTTPS imports"
       | otherwise =
           let hasImport = isJust (adImport d)
               hasOverlay = isJust (adOverlay d)

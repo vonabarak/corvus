@@ -424,6 +424,11 @@ instance CGNA.Session'server_ SessionServer where
               { CGNA.finalPath = T.pack final
               }
 
+  session'diskSourceIdentity _ =
+    handleParsedAsync $ traceNodeRequest "diskSourceIdentity" $ \CGNA.Session'diskSourceIdentity'params {CGNA.path = p} -> do
+      result <- NI.sourceIdentity (T.unpack p)
+      either throwFailed (\identity -> pure CGNA.Session'diskSourceIdentity'results {CGNA.identity = identity}) result
+
   session'diskHash _ =
     handleParsedAsync $ traceNodeRequest "diskHash" $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do
       result <- NI.hashFile a (T.unpack p)

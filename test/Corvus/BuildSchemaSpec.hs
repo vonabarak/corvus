@@ -180,7 +180,7 @@ spec = describe "Schema.Build" $ do
           btFormat (buildTarget b) `shouldBe` FormatQcow2
           btCompact (buildTarget b) `shouldBe` True
           btEphemeral (buildTarget b) `shouldBe` False
-          btIfExists (buildTarget b) `shouldBe` BuildIfExistsPolicy IfExistsError
+          btIfExists (buildTarget b) `shouldBe` IfExistsUpdate
           buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
           bvmCpuCount (buildVm b) `shouldBe` 4
@@ -258,7 +258,7 @@ spec = describe "Schema.Build" $ do
             , "        ifExists: " <> v
             ]
 
-    it "defaults to IfExistsError when ifExists is absent" $ do
+    it "defaults to IfExistsUpdate when ifExists is absent" $ do
       let yaml =
             BS8.unlines
               [ "pipeline:"
@@ -268,20 +268,20 @@ spec = describe "Schema.Build" $ do
               , "      target: {}"
               ]
       case decodePipeline yaml of
-        Right c -> btIfExists (buildTarget (firstBuild c)) `shouldBe` BuildIfExistsPolicy IfExistsError
+        Right c -> btIfExists (buildTarget (firstBuild c)) `shouldBe` IfExistsUpdate
         Left e -> expectationFailure e
 
     it "parses ifExists: error" $
-      parseIfExists (wrapTarget "error") `shouldBe` Right (BuildIfExistsPolicy IfExistsError)
+      parseIfExists (wrapTarget "error") `shouldBe` Right IfExistsError
 
     it "parses ifExists: skip" $
-      parseIfExists (wrapTarget "skip") `shouldBe` Right (BuildIfExistsPolicy IfExistsSkip)
+      parseIfExists (wrapTarget "skip") `shouldBe` Right IfExistsSkip
 
     it "parses ifExists: overwrite" $
-      parseIfExists (wrapTarget "overwrite") `shouldBe` Right (BuildIfExistsPolicy IfExistsOverwrite)
+      parseIfExists (wrapTarget "overwrite") `shouldBe` Right IfExistsOverwrite
 
     it "parses ifExists: update for build targets" $
-      parseIfExists (wrapTarget "update") `shouldBe` Right BuildIfExistsUpdate
+      parseIfExists (wrapTarget "update") `shouldBe` Right IfExistsUpdate
 
     it "rejects unknown ifExists values" $
       decodePipeline (wrapTarget "maybe") `shouldSatisfy` \case
@@ -488,7 +488,7 @@ spec = describe "Schema.Build" $ do
           [PipelineUpload upload] -> do
             uploadName upload `shouldBe` "answer"
             uploadEphemeral upload `shouldBe` True
-            uploadIfExists upload `shouldBe` UploadError
+            uploadIfExists upload `shouldBe` UploadUpdate
           other -> expectationFailure $ "unexpected: " ++ show other
         Left e -> expectationFailure e
 

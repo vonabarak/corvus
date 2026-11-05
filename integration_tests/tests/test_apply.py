@@ -10,7 +10,7 @@ Ports `ApplyIntegrationSpec` (see
     with the deployed key in its authorized_keys.
 
 Plus two gap tests absent from the pre-refactor spec:
-  * `skip_existing=True` idempotency — re-apply returns the same
+  * `` idempotency — re-apply returns the same
     resource IDs and doesn't error;
   * a VM that references a non-existent disk is rejected at
     validation, before any partial state lands.
@@ -325,8 +325,8 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
-    def test_skip_existing_idempotent(self) -> None:
-        """Re-applying the same YAML with skip_existing=True is a no-op.
+    def test_default_update_idempotent(self) -> None:
+        """Re-applying the same YAML with the default update policy is a no-op.
 
         Same IDs round-trip on the second apply — proves the daemon
         resolved names to existing resources rather than erroring or
@@ -360,8 +360,8 @@ class TestApply(SingleNodeCase):
                   - type: user
         """).strip()
 
-        r1, _ = self.client.apply(yaml_body, wait=True, skip_existing=True)
-        r2, _ = self.client.apply(yaml_body, wait=True, skip_existing=True)
+        r1, _ = self.client.apply(yaml_body, wait=True)
+        r2, _ = self.client.apply(yaml_body, wait=True)
         try:
             # Disks, networks (and ssh-keys, templates) return the
             # existing id on the second apply.

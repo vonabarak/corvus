@@ -108,11 +108,10 @@ function ResultPanel({ response }: { response: ApplyResponse }) {
 
 export default function Apply() {
   const [yaml, setYaml] = useState<string>(PLACEHOLDER_YAML);
-  const [skipExisting, setSkipExisting] = useState<boolean>(false);
   const [response, setResponse] = useState<ApplyResponse | null>(null);
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: () => runApply(yaml, skipExisting),
+    mutationFn: () => runApply(yaml),
     onSuccess: (resp) => {
       setResponse(resp);
       // Anything could have been created — invalidate every list.
@@ -139,15 +138,6 @@ export default function Apply() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={skipExisting}
-              onChange={(e) => setSkipExisting(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
-            />
-            <span>Skip existing</span>
-          </label>
           <Button
             size="sm"
             onClick={() => {

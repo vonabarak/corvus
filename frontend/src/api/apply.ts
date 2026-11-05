@@ -18,6 +18,6 @@ export interface ApplyResponse {
   task_id: number;
 }
 
-export function runApply(yaml: string, skipExisting: boolean): Promise<ApplyResponse> {
-  return apiSend<ApplyResponse>("POST", "/apply", { yaml, skip_existing: skipExisting });
+export function runApply(yaml: string): Promise<ApplyResponse> {
+  return apiSend<ApplyResponse>("POST", "/apply", { yaml });
 }

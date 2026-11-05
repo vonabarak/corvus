@@ -10,6 +10,7 @@ where
 
 import Corvus.Action
 import Corvus.Images
+import Corvus.Images.ApplyIdentity (recordApplyIdentity)
 
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
@@ -39,8 +40,8 @@ import System.FilePath (takeExtension, takeFileName)
 import Corvus.Handlers.Disk.Placement (nodeBasePathFor)
 
 -- | Create a qcow2 overlay backed by an existing disk image
-handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int64 -> Maybe T.Text -> Bool -> Maybe NodeId -> IO Response
-handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral requestedNode = runServerLogging state $ do
+handleDiskCreateOverlay :: Maybe Text -> ServerState -> T.Text -> Int64 -> Maybe Int64 -> Maybe T.Text -> Bool -> Maybe NodeId -> IO Response
+handleDiskCreateOverlay identity state name baseDiskId mResize optDirPath ephemeral requestedNode = runServerLogging state $ do
   logInfoN $ "Creating overlay '" <> name <> "' backed by disk " <> T.pack (show baseDiskId)
 
   case sanitizeDiskName name of
@@ -112,6 +113,7 @@ handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral reque
                                           , diskImageEphemeral = ephemeral
                                           }
                                     recordDiskImageNode dkey nid storedOverlay
+                                    recordApplyIdentity identity dkey
                                     pure dkey
                                 )
                                 (ssDbPool state)
@@ -124,8 +126,8 @@ handleDiskCreateOverlay state name baseDiskId mResize optDirPath ephemeral reque
                     ImageNotFound -> pure $ RespError "Base image file not found"
 
 -- | Clone a disk image
-handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int64 -> Maybe Text -> Bool -> Maybe NodeId -> IO Response
-handleDiskClone state name baseDiskId mResize optionalPath ephemeral requestedNode = runServerLogging state $ do
+handleDiskClone :: Maybe Text -> ServerState -> Text -> Int64 -> Maybe Int64 -> Maybe Text -> Bool -> Maybe NodeId -> IO Response
+handleDiskClone identity state name baseDiskId mResize optionalPath ephemeral requestedNode = runServerLogging state $ do
   logInfoN $ "Cloning disk image " <> T.pack (show baseDiskId) <> " to '" <> name <> "'"
 
   case sanitizeDiskName name of
@@ -189,6 +191,7 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral requestedNo
                                           , diskImageEphemeral = ephemeral
                                           }
                                     recordDiskImageNode dId nid storedDest
+                                    recordApplyIdentity identity dId
                                     -- Clone snapshots as well
                                     baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
                                     forM_ baseSnapshots $ \snapEntity -> do
@@ -205,7 +208,8 @@ handleDiskClone state name baseDiskId mResize optionalPath ephemeral requestedNo
                     ImageFormatNotSupported err -> pure $ RespFormatNotSupported err
 
 data DiskCreateOverlay = DiskCreateOverlay
-  { dcoName :: Text
+  { dcoApplyIdentity :: Maybe Text
+  , dcoName :: Text
   , dcoBaseDiskId :: Int64
   , dcoResize :: Maybe Int64
   , dcoPath :: Maybe Text
@@ -224,10 +228,11 @@ instance Action DiskCreateOverlay where
   actionSubsystem _ = SubDisk
   actionCommand _ = "overlay"
   actionEntityName = Just . dcoName
-  actionExecute ctx a = withAvailableNodePath (acState ctx) (maybe 0 fromSqlKey (dcoNode a)) (dcoPath a) $ handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a) (dcoNode a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (maybe 0 fromSqlKey (dcoNode a)) (dcoPath a) $ handleDiskCreateOverlay (dcoApplyIdentity a) (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResize a) (dcoPath a) (dcoEphemeral a) (dcoNode a)
 
 data DiskClone = DiskClone
-  { dclName :: Text
+  { dclApplyIdentity :: Maybe Text
+  , dclName :: Text
   , dclBaseDiskId :: Int64
   , dclResize :: Maybe Int64
   , dclPath :: Maybe Text
@@ -246,7 +251,7 @@ instance Action DiskClone where
   actionSubsystem _ = SubDisk
   actionCommand _ = "clone"
   actionEntityName = Just . dclName
-  actionExecute ctx a = withAvailableNodePath (acState ctx) (maybe 0 fromSqlKey (dclNode a)) (dclPath a) $ handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a) (dclNode a)
+  actionExecute ctx a = withAvailableNodePath (acState ctx) (maybe 0 fromSqlKey (dclNode a)) (dclPath a) $ handleDiskClone (dclApplyIdentity a) (acState ctx) (dclName a) (dclBaseDiskId a) (dclResize a) (dclPath a) (dclEphemeral a) (dclNode a)
 
 -- | Honor the VM placement when deriving attached media.
 selectDerivationNode :: ServerState -> Int64 -> Maybe NodeId -> IO (Either Text NodeId)

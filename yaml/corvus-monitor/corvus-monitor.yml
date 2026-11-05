@@ -168,7 +168,7 @@ pipeline:
 
   # After the bake succeeds, instantiate a running `corvus-monitor`
   # VM from the freshly registered image. Re-runs with
-  # `--skip-existing` are safe; first-time runs come up with
+  # `ifExists: update` are safe; first-time runs come up with
   # Prometheus + Grafana already enabled (the bake-time
   # `systemctl enable` from step 7), so the operator only needs to
   # point Prometheus at their corvus-web target (see README.md).

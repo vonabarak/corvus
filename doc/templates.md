@@ -217,7 +217,7 @@ This means templates can reference SSH keys and disks defined earlier in the sam
 
 ### Skip Existing
 
-With `crv apply --skip-existing`, templates whose names already exist in the database are silently skipped and their IDs are reused. This makes apply files idempotent.
+Apply defaults to `ifExists: update`: identical templates retain their IDs, and declarative changes replace them. Set `ifExists: skip` in YAML to preserve existing templates regardless of differences.
 
 ### Validation
 

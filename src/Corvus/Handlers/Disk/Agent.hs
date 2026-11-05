@@ -44,6 +44,7 @@ module Corvus.Handlers.Disk.Agent
     -- * Download / decompress / hash
   , downloadImageViaAgent
   , decompressXzViaAgent
+  , sourceIdentityViaAgent
   , hashFileViaAgent
 
     -- * Inter-agent transfer
@@ -432,3 +433,6 @@ importFromPeerViaAgent state nid destPath peerHost peerPort token sz md5 =
       token
       sz
       md5
+
+sourceIdentityViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text Text)
+sourceIdentityViaAgent state nid path = withEitherText state nid $ \nac -> NOA.diskSourceIdentity nac (T.pack path)

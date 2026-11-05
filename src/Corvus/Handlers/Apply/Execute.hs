@@ -7,11 +7,12 @@ module Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply) where
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..), matchesDiskImport)
+import Corvus.Handlers.Apply.Disk (ApplyDiskCreate (..), matchesApplyDisk, prepareApplyDisk)
+import Corvus.Handlers.Apply.Identity
 import Corvus.Handlers.Apply.Overwrite
 import Corvus.Handlers.Apply.Resolve
 import Corvus.Handlers.Apply.Validation (validateConfig)
-import Corvus.Handlers.Apply.Vm (ApplyVmCreate (..))
+import Corvus.Handlers.Apply.Vm (ApplyVmCreate (..), ApplyVmReplaceDelete (..))
 import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForNetwork, pickNodeForVm)
@@ -29,28 +30,27 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist ((==.))
+import Database.Persist (selectList, (==.))
 import Database.Persist.Sql (runSqlPool)
 
-data ApplyAction = ApplyAction {aaConfig :: ApplyConfig, aaSkipExisting :: Bool}
+newtype ApplyAction = ApplyAction {aaConfig :: ApplyConfig}
 instance Action ApplyAction where
   actionSubsystem _ = SubApply
   actionCommand _ = "apply"
   actionExecute ctx a = case validateConfig (aaConfig a) of
     Left err -> pure $ RespError err
-    Right () -> handleApplyExecute ctx (aaConfig a) (aaSkipExisting a)
-handleApplyExecute :: ActionContext -> ApplyConfig -> Bool -> IO Response
-handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $ do
+    Right () -> handleApplyExecute ctx (aaConfig a)
+handleApplyExecute :: ActionContext -> ApplyConfig -> IO Response
+handleApplyExecute ctx config = runServerLogging (acState ctx) $ do
   logInfoN "Applying environment configuration..."
-  let effective = if cliSkipExisting && acIfExists config == IfExistsError then IfExistsSkip else acIfExists config
-  result <- liftIO $ executeApply ctx config effective
+  result <- liftIO $ executeApply ctx config
   case result of
     Left err -> logWarnN ("Apply failed: " <> err) >> pure (RespError err)
     Right applyResult -> logInfoN "Apply completed successfully" >> pure (RespApplyResult applyResult)
 
-executeApply :: ActionContext -> ApplyConfig -> IfExists -> IO (Either Text ApplyResult)
-executeApply ctx config ifExists = do
-  keyResult <- phase "sshKeys" (acSshKeys config) Map.empty $ \k _ -> entity SshKeyObject Nothing (actionResources state (SshKeyCreate (askName k) (askPublicKey k))) "sshKeys" "ssh-key-create" (askName k) (resolveByName state UniqueSshKeyName Map.empty $ askName k) (\leased -> runActionAsSubtask leased $ SshKeyCreate (askName k) (askPublicKey k)) $ \leased eid -> Overwrite (preflightSshKeyOverwrite state eid) (runActionAsSubtask leased $ SshKeyDelete eid)
+executeApply :: ActionContext -> ApplyConfig -> IO (Either Text ApplyResult)
+executeApply ctx config = do
+  keyResult <- phase "sshKeys" (acSshKeys config) Map.empty $ \k _ -> entity SshKeyObject Nothing (actionResources state (SshKeyCreate (askName k) (askPublicKey k))) "sshKeys" "ssh-key-create" (askName k) (resolveByName state UniqueSshKeyName Map.empty $ askName k) (fmap Right . matchesKey state k) (\leased -> runActionAsSubtask leased $ SshKeyCreate (askName k) (askPublicKey k)) $ \leased eid -> Overwrite (preflightSshKeyOverwrite state eid) (runActionAsSubtask leased $ SshKeyDelete eid)
   case keyResult of
     Left e -> pure $ Left e
     Right (keyMap, keys) -> do
@@ -58,7 +58,7 @@ executeApply ctx config ifExists = do
       case diskResult of
         Left e -> pure $ Left e
         Right (diskMap, disks) -> do
-          networkResult <- phase "networks" (acNetworks config) Map.empty $ \raw _ -> withPlacement (anNode raw) (pickNodeForNetwork state) $ \node -> let n = raw {anNode = node} in entity NetworkObject (readNode node) (nodeNameResources state NetworkObject node (anName n)) "networks" "network-create" (anName n) (resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) Map.empty (anName n) (anNode n)) (\leased -> runActionAsSubtask leased $ NetworkCreate (anName n) (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n) (anDnsServers n) (anDomain n) (anHostDns n)) $ \leased eid -> Overwrite (preflightNetworkOverwrite state (anName n) eid) (runActionAsSubtask leased $ NetworkDelete eid)
+          networkResult <- phase "networks" (acNetworks config) Map.empty $ \raw _ -> withPlacement NetworkObject (anName raw) (anNode raw) (pickNodeForNetwork state) $ \node -> let n = raw {anNode = node} in entity NetworkObject (readNode node) (nodeNameResources state NetworkObject node (anName n)) "networks" "network-create" (anName n) (resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) Map.empty (anName n) (anNode n)) (fmap Right . matchesNetwork state n) (\leased -> runActionAsSubtask leased $ NetworkCreate (anName n) (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n) (anDnsServers n) (anDomain n) (anHostDns n)) $ \leased eid -> Overwrite (preflightNetworkOverwrite state (anName n) eid) (runActionAsSubtask leased $ NetworkDelete eid)
           case networkResult of
             Left e -> pure $ Left e
             Right (networkMap, networks) -> do
@@ -66,22 +66,38 @@ executeApply ctx config ifExists = do
               case vmResult of
                 Left e -> pure $ Left e
                 Right vs -> do
-                  templateResult <- phase "templates" (acTemplates config) Map.empty $ \t _ -> entity TemplateObject Nothing (templateOperationResources state t) "templates" "template-create" (tyName t) (resolveByName state UniqueTemplateVmName Map.empty $ tyName t) (\leased -> runActionAsSubtask leased $ ApplyTemplateCreate t) $ \leased eid -> Overwrite (pure $ Right ()) (runActionAsSubtask leased $ TemplateDelete eid)
+                  templateResult <- phase "templates" (acTemplates config) Map.empty $ \t _ -> entity TemplateObject Nothing (templateOperationResources state t) "templates" "template-create" (tyName t) (resolveByName state UniqueTemplateVmName Map.empty $ tyName t) (matchesTemplate state t) (\leased -> runActionAsSubtask leased $ ApplyTemplateCreate t) $ \leased eid -> Overwrite (pure $ Right ()) (runActionAsSubtask leased $ TemplateDelete eid)
                   pure $ fmap (\(_, ts) -> ApplyResult keys disks networks vs ts) templateResult
   where
+    ifExists = acIfExists config
     state = acState ctx
     sink = acApplySink ctx
     diskKind d = case (adImport d, adOverlay d, adClone d, adRegister d) of (Just _, _, _, _) -> "disk-import"; (_, Just _, _, _) -> "disk-overlay"; (_, _, Just _, _) -> "disk-clone"; (_, _, _, Just _) -> "disk-register"; _ -> "disk-create"
     readNode ref = case reads (T.unpack ref) of [(node, "")] -> Just node; _ -> Nothing
-    withPlacement :: Text -> IO (Either Text NodeId) -> (Text -> IO (Either Text a)) -> IO (Either Text a)
-    withPlacement ref automatic operation = do
-      pinned <- pinNode state ref automatic
+    withPlacement :: ObjectKind -> Text -> Text -> IO (Either Text NodeId) -> (Text -> IO (Either Text a)) -> IO (Either Text a)
+    withPlacement objectKind name ref automatic operation = do
+      existing <-
+        if T.null ref && ifExists == IfExistsUpdate
+          then
+            runSqlPool
+              ( case objectKind of
+                  VmObject -> map (vmNodeId . entityVal) <$> selectList [VmName ==. name] []
+                  NetworkObject -> map (networkNodeId . entityVal) <$> selectList [NetworkName ==. name] []
+                  _ -> pure []
+              )
+              (ssDbPool state)
+          else pure []
+      let choose = case existing of
+            [] -> automatic
+            [node] -> pure $ Right node
+            _ -> pure $ Left $ "Ambiguous resource '" <> name <> "'; specify node"
+      pinned <- pinNode state ref choose
       case pinned of
         Left response -> pure $ Left $ fromMaybe "Node placement failed" (snd (classifyResponse response))
         Right node -> operation node
-    entity objectKind scope dependencies phaseName kind name find create makeOverwrite =
-      fmap fst <$> entityOutcome objectKind scope dependencies phaseName kind name find create makeOverwrite
-    entityOutcome objectKind scope dependencies phaseName kind name find create makeOverwrite =
+    entity objectKind scope dependencies phaseName kind name find matches create makeOverwrite =
+      fmap fst <$> entityOutcome objectKind scope dependencies phaseName kind name find matches create makeOverwrite
+    entityOutcome objectKind scope dependencies phaseName kind name find matches create makeOverwrite =
       withPreparedOperationLeases
         ctx
         ( do
@@ -95,6 +111,12 @@ executeApply ctx config ifExists = do
           let mExisting = if ifExists == IfExistsError then Nothing else found
           case (mExisting, ifExists) of
             (Just eid, IfExistsSkip) -> sink (EntityStart phaseName name "skip") >> sink (EntityEnd phaseName name TaskSuccess "" eid) >> pure (Right ((name, eid), True))
+            (Just eid, IfExistsUpdate) -> do
+              same <- matches eid
+              case same of
+                Left err -> pure $ Left err
+                Right True -> sink (EntityStart phaseName name "skip") >> sink (EntityEnd phaseName name TaskSuccess "" eid) >> pure (Right ((name, eid), True))
+                Right False -> fmap (,False) <$> overwrite phaseName name eid (makeOverwrite leased eid) (create leased)
             (Just eid, IfExistsOverwrite) -> fmap (,False) <$> overwrite phaseName name eid (makeOverwrite leased eid) (create leased)
             _ -> fmap (,False) <$> subtask phaseName kind name (create leased)
     overwrite phaseName name eid ow create = do
@@ -121,24 +143,31 @@ executeApply ctx config ifExists = do
         ( do
             pins <- mapM (\name -> fmap (fmap (name,)) (resolveDiskName state m name)) (catMaybes [adOverlay d, adClone d, adBacking d])
             let pinned = Map.union (Map.fromList (catMaybes pins)) m
-            resources <- actionResources state (ApplyDiskCreate d pinned)
-            pure (pinned, resources)
+            resources <- actionResources state (ApplyDiskCreate d pinned Nothing)
+            target <- resolveDiskName state pinned (adName d)
+            targetResources <- maybe (pure []) (imageResources state ExclusiveAccess) target
+            pure ((pinned, target), resources ++ targetResources)
         )
-        (`diskEntityLocked` d)
-    diskEntityLocked leased d m = do
-      found <- resolveDiskName state m $ adName d
-      let policy = fromMaybe (DiskIfExistsPolicy ifExists) (adIfExists d)
-          name = adName d
-          create = runActionAsSubtask leased $ ApplyDiskCreate d m
+        (\leased (pinned, _) -> diskEntityLocked leased d pinned)
+    diskEntityLocked leased raw m = do
+      found <- resolveDiskName state m $ adName raw
+      let policy = fromMaybe ifExists (adIfExists raw)
+          name = adName raw
           skip eid = sink (EntityStart "disks" name "skip") >> sink (EntityEnd "disks" name TaskSuccess "" eid) >> pure (Right (name, eid))
       case (policy, found) of
-        (DiskIfExistsPolicy IfExistsError, Just _) -> pure $ Left $ "Disk target already exists: " <> name
-        (DiskIfExistsPolicy IfExistsSkip, Just eid) -> skip eid
-        (DiskIfExistsUpdate, Just eid) -> do
-          matches <- matchesDiskImport state d eid
-          if matches then skip eid else subtask "disks" (diskKind d) name create
-        (DiskIfExistsPolicy IfExistsOverwrite, Just eid) -> overwrite "disks" name eid (Overwrite (pure $ Right ()) (pure RespDiskOk)) create
-        _ -> subtask "disks" (diskKind d) name create
+        (IfExistsError, Just _) -> pure $ Left $ "Disk target already exists: " <> name
+        (IfExistsSkip, Just eid) -> skip eid
+        _ -> do
+          prepared <- prepareApplyDisk state raw m found
+          case prepared of
+            Left err -> pure $ Left err
+            Right (d, identity) -> do
+              same <- case (policy, found) of
+                (IfExistsUpdate, Just eid) -> matchesApplyDisk state d m identity eid
+                _ -> pure False
+              case (same, found) of
+                (True, Just eid) -> skip eid
+                _ -> subtask "disks" (diskKind d) name (runActionAsSubtask leased $ ApplyDiskCreate d m (Just identity))
     phase
       :: Text
       -> [a]
@@ -160,14 +189,14 @@ executeApply ctx config ifExists = do
       go xs []
       where
         go [] acc = pure $ Right $ reverse acc
-        go (raw : rest) acc = withPlacement (avNode raw) (pickNodeForVm state (avRam raw)) $ \node -> do
+        go (raw : rest) acc = withPlacement VmObject (avName raw) (avNode raw) (pickNodeForVm state (avRam raw)) $ \node -> do
           let v = raw {avNode = node}
           throwIfCancelled ctx
           let name = avName v
               find = resolveByNameFilter state (\nm -> [VmName ==. nm]) (\nid -> [VmNodeId ==. nid]) Map.empty name (avNode v)
               create leased = runActionAsSubtask leased $ ApplyVmCreate keyMap diskMap networkMap v
-              ow leased eid = Overwrite (preflightVmOverwrite state name eid) (runActionAsSubtask leased $ VmDelete eid False False)
-          r <- entityOutcome VmObject (readNode node) (actionResources state (ApplyVmCreate keyMap diskMap networkMap v)) "vms" "vm-create" name find create ow
+              ow leased eid = Overwrite (preflightVmOverwrite state name eid) (if ifExists == IfExistsUpdate then runActionAsSubtask leased $ ApplyVmReplaceDelete eid diskMap v else runActionAsSubtask leased $ VmDelete eid False False)
+          r <- entityOutcome VmObject (readNode node) (actionResources state (ApplyVmCreate keyMap diskMap networkMap v)) "vms" "vm-create" name find (matchesVm state keyMap diskMap networkMap v) create ow
           case r of
             Left e -> pure $ Left e
             Right ((_, eid), skipped) ->

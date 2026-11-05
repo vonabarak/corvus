@@ -680,7 +680,6 @@ instance (C.EstimateListAlloc Daemon'apply'params (C.Parsed Daemon'apply'params)
 data instance C.Parsed Daemon'apply'params
     = Daemon'apply'params 
         {yaml :: (RP.Parsed Basics.Text)
-        ,skipExisting :: (RP.Parsed Std_.Bool)
         ,wait :: (RP.Parsed Std_.Bool)
         ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ApplyEventSink)}
     deriving(Generics.Generic)
@@ -688,23 +687,19 @@ deriving instance (Std_.Show (C.Parsed Daemon'apply'params))
 deriving instance (Std_.Eq (C.Parsed Daemon'apply'params))
 instance (C.Parse Daemon'apply'params (C.Parsed Daemon'apply'params)) where
     parse raw_ = (Daemon'apply'params <$> (GH.parseField #yaml raw_)
-                                      <*> (GH.parseField #skipExisting raw_)
                                       <*> (GH.parseField #wait raw_)
                                       <*> (GH.parseField #sink raw_))
 instance (C.Marshal Daemon'apply'params (C.Parsed Daemon'apply'params)) where
     marshalInto raw_ Daemon'apply'params{..} = (do
         (GH.encodeField #yaml yaml raw_)
-        (GH.encodeField #skipExisting skipExisting raw_)
         (GH.encodeField #wait wait raw_)
         (GH.encodeField #sink sink raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "yaml" GH.Slot Daemon'apply'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "skipExisting" GH.Slot Daemon'apply'params Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 0 1 0)
 instance (GH.HasField "wait" GH.Slot Daemon'apply'params Std_.Bool) where
-    fieldByLabel  = (GH.dataField 1 0 1 0)
+    fieldByLabel  = (GH.dataField 0 0 1 0)
 instance (GH.HasField "sink" GH.Slot Daemon'apply'params Capnp.Gen.ById.X9bd452a518ed3917.ApplyEventSink) where
     fieldByLabel  = (GH.ptrField 1)
 data Daemon'apply'results 

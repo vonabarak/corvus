@@ -22,6 +22,7 @@ module Corvus.NodeAgentClient.Disk
   , diskInspect
   , diskDownload
   , diskDecompressXz
+  , diskSourceIdentity
   , diskHash
   , DiskOpenReadResult (..)
   , diskOpenRead
@@ -447,3 +448,8 @@ diskOpenWrite nac destPath = remote $ do
       CGNA.Session'diskOpenWrite'params {CGNA.destPath = destPath}
       (nacSession nac)
   pure sink
+
+diskSourceIdentity :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError T.Text)
+diskSourceIdentity nac path = remote $ do
+  CGNA.Session'diskSourceIdentity'results {CGNA.identity = identity} <- callOn #diskSourceIdentity CGNA.Session'diskSourceIdentity'params {CGNA.path = path} (nacSession nac)
+  pure identity

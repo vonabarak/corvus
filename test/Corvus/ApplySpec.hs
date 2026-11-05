@@ -20,19 +20,20 @@ import qualified Corvus.Action as Action
 import Corvus.Handlers.Apply.Execute (ApplyAction (..), executeApply)
 import Corvus.Handlers.Apply.Validation (handleApplyValidate)
 import Corvus.Handlers.SshKey (SshKeyCreate (..))
+import Corvus.Images.ApplyIdentity (matchesApplyIdentity, recordApplyIdentity)
 import Corvus.Model
   ( SshKey (..)
   , Unique (..)
   )
 import qualified Corvus.Model as M
 import Corvus.Protocol (ApplyEvent (..), ApplyResult (..), SshKeyInfo (..), VmDetails (..))
-import Corvus.Schema.Apply (IfExists (..))
+import Corvus.Schema.Apply (ApplyConfig (..), IfExists (..))
 import Corvus.Types (ssDbPool)
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (getBy, insert, selectList, (==.))
+import Database.Persist (getBy, insert, selectList, updateWhere, (=.), (==.))
 import Database.Persist.Sql (runSqlPool, toSqlKey)
 import System.Timeout (timeout)
 import Test.DSL.Core (runDb)
@@ -46,6 +47,8 @@ spec = sequential $ withTestDb $ do
           testCase (label <> " overwrite serializes lookup through complete creation") $ parallelApply yaml phaseName IfExistsOverwrite False
           testCase (label <> " overwrite also handles an existing target") $ parallelApply yaml phaseName IfExistsOverwrite True
           testCase (label <> " error returns a domain duplicate") $ parallelApply yaml phaseName IfExistsError False
+          testCase (label <> " update serializes identical creation") $ parallelApply yaml phaseName IfExistsUpdate False
+          testCase (label <> " update serializes comparison of existing state") $ parallelApply yaml phaseName IfExistsUpdate True
           testCase (label <> " skip returns the winner's ID") $ parallelApply yaml phaseName IfExistsSkip False
       )
       [ ("template", "templates: [{name: parallel, cpuCount: 1, ram: 1G, cloudInit: false, drives: []}]", "templates")
@@ -54,11 +57,72 @@ spec = sequential $ withTestDb $ do
       , ("VM", "vms: [{name: parallel, node: test-node, cpuCount: 1, ram: 1G, cloudInit: false, vsock: false}]", "vms")
       ]
 
+  describe "update compares live declarative state" $ do
+    testCase "reuses defaults and repairs out-of-band key edits" $ do
+      _ <- withState $ \state -> do
+        Right config <- handleApplyValidate state "sshKeys: [{name: identity, publicKey: ssh-ed25519 AAAA}]"
+        let apply = Action.runAction state "test" (ApplyAction config)
+            key = runSqlPool (getBy (UniqueSshKeyName "identity")) (ssDbPool state)
+        _ <- apply
+        first <- key
+        _ <- apply
+        key `shouldReturn` first
+        runSqlPool (updateWhere [M.SshKeyName ==. "identity"] [M.SshKeyPublicKey =. "ssh-ed25519 BBBB"]) (ssDbPool state)
+        _ <- apply
+        changed <- key
+        fmap entityKey changed `shouldNotBe` fmap entityKey first
+        fmap (sshKeyPublicKey . entityVal) changed `shouldBe` Just "ssh-ed25519 AAAA"
+        pure RespOk
+      pure ()
+    testCase "template update keeps IDs until a declared field changes" $ do
+      _ <- withState $ \state -> do
+        let yaml = "templates: [{name: identity, cpuCount: 1, ram: 1G, cloudInit: false, drives: []}]"
+        Right config <- handleApplyValidate state yaml
+        Right changed <- handleApplyValidate state (T.replace "cpuCount: 1" "cpuCount: 2" yaml)
+        let apply cfg = Action.runAction state "test" (ApplyAction cfg)
+            template = runSqlPool (getBy (UniqueTemplateVmName "identity")) (ssDbPool state)
+        _ <- apply config
+        first <- template
+        _ <- apply config
+        template `shouldReturn` first
+        _ <- apply changed
+        second <- template
+        fmap entityKey second `shouldNotBe` fmap entityKey first
+        _ <- apply changed
+        template `shouldReturn` second
+        pure RespOk
+      pure ()
+    testCase "missing template dependencies preserve the original row" $ do
+      _ <- withState $ \state -> do
+        Right config <- handleApplyValidate state "templates: [{name: identity, cpuCount: 1, ram: 1G, drives: []}]"
+        Right changed <- handleApplyValidate state "templates: [{name: identity, cpuCount: 2, ram: 1G, drives: [{diskImage: missing, interface: virtio, strategy: clone}]}]"
+        _ <- Action.runAction state "test" (ApplyAction config)
+        first <- runSqlPool (getBy (UniqueTemplateVmName "identity")) (ssDbPool state)
+        response <- Action.runAction state "test" (ApplyAction changed)
+        fst (Action.classifyResponse response) `shouldBe` TaskError
+        runSqlPool (getBy (UniqueTemplateVmName "identity")) (ssDbPool state) `shouldReturn` first
+        pure RespOk
+      pure ()
+
+  describe "disk provenance" $ do
+    testCase "compares recipe and live metadata without hashing guest data" $ do
+      disk <- insertDiskImageOnTestNode "identity" "identity.qcow2" FormatQcow2
+      let key = toSqlKey disk
+      runDb (matchesApplyIdentity key "recipe") >>= liftIO . (`shouldBe` False)
+      runDb (recordApplyIdentity (Just "recipe") key)
+      runDb (matchesApplyIdentity key "recipe") >>= liftIO . (`shouldBe` True)
+      runDb (matchesApplyIdentity key "changed") >>= liftIO . (`shouldBe` False)
+      runDb (updateWhere [M.DiskImageId ==. key] [M.DiskImageEphemeral =. True])
+      runDb (matchesApplyIdentity key "recipe") >>= liftIO . (`shouldBe` False)
+      runDb (updateWhere [M.DiskImageId ==. key] [M.DiskImageEphemeral =. False])
+      runDb (updateWhere [M.DiskImageNodeDiskImageId ==. key] [M.DiskImageNodeFilePath =. "moved.qcow2"])
+      runDb (matchesApplyIdentity key "recipe") >>= liftIO . (`shouldBe` False)
+
   describe "shared action reservations" $ do
     testCase "direct creation waits for an apply and returns a domain duplicate" $ do
       _ <- withState $ \state -> do
         Right config <- handleApplyValidate state "sshKeys: [{name: mixed, publicKey: ssh-ed25519 AAAA}]"
-        task <- Action.createTaskRecord state "test" (ApplyAction config False) Nothing
+        task <- Action.createTaskRecord state "test" (ApplyAction config) Nothing
         entered <- newEmptyMVar
         release <- newEmptyMVar
         applied <- newEmptyMVar
@@ -67,7 +131,7 @@ spec = sequential $ withTestDb $ do
               EntityStart "sshKeys" _ _ -> putMVar entered () >> takeMVar release
               _ -> pure ()
             ctx = (mkActionContext state task "test") {Action.acApplySink = sink}
-        _ <- forkFinally (executeApply ctx config IfExistsOverwrite) (putMVar applied)
+        _ <- forkFinally (executeApply ctx (config {acIfExists = IfExistsOverwrite})) (putMVar applied)
         timeout 2000000 (takeMVar entered) `shouldReturn` Just ()
         _ <- forkFinally (Action.runAction state "test" (SshKeyCreate "mixed" "ssh-ed25519 BBBB")) (putMVar direct)
         blocked <- timeout 50000 (takeMVar direct)
@@ -184,20 +248,14 @@ spec = sequential $ withTestDb $ do
         _ -> False
 
   describe "conditional import validation" $ do
-    mapM_
-      ( \strategy -> testCase ("rejects update for " <> T.unpack strategy) $ do
-          let yaml = "disks:\n  - name: base\n    ifExists: update\n    " <> strategy <> "\n"
-          result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st yaml
-          liftIO $ case result of
-            RespError msg -> msg `shouldSatisfy` T.isInfixOf "requires an HTTP/HTTPS import with checksum"
-            other -> expectationFailure $ show other
-      )
-      ["import: https://example.com/base.raw", "import: /tmp/base.raw", "clone: base", "overlay: base", "register: /tmp/base.raw", "format: raw\n    size: 1M"]
-    testCase "rejects update as a top-level policy" $ do
-      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st "ifExists: update"
+    testCase "requires checksums for HTTP update" $ do
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st "disks: [{name: base, import: 'https://example.com/base.raw'}]"
       liftIO $ case result of
-        RespError msg -> msg `shouldSatisfy` T.isInfixOf "unknown ifExists"
+        RespError msg -> msg `shouldSatisfy` T.isInfixOf "update requires a checksum"
         other -> expectationFailure $ show other
+    testCase "accepts update as a top-level policy" $ do
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st "ifExists: update"
+      liftIO $ result `shouldBe` RespOk
 
   describe "handleApplyValidate: disk checksums" $ do
     testCase "accepts a SHA-256 checksum object on HTTP imports" $ do
@@ -257,18 +315,18 @@ spec = sequential $ withTestDb $ do
   ------------------------------------------------------------------
   -- ifExists behaviour
 
-  describe "whenApply: ifExists default (error)" $ do
+  describe "whenApply: ifExists error" $ do
     testCase "refuses to recreate an SSH key with a duplicate name" $ do
       given $ do
         _ <- insertSshKey "shared" "ssh-ed25519 AAAA-shared"
         pure ()
       let yaml =
-            "sshKeys:\n\
+            "ifExists: error\nsshKeys:\n\
             \  - name: shared\n\
             \    publicKey: ssh-ed25519 AAAA-shared\n"
       _ <- when_ $ whenApply yaml
       then_ $ responseIs $ \case
-        -- 'ifExists' defaults to 'error', so the second insert
+        -- Explicit error rejects the second insert
         -- comes back as RespError; ApplyResult is not returned.
         RespError _ -> True
         _ -> False
@@ -418,7 +476,7 @@ captureApplyEvents yaml = do
             )
             (ssDbPool st)
         let ctx = (mkActionContext st parentKey "alice") {Action.acApplySink = sink}
-        _ <- executeApply ctx cfg IfExistsError
+        _ <- executeApply ctx (cfg {acIfExists = IfExistsError})
         pure (RespApplyResult emptyResult)
   case resp of
     RespApplyResult _ -> pure ()
@@ -441,13 +499,13 @@ parallelApply yaml phaseName policy preexisting = do
   when (phaseName `elem` ["vms", "networks"]) $ void seedTestNode
   _ <- withState $ \state -> do
     Right config <- handleApplyValidate state yaml
-    let action = ApplyAction config False
+    let action = ApplyAction config
         makeContext sink = do
           task <- Action.createTaskRecord state "parallel-test" action Nothing
           pure $ (mkActionContext state task "parallel-test") {Action.acApplySink = sink}
     when preexisting $ do
       ctx <- makeContext (const (pure ()))
-      executeApply ctx config IfExistsError >>= (`shouldSatisfy` either (const False) (const True))
+      executeApply ctx (config {acIfExists = IfExistsError}) >>= (`shouldSatisfy` either (const False) (const True))
     entered <- newEmptyMVar
     release <- newEmptyMVar
     firstDone <- newEmptyMVar
@@ -457,9 +515,9 @@ parallelApply yaml phaseName policy preexisting = do
           _ -> pure ()
     first <- makeContext sink
     second <- makeContext (const (pure ()))
-    _ <- forkFinally (executeApply first config policy) (putMVar firstDone)
+    _ <- forkFinally (executeApply first (config {acIfExists = policy})) (putMVar firstDone)
     timeout 2000000 (takeMVar entered) `shouldReturn` Just ()
-    _ <- forkFinally (executeApply second config policy) (putMVar secondDone)
+    _ <- forkFinally (executeApply second (config {acIfExists = policy})) (putMVar secondDone)
     blocked <- timeout 50000 (takeMVar secondDone)
     putMVar release ()
     blocked `shouldSatisfy` isNothing

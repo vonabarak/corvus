@@ -12,9 +12,6 @@
 module Corvus.Handlers.Disk.Import
   ( -- * Action types
     DiskImportAction (..)
-
-    -- * Handlers
-  , handleDiskImportCopy
   )
 where
 
@@ -27,11 +24,13 @@ import Corvus.Handlers.Disk.Agent
   , getImageInfoViaAgent
   , getImageSizeViaAgent
   , hashFileViaAgent
+  , sourceIdentityViaAgent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, sanitizeDiskName)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Images
+import Corvus.Images.ApplyIdentity (recordApplyIdentity)
 
 import Control.Applicative ((<|>))
 import Control.Monad (forM_)
@@ -44,9 +43,12 @@ import Corvus.Node.Image (ImageResult (..), detectFormatFromPath, detectFormatFr
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Types (ServerState (..), runServerLogging)
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.List (isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (runSqlPool)
@@ -90,8 +92,8 @@ nodeBasePathFor state nid = do
 -- checksum matches, the download is skipped; on mismatch the import
 -- fails without overwriting. Fresh downloads are retried up to
 -- 'maxImportAttempts' times on hash mismatch.
-handleDiskImportCopy :: ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
-handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
+handleDiskImportCopy :: Maybe Text -> ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
+handleDiskImportCopy identity state sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -176,34 +178,51 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                 Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
                 Right nidRaw -> placeOn (M.toSqlKey nidRaw)
   where
+    recipeContent recipe = case eitherDecodeStrict (TE.encodeUtf8 recipe) of
+      Right (Object fields) -> KeyMap.lookup "content" fields
+      _ -> Nothing
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
     registerImportedFile state' reservedId nid basePath safeName format diskPath ephem = do
-      size <- liftIO $ getImageSizeViaAgent state' nid diskPath
-      now <- liftIO getCurrentTime
-      let storedPath = makeRelativeToBase basePath diskPath
-      diskId <-
-        liftIO $
-          runSqlPool
-            ( do
-                dkey <-
-                  publishImageWithId
-                    reservedId
-                    DiskImage
-                      { diskImageName = safeName
-                      , diskImageFormat = format
-                      , diskImageSize = size
-                      , diskImageCreatedAt = now
-                      , diskImageBackingImageId = Nothing
-                      , diskImageEphemeral = ephem
-                      }
-                recordDiskImageNode dkey nid storedPath
-                forM_ mChecksum $ \cs -> recordImportIdentity dkey (icAlgorithm cs, icExpected cs, if icTarget cs == ChecksumTargetFinal then "final" else "download") source
-                pure dkey
-            )
-            (ssDbPool state')
-      logInfoN $ "Imported disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-      pure $ RespDiskCreated $ fromSqlKey diskId
+      verified <- case identity of
+        Just recipe | not (isHttpUrl source) -> do
+          current <- liftIO $ sourceIdentityViaAgent state' nid (T.unpack source)
+          pure $ case current of
+            Left err -> Left err
+            Right digest | recipeContent recipe == Just (String digest) -> Right ()
+            _ -> Left "Local import source changed before publication; retry apply"
+        _ -> pure $ Right ()
+      case verified of
+        Left err -> do
+          _ <- liftIO $ deleteImageViaAgent state' nid diskPath
+          pure $ RespError err
+        Right () -> do
+          size <- liftIO $ getImageSizeViaAgent state' nid diskPath
+          now <- liftIO getCurrentTime
+          let storedPath = makeRelativeToBase basePath diskPath
+          diskId <-
+            liftIO $
+              runSqlPool
+                ( do
+                    dkey <-
+                      publishImageWithId
+                        reservedId
+                        DiskImage
+                          { diskImageName = safeName
+                          , diskImageFormat = format
+                          , diskImageSize = size
+                          , diskImageCreatedAt = now
+                          , diskImageBackingImageId = Nothing
+                          , diskImageEphemeral = ephem
+                          }
+                    recordDiskImageNode dkey nid storedPath
+                    recordApplyIdentity identity dkey
+                    forM_ mChecksum $ \cs -> recordImportIdentity dkey (icAlgorithm cs, icExpected cs, if icTarget cs == ChecksumTargetFinal then "final" else "download") source
+                    pure dkey
+                )
+                (ssDbPool state')
+          logInfoN $ "Imported disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+          pure $ RespDiskCreated $ fromSqlKey diskId
 
 --------------------------------------------------------------------------------
 -- Fetch + verify
@@ -371,7 +390,8 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
 --------------------------------------------------------------------------------
 
 data DiskImportAction = DiskImportAction
-  { diaName :: Text
+  { diaApplyIdentity :: Maybe Text
+  , diaName :: Text
   , diaSource :: Text
   , diaDestPath :: Maybe Text
   , diaFormat :: Maybe Text
@@ -388,6 +408,7 @@ instance Action DiskImportAction where
   actionEntityName = Just . diaName
   actionExecute ctx a =
     handleDiskImportCopy
+      (diaApplyIdentity a)
       (acState ctx)
       (acApplySink ctx)
       (diaName a)

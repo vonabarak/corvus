@@ -268,7 +268,7 @@ preprocessUploads conn baseDir (Object root) = case KM.lookup "pipeline" root of
             mPath = optionalText "path" o
             node = fromMaybe "" (optionalText "node" o)
             ephemeral = fromMaybe True (optionalBool "ephemeral" o)
-        policy <- either (fail . T.unpack) pure $ parseUploadIfExists (fromMaybe "error" (optionalText "ifExists" o))
+        policy <- either (fail . T.unpack) pure $ parseUploadIfExists (fromMaybe "update" (optionalText "ifExists" o))
         _ <- CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText node) policy
         pure ()
       _ -> fail "pipeline upload step must be an object"

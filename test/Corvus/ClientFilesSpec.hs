@@ -113,7 +113,7 @@ spec = sequential $ describe "CLI files, editors and event streams" $ do
       BS.readFile path `shouldReturn` if failRpc then "original" else payload
 
   describe "file errors" $ do
-    forM_ [TemplateCreate (Just "/nonexistent-corvus.yml"), CloudInitSet "vm" (Just "/nonexistent-corvus.yml"), Apply "/nonexistent-corvus.yml" False noWait] $ \cmd ->
+    forM_ [TemplateCreate (Just "/nonexistent-corvus.yml"), CloudInitSet "vm" (Just "/nonexistent-corvus.yml"), Apply "/nonexistent-corvus.yml" noWait] $ \cmd ->
       it (show cmd) $ withMock $ \f -> do
         expectCalls f []
         out <- checkCli f JsonOutput cmd (ExitFailure 1)
@@ -149,23 +149,23 @@ spec = sequential $ describe "CLI files, editors and event streams" $ do
         it ("starts apply from file: " ++ show (fmt, failRpc)) $ withFile "vms: []\n" $ \path -> withMock $ \f -> do
           expectCalls f ["Daemon.apply"]
           setFailure f (if failRpc then Just "Daemon.apply" else Nothing)
-          _ <- checkCli f fmt (Apply path True noWait) (exitFor failRpc)
-          [GCorvus.Daemon'apply'params yaml skip wait _] <- requests f "Daemon.apply"
-          (yaml, skip, wait) `shouldBe` ("vms: []\n", True, False)
+          _ <- checkCli f fmt (Apply path noWait) (exitFor failRpc)
+          [GCorvus.Daemon'apply'params yaml wait _] <- requests f "Daemon.apply"
+          (yaml, wait) `shouldBe` ("vms: []\n", False)
         it ("starts build from file: " ++ show (fmt, failRpc)) $ withFile "pipeline: []\n" $ \path -> withMock $ \f -> do
           expectCalls f ["Daemon.build"]
           setFailure f (if failRpc then Just "Daemon.build" else Nothing)
           void $ checkCli f fmt (Build path noVars noWait) (exitFor failRpc)
   forM_ [JsonOutput, YamlOutput] $ \fmt -> it ("returns the completed apply result as " ++ show fmt) $ withFile "vms: []" $ \path -> withMock $ \f -> do
     expectCalls f ["Daemon.apply"]
-    out <- checkCli f fmt (Apply path False (WaitOptions True Nothing)) ExitSuccess
+    out <- checkCli f fmt (Apply path (WaitOptions True Nothing)) ExitSuccess
     out `shouldSatisfy` isInfixOf "fixture"
-    [GCorvus.Daemon'apply'params yaml skip wait _] <- requests f "Daemon.apply"
-    (yaml, skip, wait) `shouldBe` ("vms: []", False, True)
+    [GCorvus.Daemon'apply'params yaml wait _] <- requests f "Daemon.apply"
+    (yaml, wait) `shouldBe` ("vms: []", True)
   it "reports a streaming apply RPC failure" $ withFile "vms: []" $ \path -> withMock $ \f -> do
     expectCalls f ["Daemon.apply"]
     setFailure f (Just "Daemon.apply")
-    out <- checkCli f TextOutput (Apply path False (WaitOptions True Nothing)) (ExitFailure 1)
+    out <- checkCli f TextOutput (Apply path (WaitOptions True Nothing)) (ExitFailure 1)
     out `shouldSatisfy` isInfixOf "Apply failed"
   it "inlines relative scripts and binary files, preserving unrelated provisioners" $ withSystemTempDirectory "cli-build" $ \dir -> do
     let path = dir </> "build.yml"
@@ -249,12 +249,12 @@ spec = sequential $ describe "CLI files, editors and event streams" $ do
   describe "apply streaming" $ forM_ [TaskSuccess, TaskError, TaskCancelled] $ \result ->
     it (show result) $ withFile "vms: []" $ \path -> withMock $ \f -> do
       expectCalls f ["Daemon.apply"]
-      setReply f "Daemon.apply" $ \(GCorvus.Daemon'apply'params _ _ _ sink) -> do
+      setReply f "Daemon.apply" $ \(GCorvus.Daemon'apply'params _ _ sink) -> do
         let events = [ApplyLogLine "hello", PhaseStart "disks" 2, EntityStart "disks" "image" "disk-import", DownloadStart "image" "https://fixture/image", DownloadProgress "image" 10 100, DownloadProgress "image" 20 0, DownloadEnd "image" True "done", DownloadEnd "other" False "failure", EntityEnd "disks" "image" TaskSuccess "created" 42, EntityEnd "disks" "skip" TaskSuccess "existing" 0, EntityEnd "disks" "bad" TaskError "failed" 0, ApplyEnd result "done" 42]
         forM_ events $ \ev -> void (C.callP #push (GStreams.ApplyEventSink'push'params (toCapnpApplyEvent ev)) sink >>= C.waitPipeline)
         void (C.callP #end GStreams.ApplyEventSink'end'params sink >>= C.waitPipeline)
         pure (GCorvus.Daemon'apply'results (GCorvus.ApplyResult [] [] [] [] []) 42)
-      out <- checkCli f TextOutput (Apply path False (WaitOptions True Nothing)) (exitFor (result /= TaskSuccess))
+      out <- checkCli f TextOutput (Apply path (WaitOptions True Nothing)) (exitFor (result /= TaskSuccess))
       out `shouldSatisfy` isInfixOf "hello"
 
 noWait :: WaitOptions

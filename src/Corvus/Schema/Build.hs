@@ -19,7 +19,6 @@ module Corvus.Schema.Build
   , PipelineStep (..)
   , Build (..)
   , BuildTarget (..)
-  , BuildIfExists (..)
   , BuildIdentity (..)
   , BuildStrategy (..)
   , BuildVm (..)
@@ -111,7 +110,7 @@ instance FromJSON Upload where
       <*> o .:? "path"
       <*> o .:? "ephemeral" .!= True
       <*> o .:? "node" .!= ""
-      <*> (o .:? "ifExists" .!= "error" >>= either (fail . T.unpack) pure . parseUploadIfExists)
+      <*> (o .:? "ifExists" .!= "update" >>= either (fail . T.unpack) pure . parseUploadIfExists)
 
 data Build = Build
   { buildName :: Text
@@ -217,13 +216,13 @@ instance FromJSON ShellDefaults where
 -- 'btIfExists' controls collision behaviour at the start of the
 -- build (the check happens before the bake VM is created):
 --
---   * 'IfExistsError' (default) — fail immediately if the target
+--   * 'IfExistsError' — fail immediately if the target
 --     name is already taken.
 --   * 'IfExistsSkip' — treat the existing disk as the artifact and
 --     return success without booting a bake VM. Lets a re-run of a
 --     partially-failed pipeline walk past already-completed builds.
 --   * 'IfExistsOverwrite' — publish a fresh version, retaining the old one.
---   * 'BuildIfExistsUpdate' — reuse an artifact whose recorded inputs match
+--   * 'IfExistsUpdate' (default) — reuse an artifact whose recorded inputs match
 --     the current recipe and resolved source image versions.
 data BuildTarget = BuildTarget
   { btFormat :: DriveFormat
@@ -232,7 +231,7 @@ data BuildTarget = BuildTarget
   , btCompact :: Bool
   , btEphemeral :: Bool
   , btPath :: Maybe Text
-  , btIfExists :: BuildIfExists
+  , btIfExists :: IfExists
   }
   deriving stock (Show)
 
@@ -245,15 +244,7 @@ instance FromJSON BuildTarget where
       <*> o .:? "compact" .!= True
       <*> o .:? "ephemeral" .!= False
       <*> o .:? "path"
-      <*> o .:? "ifExists" .!= BuildIfExistsPolicy IfExistsError
-
--- | Build-only policy. Apply and upload retain their own collision rules.
-data BuildIfExists = BuildIfExistsPolicy IfExists | BuildIfExistsUpdate
-  deriving stock (Eq, Show)
-
-instance FromJSON BuildIfExists where
-  parseJSON (String "update") = pure BuildIfExistsUpdate
-  parseJSON value = BuildIfExistsPolicy <$> parseJSON value
+      <*> o .:? "ifExists" .!= IfExistsUpdate
 
 -- | Versioned canonical JSON inputs and their SHA-256 digest. This is
 -- internal build state, never accepted from YAML or exposed through RPC.

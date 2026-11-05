@@ -325,13 +325,10 @@ class Crv:
         self,
         yaml_path: str | Path,
         *,
-        skip_existing: bool = True,
         wait: bool = True,
         timeout_sec: float = 3600.0,
     ) -> JsonObject:
         args = ["apply", str(yaml_path)]
-        if skip_existing:
-            args.append("--skip-existing")
         if wait:
             args.append("--wait")
         return _as_object(self.run(*args, timeout=timeout_sec))

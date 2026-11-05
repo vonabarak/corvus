@@ -6,20 +6,18 @@ The `crv apply` command creates a complete VM environment from a single YAML fil
 
 ```bash
 crv apply <file.yml>                # Create all resources
-crv apply <file.yml> --skip-existing   # Skip resources that already exist
 crv apply <file.yml> -o json        # Output result as JSON
 ```
 
-**`--skip-existing` / `-s`**: When set, resources that already exist in the database (matched by name) are silently skipped and their IDs are reused for dependent references. Without this flag, attempting to create a resource with a duplicate name is an error. This is useful for re-applying a configuration after a partial failure or for incrementally adding resources to an existing environment.
 
-The top-level `ifExists` sets the default policy. `--skip-existing` changes a default `error` to `skip`; explicit disk policies override that default.
+The top-level `ifExists` sets the policy, defaulting to `update`. Explicit disk policies override it. Resource creation and replacement are controlled exclusively by the YAML content.
 
 ## File Structure
 
 A configuration file has five top-level sections, all optional, plus an `ifExists:` policy field:
 
 ```yaml
-ifExists:   error   # error (default) | skip | overwrite — see "ifExists" below
+ifExists:   update  # error | skip | overwrite | update (default) — see "ifExists" below
 sshKeys:    [...]   # SSH public keys for cloud-init or explicit QGA injection
 disks:      [...]   # Disk images (import, register, create, overlay, or clone)
 networks:   [...]   # Virtual networks (bridge + TAP managed by corvus-netd)
@@ -29,13 +27,25 @@ templates:  [...]   # VM templates (same schema as `crv template create`)
 
 ### `ifExists`
 
-Controls what apply does when a resource it would create already exists in the database (matched by name). YAML-level equivalent of `--skip-existing`, with a third `overwrite` option that has no CLI form.
+Controls what apply does when a resource it would create already exists in the database (matched by name). The same policy applies to standalone apply and pipeline apply steps.
 
 | Value | Behaviour |
 |---|---|
-| `error` (default) | Duplicate name is a hard error — apply aborts. |
-| `skip` | Existing resources are silently treated as success and their IDs are reused for dependent references. Same as `--skip-existing`. |
+| `error` | Duplicate name is a hard error — apply aborts. |
+| `skip` | Existing resources are silently treated as success and their IDs are reused for dependent references. |
+| `update` (default) | Reuse an identical resource; replace declarative drift using the overwrite guards below. Disks publish a new version on drift. |
 | `overwrite` | Disks publish a new version; other existing resources are deleted and re-created from the new YAML. Use this when you've edited an entry (template's cloud-init userData, disk's import URL, network's subnet, etc.) and want the next apply to replace the old DB row outright. Refuses with an actionable error — naming the attaching VM(s) / template(s) — when the existing resource is in use; the operator must detach (or `crv vm delete`) first. Built on the same per-entity `*Delete` actions as `crv <thing> delete`, so each delete is recorded as a subtask. Stream events for the overwrite arm are tagged `kind: "overwrite"` (sibling of `skip` and the regular create kinds). |
+
+Update compares live declarative database fields after resolving dependencies:
+
+- SSH keys compare the exact public key text.
+- Networks compare subnet, DHCP, NAT, autostart, ordered DNS servers, domain, and host DNS. Runtime peer state is excluded.
+- VMs compare CPU, RAM, description, device flags, startup timeout, ordered drives, NICs and audio, shared directories by tag, SSH key IDs as a set, and custom cloud-init data. Omitted MAC addresses preserve generated addresses. Runtime status, PID, allocated ports, guest IPs and statistics are excluded. The generated cloud-init CD is recognized separately. Replacement requires a stopped/error VM and preserves desired ephemeral input disks.
+- Templates compare persisted scalar fields, ordered drive selectors and settings, NICs and audio, shared directories by tag, SSH keys as a set, and custom cloud-init data. Tag selectors remain selectors: moving a tag alone does not replace a template.
+- Created, cloned, overlaid and imported disks compare a versioned recipe plus the published disk's format, size, backing ID, ephemeral flag and original placements. Source disk IDs are pinned for the operation. Additional replicas and guest writes do not invalidate identity. Old disks without provenance are conservatively republished once. Register compares the registered path, format, backing ID and ephemeral flag without hashing mutable guest data.
+- Local imports hash every local file in the QEMU backing chain, before copying and again before publication. Missing inputs fail without advancing the target tag. HTTP identity uses the declared checksum, algorithm, checksum target and format; changing a URL alone does not change identity.
+
+For VM/network update with an omitted node, a unique existing name determines placement. Ambiguous names require an explicit node.
 
 Concurrent applies and direct mutations use the same object reservations.
 Requests for the same identity wait and then recheck existence, so two
@@ -59,7 +69,6 @@ Per-entity refusal rules under `overwrite`:
 | `vms` | The VM is in any state other than `stopped` or `error`. | `crv vm stop` first. The VM's ephemeral disks (cloud-init ISO, template-instantiated clones) are deleted along with it; non-ephemeral disks are detached and kept. |
 | `templates` | Never — templates own their `template_drive` / `template_ssh_key` rows and cascade on delete. | n/a |
 
-The CLI flag `--skip-existing` and the YAML `ifExists:` field interact as follows: `--skip-existing` only forces the policy *down* to `skip` from `error` — it never overrides `overwrite`. So a YAML with `ifExists: overwrite` keeps overwrite semantics regardless of the CLI flag, and a YAML with `ifExists: skip` keeps skip even without the flag. This is what lets a build pipeline's inline `apply:` step opt into a stronger policy than the default — `crv build` has no `--skip-existing` of its own, so the YAML's `ifExists:` is the only knob there.
 
 Resources are created in the order listed above. Within each section, items are processed sequentially — later items can reference earlier ones by name (e.g., an overlay disk can reference a base image defined earlier in the same file). Templates are created last and may reference SSH keys and disks defined earlier in the file.
 
@@ -69,8 +78,8 @@ Resources can also reference items that already exist in the database. For examp
 
 Every `vms:`, `networks:`, and (Phase-3+) disk entry accepts an
 optional `node:` field — a node name or numeric id. Resources
-with `node:` set are pinned to that node; resources without it
-go to the scheduler.
+with `node:` set are pinned to that node. Update reuses an existing placement
+when possible; new resources go to the scheduler.
 
 ```yaml
 vms:
@@ -172,7 +181,7 @@ disks:
     size: <size>              # Size with a B/K/M/G/T suffix (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
     backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
-    ifExists: <string>        # Optional: error, skip, overwrite; update for checksummed HTTP imports.
+    ifExists: <string>        # Optional: error, skip, overwrite, update; inherits the top-level policy.
     checksum:                 # Optional integrity check for HTTP/HTTPS imports; see below.
       algorithm: <string>     # md5, sha1, sha256, sha512, or blake2b.
       value: <string>         # Hex digest for the selected algorithm.
@@ -205,9 +214,8 @@ The optional `path` field controls where the imported file is placed (see [Custo
 
 #### Conditional imports
 
-Each disk can set `ifExists: error`, `skip`, or `overwrite` to override
-both the top-level policy and `--skip-existing`. HTTP/HTTPS imports with a
-checksum also support `ifExists: update`. For example:
+Each disk can set `ifExists: error`, `skip`, `overwrite`, or `update` to override
+the top-level policy. HTTP/HTTPS imports under `update` require a checksum. For example:
 
 ```yaml
 disks:
@@ -226,18 +234,18 @@ selected image has the same verified algorithm, digest, checksum target,
 and effective format, apply reuses its ID without downloading. Otherwise,
 it imports and verifies a new version before moving the requested tag and
 `latest`. A failed import leaves the previous version and tags intact.
-The URL and node are not part of the identity. Checksums are case insensitive.
+The URL is not part of the identity. Placement, destination path and the
+ephemeral flag are compared as part of the apply recipe. Checksums are case insensitive.
 Existing images without a recorded identity are imported once to establish it.
 For debugging, the database identity row also records the supplied import URL,
 including its query string and any expanded `crv build` variables. It records
 the supplied URL rather than a redirect destination. This metadata does not
 affect matching; a skipped import preserves its original recorded URL.
-Only imports with verified checksums have identity rows and recorded URLs.
+Only imports with verified checksums have import identity rows and recorded URLs;
+apply provenance is recorded separately for all published apply disk recipes.
 This does not check release ordering: reverting the checksum imports an older
-release too. `update` is only a disk import policy, including inside build
-pipeline `apply` steps; it is not a top-level or build-target policy and does
-not skip derived image builds. Explicit destination files retain their
-existing protection against overwriting.
+release too. Build targets and apply steps both default to `update`. Explicit
+destination files retain their existing protection against overwriting.
 
 #### Checksum verification
 
@@ -722,7 +730,7 @@ If validation fails, no resources are created.
 
 If resource creation fails partway through (e.g., a disk download fails or a unique constraint is violated), the daemon returns an error and stops processing. Resources created before the failure remain in the database.
 
-Use `--skip-existing` to re-run an apply after a partial failure — already-created resources will be skipped, and processing continues from where it left off.
+Re-run apply after a partial failure: the default `update` policy reuses identical resources. Use YAML `ifExists: skip` to preserve all existing resources regardless of differences.
 
 ## Output
 
@@ -741,7 +749,7 @@ Applied 5 resources:
     - web-server (id: 5)
 ```
 
-Resources skipped via `--skip-existing` are not listed in the output.
+Unchanged VMs are omitted from the creation summary; other sections return reused IDs.
 
 With `-o json`, the output is a JSON object:
 

@@ -305,22 +305,23 @@ class TestTaskHistory(SingleNodeCase):
         the count we declared, depending on order)."""
         token = secrets.token_hex(3)
         key_ok = f"corvus-it-task-failapply-key-{token}"
-        ghost = f"corvus-it-task-failapply-ghost-{token}"
+        missing_path = f"/tmp/corvus-it-task-failapply-missing-{token}.qcow2"
         disk_bad = f"corvus-it-task-failapply-disk-{token}"
         pubkey = (
             "ssh-ed25519 "
             "AAAAC3NzaC1lZDI1NTE5AAAAIH3OAFlPq8wAYIKL3kZx0sMo2krfh1g+OmRkLD1OvBnK"
             f" corvus-it-task-test-{token}"
         )
-        # SSH key succeeds (phase 1); disk overlay onto a nonexistent
-        # backing image fails (phase 2). Parent task → error.
+        # SSH key succeeds (phase 1); registering a nonexistent file
+        # fails inside the disk subtask (phase 2). A missing source disk
+        # would fail earlier during apply preflight, without a subtask.
         yaml_body = textwrap.dedent(f"""
             sshKeys:
               - name: {key_ok}
                 publicKey: "{pubkey}"
             disks:
               - name: {disk_bad}
-                overlay: {ghost}
+                register: {missing_path}
                 ephemeral: true
         """).strip()
         try:
@@ -335,15 +336,10 @@ class TestTaskHistory(SingleNodeCase):
             parent = errored[0]
             children = self.client.tasks.list_children(parent.id)
             assert children, "expected at least one subtask"
-            # At least one child errored. SSH-key succeeded; the
-            # disk-overlay child either errored or never ran (we
-            # accept "any subsystem in {disk, ssh-key} with error
-            # is acceptable here" — the schema guarantees the
-            # parent error matches at least one child via the
-            # `withTask` wrapper).
-            assert any(c.result == "error" for c in children), [
-                (c.subsystem, c.result, c.message) for c in children
-            ]
+            assert any(
+                c.subsystem == "disk" and c.result == "error" for c in children
+            ), [(c.subsystem, c.result, c.message) for c in children]
+            assert self.client.ssh_keys.get(key_ok, by_name=True).show().name == key_ok
         finally:
             try:
                 self.client.ssh_keys.get(key_ok, by_name=True).delete()

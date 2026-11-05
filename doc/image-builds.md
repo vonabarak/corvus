@@ -157,7 +157,7 @@ pipeline:
         ephemeral: false                   # true: delete with a directly attached VM
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
-        ifExists: error                    # error (default) | skip | overwrite | update — see below
+        ifExists: update                   # error | skip | overwrite | update (default) — see below
 
 
       strategy: overlay                    # overlay (default) | from-scratch | installer | offline-overlay
@@ -223,10 +223,10 @@ created, so a wrong policy never wastes a bake.
 
 | Value | Behaviour |
 |---|---|
-| `error` (default) | Fail immediately with `target '<name>' already exists; use ifExists: skip, overwrite or update to allow`. No bake VM is created. |
+| `error` | Fail immediately with `target '<name>' already exists; use ifExists: skip, overwrite or update to allow`. No bake VM is created. |
 | `skip` | Return success without baking. The existing disk is treated as the artifact and its id is reported in the build result. Lets a re-run of a partially-failed pipeline walk past already-completed builds. |
 | `overwrite` | Bake and publish a new version, moving the requested tag and `latest` after success. Existing versions and users remain intact. |
-| `update` | Reuse the selected artifact when its recorded inputs and ephemeral flag match. Otherwise bake and publish a new version. Artifacts without build metadata rebuild once. |
+| `update` (default) | Reuse the selected artifact when its recorded inputs and ephemeral flag match. Otherwise bake and publish a new version. Artifacts without build metadata rebuild once. |
 
 ```yaml
 name: debian-12-nginx
@@ -351,12 +351,7 @@ dependency change through the chain even if the build recipes are unchanged.
 Changes outside declared inputs, such as package repository contents or
 files behind a shared directory, are not detected. Use `overwrite` when those inputs require a refresh.
 
-The same field name `ifExists:` exists at the top level of an `apply:`
-document (see [apply-configuration](apply-configuration.md)), where it
-acts as the YAML equivalent of `crv apply --skip-existing`. Apply
-accepts `error`, `skip`, and `overwrite`. Disk overwrite publishes a new version. This means
-a pipeline `apply:` step inside `crv build` (which has no
-`--skip-existing` flag) can opt into skip-existing via the YAML.
+Apply steps also accept `error`, `skip`, `overwrite`, and `update`, defaulting to `update` (see [apply configuration](apply-configuration.md)). Unchanged resources retain their IDs; changed resources use guarded replacement. The policy comes exclusively from YAML.
 
 ### `target.rebase`
 
@@ -498,7 +493,7 @@ installation-media import recipes and answer ISO before submitting the pipeline
 ### Conditional uploads and build dependencies
 
 A leading `upload:` step supports `ifExists: error`, `skip`, `overwrite`, and
-`update`. YAML defaults to `error`; `crv disk upload --if-exists` and the Python
+`update`. YAML defaults to `update`; `crv disk upload --if-exists` and the Python
 `upload_from_file(if_exists=...)` API default to `overwrite`.
 
 | Policy | Selected image exists | Selected image missing |

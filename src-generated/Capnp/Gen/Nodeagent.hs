@@ -392,9 +392,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'removeVmDirectoryIfEmpty) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmGuestReadFile) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmGuestSshAddAuthorizedKeys) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmScreenshot) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmScreenshot) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskSourceIdentity) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon,session'vmGuestPing,session'vmGuestReboot,session'vmGuestWriteFile,session'removeDirectoryIfEmpty,session'removeVmDirectoryIfEmpty,session'vmGuestReadFile,session'vmGuestSshAddAuthorizedKeys,session'vmScreenshot #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon,session'vmGuestPing,session'vmGuestReboot,session'vmGuestWriteFile,session'removeDirectoryIfEmpty,session'removeVmDirectoryIfEmpty,session'vmGuestReadFile,session'vmGuestSshAddAuthorizedKeys,session'vmScreenshot,session'diskSourceIdentity #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -513,6 +514,8 @@ class (Session'server_ s_) where
     session'vmGuestSshAddAuthorizedKeys _ = GH.methodUnimplemented
     session'vmScreenshot :: s_ -> (GH.MethodHandler Session'vmScreenshot'params Session'vmScreenshot'results)
     session'vmScreenshot _ = GH.methodUnimplemented
+    session'diskSourceIdentity :: s_ -> (GH.MethodHandler Session'diskSourceIdentity'params Session'diskSourceIdentity'results)
+    session'diskSourceIdentity _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -631,6 +634,8 @@ instance (GH.HasMethod "vmGuestSshAddAuthorizedKeys" Session Session'vmGuestSshA
     methodByLabel  = (GH.Method 11450192344861352079 57)
 instance (GH.HasMethod "vmScreenshot" Session Session'vmScreenshot'params Session'vmScreenshot'results) where
     methodByLabel  = (GH.Method 11450192344861352079 58)
+instance (GH.HasMethod "diskSourceIdentity" Session Session'diskSourceIdentity'params Session'diskSourceIdentity'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 59)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -4446,6 +4451,66 @@ instance (GH.HasField "message" GH.Slot Session'vmScreenshot'results Basics.Text
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "bytesTransferred" GH.Slot Session'vmScreenshot'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
+data Session'diskSourceIdentity'params
+type instance (R.ReprFor Session'diskSourceIdentity'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskSourceIdentity'params) where
+    typeId  = 11445011870590745081
+instance (C.TypedStruct Session'diskSourceIdentity'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'diskSourceIdentity'params) where
+    type AllocHint Session'diskSourceIdentity'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskSourceIdentity'params (C.Parsed Session'diskSourceIdentity'params))
+instance (C.AllocateList Session'diskSourceIdentity'params) where
+    type ListAllocHint Session'diskSourceIdentity'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskSourceIdentity'params (C.Parsed Session'diskSourceIdentity'params))
+data instance C.Parsed Session'diskSourceIdentity'params
+    = Session'diskSourceIdentity'params
+        {path :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskSourceIdentity'params))
+deriving instance (Std_.Eq (C.Parsed Session'diskSourceIdentity'params))
+instance (C.Parse Session'diskSourceIdentity'params (C.Parsed Session'diskSourceIdentity'params)) where
+    parse raw_ = (Session'diskSourceIdentity'params <$> (GH.parseField #path raw_))
+instance (C.Marshal Session'diskSourceIdentity'params (C.Parsed Session'diskSourceIdentity'params)) where
+    marshalInto raw_ Session'diskSourceIdentity'params{..} = (do
+        (GH.encodeField #path path raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "path" GH.Slot Session'diskSourceIdentity'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'diskSourceIdentity'results
+type instance (R.ReprFor Session'diskSourceIdentity'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskSourceIdentity'results) where
+    typeId  = 17177454531906739253
+instance (C.TypedStruct Session'diskSourceIdentity'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'diskSourceIdentity'results) where
+    type AllocHint Session'diskSourceIdentity'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskSourceIdentity'results (C.Parsed Session'diskSourceIdentity'results))
+instance (C.AllocateList Session'diskSourceIdentity'results) where
+    type ListAllocHint Session'diskSourceIdentity'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskSourceIdentity'results (C.Parsed Session'diskSourceIdentity'results))
+data instance C.Parsed Session'diskSourceIdentity'results
+    = Session'diskSourceIdentity'results
+        {identity :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskSourceIdentity'results))
+deriving instance (Std_.Eq (C.Parsed Session'diskSourceIdentity'results))
+instance (C.Parse Session'diskSourceIdentity'results (C.Parsed Session'diskSourceIdentity'results)) where
+    parse raw_ = (Session'diskSourceIdentity'results <$> (GH.parseField #identity raw_))
+instance (C.Marshal Session'diskSourceIdentity'results (C.Parsed Session'diskSourceIdentity'results)) where
+    marshalInto raw_ Session'diskSourceIdentity'results{..} = (do
+        (GH.encodeField #identity identity raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "identity" GH.Slot Session'diskSourceIdentity'results Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where

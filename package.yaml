@@ -113,6 +113,7 @@ library:
     - Corvus.Node.DirectoryCleanup
     - Corvus.OperationGuard
     - Corvus.Images
+    - Corvus.Images.ApplyIdentity
     - Corvus.Protocol
     - Corvus.Protocol.JsonOptions
     - Corvus.Protocol.Vm
@@ -257,6 +258,7 @@ library:
     - Corvus.Handlers.Apply.Disk
     - Corvus.Handlers.Apply.Vm
     - Corvus.Handlers.Apply.Execute
+    - Corvus.Handlers.Apply.Identity
     - Corvus.Handlers.Build
     - Corvus.Handlers.Build.Cleanup
     - Corvus.Handlers.Build.Qga

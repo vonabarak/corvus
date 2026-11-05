@@ -20,6 +20,8 @@ module Corvus.Model
   , DiskImageImportIdentity (..)
   , DiskImageImportIdentityId
   , DiskImageBuildIdentity (..)
+  , DiskImageApplyIdentity (..)
+  , DiskImageApplyIdentityId
   , DiskImageBuildIdentityId
   , DiskImageTagId
   , DiskImage (..)
@@ -714,6 +716,14 @@ DiskImageBuildIdentity
     fingerprint Text
     inputs Text
     UniqueDiskImageBuildIdentity diskImageId
+    deriving Show Eq Generic
+
+-- Canonical apply recipe and publication-time configuration baseline.
+DiskImageApplyIdentity
+    diskImageId DiskImageId
+    fingerprint Text
+    inputs Text
+    UniqueDiskImageApplyIdentity diskImageId
     deriving Show Eq Generic
 
 -- Per-node paths for an image version. Attachment requires a placement

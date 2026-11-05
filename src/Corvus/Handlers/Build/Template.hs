@@ -91,7 +91,7 @@ setupTargetDisk
   -> Text
   -- ^ ephemeral target name
   -> Text
-  -- ^ build's target node (passes through to DiskCreate so the
+  -- ^ build's target node (passes through to DiskCreate Nothing so the
   -- target lands on the same kernel as the bake VM)
   -> LoggingT IO (Either Text (Int64, Bool))
 setupTargetDisk context stack vmIdLong build target targetTmpName buildNodeRef = case buildStrategy build of
@@ -126,7 +126,7 @@ setupTargetDisk context stack vmIdLong build target targetTmpName buildNodeRef =
         liftIO $
           runActionAsSubtask
             context
-            (DiskCreate targetTmpName (btFormat target) size Nothing True buildNodeRef)
+            (DiskCreate Nothing targetTmpName (btFormat target) size Nothing True buildNodeRef)
       case diskResp of
         RespDiskCreated diskIdLong -> trackAndAttach diskIdLong
         RespError err -> pure $ Left $ "create target disk: " <> err
@@ -150,7 +150,7 @@ setupTargetDisk context stack vmIdLong build target targetTmpName buildNodeRef =
                   liftIO $
                     runActionAsSubtask
                       context
-                      (DiskCreateOverlay targetTmpName sourceId (btSize target) Nothing True (Just nid))
+                      (DiskCreateOverlay Nothing targetTmpName sourceId (btSize target) Nothing True (Just nid))
                 case resp of
                   RespDiskCreated diskId -> trackAndAttach diskId
                   RespError err -> pure $ Left $ "create target overlay: " <> err

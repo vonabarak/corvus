@@ -1,4 +1,4 @@
-"""Apply screen — full-page YAML editor + Apply / Apply (skip existing).
+"""Apply screen — full-page YAML editor + Apply.
 
 Submits the YAML body to the daemon via :class:`CorvusBridge.apply_yaml`
 and renders the result (one section per entity type) on success.
@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 from corvus_client.types import ApplyCreated, ApplyResult
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -54,10 +53,6 @@ class ApplyWidget(QWidget):
         self._status = QLabel("")
         self._status.setStyleSheet("color: #6a737d;")
 
-        self._skip_existing = QCheckBox("Skip existing")
-        self._skip_existing.setToolTip(
-            "Don't fail if an entity (disk / network / VM / …) already exists by name."
-        )
         self._load_btn = QPushButton("Load file…")
         self._load_btn.clicked.connect(self._on_load)
         self._apply_btn = QPushButton("Apply")
@@ -65,7 +60,6 @@ class ApplyWidget(QWidget):
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(self._load_btn)
-        toolbar.addWidget(self._skip_existing)
         toolbar.addStretch(1)
         toolbar.addWidget(self._apply_btn)
 
@@ -110,7 +104,6 @@ class ApplyWidget(QWidget):
         self._result_panel.clear()
         self._bridge.apply_yaml(
             self._editor.text(),
-            skip_existing=self._skip_existing.isChecked(),
         )
 
     def _on_apply_completed(self, result: ApplyResult, task_id: int) -> None:

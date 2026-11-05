@@ -39,7 +39,7 @@ Daemon
 ├── tasks     → TaskManager → Task
 ├── cloudInit → CloudInitManager
 ├── ping, status, shutdown          (local methods)
-├── apply (yaml, skipExisting, wait) → (result, taskId)
+├── apply (yaml, wait) → (result, taskId)
 └── build (yaml, sink :BuildEventSink) → (taskId)
 ```
 

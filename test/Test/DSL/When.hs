@@ -243,11 +243,11 @@ vmSetBalloon vmId target = withState (\st -> runAction st "alice" (VmSetBalloon 
 
 diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
 diskCreate name format size =
-  withState (\st -> runAction st "alice" (DiskCreate name format size Nothing False ""))
+  withState (\st -> runAction st "alice" (DiskCreate Nothing name format size Nothing False ""))
 
 diskRegister :: Text -> Text -> DriveFormat -> TestM Response
 diskRegister name filePath format =
-  withState (\st -> runAction st "alice" (DiskRegister name filePath (Just format) Nothing False ""))
+  withState (\st -> runAction st "alice" (DiskRegister Nothing name filePath (Just format) Nothing False ""))
 
 diskDelete :: Int64 -> TestM Response
 diskDelete diskId = withState (\st -> runAction st "alice" (DiskDelete diskId))
@@ -411,7 +411,7 @@ whenApply yaml = withState $ \st -> do
   validated <- handleApplyValidate st yaml
   case validated of
     Left err -> pure err
-    Right cfg -> runAction st "alice" (ApplyAction cfg False)
+    Right cfg -> runAction st "alice" (ApplyAction cfg)
 
 --------------------------------------------------------------------------------
 -- Network Commands
