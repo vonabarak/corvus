@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
-# Test guest built with the shared musl runtime flow and kernel configuration.
+# Test guest built with dedicated orchestration and the shared musl stages and kernel configuration.
 vars:
   image_if_exists: update
   cache_dir: /data/corvus-cache
@@ -27,7 +27,6 @@ pipeline:
         GETBINPKG: '{{ GETBINPKG }}'
         IMAGE_LIBC: musl
         IMAGE_INIT: openrc
-        IMAGE_PROFILE: test-vm
         IMAGE_ESP_SIZE: 64M
         IMAGE_KERNEL_ARGS: net.ifnames=0
         IMAGE_ROOT: /mnt/sysroot
@@ -85,10 +84,6 @@ pipeline:
     - file:
         from: ./scripts/stages/musl/install-root.sh
         to: /usr/local/lib/corvus-build/stages/musl/install-root.sh
-        mode: '0755'
-    - file:
-        from: ./scripts/workflows/build-runtime.sh
-        to: /usr/local/lib/corvus-build/workflows/build-runtime.sh
         mode: '0755'
     - file:
         from: ./scripts/stages/kernel/gentoo-kernel

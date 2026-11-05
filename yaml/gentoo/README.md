@@ -37,7 +37,7 @@ point, such as `scripts/images/corvus-test-node/systemd/`.
 | gentoo-musl-openrc-headless-cloudinit | gentoo-musl-openrc-headless-cloudinit/build.sh | build-cloud-init.sh |
 | gentoo-corvus-test | gentoo-corvus-test/build.sh | none |
 | corvus-test-node | corvus-test-node/build.sh | none |
-| corvus-test-vm | corvus-test-vm/build.sh | build-runtime.sh |
+| corvus-test-vm | corvus-test-vm/build.sh | none |
 
 The upstream image is imported and has no shell entry point. Pre-guest-agent
 bootstrap commands remain inline in the builder recipe.

@@ -173,18 +173,6 @@ prepare_runtime_mountpoints() {
     install -d -m 1777 "$IMAGE_ROOT/tmp" "$IMAGE_ROOT/var/tmp"
 }
 
-# Populate the mounted target in dependency order.
-main() {
-    prepare_target_directories
-    configure_target_portage
-    install_bootstrap_overrides
-    configure_native_dependencies
-    install_base_system
-    restore_full_packages
-    prepare_runtime_mountpoints
-    install_runtime_packages
-}
-
 # Keep target installation native: SYSROOT would incorrectly enable cross-compilation.
 install_runtime_packages() {
     # Build natively against the bake host, as in the @system bootstrap. Treating
@@ -203,6 +191,18 @@ install_runtime_packages() {
       sys-block/thin-provisioning-tools \
       app-editors/vim \
       app-shells/bash-completion
+}
+
+# Populate the mounted target in dependency order.
+main() {
+    prepare_target_directories
+    configure_target_portage
+    install_bootstrap_overrides
+    configure_native_dependencies
+    install_base_system
+    restore_full_packages
+    prepare_runtime_mountpoints
+    install_runtime_packages
 }
 
 main "$@"

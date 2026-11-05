@@ -403,15 +403,11 @@ consumers. `image-rebuild` uses `overwrite` for imports, uploads, and builds;
 
 ## Recipe catalogue
 
-`yaml/test-images/`, `yaml/example-apply/`, and `yaml/template-example/` are
-apply or template examples that consume images; they do not create a managed
-image artifact. `yaml/test-images/test-images.yml` uses the `vm` and `windows`
-artifacts above.
 
 | Image | Directory | Artifact and use |
 | --- | --- | --- |
-| `node` | `yaml/gentoo/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-glibc-systemd-headless` from `yaml/gentoo/` when needed. |
-| `vm` | `yaml/gentoo/` (`IMAGE=corvus-test-vm`) | `BaseImages/Gentoo/<id>-corvus-test-vm.qcow2`, the inner musl/OpenRC VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures the native musl builder first. |
+| `corvus-test-node` | `yaml/gentoo/` | `corvus-test-node`, the Gentoo outer node used by every topology. It builds or ensures `gentoo-glibc-systemd-headless` from `yaml/gentoo/` when needed. |
+| `corvus-test-vm` | `yaml/gentoo/` (`IMAGE=corvus-test-vm`) | `BaseImages/Gentoo/<id>-corvus-test-vm.qcow2`, the inner musl/OpenRC VM used by Linux lifecycle, storage, network, and virtiofs tests. It builds or ensures the native musl builder first. |
 | `freebsd` | `yaml/freebsd/` | FreeBSD 15.1 NoCloud source and `freebsd15` template. |
 | `freebsd-headless` | `yaml/freebsd/` | [Serial-console FreeBSD with preinstalled QGA](../yaml/freebsd/README.md); prepares `freebsd` first. |
 | `multi-os` | `yaml/multi-os/` | Debian 12, Ubuntu 26.04, AlmaLinux 10, and Alpine 3.21 base disks used by cloud-init tests and as the Alpine recipe-build fixture’s bake host. |
@@ -469,7 +465,7 @@ shared integration-test key. Host keys are generated on first boot. An initial
 512 MiB BIOS/TPM smoke test measured 233 MiB used on the root filesystem and 53 MiB RAM usage after boot;
 actual usage varies with attached devices and workloads.
 
-The test profile removes installed-package metadata and non-English locales
+The test guest build removes installed-package metadata and non-English locales
 after package verification. Other Gentoo images keep their existing cleanup
 policy. The smaller 64 MiB ESP leaves room for the root filesystem; all Gentoo
 images share the expanded virtual-hardware kernel configuration and kernel cache.
@@ -478,13 +474,3 @@ The full recipe-build integration test deliberately builds the separate Alpine
 fixture under `yaml/corvus-test-vm-alpine/`, not a nested Gentoo toolchain. It
 uses unique disposable output names and does not replace the default guest.
 To publish that fixture manually, run `make -C yaml/corvus-test-vm-alpine build`.
-
-Size inspection of the cloud-init-based `g1` guest found 381 MiB of root usage,
-including 28 MiB of package metadata, 13 MiB of translations, and a 118 MiB
-Python library tree. The test guest removes the metadata, keeps English only,
-and never installs Python/cloud-init. Further candidates, not automatically
-pruned, include `System.map` (5 MiB), udev hardware-database source files
-(9.1 MiB; preserve the compiled database), and unused terminal descriptions
-(7.5 MiB total). Measure kernel module usage (84 MiB before the added drivers)
-before considering narrower driver coverage; retain the shared kernel policy.
-Do not remove `/usr/lib/systemd` wholesale: OpenRC still uses its udev components.

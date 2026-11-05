@@ -64,10 +64,13 @@ install_builder_tools() {
 
     portage_emerge --buildpkg --noreplace --quiet-build \
       sys-apps/gptfdisk \
-      dev-vcs/git dev-python/gpep517 dev-python/setuptools sys-block/parted \
+      dev-vcs/git \
+      dev-python/gpep517 \
+      dev-python/setuptools \
+      sys-block/parted \
       sys-fs/e2fsprogs \
       sys-fs/dosfstools \
-      sys-boot/grub:2
+      sys-boot/grub
     portage_emerge --buildpkg --noreplace --quiet-build net-misc/curl app-arch/tar app-arch/xz-utils
 }
 
