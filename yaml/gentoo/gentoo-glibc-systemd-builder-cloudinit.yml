@@ -140,7 +140,6 @@ pipeline:
       size: 40G
       path: BaseImages/Gentoo/
       compact: true
-      ephemeral: true
     strategy: overlay
     vm:
       cpuCount: 8

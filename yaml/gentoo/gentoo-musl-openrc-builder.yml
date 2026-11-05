@@ -19,7 +19,6 @@ pipeline:
       size: 40G
       path: BaseImages/Gentoo/
       compact: true
-      ephemeral: true
     vm:
       cpuCount: 8
       ram: 8G
