@@ -271,7 +271,7 @@ A failed startup remains errored and is not retried by the periodic poller.
 QMP resource-counter queries have a one-second deadline per exchange: missing
 statistics must not hold up startup notifications or periodic status delivery.
 
-The nodeagent logs QEMU guest agent (QGA) connection lifecycle events at `info`,
+The nodeagent logs QEMU guest agent (QGA) routine request and connection lifecycle events at `debug`,
 failures at `warn`, and command send/reply metadata and socket reuse at `debug`.
 Use the nodeagent's `--log-level debug` option when investigating a stall.
 The messages use the `qga` logging source and include UTC timestamps, VM ID,
@@ -280,7 +280,7 @@ monotonic timestamp, command sequence, phase, and monotonic elapsed
 milliseconds for the connection and current phase. Connection IDs restart when
 the nodeagent restarts; retain journal timestamps and process identity alongside them.
 
-At `info` level, `request_start`/`request_end` bracket every operation, including
+At `debug` level, `request_start`/`request_end` bracket every operation, including
 callers that never acquire a socket. `lock_wait`, `lock_acquired`, and
 `lock_wait_cancelled` distinguish queue contention from a stalled handshake.
 Operation IDs follow cached connections across reuse, while connection IDs
@@ -295,8 +295,9 @@ lifecycle revision, readiness fence, and configured boot budget. Status probes
 record the same state plus their origin (`periodic` or `dispatch`) and decision
 to probe/skip. Startup attempts record their remaining outer budget; status
 probes explicitly report `outer_timeout` rather than an unexplained cancellation.
-These causal events are available at the default `info` level; enable `debug`
-for individual sends/replies and stale synchronization replies.
+VM publication and startup outcomes remain available at `info`. Enable `debug`
+for status probes, individual startup-ping attempts, request and connection
+traces, sends/replies, and stale synchronization replies.
 
 Collect the entire affected nodeagent journal, retaining systemd PID/boot fields
 and the period before VM publication, not only lines containing the failed VM:

@@ -83,8 +83,8 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
       event level name fields = logQgaEvent (guestAgentLogger connsVar) level name ("vm_id=" <> tshow vmId <> " " <> context <> " " <> fields)
       finish outcome = do
         now <- getMonotonicTimeNSec
-        event LevelInfo "request_end" ("result=" <> outcome <> " duration_ms=" <> tshow ((now - started) `div` 1000000))
-  event LevelInfo "request_start" ("timeout_us=" <> tshow timeoutMicros <> " timeout_scope=after_lock retries=" <> tshow retries <> " discard=" <> tshow discard)
+        event LevelDebug "request_end" ("result=" <> outcome <> " duration_ms=" <> tshow ((now - started) `div` 1000000))
+  event LevelDebug "request_start" ("timeout_us=" <> tshow timeoutMicros <> " timeout_scope=after_lock retries=" <> tshow retries <> " discard=" <> tshow discard)
   ( do
       connVar <- getOrCreateConn connsVar vmId
       path <- getGuestAgentSocket config vmId
@@ -97,11 +97,11 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
     go _ _ _ _ 0 = pure (Left "Guest agent unavailable after retries")
     go event context connVar path count = do
       result <- runOnce event context connVar path (retries - count + 1)
-      event LevelInfo "attempt_end" ("attempt=" <> tshow (retries - count + 1) <> " result=" <> either (const "error") (const "success") result)
+      event LevelDebug "attempt_end" ("attempt=" <> tshow (retries - count + 1) <> " result=" <> either (const "error") (const "success") result)
       case result of
         Right value -> pure (Right value)
         Left _ | count > 1 -> do
-          event LevelInfo "operation_retry" "delay_ms=1000"
+          event LevelDebug "operation_retry" "delay_ms=1000"
           threadDelay 1000000
           go event context connVar path (count - 1)
         Left err -> pure (Left err)
@@ -110,14 +110,14 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
       waiting <- getMonotonicTimeNSec
       slotIdentity <- hashStableName <$> (evaluate connVar >>= makeStableName)
       let attemptFields = "attempt=" <> tshow attempt <> " slot_identity=" <> tshow slotIdentity
-      event LevelInfo "lock_wait" attemptFields :: IO ()
+      event LevelDebug "lock_wait" attemptFields :: IO ()
       mSock <- takeMVar connVar `onException` event LevelWarn "lock_wait_cancelled" attemptFields
       acquired <- getMonotonicTimeNSec
       sockRef <- newIORef mSock
       result <-
         restore
           ( do
-              event LevelInfo "lock_acquired" (attemptFields <> " wait_ms=" <> tshow ((acquired - waiting) `div` 1000000) <> " cached_connection_id=" <> maybe "none" (tshow . qgaConnectionId) mSock)
+              event LevelDebug "lock_acquired" (attemptFields <> " wait_ms=" <> tshow ((acquired - waiting) `div` 1000000) <> " cached_connection_id=" <> maybe "none" (tshow . qgaConnectionId) mSock)
               doWork event (context <> " slot_identity=" <> tshow slotIdentity) mSock path sockRef
           )
           `onException` do
@@ -173,10 +173,10 @@ connectWithRetry cache vmId context count path sockRef = do
   sock <- newQgaSocket (guestAgentLogger cache) vmId connectionId raw `onException` close raw
   writeIORef sockRef (Just sock)
   writeIORef (qgaOperation sock) context
-  logQga sock LevelInfo "connect_start" ("path=" <> T.pack (show path))
+  logQga sock LevelDebug "connect_start" ("path=" <> T.pack (show path))
   ( do
       connect raw (SockAddrUnix path)
-      logQga sock LevelInfo "connect_complete" ""
+      logQga sock LevelDebug "connect_complete" ""
       pure sock
     )
     `catch` \(err :: IOError) -> do
@@ -221,10 +221,10 @@ releaseConn cache vmId = mask_ $ do
 syncGuest :: QgaSocket -> IO ()
 syncGuest sock = do
   syncId <- randomRIO (1, 1073741823 :: Int)
-  logQga sock LevelInfo "sync_start" ("sync_id=" <> T.pack (show syncId))
+  logQga sock LevelDebug "sync_start" ("sync_id=" <> T.pack (show syncId))
   sendQga sock $ Aeson.object ["execute" .= ("guest-sync" :: Text), "arguments" .= Aeson.object ["id" .= syncId]]
   waitForSync syncId 10
-  logQga sock LevelInfo "sync_complete" ("sync_id=" <> T.pack (show syncId))
+  logQga sock LevelDebug "sync_complete" ("sync_id=" <> T.pack (show syncId))
   where
     waitForSync :: Int -> Int -> IO ()
     waitForSync _ 0 = ioError (userError "guest-sync: matching reply not received")
@@ -261,4 +261,4 @@ tshow = T.pack . show
 
 lifecycleEvent :: GuestAgentConns -> Int64 -> Text -> Text -> IO ()
 lifecycleEvent cache vmId event fields =
-  logQgaEvent (guestAgentLogger cache) LevelInfo event ("vm_id=" <> tshow vmId <> " " <> fields)
+  logQgaEvent (guestAgentLogger cache) LevelDebug event ("vm_id=" <> tshow vmId <> " " <> fields)

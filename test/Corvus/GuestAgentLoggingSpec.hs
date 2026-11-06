@@ -83,7 +83,7 @@ spec = describe "GuestAgent connection logs" $ do
       mapM_
         (\event -> logs `shouldSatisfy` contains event)
         ["event=connect_start", "event=connect_complete", "event=sync_start", "event=sync_complete", "event=reuse", "sequence=3 command=guest-ping", "reason=lifecycle_release", "phase_elapsed_ms="]
-      filter (contains "event=send_start" . pure) logs `shouldSatisfy` all ((== LevelDebug) . fst)
+      logs `shouldSatisfy` all ((== LevelDebug) . fst)
       filter ((>= LevelInfo) . fst) logs `shouldSatisfy` (not . contains "event=send_start")
       logs `shouldSatisfy` all (T.isInfixOf "vm_id=42" . snd)
       let socketLogs = filter (contains " connection_id=" . pure) logs
@@ -111,6 +111,7 @@ spec = describe "GuestAgent connection logs" $ do
       wait server
       logs <- entries
       logs `shouldSatisfy` contains "event=operation_timeout"
+      filter (contains "event=operation_timeout" . pure) logs `shouldSatisfy` all ((== LevelWarn) . fst)
       logs `shouldSatisfy` contains "command=guest-sync phase=receive"
       logs `shouldSatisfy` contains "timeout_us=30000"
       logs `shouldSatisfy` contains "reason=timeout"
@@ -126,6 +127,7 @@ spec = describe "GuestAgent connection logs" $ do
       wait server
       logs <- entries
       logs `shouldSatisfy` contains "event=operation_timeout"
+      filter (contains "event=operation_timeout" . pure) logs `shouldSatisfy` all ((== LevelWarn) . fst)
       logs `shouldSatisfy` contains "command=guest-exec phase=send"
       filter (contains "command=guest-exec" . pure) logs `shouldSatisfy` (not . contains "event=send_complete")
       logs `shouldSatisfy` (not . contains "SECRET")
@@ -283,8 +285,8 @@ spec = describe "GuestAgent connection logs" $ do
           wait server
 
   it "propagates asynchronous logger exceptions while closing and restoring the slot" $ withFixture $ \cache config listener _ -> do
-    let logger level _
-          | level == LevelDebug = throwIO ThreadKilled
+    let logger _ message
+          | "event=sync_start " `T.isInfixOf` message = throwIO ThreadKilled
           | otherwise = pure ()
         broken = cache {guestAgentLogger = logger}
     withAsync (bracket (fst <$> accept listener) close $ \peer -> recv peer 1 `shouldReturn` "") $ \server -> do

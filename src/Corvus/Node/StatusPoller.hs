@@ -211,7 +211,7 @@ buildEntry origin cfg qgaConns subs clk (vmId, live) = do
               <> shown (VS.vsStartPaused spec)
               <> " timeout_us=5000000"
           event level name extra = logQgaEvent (guestAgentLogger qgaConns) level name (fields <> " " <> extra)
-      event LevelInfo "status_probe_decision" ("probe=" <> shown (not startupPending && isNothing startupError))
+      event LevelDebug "status_probe_decision" ("probe=" <> shown (not startupPending && isNothing startupError))
       -- A timed-out runtime stays errored even if QGA responds later.
       pingResult <-
         -- The startup coordinator has a boot-sized deadline. Let it finish
@@ -223,7 +223,7 @@ buildEntry origin cfg qgaConns subs clk (vmId, live) = do
           then E.try @E.SomeException (timeout 5000000 (NGA.guestPing qgaConns cfg vmId))
           else pure (Right (Just False))
       event
-        (case pingResult of Right (Just _) -> LevelInfo; _ -> LevelWarn)
+        (case pingResult of Right (Just _) -> LevelDebug; _ -> LevelWarn)
         "status_ping_end"
         ( "result=" <> case pingResult of
             Right Nothing -> "outer_timeout"
@@ -240,7 +240,7 @@ buildEntry origin cfg qgaConns subs clk (vmId, live) = do
           then do
             r <- E.try @E.SomeException (timeout 5000000 (NGA.guestNetworkGetInterfaces qgaConns cfg vmId))
             event
-              (case r of Right (Just _) -> LevelInfo; _ -> LevelWarn)
+              (case r of Right (Just _) -> LevelDebug; _ -> LevelWarn)
               "status_network_end"
               ("result=" <> case r of Right Nothing -> "outer_timeout"; Left _ -> "exception"; Right (Just _) -> "complete")
             pure $ case r of

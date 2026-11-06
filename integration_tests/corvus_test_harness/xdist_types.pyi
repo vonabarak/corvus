@@ -10,6 +10,7 @@ from collections.abc import Callable
 import pytest
 
 class WorkerController:
+    workerinput: dict[str, object]
     shutting_down: bool
     def shutdown(self) -> None: ...
 

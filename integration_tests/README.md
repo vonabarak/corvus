@@ -200,13 +200,37 @@ Networking tests drive a `corvus-netd` instance with `CAP_NET_ADMIN`; the netd
 smoke path launches it through `systemd-run` on the test node and tunnels
 Cap'n Proto over SSH so pytest itself stays unprivileged.
 
-Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` (default:
-`info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
+The standard test-node image's service units specify `--log-level debug`.
+`CORVUS_TEST_LOG_LEVEL` is not used by the harness. Admin/quickstart tests can
+install their own service units with different log levels.
+
+The harness automatically exports service journals at the end of every class,
+including passing classes and partial setup failures, before closing clients
+or deleting nodes. The host-side layout is:
+
+```text
+integration_tests/logs/<UTC-datetime>-<run-id>/<TestClass>/<outer-node-name>/
+  corvus.log
+  corvus-nodeagent.log
+  corvus-netd.log
+```
+
+One run directory is shared by all xdist workers and printed in pytest's header
+and final summary. Set `CORVUS_TEST_LOG_DIR=/path/to/logs` to change its parent.
+Previous runs are retained; the default directory is ignored by Git.
+
+Each readable text file combines system and user service records with precise
+UTC timestamps and process IDs, including service restarts. All available
+matching entries are exported without a priority filter or line limit. A service
+with no records has an empty file. Each export has a 15-second deadline;
+collection failures leave partial logs and `<service>.collection-error.txt`
+diagnostics, or `collection-error.txt` if node discovery fails. Other exports
+and normal cleanup continue. A hard crash or interruption that prevents fixture
+finalization can prevent collection; the files are snapshots, not live streams.
 
 For a class-fixture failure in the outer `crv vm start --wait`, collect the
 **outer host's nodeagent journal**, including the period before the timeout.
-`CORVUS_TEST_LOG_LEVEL` controls services launched inside test nodes; it does not
-change the outer host's nodeagent log level. Configure that nodeagent with
+The test-node service units do not change the outer host's nodeagent log level. Configure that nodeagent with
 `--log-level debug` before reproducing to capture QGA command metadata. Preserve
 the retained VM and collect its console and guest QGA service logs too.
 See [QGA connection diagnostics](../doc/development.md#qga-connection-diagnostics)

@@ -274,10 +274,10 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
               -- A QGA request can wait for its own internal timeout.
               -- Cap it at the remaining startup budget.
               let remainingUs = ceiling ((deadline - now) * 1000000)
-              event LevelInfo "startup_ping_start" ("attempt=" <> tshow attempt <> " outer_timeout_us=" <> tshow remainingUs)
+              event LevelDebug "startup_ping_start" ("attempt=" <> tshow attempt <> " outer_timeout_us=" <> tshow remainingUs)
               ping <- timeout remainingUs (NGA.guestPing conns cfg vmId)
               event
-                (case ping of Nothing -> LevelWarn; _ -> LevelInfo)
+                (case ping of Nothing -> LevelWarn; _ -> LevelDebug)
                 "startup_ping_end"
                 ("attempt=" <> tshow attempt <> " result=" <> case ping of Nothing -> "outer_timeout"; Just True -> "ready"; Just False -> "unready")
               -- Re-check the reaper after the (potentially slow)

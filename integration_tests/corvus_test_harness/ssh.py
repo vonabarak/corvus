@@ -63,6 +63,32 @@ class NodeShell:
     ) -> subprocess.CompletedProcess[bytes]:
         """Run `command` on the node via SSH over VSOCK. Returns
         the CompletedProcess (stdout/stderr captured)."""
+        return subprocess.run(
+            self._argv(command),
+            capture_output=True,
+            timeout=timeout_sec,
+            check=check,
+        )
+
+    def run_to_file(
+        self,
+        command: str,
+        destination: Path,
+        *,
+        timeout_sec: float = 60.0,
+    ) -> None:
+        """Stream stdout to a host file, retaining partial output on failure."""
+        argv = self._argv(command)
+        with destination.open("wb") as output:
+            subprocess.run(
+                argv,
+                stdout=output,
+                stderr=subprocess.PIPE,
+                timeout=timeout_sec,
+                check=True,
+            )
+
+    def _argv(self, command: str) -> list[str]:
         socat = shutil.which("socat")
         if not socat:
             raise RuntimeError("`socat` not on PATH; required for VSOCK SSH")
@@ -83,12 +109,7 @@ class NodeShell:
         if self.key_path is not None:
             argv += ["-i", str(self.key_path)]
         argv += [f"{self.user}@vsock-{self.cid}", command]
-        return subprocess.run(
-            argv,
-            capture_output=True,
-            timeout=timeout_sec,
-            check=check,
-        )
+        return argv
 
     def wait_ready(self, *, timeout_sec: float = 60.0, poll_sec: float = 0.5) -> None:
         """Wait for authenticated SSH independently of guest-agent readiness.

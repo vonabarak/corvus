@@ -44,7 +44,7 @@ from corvus_client.sizes import format_size
 
 import yaml as _yaml
 
-from . import component_deploy
+from . import component_deploy, logs
 from .base_images import BASE_IMAGES_TAG, HOST_BASE_IMAGES_DIR
 from .component_deploy import CaContext
 from .host_binary import REPO_ROOT, HostBinary
@@ -242,6 +242,8 @@ class Topology:
         self.run_id = run_id or secrets.token_hex(4)
         self.attach_source = attach_source
         self._nodes: list[TestNode] = []
+        self._log_nodes: dict[str, int | None] = {}
+        self.log_directory = logs.run_directory() / class_name
         self._stack: ExitStack = ExitStack()
         # Per-class cert tree. CA stores live under `_cert_root/ca/<key>/`;
         # per-node host-side client cert dirs (handed to `Client(cert_dir=…)`)
@@ -292,6 +294,9 @@ class Topology:
         if getattr(self, "_finalized", False):
             return
         self._finalized = True
+
+        for name, cid in self._log_nodes.items():
+            logs.collect_node_logs(self.crv, self.log_directory / name, name, cid)
 
         # Tear down in reverse: clients first (cap drops), then relays,
         # then nodes. ExitStack handles the relays; we close clients and
@@ -478,6 +483,7 @@ class Topology:
         """
         node_name = f"{RESOURCE_PREFIX}-{self.class_name}-{self.run_id}-{short_name}"
         overlay_name = f"{node_name}-rootfs"
+        self._log_nodes[node_name] = None
 
         shared_dirs: list[dict[str, object]] = [
             {
@@ -638,6 +644,7 @@ class Topology:
                 f"Node {node_name} has no usable VSOCK CID (got {cid!r}). "
                 "Check the outer Corvus version supports vsock allocation."
             )
+        self._log_nodes[node_name] = cid
         relay = self._stack.enter_context(VsockTcpRelay.start(cid))
         test_node = TestNode(
             name=node_name,

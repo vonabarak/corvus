@@ -68,12 +68,14 @@ from corvus_test_harness import (
     InstallerImageReady,
     check_nested_kvm,
     check_outer_version,
+    logs,
 )
 from corvus_test_harness.cases import IntegrationTestCase, state_for
 from corvus_test_harness.outer import JsonObject
 from pluggy import Result
 
 if TYPE_CHECKING:
+    from _pytest.terminal import TerminalReporter
     from corvus_test_harness.xdist_types import LoadScopeScheduling, WorkerController
 else:
     from xdist.scheduler.loadscope import LoadScopeScheduling
@@ -83,6 +85,25 @@ import yaml as _yaml
 
 _SESSION_TEST_NETWORK_ROOT: Path | None = None
 _SESSION_TEST_NETWORK_FAILED = "corvus_it_session_network.failed"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    workerinput = getattr(config, "workerinput", {})
+    directory = workerinput.get("corvus_log_directory")
+    logs.configure_run_directory(Path(directory) if directory is not None else None)
+
+
+def pytest_configure_node(node: WorkerController) -> None:
+    node.workerinput["corvus_log_directory"] = str(logs.run_directory())
+
+
+def pytest_report_header() -> str:
+    return f"test-node logs: {logs.run_directory()}"
+
+
+def pytest_terminal_summary(terminalreporter: TerminalReporter) -> None:
+    terminalreporter.write_sep("-", f"test-node logs: {logs.run_directory()}")
+
 
 # ---------------------------------------------------------------------------
 # Session-scoped preconditions

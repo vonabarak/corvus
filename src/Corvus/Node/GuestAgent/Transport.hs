@@ -187,13 +187,13 @@ timeoutQgaReceive micros sock = do
 
 closeQga :: Text -> QgaSocket -> IO ()
 closeQga reason sock = do
-  logQga sock LevelInfo "close_start" ("reason=" <> reason)
+  logQga sock LevelDebug "close_start" ("reason=" <> reason)
     `finally` ( close (qgaSocket sock) `catch` \err ->
                   case fromException err :: Maybe SomeAsyncException of
                     Just _ -> throwIO (err :: SomeException)
                     Nothing -> logQga sock LevelWarn "close_error" ("reason=" <> reason)
               )
-  logQga sock LevelInfo "close_complete" ("reason=" <> reason)
+  logQga sock LevelDebug "close_complete" ("reason=" <> reason)
 
 -- | Parse the first valid JSON value in a QGA frame. QGA messages are
 -- newline-delimited; @0xff@ delimiters may be left by guest-sync-delimited.
