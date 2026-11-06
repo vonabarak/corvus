@@ -81,7 +81,9 @@ export async function apiSend<T>(
 }
 
 /** Preserve capacity integers before JavaScript can round them.
- * DTO size fields are explicitly decoded as bigint. */
+ * Other DTO fields use numbers, matching JSON.parse for WebSocket frames.
+ * LosslessNumber.valueOf() can return bigint for large counters/timestamps,
+ * so convert explicitly rather than letting the runtime type depend on size. */
 export function decodeJson(text: string): unknown {
   const capacityKeys = new Set([
     "ram",
@@ -94,6 +96,6 @@ export function decodeJson(text: string): unknown {
   ]);
   return parse(text, (key, value) => {
     if (!isLosslessNumber(value)) return value;
-    return capacityKeys.has(key) ? BigInt(value.value) : value.valueOf();
+    return capacityKeys.has(key) ? BigInt(value.value) : Number(value.value);
   });
 }

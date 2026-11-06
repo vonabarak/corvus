@@ -36,3 +36,45 @@ test("JSON capacities remain exact numeric byte tokens above Number.MAX_SAFE_INT
   assert.equal(encoded, '{"id":7,"size":9223372036854775807,"ram":1073741824}');
   assert.deepEqual(decodeJson(encoded), { id: 7, size: bytes, ram: 1073741824n });
 });
+
+test("REST stats keep number arithmetic and match WebSocket JSON above the safe integer limit", () => {
+  const encoded = stringify([
+    {
+      sampled_at_nanos: 1793981293653098083n,
+      interval_millis: 10000,
+      cpu_jiffies_total: 9007199254740993n,
+      clk_tck: 100,
+      host_rss_bytes: 9007199254740993n,
+      balloon_actual_bytes: 17179869184,
+      balloon_max_bytes: 17179869184,
+      drives: [{ read_bytes_total: 9007199254740993n, write_bytes_total: 9007199254740993n }],
+      nets: [{ rx_bytes_total: 9007199254740993n, tx_bytes_total: 9007199254740993n }],
+    },
+  ]);
+  const [sample] = decodeJson(encoded);
+  assert.deepEqual(sample, JSON.parse(encoded)[0]);
+  assert.ok(Number.isFinite(sample.sampled_at_nanos / 1_000_000));
+  assert.ok(Number.isFinite(sample.cpu_jiffies_total / sample.clk_tck));
+  assert.doesNotThrow(() => formatBytes(sample.host_rss_bytes));
+  for (const counters of [sample.drives[0], sample.nets[0]]) {
+    for (const value of Object.values(counters)) {
+      assert.ok(Number.isFinite((value - 100) / (sample.interval_millis / 1000)));
+    }
+  }
+});
+
+test("all capacity fields stay bigint alongside numeric fields and nullable capacities", () => {
+  const capacities = Object.fromEntries(
+    [
+      "ram",
+      "size",
+      "ram_total",
+      "ram_free",
+      "storage_bytes_total",
+      "storage_bytes_free",
+      "total_size",
+    ].map((key) => [key, 9223372036854775807n]),
+  );
+  const payload = { capacities, nullable: { size: null }, load_avg1: 0.125, cpu_count: 8 };
+  assert.deepEqual(decodeJson(stringify(payload)), payload);
+});
