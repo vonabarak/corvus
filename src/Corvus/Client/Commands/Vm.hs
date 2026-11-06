@@ -45,12 +45,12 @@ import Control.Exception (SomeException, finally, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Human (formatHumanSize)
 import Corvus.Client.Output (TableOpts, emitListResult, emitOk, emitOkWith, emitResult, emitRpcError, formatBool, isStructured, printField)
 import Corvus.Client.Output.Columns (vmColumns, vmSnapshotColumns)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), GraphicsAdapter, VmStatus (..))
 import Corvus.Protocol (AudioDeviceInfo (..), DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmSnapshotInfo (..), VmStats (..))
-import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
@@ -463,7 +463,7 @@ printVmDetails vm = do
     Nothing -> pure ()
   printField "CPUs" (show (vdCpuCount vm))
   printField "CPU Model" (T.unpack (vdCpuModel vm))
-  printField "RAM" (formatSize (vdRam vm))
+  printField "RAM" (formatHumanSize (vdRam vm))
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
   printField "Headless" (formatBool (vdHeadless vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
@@ -635,11 +635,9 @@ printResourceUsage stats = do
         <> formatBytes (nioTxBytesTotal n)
         <> " tx"
 
--- | Render a byte count with the largest unit that yields a
--- value >= 1. Mirrors what 'numfmt --to=iec' would emit for the
--- common cases. Used by the CLI's resource-usage panel.
+-- | Render a byte count for the CLI resource-usage panel.
 formatBytes :: (Integral a) => a -> String
-formatBytes = formatSize
+formatBytes = formatHumanSize
 
 -- | One-decimal-place formatter without pulling in printf.
 printf1 :: Double -> String
@@ -664,7 +662,7 @@ handleVmSnapshotCreate fmt conn vmRef name = do
         printField "VM" (T.unpack (nrName (vsiVm info)))
         printField "Carrier disk" (T.unpack (nrName (vsiCarrierDisk info)))
         printField "Disks captured" (show (vsiDiskCount info))
-        printField "Total size" (formatSize (vsiTotalSize info))
+        printField "Total size" (formatHumanSize (vsiTotalSize info))
       pure True
     Left e -> do
       emitRpcError fmt e $

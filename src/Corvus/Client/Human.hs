@@ -3,15 +3,60 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | CLI presentation encoding. Machine JSON uses the original DTO encoders.
-module Corvus.Client.Human (HumanJSON (..)) where
+module Corvus.Client.Human (HumanJSON (..), formatHumanSize, formatLoad) where
 
 import Corvus.Protocol
 import Corvus.Size (formatSize)
 import Data.Aeson (ToJSON, Value (..), toJSON)
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
+import Data.Char (isDigit)
 import qualified Data.Text as T
 import qualified Data.Vector as V
+
+-- | Compact text sizes; YAML and configuration continue to use exact sizes.
+formatHumanSize :: (Integral a) => a -> String
+formatHumanSize input
+  | length (filter isDigit exact) <= 4 = exact
+  | otherwise = "~" ++ sign ++ approximate power
+  where
+    exact = formatSize input
+    bytes = abs (toInteger input)
+    sign = if input < 0 then "-" else ""
+    power = length (takeWhile (<= bytes) [1024 ^ p | p <- [1 .. 4 :: Int]])
+    approximate p =
+      let factor = 1024 ^ p
+          places = 4 - length (show (bytes `div` factor))
+          numerator = bytes * 10 ^ max 0 places
+          denominator = factor * 10 ^ max 0 (-places)
+          rounded = (2 * numerator + denominator) `div` (2 * denominator)
+          scaled = rounded * 10 ^ max 0 (-places)
+          decimals = max 0 places
+       in if p < 4 && scaled >= 1024 * 10 ^ decimals
+            then approximate (p + 1)
+            else renderFixed scaled decimals ++ unit p
+    unit p = case p of
+      1 -> "K"
+      2 -> "M"
+      3 -> "G"
+      4 -> "T"
+      _ -> "B"
+
+-- | Fixed notation with up to four decimal places, including plain zero.
+formatLoad :: Double -> String
+formatLoad value = renderFixed (round (value * 10000)) 4
+
+renderFixed :: Integer -> Int -> String
+renderFixed scaled places
+  | places == 0 = show scaled
+  | otherwise = sign ++ show whole ++ fraction
+  where
+    sign = if scaled < 0 then "-" else ""
+    (whole, remainder) = abs scaled `divMod` (10 ^ places)
+    digits = show remainder
+    padded = replicate (places - length digits) '0' ++ digits
+    trimmed = reverse (dropWhile (== '0') (reverse padded))
+    fraction = if null trimmed then "" else '.' : trimmed
 
 class (ToJSON a) => HumanJSON a where
   humanJSON :: a -> Value

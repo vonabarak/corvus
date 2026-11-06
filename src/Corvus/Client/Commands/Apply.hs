@@ -21,11 +21,11 @@ import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Human (formatHumanSize)
 import Corvus.Client.Output (emitError, emitResult, emitRpcError)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol (ApplyEvent (..))
-import Corvus.Size (formatSize)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -163,6 +163,6 @@ renderProgress name downloaded total =
               <> T.pack (printf "%.1f %%" pct)
 
 -- | Format a byte count as a short human-readable string (e.g.
--- @"12.3 MB"@). Used by the live download progress renderer.
+-- @"~12.3M"@). Used by the live download progress renderer.
 humanBytes :: Int64 -> Text
-humanBytes = T.pack . formatSize
+humanBytes = T.pack . formatHumanSize

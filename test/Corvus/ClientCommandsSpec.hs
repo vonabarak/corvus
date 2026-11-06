@@ -50,6 +50,37 @@ spec = sequential $ describe "CLI commands over typed fake RPC" $ do
         case fmt of
           TextOutput -> pure ()
           _ -> decoded fmt out `shouldBe` Right (object ["status" .= ("error" :: String), "error" .= ("rpc_error" :: String), "message" .= ("scripted RPC failure" :: String)])
+  describe "compact text sizes and loads" $ do
+    forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> do
+      it ("formats disk sizes only in text: " ++ show fmt) $ withMock $ \f -> do
+        expectCalls f ["Daemon.disks", "DiskManager.list"]
+        setReply f "DiskManager.list" (\(_ :: C.Parsed GDisk.DiskManager'list'params) -> pure (GDisk.DiskManager'list'results [case sampleDiskImageInfo of GDisk.DiskImageInfo {GDisk.id = fixtureId, ..} -> GDisk.DiskImageInfo {GDisk.id = fixtureId, GDisk.size = 10001, ..}]))
+        out <- checkCli f fmt DiskList ExitSuccess
+        out `shouldSatisfy` isInfixOf (if fmt == TextOutput then "~9.767K" else if fmt == YamlOutput then "10001B" else "10001")
+      it ("formats node list resources and load: " ++ show fmt) $ withMock $ \f -> do
+        expectCalls f ["Daemon.nodes", "NodeManager.list"]
+        setReply f "NodeManager.list" (\(_ :: C.Parsed GNode.NodeManager'list'params) -> pure (GNode.NodeManager'list'results [case sampleNodeInfo of GNode.NodeInfo {GNode.id = fixtureId, ..} -> GNode.NodeInfo {GNode.id = fixtureId, GNode.ramFree = 10001, GNode.storageBytesFree = 17053696, GNode.loadAvg1 = 0.07, ..}]))
+        out <- checkCli f fmt NodeList ExitSuccess
+        if fmt == TextOutput
+          then do
+            out `shouldContain` "~9.767K"
+            out `shouldContain` "~16.26M"
+            out `shouldContain` "0.07"
+            out `shouldNotContain` "e-"
+          else out `shouldSatisfy` isInfixOf (if fmt == YamlOutput then "16654K" else "17053696")
+    it "uses four decimal places for all node detail load averages" $ withMock $ \f -> do
+      expectCalls f ["Daemon.nodes", "NodeManager.get", "Node.show"]
+      setReply f "Node.show" (\(_ :: C.Parsed GNode.Node'show'params) -> pure (GNode.Node'show'results (case sampleNodeDetails of GNode.NodeDetails {GNode.id = fixtureId, ..} -> GNode.NodeDetails {GNode.id = fixtureId, GNode.ramFree = 10001, GNode.loadAvg1 = 0.07, GNode.loadAvg5 = 0.00004, GNode.loadAvg15 = 1.23456, ..})))
+      out <- checkCli f TextOutput (NodeShow "fixture") ExitSuccess
+      out `shouldContain` "~9.767K"
+      out `shouldContain` "0.07 / 0 / 1.2346"
+    it "formats VM resource statistics" $ withMock $ \f -> do
+      expectCalls f ["Daemon.vms", "VmManager.get", "Vm.show"]
+      let updatedStats = case sampleVmDetails of GVm.VmDetails {GVm.stats = GVm.VmStats {..}} -> GVm.VmStats {GVm.hostRssBytes = 10001, GVm.drives = [GVm.DriveIo {GVm.readBytesTotal = 17053696, ..} | GVm.DriveIo {..} <- drives], ..}
+      setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {GVm.id = fixtureId, ..} -> GVm.VmDetails {GVm.id = fixtureId, GVm.stats = updatedStats, ..})))
+      out <- checkCli f TextOutput (VmShow "fixture") ExitSuccess
+      out `shouldContain` "~9.767K"
+      out `shouldContain` "~16.26M read"
   describe "boolean detail output" $ do
     forM_ [False, True] $ \flag ->
       it ("renders VM boolean fields consistently: " ++ show flag) $ withMock $ \f -> do

@@ -24,12 +24,12 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
 import Corvus.Client.Editor (editInEditor)
+import Corvus.Client.Human (formatHumanSize)
 import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitResult, emitRpcError, formatBool, printField, tableFormat)
 import Corvus.Client.Output.Columns (templateVmColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
 import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..))
-import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
@@ -178,7 +178,7 @@ printTemplateDetails t = do
   printField "Template ID" (show (tvdId t))
   printField "Name" (T.unpack (tvdName t))
   printField "CPUs" (show (tvdCpuCount t))
-  printField "RAM" (formatSize (tvdRam t))
+  printField "RAM" (formatHumanSize (tvdRam t))
   printField "Created At" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (tvdCreatedAt t))
   case tvdDescription t of
     Just desc -> printField "Description" (T.unpack desc)
@@ -209,7 +209,7 @@ printTemplateDetails t = do
           (T.unpack $ enumToText $ tvdiCloneStrategy d)
           (formatBool $ tvdiReadOnly d)
           (T.unpack $ enumToText $ tvdiCacheType d)
-          (maybe "-" formatSize (tvdiSize d))
+          (maybe "-" formatHumanSize (tvdiSize d))
 
   putStrLn "\nNetwork Interfaces:"
   if null (tvdNetIfs t)

@@ -23,10 +23,10 @@ module Corvus.Client.Output.Columns
   , isTaskPending
   ) where
 
+import Corvus.Client.Human (formatHumanSize, formatLoad)
 import Corvus.Client.Output (Align (..), Column (..), formatBool)
 import Corvus.Model (EnumText (..), TaskResult (..), VmStatus (..))
 import Corvus.Protocol
-import Corvus.Size (formatSize)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -41,7 +41,7 @@ vmColumns now =
   , Column "NODE" LeftAlign (T.unpack . nrName . viNode)
   , Column "STATUS" LeftAlign (T.unpack . enumToText . viStatus)
   , Column "CPUS" RightAlign (show . viCpuCount)
-  , Column "RAM" RightAlign (formatSize . viRam)
+  , Column "RAM" RightAlign (formatHumanSize . viRam)
   , Column "HEALTH" LeftAlign (healthLabel now)
   , Column "GUEST_AGENT" LeftAlign (formatBool . viGuestAgent)
   , Column "CLOUD_INIT" LeftAlign (formatBool . viCloudInit)
@@ -64,7 +64,7 @@ vmSnapshotColumns =
   , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . vsiCreatedAt)
   , Column "CARRIER" LeftAlign (T.unpack . nrName . vsiCarrierDisk)
   , Column "DISKS" RightAlign (show . vsiDiskCount)
-  , Column "SIZE" RightAlign (formatSize . vsiTotalSize)
+  , Column "SIZE" RightAlign (formatHumanSize . vsiTotalSize)
   , ExtraColumn "VM" LeftAlign (namedRef . vsiVm)
   ]
 
@@ -82,7 +82,7 @@ diskColumns =
   , Column "NAME" LeftAlign (T.unpack . diiName)
   , Column "TAGS" LeftAlign (T.unpack . T.intercalate "," . diiTags)
   , Column "FORMAT" LeftAlign (T.unpack . enumToText . diiFormat)
-  , Column "SIZE" RightAlign (maybe "-" formatSize . diiSize)
+  , Column "SIZE" RightAlign (maybe "-" formatHumanSize . diiSize)
   , Column "EPHEMERAL" LeftAlign (formatBool . diiEphemeral)
   , Column "ATTACHED_TO" LeftAlign formatAttached
   , ExtraColumn "CREATED" LeftAlign (formatTimestamp . diiCreatedAt)
@@ -99,7 +99,7 @@ snapshotColumns =
   [ Column "ID" RightAlign (show . sniId)
   , Column "NAME" LeftAlign (T.unpack . sniName)
   , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
-  , Column "SIZE" RightAlign (maybe "-" formatSize . sniSize)
+  , Column "SIZE" RightAlign (maybe "-" formatHumanSize . sniSize)
   , Column "LIVE" LeftAlign (formatBool . sniLive)
   , Column "QUIESCED" LeftAlign (formatBool . sniQuiesced)
   , Column "HAS_VMSTATE" LeftAlign (formatBool . sniHasVmstate)
@@ -113,27 +113,24 @@ nodeColumns =
   , Column "STATE" LeftAlign (T.unpack . enumToText . noiAdminState)
   , Column "NETD" LeftAlign netdState
   , Column "CPUS" RightAlign (maybe "--" show . noiCpuCount)
-  , Column "RAM_FREE" RightAlign (maybe "--" formatSize . noiRamFree)
+  , Column "RAM_FREE" RightAlign (maybe "--" formatHumanSize . noiRamFree)
   , Column "DISK_FREE" RightAlign $ \n ->
       maybe
         "--"
-        formatSize
+        formatHumanSize
         (noiStorageBytesFree n)
   , Column "LOAD1" RightAlign (maybe "--" (formatLoad . (\x -> x :: Double)) . noiLoadAvg1)
   , ExtraColumn "NODE_AGENT_PORT" RightAlign (show . noiNodeAgentPort)
   , ExtraColumn "NET_AGENT_PORT" RightAlign (show . noiNetAgentPort)
   , ExtraColumn "CREATED" LeftAlign (formatTimestamp . noiCreatedAt)
-  , ExtraColumn "RAM_TOTAL" RightAlign (maybe "-" formatSize . noiRamTotal)
-  , ExtraColumn "DISK_TOTAL" RightAlign (maybe "-" formatSize . noiStorageBytesTotal)
+  , ExtraColumn "RAM_TOTAL" RightAlign (maybe "-" formatHumanSize . noiRamTotal)
+  , ExtraColumn "DISK_TOTAL" RightAlign (maybe "-" formatHumanSize . noiStorageBytesTotal)
   , ExtraColumn "LAST_NODE_AGENT_PUSH" LeftAlign (maybe "-" formatTimestamp . noiLastNodeAgentPushAt)
   , ExtraColumn "LAST_NET_AGENT_PUSH" LeftAlign (maybe "-" formatTimestamp . noiLastNetAgentPushAt)
   , ExtraColumn "NETD_DISABLED" LeftAlign (formatBool . noiNetdDisabled)
   , ExtraColumn "NETD_CONNECTED" LeftAlign (formatBool . noiNetdConnected)
   ]
   where
-    formatLoad x =
-      let s = (round (x * 100) :: Int)
-       in show (fromIntegral s / (100 :: Double))
     netdState n
       | noiNetdDisabled n = "disabled"
       | noiNetdConnected n = "online"
@@ -176,7 +173,7 @@ templateVmColumns =
   [ Column "ID" RightAlign (show . tviId)
   , Column "NAME" LeftAlign (T.unpack . tviName)
   , Column "CPUS" RightAlign (show . tviCpuCount)
-  , Column "RAM" RightAlign (formatSize . tviRam)
+  , Column "RAM" RightAlign (formatHumanSize . tviRam)
   , Column "TPM" LeftAlign (formatBool . tviTpm)
   , ExtraColumn "DESCRIPTION" LeftAlign (maybe "-" textOrDash . tviDescription)
   , ExtraColumn "HEADLESS" LeftAlign (formatBool . tviHeadless)

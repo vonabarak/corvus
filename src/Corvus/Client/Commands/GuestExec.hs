@@ -13,6 +13,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Human (formatHumanSize)
 import Corvus.Client.Output (emitOkWith, emitRpcError)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Wire.Common (entityRefFromText)
@@ -57,7 +58,7 @@ handleTransfer fmt transfer = do
   result <- try transfer
   case result of
     Right count -> do
-      emitOkWith fmt [("bytes_transferred", toJSON count)] $ putStrLn (show count <> " bytes transferred")
+      emitOkWith fmt [("bytes_transferred", toJSON count)] $ putStrLn (formatHumanSize count <> " transferred")
       pure True
     Left (err :: SomeException) -> do
       emitRpcError fmt err $ putStrLn ("Guest file transfer failed: " <> show err)

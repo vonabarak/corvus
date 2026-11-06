@@ -93,7 +93,7 @@ spec = sequential $ describe "CLI files, editors and event streams" $ do
         readAll
         pure GVm.Vm'uploadFile'results {GVm.bytesTransferred = fromIntegral (BS.length payload)}
       out <- checkCli f fmt (VmUpload "vm" path "/guest/binary") ExitSuccess
-      out `shouldSatisfy` isInfixOf "70001"
+      out `shouldSatisfy` isInfixOf (if fmt == TextOutput then "~68.36K transferred" else "70001")
       received <- readIORef chunks
       BS.concat received `shouldBe` payload
       map BS.length received `shouldBe` [32768, 32768, 4465]
@@ -250,12 +250,14 @@ spec = sequential $ describe "CLI files, editors and event streams" $ do
     it (show result) $ withFile "vms: []" $ \path -> withMock $ \f -> do
       expectCalls f ["Daemon.apply"]
       setReply f "Daemon.apply" $ \(GCorvus.Daemon'apply'params _ _ sink) -> do
-        let events = [ApplyLogLine "hello", PhaseStart "disks" 2, EntityStart "disks" "image" "disk-import", DownloadStart "image" "https://fixture/image", DownloadProgress "image" 10 100, DownloadProgress "image" 20 0, DownloadEnd "image" True "done", DownloadEnd "other" False "failure", EntityEnd "disks" "image" TaskSuccess "created" 42, EntityEnd "disks" "skip" TaskSuccess "existing" 0, EntityEnd "disks" "bad" TaskError "failed" 0, ApplyEnd result "done" 42]
+        let events = [ApplyLogLine "hello", PhaseStart "disks" 2, EntityStart "disks" "image" "disk-import", DownloadStart "image" "https://fixture/image", DownloadProgress "image" 10001 17053696, DownloadProgress "image" 17053696 0, DownloadEnd "image" True "done", DownloadEnd "other" False "failure", EntityEnd "disks" "image" TaskSuccess "created" 42, EntityEnd "disks" "skip" TaskSuccess "existing" 0, EntityEnd "disks" "bad" TaskError "failed" 0, ApplyEnd result "done" 42]
         forM_ events $ \ev -> void (C.callP #push (GStreams.ApplyEventSink'push'params (toCapnpApplyEvent ev)) sink >>= C.waitPipeline)
         void (C.callP #end GStreams.ApplyEventSink'end'params sink >>= C.waitPipeline)
         pure (GCorvus.Daemon'apply'results (GCorvus.ApplyResult [] [] [] [] []) 42)
       out <- checkCli f TextOutput (Apply path (WaitOptions True Nothing)) (exitFor (result /= TaskSuccess))
       out `shouldSatisfy` isInfixOf "hello"
+      out `shouldContain` "~9.767K / ~16.26M"
+      out `shouldContain` "[disks] image  ~16.26M"
 
 noWait :: WaitOptions
 noWait = WaitOptions False Nothing

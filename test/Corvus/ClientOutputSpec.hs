@@ -2,7 +2,7 @@
 
 module Corvus.ClientOutputSpec (spec) where
 
-import Corvus.Client.Human (humanJSON)
+import Corvus.Client.Human (formatHumanSize, formatLoad, humanJSON)
 import Corvus.Client.Output
   ( Align (..)
   , BorderStyle (..)
@@ -25,12 +25,14 @@ import Corvus.Protocol
 import Data.Aeson (ToJSON (..), Value (..), encode, object, (.=))
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy.Char8 as BL
+import Data.Int (Int64)
 import Data.List (isInfixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (isJust)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Word (Word64)
 import Options.Applicative.Types (Completer (..))
 import System.Environment (withArgs)
 import Test.Hspec
@@ -119,6 +121,39 @@ spec = sequential $ do
     it "makes VM key attachments optional rather than unavailable" $ do
       fmap (map colName) (resolveColumns DefaultColumns sshKeyVmColumns) `shouldBe` Right ["ID", "NAME", "PUBLIC_KEY"]
       fmap (map colName) (resolveColumns AllColumns sshKeyVmColumns) `shouldBe` Right ["ID", "NAME", "PUBLIC_KEY", "ATTACHED_VMS", "CREATED"]
+  describe "CLI compact numbers" $ do
+    mapM_
+      ( \(bytes, expected) ->
+          it ("formats size " ++ show bytes) $
+            formatHumanSize (bytes :: Integer) `shouldBe` expected
+      )
+      [ (0, "0B")
+      , (1, "1B")
+      , (1024, "1K")
+      , (1537, "1537B")
+      , (9999, "9999B")
+      , (10000, "~9.766K")
+      , (10001, "~9.767K")
+      , (1536 * 1024 ^ (2 :: Int), "1536M")
+      , (15361 * 1024 ^ (2 :: Int), "~15G")
+      , (16654 * 1024, "~16.26M")
+      , (1024 ^ (2 :: Int) - 1, "~1M")
+      , (1024 ^ (3 :: Int) - 1, "~1G")
+      , (1024 ^ (4 :: Int) - 1, "~1T")
+      , (1025 * 1024 + 512, "~1.001M")
+      , (10005 * 1024 ^ (4 :: Int), "~10010T")
+      , (-10001, "~-9.767K")
+      ]
+    it "formats large signed and unsigned counters without overflow" $ do
+      formatHumanSize (maxBound :: Int64) `shouldBe` "~8389000T"
+      formatHumanSize (minBound :: Int64) `shouldBe` "~-8389000T"
+      formatHumanSize (maxBound :: Word64) `shouldBe` "~16780000T"
+    mapM_
+      ( \(value, expected) ->
+          it ("formats load " ++ show value) $
+            formatLoad value `shouldBe` expected
+      )
+      [(0, "0"), (0.07, "0.07"), (0.00004, "0"), (0.00006, "0.0001"), (1.23456, "1.2346"), (2, "2"), (0.1234, "0.1234"), (-0.00004, "0"), (99999.12346, "99999.1235")]
   describe "human and machine size output" $ do
     it "keeps numeric bytes in JSON and exact suffixes in human YAML values" $ do
       let disk = DiskImageInfo 1 [] "tiny" [] FormatRaw (Just 512) testTime [] Nothing False

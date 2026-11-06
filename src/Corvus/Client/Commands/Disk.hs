@@ -51,13 +51,13 @@ import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Task (handleTaskWait)
+import Corvus.Client.Human (formatHumanSize)
 import Corvus.Client.Output (TableOpts, emitError, emitListResult, emitOk, emitOkWith, emitResult, emitRpcError, formatBool, printField)
 import Corvus.Client.Output.Columns (diskColumns, snapshotColumns)
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..))
 import Corvus.Protocol.Disk (DiskCleanupPlacement (..), DiskCleanupReport (..), DiskCleanupVersion (..), parseUploadIfExists)
-import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Corvus.Wire.Enums (toCapnpDriveFormat)
 import Data.Aeson (toJSON)
@@ -198,7 +198,7 @@ handleDiskResize fmt conn diskRef newSize = do
   r <- try (CR.rpcDiskResize conn (entityRefFromText diskRef) newSize) :: IO (Either SomeException ())
   case r of
     Right () -> do
-      emitOk fmt $ putStrLn $ "Disk resized to " ++ formatSize newSize ++ "."
+      emitOk fmt $ putStrLn $ "Disk resized to " ++ formatHumanSize newSize ++ "."
       pure True
     Left e -> do
       emitRpcError fmt e $
@@ -488,7 +488,7 @@ printDiskDetails d = do
                 (diiPlacements d)
     )
   printField "Format" (T.unpack (enumToText $ diiFormat d))
-  printField "Size" (maybe "(unknown)" formatSize (diiSize d))
+  printField "Size" (maybe "(unknown)" formatHumanSize (diiSize d))
   printField "Ephemeral" (formatBool (diiEphemeral d))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
   printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map nrName (diiAttachedTo d))))

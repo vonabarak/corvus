@@ -16,12 +16,12 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Human (formatHumanSize, formatLoad)
 import Corvus.Client.Output
 import Corvus.Client.Output.Columns (nodeColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NodeAdminState)
 import Corvus.Protocol (NodeDetails (..))
-import Corvus.Size (formatSize)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Maybe (fromMaybe)
@@ -114,10 +114,10 @@ handleNodeShow fmt conn nRef = do
       printField "Kernel" (maybe "(unknown)" T.unpack (nodKernelRelease d))
       printField "Agent version" (maybe "(unknown)" T.unpack (nodAgentVersion d))
       printField "CPUs (total)" (maybe "--" show (nodCpuCount d))
-      printField "RAM total" (maybe "--" formatSize (nodRamTotal d))
-      printField "RAM free" (maybe "--" formatSize (nodRamFree d))
-      printField "Storage total" (maybe "--" formatSize (nodStorageBytesTotal d))
-      printField "Storage free" (maybe "--" formatSize (nodStorageBytesFree d))
+      printField "RAM total" (maybe "--" formatHumanSize (nodRamTotal d))
+      printField "RAM free" (maybe "--" formatHumanSize (nodRamFree d))
+      printField "Storage total" (maybe "--" formatHumanSize (nodStorageBytesTotal d))
+      printField "Storage free" (maybe "--" formatHumanSize (nodStorageBytesFree d))
       printField "Load avg (1/5/15)" $
         loadStr (nodLoadAvg1 d) (nodLoadAvg5 d) (nodLoadAvg15 d)
       printField "Nodeagent last push" $
@@ -129,11 +129,7 @@ handleNodeShow fmt conn nRef = do
         formatBool (nodNetdConnected d)
 
     loadStr a b c = render a ++ " / " ++ render b ++ " / " ++ render c
-    render = maybe "--" (formatRound . (\x -> x :: Double))
-    formatRound x =
-      let scaled :: Int
-          scaled = round (x * 100)
-       in show (fromIntegral scaled / (100 :: Double))
+    render = maybe "--" formatLoad
 
 --------------------------------------------------------------------------------
 -- handleNodeEdit

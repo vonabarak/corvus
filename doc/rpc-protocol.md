@@ -451,9 +451,14 @@ Upgrade the daemon, node agents, CLI and Python clients together.
 
 Human size input in CLI, build YAML, apply YAML and template YAML requires a
 positive integer followed by B, K, M, G or T (case insensitive). Each unit is
-1024 times the previous one. RAM must be a whole multiple of 1M. Text and YAML
-output use the largest exact suffix: `1G`, `1536M`, or `1537B`; JSON output
-always contains numeric bytes. Zero is displayed as `0B`, and unknown values
+1024 times the previous one. RAM must be a whole multiple of 1M. YAML output uses the largest exact suffix: `1G`, `1536M`, or `1537B`;
+JSON output always contains numeric bytes. Text output preserves exact suffixes
+when the numeric part has at most four digits. Longer values use the largest
+K/M/G/T binary unit rounded to four significant digits, prefixed with `~`, with
+trailing decimal zeros removed (for example, `16654K` becomes `~16.26M`).
+Halfway values round upward. T remains the largest suffix; values beyond that
+range may require more than four integer positions. Configuration exports and
+editable YAML retain exact sizes. Zero is displayed as `0B`, and unknown values
 retain their null/absent semantics. No legacy size keys or unsuffixed input
 are accepted.
 

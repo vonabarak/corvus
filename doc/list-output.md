@@ -53,7 +53,16 @@ Descriptive headers replace `CI`, `AS`, `EPH`, `Q`, and `V` with `CLOUD_INIT`, `
 
 Absent optional values and empty lists display `-`. Timestamps are UTC in
 `YYYY-MM-DD HH:MM:SS` format. Sizes use
-human-readable byte units, and `STARTUP_TIMEOUT_SEC` is an integer in seconds.
+binary byte units (1K = 1024 bytes). Exact values with at most four numeric
+digits stay unchanged, such as `1537B` and `1536M`. Longer values use the largest
+K/M/G/T unit, rounded to four significant digits and prefixed with `~`:
+`15361M` becomes `~15G`, and `16654K` becomes `~16.26M`. Halfway values round
+upward, trailing decimal zeros are removed, and zero displays as `0B`. T is
+the largest suffix, so very large values may need more than four integer positions.
+This applies throughout text output, including details, statistics and progress;
+JSON and YAML retain exact values. `LOAD1` and node detail load averages use up
+to four decimal places with trailing zeros removed, without scientific notation;
+values rounding to zero display `0`. `STARTUP_TIMEOUT_SEC` is an integer in seconds.
 `BACKING_IMAGE`, `NETWORK`, and `VM` display `name (id)` references. `PLACEMENTS`
 displays `node-name (id): path`, separated by semicolons. `DNS_SERVERS` and
 `PEER_NODE_IDS` contain comma-separated values; `PEERS` is a count.
