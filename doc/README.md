@@ -55,10 +55,18 @@ eselect repository add vonabarak git https://github.com/vonabarak/gentoo.git
 emaint sync -r vonabarak
 
 # Install
-emerge app-emulation/corvus-bin
+emerge app-emulation/corvus
 ```
 
-The `corvus-bin` package installs pre-built binaries from the GitHub releases above.
+The `app-emulation/corvus` package builds from source. Enable the `binary` USE flag
+to install pre-built binaries from GitHub releases instead:
+
+```bash
+echo 'app-emulation/corvus binary' >> /etc/portage/package.use/corvus
+emerge app-emulation/corvus
+```
+
+The `9999` version installs the latest version from Git and does not support the `binary` USE flag.
 
 ### Building from Source
 
