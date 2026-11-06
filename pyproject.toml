@@ -70,6 +70,9 @@ build-backend = "setuptools.build_meta"
 # `corvus_client`, `corvus_admin`, and `corvus_web` live under /python;
 # the integration-test harness lives under /integration_tests.
 [tool.setuptools]
+# Ship resources through the explicit package-data entries below rather than
+# automatic manifest discovery, which treats resource directories as packages.
+include-package-data = false
 packages = [
     "corvus_client",
     "corvus_client._async",
