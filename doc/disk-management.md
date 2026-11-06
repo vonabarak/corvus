@@ -194,7 +194,7 @@ crv disk register ws25-overlay ~/VMs/ws25/overlay.qcow2 --backing ws25-base
 `--backing` records the overlay relationship in the database (for rebase/delete dependency tracking). When `--format` is omitted,
 Corvus inspects the file with `qemu-img` and falls back to its extension.
 
-If the file is under the base images directory (`$HOME/VMs`), a relative path is stored for portability.
+If the file is under the selected node's base images directory (by default `$HOME/VMs` on that node), a relative path is stored for portability.
 
 ## Importing
 
@@ -236,7 +236,8 @@ crv disk clone vm1-vars ovmf-vars-template --path firmware/
 
 **Overlay**: creates a qcow2 copy-on-write layer. The base image is not modified. Best for root disks where many VMs share the same base.
 
-**Clone**: full copy of the disk (data + snapshots). Best for files that need independent writability (e.g., OVMF UEFI variables).
+**Clone**: converts the active disk state into an independent image; internal
+snapshots and saved VM state are not copied. Best for files that need independent writability (e.g., OVMF UEFI variables).
 
 ## Rebasing and Flattening
 
@@ -417,13 +418,16 @@ in use by disk id <N>` — no constraint-violation stack.
 
 ## Path Resolution
 
-The optional `--path` flag (on create, import, overlay, clone) controls where the disk image file is placed:
+The optional `--path` flag (on create, import, upload, overlay, clone) controls
+where the disk image file is placed on the selected node. In the table below,
+`<basePath>` is the node's registered storage directory (default `$HOME/VMs` on
+that node), not the client's home directory:
 
 | Path | Interpretation |
 |------|---------------|
-| *(omitted)* | `$HOME/VMs/<image-id>-<name[:tag]>.<ext>` |
-| `subdir/` | `$HOME/VMs/subdir/<image-id>-<name[:tag]>.<ext>` (trailing `/` = directory) |
-| `custom.raw` | `$HOME/VMs/custom.raw` (no trailing `/` = file path) |
+| *(omitted)* | `<basePath>/<image-id>-<name[:tag]>.<ext>` |
+| `subdir/` | `<basePath>/subdir/<image-id>-<name[:tag]>.<ext>` (trailing `/` = directory) |
+| `custom.raw` | `<basePath>/custom.raw` (no trailing `/` = file path) |
 | `/data/vms/` | `/data/vms/<image-id>-<name[:tag]>.<ext>` (absolute directory) |
 | `/data/disk.raw` | `/data/disk.raw` (absolute file path) |
 

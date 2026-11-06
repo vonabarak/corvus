@@ -111,11 +111,14 @@ sum(corvus_node_memory_free_bytes)
 absent_over_time(corvus_vm_up[1m])
 ```
 
-## Grafana dashboard (starter JSON)
+## Grafana dashboard
 
-A minimal dashboard with the four headline panels lives at
-[doc/grafana-corvus.json](grafana-corvus.json) (a follow-up may
-ship a polished version). The structure is straightforward:
+Corvus ships a [Grafana dashboard JSON file](../yaml/corvus-monitor/files/corvus-dashboard.json)
+with the [monitoring appliance recipe](../yaml/corvus-monitor/README.md).
+The recipe provisions it automatically. For an existing Grafana installation,
+import the JSON and provide a Prometheus data source with UID `prometheus`
+(or update the dashboard's data source references). Use the following queries
+to build your own panels:
 
 - **Panel 1**: `rate(corvus_vm_cpu_seconds_total[1m]) * 100`, legend
   `{{vm_name}} on {{node}}`.

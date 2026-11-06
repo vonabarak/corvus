@@ -8,7 +8,7 @@ and where microphone samples come from.
 |---|---|---|
 | `pulse` | PulseAudio server on the node or reachable over the network | PulseAudio source |
 | `pipewire` | PipeWire server on the node | PipeWire source |
-| `spice` | SPICE client | Native SPICE client microphone |
+| `spice` | SPICE client | SPICE client microphone |
 
 Use `crv audio-device add VM BACKEND [--model MODEL] [--options KEY=VALUE,...]` to add a card.
 The VM must be stopped. `crv audio-device list VM` shows its cards; `edit` and
@@ -37,7 +37,7 @@ source and sink. A remote PulseAudio server must permit the node to connect.
 
 SPICE audio needs a graphical VM. `crv vm view VM` launches the native SPICE
 client for playback and microphone recording. The browser SPICE console
-supports playback but does not currently forward microphone input.
+also supports playback and microphone input.
 
 Template YAML and apply VM definitions accept `audioDevices` as a list of
 `{backend, model, options}` objects; `model` defaults to `virtio-sound`.

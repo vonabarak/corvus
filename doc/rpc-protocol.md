@@ -261,7 +261,7 @@ of machine-readable codes:
 
 **Python (`corvus_client`)**:
 - Translates wire codes to typed exception classes via `_CODE_MAP` dict
-- Falls back to `ServerError` for unknown codes or legacy messages
+- Falls back to `ServerError` for unknown codes or unstructured messages
 - Preserves `details` field with original daemon description
 
 **Web Gateway (`corvus_web`)**:
@@ -269,58 +269,11 @@ of machine-readable codes:
 - Includes `code` in JSON error responses
 - Maps codes to HTTP status codes (see table above)
 
-#### Version Compatibility
+#### Client error handling
 
-- **New daemon (v2+) + new client**: Full structured codes
-- **New daemon (v2+) + old client**: Message has code prefix; old regex table misses it → `ServerError`
-- **Old daemon (v1) + new client**: No code prefix → falls back to generic error
-
-Both directions degrade gracefully; no crashes, only loss of typed exceptions
-until both sides update. The protocol version is exposed in `StatusInfo`
-(see `crv status`).
-
-#### Migration Guide for Clients
-
-**If you currently parse daemon error messages as free text:**
-
-The new wire format prefixes error messages with `<code> :: `. This means
-your existing text-matching logic may need adjustments:
-
-1. **Check for code prefix**: Error messages now start with tokens like `vm_not_found :: `
-2. **Update regex patterns**: If you match specific messages, prepend the code:
-   - Old: `"VM not found"`
-   - New: `"vm_not_found :: VM not found"`
-3. **Or better: parse the code**: Extract the code from the message prefix for reliable matching
-
-**If you use the Python client (`corvus_client`):**
-
-The client now raises typed exceptions directly. Instead of:
-
-```python
-# Old: regex-matching message text
-try:
-    vm = client.vms.get("nonexistent")
-except Exception as e:
-    if "not found" in str(e):
-        handle_not_found()
-```
-
-Use the typed exception classes:
-
-```python
-# New: catch specific exception types
-from corvus_client.exceptions import VmNotFound
-
-try:
-    vm = client.vms.get("nonexistent")
-except VmNotFound:
-    handle_not_found()
-```
-
-**New exception classes available:**
-- `VmNotRunning`, `VmHeadless` (subclasses of `VmRunning`)
-- `AmbiguousRef` (for name collisions across nodes)
-- All other existing exception classes now have corresponding wire codes
+Use the typed Python exceptions or the structured CLI `code` field instead of
+matching human-readable message text. Corvus is early beta; upgrade the daemon,
+agents, CLI, and Python clients together when the protocol changes.
 
 **If you use the Haskell CLI (`crv`):**
 
@@ -328,11 +281,11 @@ Structured output now includes error codes:
 
 ```bash
 # JSON output
-$ crv -f json vm show nonexistent
+$ crv -o json vm show nonexistent
 {"status":"error","error":"rpc_error","code":"vm_not_found","message":"VM not found"}
 
 # YAML output
-$ crv -f yaml vm show nonexistent
+$ crv -o yaml vm show nonexistent
 status: error
 error: rpc_error
 code: vm_not_found
@@ -356,7 +309,7 @@ For most Python use cases, that package is what you want — see
 Quick sync example:
 
 ```python
-# pip install -e ./python
+# pip install -e .
 from corvus_client import Client
 
 with Client(unix_socket="/run/user/1000/corvus/corvus.sock") as c:
@@ -430,6 +383,9 @@ asyncio.run(main())
 
 ```python
 class BuildEventSinkImpl(streams.BuildEventSink.Server):
+    def __init__(self):
+        self.finished = asyncio.Event()
+
     async def push(self, event, _context):
         which = event.which()
         if which == "logLine":
@@ -442,13 +398,14 @@ class BuildEventSinkImpl(streams.BuildEventSink.Server):
             print("ok" if be.success else f"FAIL: {be.errorMessage}")
 
     async def end(self, _context):
-        pass
+        self.finished.set()
 
 sink = BuildEventSinkImpl()
 yaml_text = open("pipeline.yml").read()
 resp = await daemon.build(yaml=yaml_text, sink=sink)
 print(f"Build started; task id {resp.taskId}")
 # The daemon calls sink.push(...) repeatedly, then sink.end().
+await sink.finished.wait()
 ```
 
 The `corvus_client` package handles this for you: see
@@ -477,8 +434,8 @@ handle = (await vm_cap.subscribeGuestAgent(sink=GAStatusSinkImpl())).handle
 The Haskell side is regenerated with `make capnp`, which runs
 `stack exec capnp compile -ohaskell …` against the whole
 `schema/` directory and drops the modules into `src-generated/`.
-The same target syncs the schemas into `python/corvus_client/schema/`
-so the Python package ships the same contract. Add any new Haskell
+`python/corvus_client/schema/` is a symlink to the root `schema/` directory;
+the Python package includes those schemas when built. Add any new Haskell
 module to `package.yaml`'s exposed list before shipping.
 
 For Python bindings, `pycapnp` reads the `.capnp` files at runtime

@@ -21,7 +21,10 @@ The package isn't on PyPI yet. From a checkout:
 pip install -e .
 ```
 
-Dependencies: `pycapnp >= 2.2.0`, `PyYAML >= 6.0`.
+The client uses `pycapnp >= 2.2.0` and `PyYAML >= 6.0`. The shared Python
+package also installs the admin and web dependencies declared in
+[`pyproject.toml`](../pyproject.toml). The optional `desktop` extra adds PySide6
+and pyte; see the [desktop guide](../doc/desktop-interface.md).
 
 The `.capnp` schema files ship inside the package
 (`corvus_client/schema/`). To work against the live source tree, point
@@ -202,8 +205,9 @@ temp Unix socket + temp SQLite DB):
 make python-test
 ```
 
-The daemon binary is taken from `~/.local/bin/corvus` (preferred) or
-`$PATH`; override with `$CORVUS_BIN`.
+`make python-test` builds the project first. The tests select the freshly built
+Stack daemon; `$CORVUS_BIN` explicitly overrides that selection. See
+[`python/tests/corvus_client/conftest.py`](tests/corvus_client/conftest.py) for the binary lookup order.
 
 ### Manual memory balloon adjustment
 

@@ -75,10 +75,9 @@ or move stage every missing backing ancestor first.
 
 ## What happens during a migration
 
-1. **Lock acquisition.** The orchestrator flips `Vm.migrating`
-   from `False` to `True` in a single transaction; concurrent
-   `crv vm migrate` calls or `crv vm start` calls observe the flag
-   and refuse.
+1. **Lock acquisition.** Running and paused VMs are saved first. The orchestrator
+   transitions the VM to the `migrating` state; concurrent migration
+   and start requests are rejected by the lifecycle state machine.
 2. **Pre-flight.** The pre-check (see
    [`Corvus.Handlers.Vm.Migrate.PreCheck`](../src/Corvus/Handlers/Vm/Migrate/PreCheck.hs))
    builds the per-drive plan: read-only drives are marked as
@@ -114,7 +113,9 @@ or move stage every missing backing ancestor first.
      on the next `vm start`.
    - Source-side `DiskImageNode` rows for every moved drive are
      deleted.
-   - `Vm.migrating` is cleared.
+   - The VM leaves `migrating` for `saved` or `stopped`, according to
+     whether a saved state file was transferred. Previously running or paused
+     VMs are then started on the destination.
 6. **Cleanup.** Source agents are asked, best-effort, to delete
    the moved files. A failure here is logged but doesn't undo
    the migration — the DB already reflects the new placement.
@@ -128,13 +129,13 @@ If any transfer fails mid-flight, the orchestrator:
 - Drops the matching `DiskImageNode` rows on the destination.
 - Removes any staged TPM archive or installed destination TPM state; the
   source TPM state remains usable unless migration has committed.
-- Clears the `Vm.migrating` flag.
+- Leaves the `migrating` state, restoring `saved` when a state file is
+  available, otherwise `stopped`. Inspect the task error before retrying.
 
-The source side is untouched until the very last step, so a
-failed migration leaves the source's disks (and any pre-existing
-destination placements for r/o copies that succeeded before the
-failure — actually, no: the rollback clears those too) intact and
-ready to run again.
+Source disk files are retained until placement commits. Transfer rollback removes
+placements created by this attempt, leaving pre-existing destination placements
+alone. A VM saved before a failed migration remains saved on the source; use
+`crv vm start` to resume it after resolving the error.
 
 ## Authentication
 

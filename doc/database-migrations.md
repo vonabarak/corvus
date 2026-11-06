@@ -82,7 +82,7 @@ For example, at current version 8 with only `V008` retained:
 | Starting database | Result |
 |---|---|
 | Empty | Create version 8 directly |
-| Version 7 | Skip migrations |
+| Version 8 | Skip migrations |
 | Version 7 | Apply `V008` |
 | Version 5 | Refuse: migration 5 → 6 is missing |
 | Version 9 | Refuse: database is newer than the binary |

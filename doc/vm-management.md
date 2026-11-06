@@ -215,7 +215,7 @@ operator runs `vm start` on the destination to resume execution
 from where the source left off.
 
 Running and paused VMs are auto-saved before migration: `vm migrate`
-on a running VM records a child `vm/save` task in `crv task history`,
+on a running VM records a child `vm/save` task in `crv task list --all`,
 then proceeds with the now-saved VM. After the transfer commits, the
 orchestrator **auto-starts** the VM on the destination as a follow-up
 child task so the operator-observable state matches what they had
@@ -357,7 +357,7 @@ crv vm view my-vm --viewer virt-viewer -- --full-screen --kiosk
 
 Non-headless VMs expose SPICE over **TCP with ticketed password authentication**, so `crv vm view` works from another host. Each invocation asks the daemon for a fresh password, which is installed via QMP `set_password` and expires after 120 seconds; unused grants disappear on their own. The client writes a private mode-600 temporary connection file (`.remmina` or `.vv`) and removes it when the viewer exits. Remmina receives an encrypted password generated through its encryption helper; plaintext passwords never appear on the command line.
 
-The daemon picks a TCP port in the range `5900-5999` (configurable via `qcSpicePortMin` / `qcSpicePortMax`). The bind address defaults to the daemon's RPC listen host: Unix-socket daemons keep SPICE on `127.0.0.1`, TCP daemons expose it on the same interface as RPC. Use `--spice-bind ADDR` to decouple the two.
+The daemon allocates a per-node TCP port in the range `5900-5999` (configurable via `qcSpicePortMin` / `qcSpicePortMax`). The bind address defaults to the daemon's RPC listen host: Unix-socket daemons keep SPICE on `127.0.0.1`, TCP daemons expose it on the same interface as RPC. Use `--spice-bind ADDR` to decouple the two.
 
 Install Remmina with its SPICE plugin and encryption support, or `remote-viewer` from the virt-viewer package, on the client host. With no `--viewer` flag, Corvus uses virt-viewer when installed and otherwise Remmina. `--viewer remmina` and `--viewer virt-viewer` require the named viewer and fail if it is absent. Launch failures do not switch viewers. On Gentoo, the live Corvus ebuild accepts either `remmina[crypt,spice]` or `virt-viewer[spice]` for CLI installations.
 
@@ -375,7 +375,7 @@ For machine-readable output, `crv --output json vm view my-vm` emits the grant a
 crv vm view my-vm     # Connects to serial console for headless VMs
 ```
 
-The daemon maintains a 1 MB ring buffer per headless VM. Reconnecting replays recent output (boot messages, login prompts) instead of showing a blank screen.
+The nodeagent maintains a 1 MiB ring buffer per headless VM. Reconnecting replays recent output (boot messages, login prompts) instead of showing a blank screen.
 
 The serial console uses raw terminal mode with an escape prefix:
 
@@ -402,7 +402,9 @@ Vsock CID:      1042
 SSH (vsock):    ssh <user>@vsock%1042
 ```
 
-The CID is allocated at VM-create time from the range `qcVsockCidMin..qcVsockCidMax` (default `1000..1_000_000`) and is stable across daemon restarts.
+The CID is allocated at VM-create time from the range `qcVsockCidMin..qcVsockCidMax` (default `1000..1_000_000`) and is retained across daemon restarts. Before each launch Corvus revalidates
+it against the node's kernel and may reallocate it if occupied; migration
+clears it for allocation on the destination.
 
 **Host requirements**
 
@@ -459,7 +461,7 @@ Escape prefix:
 | `Ctrl+]` `Ctrl+]` | Send a literal `Ctrl+]` |
 | `Ctrl+]` `?` | Show help |
 
-The daemon keeps a 64 KiB ring buffer per running VM so that reconnecting clients see the last prompt/response pair.
+The nodeagent keeps a 64 KiB ring buffer per running VM so that reconnecting clients see the last prompt/response pair.
 
 ## Output Formats
 

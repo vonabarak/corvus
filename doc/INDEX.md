@@ -1,68 +1,73 @@
-# Corvus Documentation
+# Corvus documentation
 
-## Getting Started
+These catalogs cover all first-party Markdown guides and recipe READMEs,
+including guides outside `doc/`. Agent policy and upstream vendored documentation
+are excluded. Developer source-code links require a source checkout.
 
-- [README](README.md) -- Project overview, installation, quick start
+The [manual](README.md#documentation) also contains the full catalog as a table.
 
-## Command References
+## Getting started
 
-- [List Output Columns](list-output.md) -- Selectable text columns and shell completion for every list command
+- [Project overview](../README.md) — Project purpose, components, and entry points
+- [Installation and quick start](README.md) — Runtime prerequisites, installation, single-host setup, and first VM
+- [Desktop interface](desktop-interface.md) — Install, connect, manage resources, and open native viewers
+- [Web interface](web-interface.md) — Gateway setup, browser consoles, recovery, and frontend development
+- [Troubleshooting](troubleshooting.md) — Connection, certificate, node, VM, network, and console diagnostics
 
-- [VM Management](vm-management.md) -- Create, start, stop, edit, monitor VMs; serial console
-- [Disk Management](disk-management.md) -- Create, register, import, overlay, clone, rebase, attach/detach
-- [Snapshots](snapshots.md) -- Create, rollback, merge, delete qcow2 snapshots
-- [Networking](networking.md) -- Virtual networks, network interfaces, port forwarding
-- [Multi-Node](multi-node.md) -- Register hosts via `crv node …`, scheduler placement, same-node invariants
-- [VM Migration](vm-migration.md) -- Move VMs between nodes without live memory migration; standalone `crv disk copy` / `crv disk move`
-- [Security (mTLS)](security.md) -- Mutual-TLS auth, cert layout, `corvus-admin` walkthrough, troubleshooting
-- [SSH Keys](ssh-keys.md) -- Create, delete, attach/detach to VMs
-- [Cloud-Init](cloud-init.md) -- ISO generation, custom user-data, SSH key injection, Windows support
-- [Shared Directories](shared-directories.md) -- virtiofs host directories and SPICE viewer-local folder sharing
-- [VM Audio](vm-audio.md) -- Sound cards, playback, microphones, and audio backends
-- [Guest Files](guest-files.md) -- Upload/download files via the guest agent
-- [Guest Execution](guest-exec.md) -- Execute commands inside VMs via guest agent
-- [Task History](task-history.md) -- Track async operations, query history
-- [Observability](observability.md) -- Per-VM resource metrics: CLI Resource Usage, WebUI sparklines, Prometheus `/metrics`
+## VMs and resources
 
-## Declarative Configuration
+- [VM management](vm-management.md) — Create, edit, start, stop, save, monitor, and view VMs
+- [Disk management](disk-management.md) — Image versions and tags, placement, import/upload, attach, and cleanup
+- [Snapshots](snapshots.md) — Disk and full-machine checkpoints, rollback, and deletion
+- [Networking](networking.md) — Managed networks, interfaces, DNS, VDE, and port forwarding
+- [Multi-node deployments](multi-node.md) — Node registration, placement, agent connections, and maintenance
+- [VM migration](vm-migration.md) — Save-and-restore VM migration and agent-to-agent disk transfers
+- [Security](security.md) — Mutual TLS, certificate provisioning, renewal, and trust boundaries
+- [SSH keys](ssh-keys.md) — Assign keys for cloud-init and inject them explicitly through QGA
+- [Cloud-init](cloud-init.md) — NoCloud configuration, SSH key injection, ISO generation, and Windows
+- [Shared directories](shared-directories.md) — Node-local virtiofs shares and viewer-local SPICE folder sharing
+- [VM audio](vm-audio.md) — Sound cards, audio backends, playback, and microphone support
+- [Guest execution](guest-exec.md) — Execute commands through the QEMU guest agent
+- [Guest file transfers](guest-files.md) — Upload and download files through the QEMU guest agent
+- [Task history](task-history.md) — Inspect operations, wait for completion, and request cancellation
+- [List output columns](list-output.md) — Select text columns and use column completion
+- [Observability](observability.md) — Resource samples, Prometheus metrics, and Grafana queries
 
-- [Templates](templates.md) -- Define reusable VM blueprints in YAML
-- [Apply Configuration](apply-configuration.md) -- Declare entire environments in a single YAML file
-- [Image Builds](image-builds.md) -- Bake reusable disk images via a procedural pipeline
-  ([VS Code completion and validation](image-builds.md#editor-completion-and-validation))
+## Declarative configuration
 
-## Protocol & Integrations
+- [Templates](templates.md) — Reusable VM blueprints and instantiation
+- [Apply configuration](apply-configuration.md) — Declare environments, image policies, and resource dependencies
+- [Image builds](image-builds.md) — Procedural image pipelines, cache, provisioners, and editor schema
 
-- [RPC Protocol](rpc-protocol.md) -- Cap'n Proto schema overview, capability tree, streaming sinks, pycapnp client example
-- [Web Interface (`corvus-web`)](web-interface.md) -- Browser UI: dashboard, VM/disk/network management, live task feed, serial console
-- [Python Client (`corvus_client`)](../python/README.md) -- pycapnp-based client shipping with this tree
-- [Integration Test Suite](../integration_tests/README.md) -- Python harness that runs the freshly-compiled Corvus inside nested VMs
-- [Dev Node](dev-node.md) -- Long-lived manual-testing VM for iterating on the daemon and web UI against uncommitted source
+## Development and internals
 
-## Development
+- [Architecture](architecture.md) — Component ownership, source layout, entities, and runtime patterns
+- [Development guide](development.md) — Build dependencies, tests, implementation conventions, and doc maintenance
+- [Database migrations](database-migrations.md) — Versioned SQLite/PostgreSQL upgrades, fixtures, and migration tests
+- [VM lifecycle and fencing](vm-lifecycle.md) — State transitions, lifecycle revisions, and stale-start protection
+- [RPC protocol](rpc-protocol.md) — Capabilities, shared records, errors, streams, and schema generation
+- [Python client](../python/README.md) — Typed synchronous/asynchronous APIs, subscriptions, and examples
+- [Integration test harness](../integration_tests/README.md) — Nested-VM prerequisites, test authoring, scheduling, and debugging
+- [Developer node](dev-node.md) — Long-lived nested development environment and iteration workflow
+- [Managed image recipes](test-images.md) — Build, check, clean, and rebuild image fixtures; import ownership
+- [QEMU command example](../qemu-command-example.md) — Annotated nodeagent-generated command and device topology
+- [SPICE client maintenance](../frontend/src/lib/spice/README.md) — Vendored browser SPICE source and local extension rules
 
-- [Architecture](architecture.md) -- Component ownership, source layout, runtime patterns, entities, and enums
-- [VM Lifecycle and Fencing](vm-lifecycle.md) -- VM states, daemon/nodeagent ownership, ordering tokens, and start/reset race handling
-- [Development Guide](development.md) -- Build dependencies, Make targets, test structure, implementation conventions, and verification
-- [Database Migrations](database-migrations.md) -- Versioned upgrades, authoring and retiring migration modules, and backend tests
+## Recipe guides
 
-## Examples
+- [AlmaLinux desktop](../yaml/almalinux-10-desktop/README.md) — Unattended AlmaLinux 10 GNOME installation with Kickstart
+- [Monitoring appliance](../yaml/corvus-monitor/README.md) — Prometheus/Grafana image, configuration, and deployment
+- [FreeBSD guest](../yaml/freebsd/README.md) — Headless FreeBSD image with serial console, QGA, and NoCloud
+- [Gentoo guests](../yaml/gentoo/README.md) — Cloud imports, headless guests, and development images
+- [Windows 11 base](../yaml/windows-11/README.md) — Generalized Windows 11 Pro base, template, and per-VM TPM
+- [Windows 11 desktop](../yaml/windows-11-desktop/README.md) — Desktop applications on the managed Windows 11 base
 
-YAML configurations live under [yaml/](../yaml/), with one subdirectory per
-self-contained scenario (each containing the apply YAML, build YAML, and
-any companion files like kernel configs or autounattend answer files):
+## More examples
 
-- [yaml/example-apply/](../yaml/example-apply/) -- Full environment with UEFI, networking, templates
-- [yaml/multi-os/](../yaml/multi-os/) -- Multi-OS template library (shared prereq for several builds)
-- [Integration-test images](test-images.md) -- Build, check, clean, and rebuild image fixtures, including Gentoo musl/OpenRC
-- [Gentoo test guest](../yaml/gentoo/corvus-test-vm.yml) -- Build the musl/OpenRC integration-test image
-- [AlmaLinux 10 desktop](../yaml/almalinux-10-desktop/README.md) -- Install GNOME unattended from the official DVD with Kickstart
-- [yaml/windows-server-2025/](../yaml/windows-server-2025/) -- Build a Windows Server 2025 image
-- [yaml/windows-11/](../yaml/windows-11/README.md) -- Build a generalized Windows 11 Pro overlay base and template with per-VM TPM
-- [Windows 11 desktop](../yaml/windows-11-desktop/README.md) -- Desktop applications on the managed Windows 11 base
-- [yaml/gentoo/](../yaml/gentoo/) -- Import the Gentoo cloud base and build headless and Corvus development images
-- [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
-- [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 26.04 base
-- [yaml/template-example/template-example.yml](../yaml/template-example/template-example.yml) -- Standalone template file
+The [YAML tree](../yaml/) also includes scenarios without a separate guide:
 
-- [FreeBSD headless image](../yaml/freebsd/README.md): serial console, QGA, and NoCloud.
+- [Complete environment](../yaml/example-apply/) — UEFI, networks, and templates.
+- [Multi-OS templates](../yaml/multi-os/) — shared prerequisites for image builds.
+- [Windows Server 2025](../yaml/windows-server-2025/) — unattended server image.
+- [Debian nginx](../yaml/debian-nginx/) and [Ubuntu nginx](../yaml/ubuntu-nginx/) — application images.
+- [Standalone template](../yaml/template-example/template-example.yml) — a reusable VM definition.

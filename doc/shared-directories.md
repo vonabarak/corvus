@@ -46,7 +46,8 @@ crv shared-dir add my-vm /var/log logs --cache never
 After the VM starts, mount the shared directory inside the guest using the tag:
 
 ```bash
-# Linux guest
+# Linux guest (as root)
+mkdir -p /mnt/projects
 mount -t virtiofs projects /mnt/projects
 
 # Permanent mount (add to /etc/fstab)
@@ -56,6 +57,19 @@ echo 'projects /mnt/projects virtiofs defaults 0 0' >> /etc/fstab
 The tag (`projects` in this example) must match what was specified in `crv shared-dir add`.
 
 ## Windows Guest Setup
+
+The repository's Windows image recipes can preinstall the virtiofs components:
+
+- [Windows 11](../yaml/windows-11/README.md) installs WinFsp, the VirtIO-Win
+  drivers, and the `VirtioFsSvc` service, configured for automatic startup.
+- [Windows 11 desktop](../yaml/windows-11-desktop/README.md) builds on that
+  Windows 11 base and inherits its shared-folder tools.
+- [Windows Server 2025](../yaml/windows-server-2025/windows-server-2025.yml)
+  installs WinFsp, the VirtIO-FS driver, and the `VirtioFsSvc` service,
+  configured to start automatically on the next boot.
+
+These images still need a shared directory configured in Corvus. For other
+Windows images, install the guest components manually as described below.
 
 Virtiofs on Windows requires two components installed inside the guest:
 
@@ -133,6 +147,18 @@ sudo systemctl start spice-webdavd.service
 The guest also needs its VirtIO serial driver. On Linux, check that `/dev/virtio-ports/org.spice-space.webdav.0` exists. The shared folder appears in GNOME Files network locations; it can be browsed through GVfs and accessed by traditional applications with `gvfs-fuse`. Alternatively, connect a WebDAV client inside the guest to `http://localhost:9843/` (the standard `spice-webdavd` service port). Other distributions may use different service names or ports.
 
 ### Windows Guest Setup
+
+The [Windows 11 recipe](../yaml/windows-11/README.md) installs the VirtIO-Win
+drivers and the separate `spice-webdavd` package, and configures both the
+`spice-webdavd` and Windows WebClient services for automatic startup. The
+[Windows 11 desktop recipe](../yaml/windows-11-desktop/README.md) inherits
+this setup from its base image. With these images, select and enable a folder
+in the viewer, then map it inside Windows as described below.
+
+The [Windows Server 2025 recipe](../yaml/windows-server-2025/windows-server-2025.yml)
+preinstalls the virtiofs components described above, but does not install the
+SPICE WebDAV daemon. For SPICE folder sharing on that image, or another image
+without the tools, follow the manual setup below.
 
 Install the VirtIO serial driver (`vioser`) from the VirtIO-Win package and the separate **Spice WebDAV daemon** installer linked from the [SPICE downloads page](https://www.spice-space.org/download.html). This daemon is not included in Windows SPICE Guest Tools. Start its installed service and enable automatic startup.
 

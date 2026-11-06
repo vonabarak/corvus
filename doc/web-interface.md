@@ -1,6 +1,10 @@
 # Web Interface
 
-Corvus ships with a browser UI served by the `corvus-web` HTTP gateway. It mirrors what `crv` exposes today: a dashboard, VM/disk/network management, a live task feed, a YAML editor for `crv apply`, and an in-browser serial console for headless VMs.
+Corvus ships with a browser UI served by the `corvus-web` HTTP gateway. The
+web interface is highly experimental and lacks much of the functionality
+available in the `crv` CLI. It provides a dashboard, VM/disk/network management,
+a live task feed, a YAML editor for `crv apply`, and browser consoles. Use `crv`
+for operations the web interface does not expose.
 
 `corvus-web` is a separate process from the daemon. It uses the Python `corvus_client` library to speak Cap'n Proto to the daemon and serves a React SPA over HTTP, plus a small REST + WebSocket bridge for the SPA to talk to.
 
@@ -31,7 +35,7 @@ The metrics endpoint serves a short cache grace period as described in
 browser ──HTTP/WS──► corvus-web (Python, FastAPI)
                          │ pycapnp
                          ▼
-                      corvusd (Haskell, Cap'n Proto RPC)
+                      corvus (Haskell, Cap'n Proto RPC)
 ```
 
 The FastAPI lifespan supervises one daemon session at a time and replaces its `AsyncClient` after a disconnect. WebSockets in `corvus-web` bridge the daemon's existing streaming sinks (task progress, guest-agent reachability, serial-console bytes) to the browser.
@@ -47,7 +51,7 @@ corvus-web
 Defaults:
 
 - HTTP bind: `127.0.0.1:8080` (loopback only). The corvus family of RPC ports (9876 daemon, 9877 netd, 9878 nodeagent) all carry Cap'n Proto traffic; the web UI sits on the conventional 8080 instead.
-- Daemon transport: `$XDG_RUNTIME_DIR/corvus/corvus.sock` (same default as `crv`).
+- Daemon transport: `$XDG_RUNTIME_DIR/corvus/corvus.sock` (use `crv --unix` for the same transport).
 - Frontend assets: bundled inside the wheel under `corvus_web/static/`.
 
 Open `http://127.0.0.1:8080` in a browser.
@@ -56,7 +60,7 @@ Open `http://127.0.0.1:8080` in a browser.
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--bind-host` | `127.0.0.1` | Stay localhost-only in v1 — there is no authentication yet. |
+| `--bind-host` | `127.0.0.1` | Keep localhost-only — there is no authentication yet. |
 | `--bind-port` | `8080` | Conventional HTTP UI port. The daemon/netd/nodeagent family lives on 9876–9878. |
 | `--daemon-socket` | `$XDG_RUNTIME_DIR/corvus/corvus.sock` | Unix socket to the daemon. |
 | `--daemon-host`, `--daemon-port` | — | Connect to the daemon over TCP instead. Mutually exclusive with `--daemon-socket`. |
@@ -65,20 +69,20 @@ Open `http://127.0.0.1:8080` in a browser.
 | `--frontend-dir` | bundled `static/` | Override to point at `frontend/dist/` for dev. |
 | `--log-level` | `info` | One of `critical`, `error`, `warning`, `info`, `debug`, `trace`. |
 
-## v1 scope
+## Current scope
 
 What works today:
 
 - Dashboard with live daemon status, uptime, connection count.
-- Full list / detail / lifecycle for VMs, disks, networks, SSH keys, templates, cloud-init configs (mirroring `crv … list`/`show`).
+- Resource lists and details for VMs, disks, networks, SSH keys, templates, and cloud-init configs, with selected management and VM lifecycle operations.
 - `crv apply` from the browser via a Monaco-hosted YAML editor.
 - Task history + live task progress over WebSocket.
 - In-browser serial console for headless VMs (xterm.js over WebSocket); ring-buffer replay on reconnect.
 - In-browser graphical console for non-headless VMs ([spice-html5](https://gitlab.freedesktop.org/spice/spice-html5) over WebSocket). See "Graphical console" below for the limitations.
 
-What v1 does **not** include:
+Limitations:
 
-- **No authentication.** The gateway is localhost-only by design; tunnel via SSH for remote use. Auth lands in v2.
+- **No authentication.** The gateway is localhost-only by design; tunnel via SSH for remote use. Do not expose it directly to untrusted clients.
 - **No build-pipeline UI** (`Daemon.build` / `crv build`).
 - **No multi-user RBAC.**
 
@@ -86,19 +90,19 @@ What v1 does **not** include:
 
 Click **Graphical console** on the detail page of a non-headless running VM. The gateway:
 
-1. Calls the daemon's `viewGrant` (the same RPC `crv vm view` uses), which generates a fresh 120-second password and pushes it into QEMU via QMP `set_spice_password`.
-2. Stashes the SPICE host:port server-side under a single-use opaque session id and returns the password + session id to the browser.
+1. Calls the daemon's `viewGrant` (the same RPC `crv vm view` uses), which generates a fresh 120-second password and pushes it into QEMU via QMP `set_password`.
+2. Stashes the SPICE host:port server-side under a VM-scoped opaque session id, valid for one hour and returns the password + session id to the browser.
 3. The browser opens a WebSocket to `/api/vms/{id}/spice/ws?session=<token>`. The gateway proxies binary frames to QEMU's SPICE TCP port; `spice-html5` runs the SPICE handshake against the previously-set ticket.
 
 Operational constraints:
 
-- **The gateway must run on the same host as the daemon.** QEMU binds the SPICE port to the daemon's configured bind address (defaults to `127.0.0.1`), so the WebSocket-to-TCP proxy needs local network reach to it. The same constraint already applies to `crv vm view`.
-- **The password never appears in a URL.** The session token in the WS query string is a one-shot opaque value; the actual SPICE password is delivered in a JSON response body.
+- **The gateway must reach the VM node's SPICE host and port.** It need not share a host with the daemon. Configure the daemon's `--spice-bind` setting and network routing so the address returned by `viewGrant` is reachable; see [VM display access](vm-management.md#spice-graphical-vms).
+- **The password never appears in a URL.** The session token in the WS query string is an opaque value reused for the SPICE channels of that session; the actual SPICE password is delivered in a JSON response body.
 - **Sessions die with the gateway process.** Outstanding session tokens are kept in process memory; restarting `corvus-web` invalidates them. The browser just calls `POST /api/vms/{id}/spice` again on the next user interaction.
 
 Known limitations vs. `crv vm view`:
 
-- SPICE playback requires WebM/Opus support in the browser. Click **Enable sound** in the console while the VM is playing audio to allow playback if the browser blocks autoplay. Microphone input is not available.
+- SPICE playback requires WebM/Opus support in the browser. Click **Enable sound** in the console while the VM is playing audio to allow playback if the browser blocks autoplay.
 - No USB redirect.
 - No 3D acceleration.
 - Locale-specific keyboard keys may misbehave (non-US layouts).
@@ -144,4 +148,4 @@ make web-format   # prettier --write
 
 ## Packaging
 
-`make web-build` runs `npm ci && npm run build` in `frontend/` and copies the output into `python/corvus_web/static/`. The Python wheel ships those static assets via `package_data` in [`pyproject.toml`](../pyproject.toml). `make install` and `make release` both invoke `web-build` automatically when `npm` is on PATH; operators without Node still get a working daemon + CLI, and `corvus-web` returns a friendly 404 message until the UI is built.
+`make web-build` installs frontend dependencies and runs `npm run build` in `frontend/` and copies the output into `python/corvus_web/static/`. The Python wheel ships those static assets via `package_data` in [`pyproject.toml`](../pyproject.toml). `make release` requires npm and builds the assets before packaging. `make install` builds them when npm is on PATH; without it the daemon and CLI still install, but the browser UI is unavailable unless assets were already built. Released wheels include the assets.

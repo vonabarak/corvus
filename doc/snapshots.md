@@ -8,7 +8,7 @@ Internal qcow2 snapshots capture the disk state at a point in time. They are sto
 crv disk snapshot create <disk> <name>       # Create a snapshot
 crv disk snapshot list <disk>                # List snapshots for a disk
 crv disk snapshot rollback <disk> <snap>     # Rollback to a snapshot
-crv disk snapshot merge <disk> <snap>        # Merge snapshot into base
+crv disk snapshot merge <disk> <snap>        # Remove snapshot, preserve current state
 crv disk snapshot delete <disk> <snap>       # Delete a snapshot
 ```
 
@@ -20,7 +20,7 @@ crv disk snapshot delete <disk> <snap>       # Delete a snapshot
 - Create, delete, merge, and list work whether the attached VM is
   running or stopped — the daemon routes transparently between the
   offline (`qemu-img snapshot`) and live (QMP) backends.
-- **Rollback** still requires the VM to be stopped. QEMU has no
+- **Disk-only rollback** requires the VM to be stopped. QEMU has no
   online snapshot-rollback command; `qemu-img snapshot -a` would
   race with QEMU's in-flight I/O. Pass `--auto-stop` to have the
   daemon orchestrate a graceful stop + rollback + start cycle —
@@ -78,8 +78,10 @@ serial console.
 device. A VM with multiple attached disks (e.g. a bake VM with
 artifact + floppy + OVMF vars) snapshotting a single disk captures
 ONLY that disk's state at the snapshot moment; the others are
-unaffected. For atomic multi-disk snapshots, stop the VM first
-and let the offline path handle each disk individually.
+unaffected. For a consistent disk-only checkpoint, stop the VM before snapshotting
+each disk individually; those operations are sequential, not an atomic group.
+Use [VM-scoped snapshots](#vm-scoped-snapshots-crv-vm-snapshot) to capture
+all writable qcow2 disks together with RAM.
 
 QGA fsfreeze, in contrast, is guest-wide: when it succeeds the
 freeze flushes ALL writable filesystems regardless of which disk
@@ -140,6 +142,11 @@ where the bytes went.
 always leaves the VM running — `snapshot-load` IS itself a
 resume. (Disk-only rollback preserves the prior VM state:
 running → running, stopped → stopped.)
+
+The per-disk `crv disk snapshot rollback` path requires the attached VM to
+be running or paused for a vmstate snapshot. Use
+`crv vm snapshot rollback` to restore a full-machine snapshot while the VM
+is stopped; that command launches QEMU paused before loading the checkpoint.
 
 **Cleanup.** Deleting a vmstate-aware snapshot routes through the
 QMP `snapshot-delete` async job, which removes the vmstate AND
@@ -235,7 +242,7 @@ crv disk snapshot rollback boot before-upgrade --auto-stop
 Reverts the disk to the exact state it was in when the snapshot
 was taken. All changes made since the snapshot are lost.
 
-Without `--auto-stop` the command refuses the rollback if any
+For disk-only snapshots, without `--auto-stop` the command refuses the rollback if any
 attached VM is running or paused — `qemu-img snapshot -a` would
 collide with the live QEMU's exclusive file lock. With
 `--auto-stop` the daemon performs the cycle (graceful VmStop →
@@ -250,7 +257,10 @@ online equivalent of `qemu-img snapshot -a`.
 crv disk snapshot merge boot before-upgrade
 ```
 
-Merges the snapshot into the base image and removes the snapshot. This reclaims the space used by the snapshot's delta. After merging, the snapshot no longer exists but its data is preserved in the base.
+For internal qcow2 snapshots, `merge` performs the same operation as `delete`: it
+removes the checkpoint while preserving the current active disk state. It does
+not roll the disk back or commit an overlay into its backing image. Blocks used
+only by the removed checkpoint can be reclaimed.
 
 ## Deleting
 
@@ -258,10 +268,13 @@ Merges the snapshot into the base image and removes the snapshot. This reclaims 
 crv disk snapshot delete boot before-upgrade
 ```
 
-Removes the snapshot without merging. The snapshot's delta data is discarded.
+Removes the checkpoint while preserving the current active disk state. You can
+no longer roll back to the deleted checkpoint.
 
 ## Snapshots in Templates
 
 Template drives with `clone` or `overlay` strategy create new disks at instantiation time. Snapshots on the original disk are:
-- **Copied** with the `clone` strategy (full copy includes snapshots).
-- **Not copied** with the `overlay` strategy (only the overlay layer is new).
+- **Not copied** with the `clone` strategy: `qemu-img convert` copies only the
+  active disk state, excluding internal snapshots and saved VM state.
+- **Not copied** with the `overlay` strategy: the new overlay starts with no
+  internal snapshots and reads the backing image's active state.

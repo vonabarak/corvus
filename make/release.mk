@@ -94,6 +94,13 @@ release: build
 	cp -r yaml $(RELEASE_DIR)/yaml
 	cp -r schema $(RELEASE_DIR)/schema
 	cp README.md $(RELEASE_DIR)/README.md
+	# Guides outside doc/ and yaml/ retain their source-relative paths so
+	# both documentation catalogs also work in the binary release.
+	cp python/README.md $(RELEASE_DIR)/python/README.md
+	mkdir -p $(RELEASE_DIR)/integration_tests $(RELEASE_DIR)/frontend/src/lib/spice
+	cp integration_tests/README.md $(RELEASE_DIR)/integration_tests/README.md
+	cp frontend/src/lib/spice/README.md $(RELEASE_DIR)/frontend/src/lib/spice/README.md
+	cp qemu-command-example.md $(RELEASE_DIR)/qemu-command-example.md
 	#
 	# 4a. Built SPA. Mirrors python/corvus_web/static/ (populated
 	#     by the `web-build` step above) so operators can serve
@@ -110,11 +117,12 @@ release: build
 	  '# Corvus $(VERSION)' \
 	  '' \
 	  '1. Drop `bin/*` somewhere on `$$PATH` (e.g. `/usr/local/bin`).' \
-	  '2. `pip install python/corvus-*.whl` for the client library + `corvus-admin` CLI.' \
+	  '2. With Python 3.10+ and pipx, run `pipx install python/corvus-*.whl` for the client library, `corvus-admin`, and `corvus-web`. Alternatively install the wheel in a Python virtual environment.' \
 	  '3. Run `corvus-admin quickstart` for a single-node setup, or follow `doc/multi-node.md` for a cluster.' \
 	  '4. The web UI ships inside the wheel (served by `corvus-web`). To serve the SPA standalone instead, point any static host (nginx, Caddy) at `web/` and proxy `/api` + `/ws` to the `corvus-web` gateway.' \
 	  '' \
 	  'Shell completions are under `completions/{bash,zsh,fish}/`.' \
+	  'See `doc/README.md` for runtime dependencies and installation details, including the optional desktop interface.' \
 	  'See `doc/INDEX.md` for the full documentation tree.' \
 	  > $(RELEASE_DIR)/INSTALL.md
 	#

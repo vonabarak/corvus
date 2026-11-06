@@ -71,12 +71,19 @@ make install-git-hooks
 
 The pre-commit hook runs `make check` and blocks a commit when it fails.
 
-### Build Dependencies
+## Build Dependencies
 
-No external C libraries are required by the Haskell package. Runtime and test
-workflows need PostgreSQL, QEMU/KVM, `qemu-img`, and relevant optional tools
-(`virtiofsd`, `dnsmasq`, `remmina` or `remote-viewer`, frontend `npm`, desktop extras, etc.)
-depending on the area touched.
+Use Stack with the resolver in `stack.yaml`; Stack can install the matching GHC.
+Database backend dependencies come from the enabled `with-sqlite` and
+`with-postgresql` flags in `package.yaml`. A PostgreSQL server is needed for
+PostgreSQL-backed tests, not for the default SQLite runtime. Python 3.10+ is
+required for the tools and clients. Frontend work needs Node.js/npm, and desktop
+work needs the `desktop` Python extra.
+
+Running VMs and integration tests also needs QEMU/KVM, `qemu-img`, and the
+optional helpers for the exercised features (`virtiofsd`, `swtpm`, `dnsmasq`,
+ISO creation tools, and viewers). See the [runtime prerequisites](README.md#prerequisites)
+and [integration prerequisites](../integration_tests/README.md#prerequisites).
 
 ## Tests
 
@@ -344,3 +351,42 @@ overwrite preflight, deletion and complete creation. Keep all of those steps
 inside the reservation when adding new apply entity types. These reservations
 coordinate requests within one daemon; running multiple daemons against one
 database is not supported.
+
+## Maintaining documentation
+
+Update the affected guides and examples alongside any public behavior change.
+Use the implementation as the reference:
+
+| Documentation surface | Source of truth |
+|---|---|
+| CLI commands, flags, defaults | `src/Corvus/Client/Parser.hs`, `src/Corvus/Client/Parser/`, executable `--help` |
+| Daemon/agent listeners and startup | `app/`, `src/Corvus/Types.hs`, `python/corvus_admin/` |
+| YAML fields and execution rules | apply/template/build parsers and handlers under `src/Corvus/`; build editor schema under `schema/` |
+| RPC and output records | `schema/`, `src/Corvus/Protocol/`, `src/Corvus/Wire/`, `python/corvus_client/types.py` |
+| Python API and GUI/gateway flags | `python/corvus_client/`, `python/corvus_desktop/cli.py`, `python/corvus_web/cli.py` |
+| Build, tests, releases, image recipes | `make/`, recipe Makefiles under `yaml/`, test fixtures |
+
+When adding, renaming, or removing a first-party Markdown guide, update both the
+[manual's Documentation table](README.md#documentation) and the
+[categorized index](INDEX.md). Include guides outside `doc/`, recipe READMEs,
+and authored technical notes. Exclude agent policy and upstream vendored docs.
+Keep descriptions consistent in both catalogs and use relative links so guides
+work in a checkout and the release tree. Update `make/release.mk` when a guide
+outside the already copied trees needs staging. Source-code links in developer
+guides require a source checkout; a binary release contains documentation and
+examples, not the entire development tree.
+
+Before finishing a documentation change:
+
+- Check local links, image paths, and heading anchors from each file's directory,
+  including the release layout when packaging changes.
+- Compare examples with current parser/help output; label placeholders and state
+  which machine owns a path. Do not run example mutations against an existing
+  user's environment merely to check syntax.
+- If YAML recipes or the editor schema changed, run `make yaml-schema-check`.
+  Syntax-check complete Python examples and verify API names against the client.
+- Walk the first-VM instructions from a fresh installation: binaries and Python
+  tools, runtime dependencies, certificates, agent registration, readiness, and
+  guest access. Record anything that could only be checked statically.
+- Run `git diff --check`. Follow the normal format/check/test requirements when
+  source changes accompany the documentation, and `make test` before committing.

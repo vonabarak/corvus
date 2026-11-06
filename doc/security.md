@@ -10,8 +10,8 @@ crv ──────────TLS──────────▶ corvus (d
                                   └─TLS─▶ corvus-netd       (per host)
 ```
 
-Unix-socket connections (the default for ``crv`` ↔ daemon on the
-same host) skip TLS — filesystem permissions on the socket are
+Unix-socket connections (`crv --unix`, or the web and desktop clients'
+default local transport) skip TLS — filesystem permissions on the socket are
 already enough.
 
 The PKI lives **on the admin's workstation**, not on the daemon

@@ -1,8 +1,8 @@
 # Multi-node Corvus
 
 Corvus runs as one unprivileged daemon (`corvus`) talking to N
-privileged agent pairs — one `corvus-nodeagent` + one
-`corvus-netd` per host. Each host the daemon orchestrates is
+per-host agents: an unprivileged `corvus-nodeagent` and, for managed
+networking, a privileged `corvus-netd`. Each host the daemon orchestrates is
 recorded in the database as a **Node** row; every VM, network,
 and disk-image placement carries a `node_id` FK pointing at a
 specific node.
@@ -62,12 +62,12 @@ daemon restart.
 ### `crv node list`
 
 ```
-ID  NAME      HOST           STATE   NETD  CPUS  RAM_FREE  DISK_FREE_GB  LOAD1
-1   alpha     192.168.1.10   online  up      8     14336           400   0.42
-2   beta      192.168.1.11   online  up     16     30720           800   0.18
+ID  NAME   HOST          STATE   NETD  CPUS  RAM_FREE  DISK_FREE  LOAD1
+1   alpha  192.168.1.10  online  up       8       14G       400G   0.42
+2   beta   192.168.1.11  online  up      16       30G       800G   0.18
 ```
 
-Capacity columns show `--` until the node's nodeagent has
+Capacity columns show `-` until the node's nodeagent has
 pushed its first `NodeStats` snapshot (~10 s after first
 connect).
 
@@ -100,8 +100,9 @@ but existing VMs / networks / disks on the node keep running.
 Refuses while any VM, network, or `disk_image_node` row still
 references the node. Move the workloads off (`crv vm delete`
 reaps attached ephemeral disks automatically; non-ephemeral
-disks need a separate `crv disk delete`; `crv vm edit
---node <NEW>` is a future ergonomic) before retrying.
+disks need a separate `crv disk delete`). To keep workloads, migrate VMs
+with `crv vm migrate` and move standalone disks with `crv disk move` before
+retrying.
 
 ## Scheduler
 
@@ -112,15 +113,17 @@ picks one. Same for `node:` on apply YAML.
 Algorithm:
 
   1. Filter to nodes with `admin_state = online`.
-  2. For VMs: require `ram_free >= request.ram + 512`
+  2. For VMs: prefer nodes with `ram_free - reservations >= request.ram + 512 MiB`
      (the safety margin matches `Corvus.Handlers.Scheduler.ramSafety`).
      Stats are `NULL` until the first agent push, so freshly
      added nodes always pass this filter.
-  3. Score by `(ram_free - request.ram) +
+  3. Score by `((ram_free - reservations - request.ram) / 1 MiB) +
      (storage_bytes_free / 1 GiB) - 100 * load_avg1`. The
      load penalty is small so equally-sized nodes break ties
      on a quiescent host.
-  4. Tie-break by node name (stable, predictable in tests).
+  4. Tie-break by node name. If no candidate passes the capacity filter, the
+     current picker falls back to the lowest-id administratively online node;
+     selection alone is not a capacity guarantee.
   5. Subtract any in-memory **reservation** for that node
      before scoring. The scheduler bumps a per-node
      reservation as soon as it picks a node; the reservation
@@ -130,9 +133,8 @@ Algorithm:
      `ram_free` reflects the new VM.
 
 For disks and networks the algorithm is simpler: pick the
-lowest-id online node. The disk case is a Phase-3 placeholder —
-a richer disk-aware policy may land later (e.g. prefer nodes
-that already host the backing image).
+lowest-id online node. Operations on an existing image choose an online node that already holds
+a placement of that image. New disks have no backing-image affinity policy.
 
 ## Same-node invariants
 
@@ -143,9 +145,9 @@ needs to open simultaneously must live on the same kernel:
     apply YAML). The disk's `disk_image_node` row for the VM's
     node must exist. Without it qemu on the VM's host has no
     file to open. The daemon refuses the attach with a clear
-    error naming both sides — the operator's fix is to rsync
-    the image over and run `crv disk register --node <vm-node>
-    <name> <path>`.
+    error naming both sides. Use `crv disk copy <disk> --to-node <vm-node>`
+    to add a placement of the same image version. If bytes were copied manually,
+    use `crv disk register-placement <disk> <path> --node <vm-node>`.
   * **Network interface add** with a managed network
     (`network: <name>` on a netif). The VM's node must be a
     member of the network — its owner, or a peer added with
@@ -187,7 +189,8 @@ unaffected.
   * **SPICE port**. Per-node SPICE allocation against a per-node
     free-port range. Two VMs on different nodes can listen on
     the same port; clients route through the per-node
-    `--spice-bind` address.
+    advertised host address. The daemon's `--spice-bind` setting controls
+    the bind address passed to each nodeagent; it is not a nodeagent CLI flag.
 
 ## Wire surface
 
@@ -200,8 +203,8 @@ Cap'n Proto schema additions for multi-node:
     (empty / unset = "let the scheduler choose").
   * `schema/disk.capnp` `DiskImageInfo.placements
     :List(DiskImagePlacement)` — replaces the legacy single
-    `filePath` field. Each placement carries `nodeId`,
-    `nodeName`, `filePath`.
+    `filePath` field. Each placement carries a nested `node :Common.NamedRef`
+    (`id`, `name`) and `filePath`.
   * `schema/nodeagent.capnp` `VmStatusSnapshot.nodeStats
     :NodeStats` — CPU / RAM / storage / load / kernel /
     version, pushed every 10 s.
@@ -233,8 +236,7 @@ Cap'n Proto schema additions for multi-node:
   * **Per-node maintenance**. `crv node drain <NAME>` marks
     the node as draining so the scheduler skips it. Existing
     VMs keep running until you explicitly stop / delete them
-    or move them off (the latter is a future ergonomic —
-    Phase-3+).
+    or migrate them with `crv vm migrate <VM> --to-node <NEW>`.
 
   * **Bulk cert rollout**. `corvus-admin deploy node <NAME>
     @hosts.txt` (or `--targets t1,t2,t3`) pushes the same node
@@ -292,9 +294,10 @@ Cap'n Proto schema additions for multi-node:
     L2 segment between members. A managed-NIC VM may sit on the
     owner or any peer.
 
-  * **No quotas** beyond the basic free-RAM / free-disk filter
-    in the scheduler. `admin_state = draining` is the only
-    coarse knob.
+  * **No resource quotas.** Scheduling uses available RAM and storage
+    when choosing among nodes, as described above; migration also checks
+    destination capacity. Set `admin_state = draining` to prevent new
+    placements on a node.
 
   * **Heterogeneous agent versions**. `Node.agent_version` is
     recorded but the daemon doesn't yet refuse a mismatched

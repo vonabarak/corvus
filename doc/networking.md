@@ -247,13 +247,21 @@ For debugging the agent directly, use `corvus-netd` on a test host and the stand
 
 ---
 
-## Recommended Setup: VDE Switch with TAP
+## Optional Alternative: VDE Switch with TAP
 
-For full bidirectional TCP connectivity between the host and VMs — as an alternative to running `corvus-netd` — a **VDE virtual switch** connected to a **TAP device** on the host is another option.
+Use Corvus-managed, TAP-based [Virtual Networks](#virtual-networks) for the
+recommended setup. An externally managed **VDE virtual switch** connected to a
+**TAP device** remains an option when you want host-to-guest connectivity
+without running the privileged network agent, `corvus-netd`.
+
+Setting up the VDE switch and TAP device on the node requires root permissions.
+Once configured, and with access to the switch socket granted to the nodeagent
+user, VMs can connect to the switch without further actions requiring root
+permissions or a running `corvus-netd`.
 
 This setup:
+
 - Gives VMs routable IP addresses reachable from the host (unlike QEMU user-mode networking, which only supports port forwarding).
-- Does not require running the privileged agent — only the initial VDE switch setup needs root (one-time systemd service).
 - Is useful when a single `corvus-netd` deployment is impractical (e.g. for one-off VMs on a developer workstation).
 
 This is the network configuration assumed by the [multi-os.yml](../yaml/multi-os/multi-os.yml) and [test-images.yml](../yaml/test-images/test-images.yml) example apply configurations.

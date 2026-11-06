@@ -83,8 +83,11 @@ qemu-system-x86_64
 ```text
 -spice addr=0.0.0.0,port=5900,disable-ticketing=off
 -chardev spicevmc,id=vdagent,name=vdagent
+-vga none
 -device virtio-vga
 -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
+-chardev spiceport,id=webdav,name=org.spice-space.webdav.0
+-device virtserialport,bus=virtio-serial0.0,chardev=webdav,id=spice-webdav,name=org.spice-space.webdav.0
 -device nec-usb-xhci,id=xhci
 -chardev spicevmc,id=usbredirchardev1,name=usbredir
 -device usb-redir,chardev=usbredirchardev1,id=usbredirdev1
@@ -98,7 +101,9 @@ qemu-system-x86_64
   `disable-ticketing=off` leaves SPICE ticketing enabled.
 - The `vdagent` SPICE channel connects to the guest's
   `com.redhat.spice.0` virtio serial port. `virtio-vga` is the guest's
-  graphics adapter.
+  graphics adapter; `-vga none` disables QEMU's implicit VGA device.
+- The `webdav` SPICE port exposes viewer-local folder sharing when the guest
+  runs `spice-webdavd`; see [shared directories](doc/shared-directories.md#spice-folder-sharing).
 - `nec-usb-xhci` supplies an emulated USB 3 controller.
 - Each numbered `spicevmc` channel pairs with the `usb-redir` device bearing
   the same number. The three pairs allow three USB redirection channels.

@@ -968,8 +968,8 @@ preserves the VM when `cleanup: onSuccess`; ordinary VM stops retain forced
 shutdown on timeout. Shell timeouts are measured in seconds, applied once.
 
 The [Windows desktop recipe](../yaml/windows-11-desktop/README.md) adds desktop
-applications to the Windows 11 base. See [Other QGA opportunities reviewed](../plans/qga-image-build-opportunities.md)
-for follow-up generalization ideas beyond native reboot and readiness.
+applications to the Windows 11 base. See [guest execution](guest-exec.md) and [guest file transfers](guest-files.md)
+for the guest-agent operations also available outside image builds.
 
 ## Editor completion and validation
 
