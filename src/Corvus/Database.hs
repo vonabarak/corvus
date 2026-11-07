@@ -36,7 +36,7 @@ import Control.Monad.Logger (logWarnN)
 #endif
 import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
+import Control.Monad.Logger (LoggingT)
 import Corvus.Database.Migration
 import qualified Corvus.Database.Migrations as Migrations
 import Corvus.Model (migrateAll)
@@ -141,27 +141,28 @@ parseDatabase (Just value)
             <> "; use a PostgreSQL URL or a SQLite file path"
   | otherwise = pure $ Right $ DatabaseConfig DatabaseSqlite value
 
-createDatabasePool :: DatabaseConfig -> IO (Pool SqlBackend)
+-- | Connections retain the caller's logger for all subsequent SQL queries.
+createDatabasePool :: DatabaseConfig -> LoggingT IO (Pool SqlBackend)
 createDatabasePool cfg =
   case dcEngine cfg of
     DatabasePostgresql -> createPostgresqlPoolChecked (dcValue cfg)
     DatabaseSqlite -> createSqlitePoolChecked (dcValue cfg)
 
-createPostgresqlPoolChecked :: String -> IO (Pool SqlBackend)
+createPostgresqlPoolChecked :: String -> LoggingT IO (Pool SqlBackend)
 #if defined(WITH_POSTGRESQL)
 createPostgresqlPoolChecked value =
-  runStdoutLoggingT $ createPostgresqlPool (pack value) 10
+  createPostgresqlPool (pack value) 10
 #else
 createPostgresqlPoolChecked _ =
-  ioError $ userError "this corvus binary was built without PostgreSQL support"
+  liftIO $ ioError $ userError "this corvus binary was built without PostgreSQL support"
 #endif
 
-createSqlitePoolChecked :: String -> IO (Pool SqlBackend)
+createSqlitePoolChecked :: String -> LoggingT IO (Pool SqlBackend)
 #if defined(WITH_SQLITE)
 createSqlitePoolChecked value = do
-  ensureSqliteParent value
-  pool <- runStdoutLoggingT $ createSqlitePool (T.pack value) 1
-  runSqlPool
+  liftIO $ ensureSqliteParent value
+  pool <- createSqlitePool (T.pack value) 1
+  liftIO $ runSqlPool
     ( do
         rawExecute "PRAGMA foreign_keys = ON" []
         rawExecute "PRAGMA journal_mode = WAL" []
@@ -171,7 +172,7 @@ createSqlitePoolChecked value = do
   pure pool
 #else
 createSqlitePoolChecked _ =
-  ioError $ userError "this corvus binary was built without SQLite support"
+  liftIO $ ioError $ userError "this corvus binary was built without SQLite support"
 #endif
 
 decideSchemaMigration :: Int -> Int -> SchemaMigrationDecision

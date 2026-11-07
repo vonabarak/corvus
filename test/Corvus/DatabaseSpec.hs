@@ -4,7 +4,7 @@ module Corvus.DatabaseSpec (spec) where
 
 import Control.Exception (bracket)
 import Control.Monad (when)
-import Control.Monad.Logger (LogLevel (..), LoggingT, runLoggingT)
+import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, fromLogStr, logWarnN, runLoggingT)
 import Corvus.Database
 import Data.Bits (shiftR, (.&.))
 import qualified Data.ByteString as BS
@@ -15,6 +15,8 @@ import Database.Persist (PersistValue (..))
 import Database.Persist.Sql (Single (..), SqlBackend, rawExecute, rawSql, runSqlPool)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
+import System.IO (stderr, stdout)
+import System.IO.Silently (hCapture)
 import System.IO.Temp (withSystemTempDirectory)
 import qualified Test.Database as TestDb
 import Test.Hspec
@@ -76,7 +78,7 @@ spec = do
     it "treats a missing schema version as first boot and records the current version" $
       withSystemTempDirectory "corvus-db-schema-first" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
-        pool <- createDatabasePool cfg
+        pool <- runLoggingT (createDatabasePool cfg) (\_ _ _ _ -> pure ())
         result <- runDatabaseMigrations cfg pool
         storedVersion <- runSqlPool readSchemaVersion pool
         nodeTableExists <- sqliteTableExists pool "node"
@@ -89,7 +91,7 @@ spec = do
     it "skips Persistent migrations when the stored version is already current" $
       withSystemTempDirectory "corvus-db-schema-skip" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
-        pool <- createDatabasePool cfg
+        pool <- runLoggingT (createDatabasePool cfg) (\_ _ _ _ -> pure ())
         installSchemaVersionOnly pool currentSchemaVersion
 
         result <- runDatabaseMigrations cfg pool
@@ -102,7 +104,7 @@ spec = do
     it "rejects version 1 before changing the database" $
       withSystemTempDirectory "corvus-db-schema-old" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
-        pool <- createDatabasePool cfg
+        pool <- runLoggingT (createDatabasePool cfg) (\_ _ _ _ -> pure ())
         installSchemaVersionOnly pool 1
         result <- runDatabaseMigrations cfg pool
         result `shouldBe` Left (SchemaMigrationMissing 1 currentSchemaVersion 2)
@@ -113,7 +115,7 @@ spec = do
     it "rejects a database created by a newer binary" $
       withSystemTempDirectory "corvus-db-schema-newer" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
-        pool <- createDatabasePool cfg
+        pool <- runLoggingT (createDatabasePool cfg) (\_ _ _ _ -> pure ())
         installSchemaVersionOnly pool (currentSchemaVersion + 1)
 
         result <- runDatabaseMigrations cfg pool
@@ -124,6 +126,19 @@ spec = do
           `shouldBe` Left
             (SchemaVersionTooNew (currentSchemaVersion + 1) currentSchemaVersion)
         nodeTableExists `shouldBe` False
+
+  -- Capturing process-wide handles must not race the Hspec progress printer.
+  describe "database pool logging" $ sequential $ do
+    mapM_
+      ( \minLevel -> do
+          it ("retains the filtered SQLite logger at " <> show minLevel) $
+            withSystemTempDirectory "corvus-db-logging" $ \dir ->
+              checkPoolLogging minLevel (DatabaseConfig DatabaseSqlite (dir </> "corvus.db"))
+          it ("retains the filtered logger for the configured backend at " <> show minLevel) $
+            withIsolatedTestDb $ \env ->
+              checkPoolLogging minLevel (envDatabaseConfig env)
+      )
+      [LevelInfo, LevelDebug]
 
   describe "readSqliteHeaderVersion" $ do
     it "skips missing, empty, short, and non-SQLite files" $
@@ -152,7 +167,7 @@ spec = do
     it "returns SQLite backend and runtime version" $
       withSystemTempDirectory "corvus-db-runtime" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
-        pool <- createDatabasePool cfg
+        pool <- runLoggingT (createDatabasePool cfg) (\_ _ _ _ -> pure ())
         migrationResult <- runDatabaseMigrations cfg pool
         migrationResult `shouldBe` Right (SchemaCreated currentSchemaVersion)
         info <- getDatabaseRuntimeInfo cfg pool
@@ -200,6 +215,39 @@ withEnv name value =
       pure old
     restore Nothing = unsetEnv name
     restore (Just oldValue) = setEnv name oldValue
+
+-- Capture both the inherited logger and process output: the latter detects
+-- accidental installation of an independent stdout/stderr logger.
+checkPoolLogging :: LogLevel -> DatabaseConfig -> IO ()
+checkPoolLogging minLevel cfg = do
+  logs <- newIORef []
+  let collect _ source level message =
+        modifyIORef' logs (++ [(source, level, fromLogStr message)])
+      create =
+        runLoggingT
+          ( filterLogger (\_ level -> level >= minLevel) $ do
+              pool <- createDatabasePool cfg
+              logWarnN "database logging warning"
+              pure pool
+          )
+          collect
+  (output, ()) <- hCapture [stdout, stderr] $
+    bracket create destroyAllResources $ \pool -> do
+      startupLogs <- readIORef logs
+      startupLogs `shouldSatisfy` any (\(_, level, message) -> level == LevelWarn && message == "database logging warning")
+      when (dcEngine cfg == DatabaseSqlite) $
+        any (\(source, level, message) -> source == "SQL" && level == LevelDebug && "PRAGMA" `BS.isInfixOf` message) startupLogs
+          `shouldBe` (minLevel == LevelDebug)
+      modifyIORef' logs (const [])
+      -- Run outside LoggingT: Persistent must use the logger retained by the pool.
+      rows <- runSqlPool (rawSql "SELECT 424242" []) pool
+      rows `shouldBe` [Single (424242 :: Int)]
+      queryLogs <- readIORef logs
+      any (\(source, level, message) -> source == "SQL" && level == LevelDebug && "SELECT 424242" `BS.isInfixOf` message) queryLogs
+        `shouldBe` (minLevel == LevelDebug)
+      when (minLevel == LevelInfo) $
+        queryLogs `shouldSatisfy` all (\(_, level, _) -> level >= LevelInfo)
+  output `shouldBe` ""
 
 captureWarningCount :: LoggingT IO () -> IO Int
 captureWarningCount action = do

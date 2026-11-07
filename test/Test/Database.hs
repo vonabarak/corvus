@@ -22,6 +22,7 @@ where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Logger (runLoggingT)
 import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), createDatabasePool, renderSchemaMigrationError, runDatabaseMigrations)
 import qualified Corvus.Model as M
 import Corvus.Protocol (Response)
@@ -81,7 +82,7 @@ setupTestDb = do
           DatabaseConfig
             DatabaseSqlite
             (tempDir </> T.unpack dbName <> ".db")
-  pool <- createDatabasePool dbConfig
+  pool <- runLoggingT (createDatabasePool dbConfig) (\_ _ _ _ -> pure ())
   migrationResult <- runDatabaseMigrations dbConfig pool
   case migrationResult of
     Right _ -> pure ()

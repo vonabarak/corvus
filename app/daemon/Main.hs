@@ -165,7 +165,7 @@ main = do
         <> " database: "
         <> T.pack (dcValue dbConfig)
     warnIfSqliteHeaderVersionMismatch dbConfig
-    pool <- liftIO $ createDatabasePool dbConfig
+    pool <- createDatabasePool dbConfig
     dbRuntimeInfo <- liftIO $ getDatabaseRuntimeInfo dbConfig pool
 
     logInfoN "Checking database schema version..."
