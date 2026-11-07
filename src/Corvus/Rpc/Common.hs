@@ -27,9 +27,10 @@ import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (MethodHandler)
 import qualified Capnp.Rpc.Server as CapnpServer
 import Control.Concurrent (forkIO)
-import Control.Exception (SomeException, catch)
+import Control.Exception (catchJust)
 import Control.Monad (void)
 import Corvus.Handlers.Resolve (ResolveError (..))
+import Corvus.Logging (synchronousException)
 import qualified Corvus.Protocol as P
 import Corvus.Rpc.Error (resolveErrorWire, responseError)
 import Corvus.Wire.Common (EntityRef (..), fromCapnpEntityRef)
@@ -93,10 +94,8 @@ throwWireError code message = throwFailed (renderWireError (WireErrorInfo code m
 -- This wrapper delegates parsing + the @breakPromise@ to the upstream
 -- 'CapnpServer.handleParsed' (so the client still gets the error)
 -- and then swallows the re-raise so the RPC loop keeps running.
--- Asynchronous exceptions are caught too — this is intentional: an
--- async cancel of an in-flight RPC should not also abort the
--- connection. Whatever cancels us also drives the connection
--- teardown through other channels.
+-- Asynchronous exceptions must escape so an owning supervisor can stop and
+-- join the dispatch worker during connection teardown.
 handleParsed
   :: ( C.Parse p pp
      , C.Parse r pr
@@ -105,8 +104,7 @@ handleParsed
   => (pp -> IO pr)
   -> MethodHandler p r
 handleParsed handler param fulfiller =
-  CapnpServer.handleParsed handler param fulfiller
-    `catch` \(_ :: SomeException) -> pure ()
+  catchJust synchronousException (CapnpServer.handleParsed handler param fulfiller) (\_ -> pure ())
 
 -- | Asynchronous variant of 'handleParsed': forks the handler in
 -- a fresh 'forkIO' so the calling 'Capnp.Rpc.Server.runServer'
@@ -144,5 +142,4 @@ handleParsedAsync
 handleParsedAsync handler param fulfiller =
   void $
     forkIO $
-      CapnpServer.handleParsed handler param fulfiller
-        `catch` \(_ :: SomeException) -> pure ()
+      catchJust synchronousException (CapnpServer.handleParsed handler param fulfiller) (\_ -> pure ())

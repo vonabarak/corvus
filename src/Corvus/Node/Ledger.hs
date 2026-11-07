@@ -9,6 +9,7 @@ module Corvus.Node.Ledger
   ( -- * VM ledger
     VmLedger
   , VmLiveState (..)
+  , withVmStopping
   , stopVmWorkers
   , vmOperationLocks
   , newVmLedger
@@ -29,6 +30,7 @@ where
 import Control.Concurrent.Async (Async, cancel)
 import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
+import Control.Exception (bracket_)
 import qualified Corvus.Node.VmSpec as VS
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
@@ -89,6 +91,8 @@ data VmLiveState = VmLiveState
   -- settings (drives, NICs, shared dirs, vsock CID, …) without
   -- having to round-trip back to the daemon.
   , vlsWorkers :: !(TVar [Async ()])
+  , vlsStopState :: !(TVar (Int, Integer))
+  -- ^ Active stop operations and monotonic epoch; separate from the reaper fence.
   , vlsStopRequested :: !(TVar Bool)
   -- ^ Set by 'handleVmStopGraceful' / 'handleVmStopHard' before
   -- they signal QEMU. The reaper consults this flag on QEMU
@@ -259,3 +263,10 @@ stopVmWorkers live = do
   workers <- readTVarIO (vlsWorkers live)
   mapM_ cancel workers
   atomically $ modifyTVar' (vlsWorkers live) (filter (`notElem` workers))
+
+-- | Fence observations for the complete stop attempt, including failed attempts.
+withVmStopping :: VmLiveState -> IO a -> IO a
+withVmStopping live = bracket_ begin end
+  where
+    begin = atomically $ modifyTVar' (vlsStopState live) (\(n, epoch) -> (n + 1, epoch + 1))
+    end = atomically $ modifyTVar' (vlsStopState live) (\(n, epoch) -> (n - 1, epoch))

@@ -37,7 +37,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Vm as CGVM
 import Control.Concurrent (threadDelay)
 import qualified Control.Concurrent.Async as Async
-import Control.Concurrent.STM (atomically, readTVar, readTVarIO)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forever, when)
 import Control.Monad.Logger (LogLevel (..))
@@ -50,10 +50,11 @@ import qualified Corvus.Node.NodeStats as NS
 import qualified Corvus.Node.ProcStats as PS
 import qualified Corvus.Node.Qmp as Qmp
 import Corvus.Node.StatusSubscribers (SubscriberRegistry, dispatchSubscribers, newSubscriberRegistry, registerSubscriber)
+import Corvus.Node.StorageStats (StorageStatsReader, newStorageStatsReader)
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Rpc.Streams (callSink)
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
@@ -69,7 +70,8 @@ import System.Timeout (timeout)
 -- failure.
 data Subscribers = Subscribers
   { subsList :: SubscriberRegistry (C.Client CGNA.VmStatusSink)
-  , subsGuestHealth :: IORef (Map.Map (Int64, Int64, Int64, Word32) (Bool, Int64, [C.Parsed CGNA.GuestNetIf]))
+  , subsGuestHealth :: TVar (Map.Map (Int64, Int64, Int64, Word32) (Bool, Int64, [C.Parsed CGNA.GuestNetIf]))
+  , subsStorage :: StorageStatsReader
   , subsPriorSample :: IORef (Map.Map Int64 POSIXTime)
   -- ^ Wall-clock of the previous successful stats sample per VM.
   -- @intervalMillis = now - prior@. First sample for a VM has
@@ -78,7 +80,7 @@ data Subscribers = Subscribers
   }
 
 newSubscribers :: IO Subscribers
-newSubscribers = Subscribers <$> newSubscriberRegistry <*> newIORef Map.empty <*> newIORef Map.empty
+newSubscribers = Subscribers <$> newSubscriberRegistry <*> newTVarIO Map.empty <*> newStorageStatsReader <*> newIORef Map.empty
 
 addSubscriber :: Subscribers -> C.Client CGNA.VmStatusSink -> IO ()
 addSubscriber Subscribers {subsList = ref} = registerSubscriber ref
@@ -101,23 +103,25 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = do
   forever $ do
     threadDelay (tickIntervalMs * 1000)
     vms <- atomically $ L.readVms ledger
-    atomicModifyIORef' (subsGuestHealth subs) $ \observations ->
-      (Map.filterWithKey (\(vid, rev, gen, pid) _ -> maybe False (\live -> VS.vsLifecycleRevision (L.vlsSpec live) == rev && VS.vsRuntimeGeneration (L.vlsSpec live) == gen && L.vlsQemuPid live == pid) (Map.lookup vid vms)) observations, ())
+    atomically $ do
+      observations <- readTVar (subsGuestHealth subs)
+      writeTVar (subsGuestHealth subs) (Map.filterWithKey (\(vid, rev, gen, pid) _ -> maybe False (\live -> VS.vsLifecycleRevision (L.vlsSpec live) == rev && VS.vsRuntimeGeneration (L.vlsSpec live) == gen && L.vlsQemuPid live == pid) (Map.lookup vid vms)) observations)
     now <- millisNow
     -- Sample VMs concurrently, with bounded QGA observations in buildEntry:
     -- the snapshot cannot be dispatched until every entry has completed.
     entries <-
       Async.forConcurrently
         (Map.toList vms)
-        (buildEntry "periodic" cfg qgaConns subs clk)
+        (buildEntry ledger "periodic" cfg qgaConns subs clk)
     -- Per-tick node observation: CPU/RAM/disk/load/kernel/version.
     -- The daemon-side sink stamps these into the 'Node' row and
     -- bumps 'nodeAgentHealthcheck'.
-    stats <- NS.readNodeStats cfg
+    stats <- NS.readNodeStats (subsStorage subs) (guestAgentLogger qgaConns) cfg
+    published <- mapM (validateObservation ledger clk) (catMaybes entries)
     let snapshot =
           CGNA.VmStatusSnapshot
             { CGNA.snapshotAtMillis = now
-            , CGNA.entries = entries
+            , CGNA.entries = catMaybes published
             , CGNA.nodeStats = stats
             }
     dispatch qgaConns subs snapshot
@@ -146,13 +150,14 @@ dispatchVm cfg qgaConns ledger subs vmId = do
     Nothing -> pure ()
     Just live -> do
       clk <- PS.getClkTck
-      entry <- buildEntry "dispatch" cfg qgaConns subs clk (vmId, live)
+      entry <- buildEntry ledger "dispatch" cfg qgaConns subs clk (vmId, live)
       now <- millisNow
-      stats <- NS.readNodeStats cfg
+      stats <- NS.readNodeStats (subsStorage subs) (guestAgentLogger qgaConns) cfg
+      published <- mapM (validateObservation ledger clk) (catMaybes [entry])
       let snapshot =
             CGNA.VmStatusSnapshot
               { CGNA.snapshotAtMillis = now
-              , CGNA.entries = [entry]
+              , CGNA.entries = catMaybes published
               , CGNA.nodeStats = stats
               }
       dispatch qgaConns subs snapshot
@@ -162,7 +167,8 @@ dispatchVm cfg qgaConns ledger subs vmId = do
 -- pings QGA + fetches network interfaces + samples resource
 -- counters.
 buildEntry
-  :: T.Text
+  :: L.VmLedger
+  -> T.Text
   -> QemuConfig
   -> NGA.GuestAgentConns
   -> Subscribers
@@ -170,73 +176,113 @@ buildEntry
   -- ^ _SC_CLK_TCK, captured once per ticker for stamping on every
   -- 'VmStats' sample so consumers can convert jiffies to seconds.
   -> (Int64, L.VmLiveState)
-  -> IO (C.Parsed CGNA.VmStatusEntry)
-buildEntry origin cfg qgaConns subs clk (vmId, live) = do
-  mExit <- readTVarIO (L.vlsLastExitCode live)
-  (startupError, startupPending) <-
-    atomically $
-      (,) <$> readTVar (L.vlsStartupError live) <*> readTVar (L.vlsStartupPending live)
-  let qpid = fromIntegral (L.vlsQemuPid live) :: Int32
-  case mExit of
-    Just 0 -> pure $ baseEntry vmId live CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk) startupError
-    Just code ->
-      pure $
-        baseEntry
-          vmId
-          live
-          CGNA.VmAgentState'errored
-          qpid
-          (fromIntegral code)
-          False
-          0
-          []
-          (zeroVmStats clk)
-          startupError
-    Nothing -> do
-      let spec = L.vlsSpec live
-          fields =
-            "vm_id="
-              <> shown vmId
-              <> " origin="
-              <> origin
-              <> " runtime_generation="
-              <> shown (VS.vsRuntimeGeneration spec)
-              <> " lifecycle_revision="
-              <> shown (VS.vsLifecycleRevision spec)
-              <> " qemu_pid="
-              <> shown qpid
-              <> " startup_pending="
-              <> shown startupPending
-              <> " startup_error_present="
-              <> shown (isJust startupError)
-              <> " startup_budget_ms="
-              <> shown (VS.vsWaitForGuestAgentMs spec)
-              <> " start_paused="
-              <> shown (VS.vsStartPaused spec)
-              <> " timeout_us=5000000"
-          event level name extra = logQgaEvent (guestAgentLogger qgaConns) level name (fields <> " " <> extra)
-      let enabled = VS.vsGuestAgent spec
-          probe = enabled && not startupPending && isNothing startupError
-          identity = (vmId, VS.vsLifecycleRevision spec, VS.vsRuntimeGeneration spec, L.vlsQemuPid live)
-      event LevelDebug "status_probe_decision" ("probe=" <> shown probe)
-      result <- if probe then NGA.guestHealthProbe qgaConns cfg vmId else pure (Just (Left "Guest agent probe skipped"))
-      cached <- Map.findWithDefault (False, 0, []) identity <$> readIORef (subsGuestHealth subs)
-      now <- millisNow
-      let (ok, pingedAt, wireIfs, deferred, valid, message) = case result of
-            Nothing -> let (priorOk, priorTime, priorIfs) = cached in (priorOk, priorTime, priorIfs, True, False, "Guest agent busy; observation deferred")
-            Just (Left reason) -> (False, 0, let (_, _, priorIfs) = cached in priorIfs, False, False, reason)
-            Just (Right interfaces) -> (True, now, maybe (let (_, _, priorIfs) = cached in priorIfs) (map encodeIf) interfaces, False, isJust interfaces, T.empty)
-      -- Retain only the current runtime of this VM. Busy probes never refresh time.
-      when (probe && not deferred) $ atomicModifyIORef' (subsGuestHealth subs) $ \observations ->
-        (Map.insert identity (ok, pingedAt, wireIfs) observations, ())
-      event LevelDebug "status_ping_end" ("deferred=" <> shown deferred <> " reachable=" <> shown ok)
-      stats <- sampleVmStats cfg subs clk vmId live
-      pure $
-        (baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats startupError)
-          { CGNA.guestAgentDeferred = deferred
-          , CGNA.guestAgentMessage = if enabled then message else "Guest agent disabled"
-          , CGNA.netIfsValid = valid
-          }
+  -> IO (Maybe (L.VmLiveState, (Int, Integer), C.Parsed CGNA.VmStatusEntry))
+buildEntry ledger origin cfg qgaConns subs clk (vmId, live) = do
+  before <- readTVarIO (L.vlsStopState live)
+  entry <- observe before
+  pure $ Just (live, before, entry)
+  where
+    observe before = do
+      mExit <- readTVarIO (L.vlsLastExitCode live)
+      (startupError, startupPending) <-
+        atomically $
+          (,) <$> readTVar (L.vlsStartupError live) <*> readTVar (L.vlsStartupPending live)
+      let qpid = fromIntegral (L.vlsQemuPid live) :: Int32
+      case mExit of
+        Just 0 -> pure $ baseEntry vmId live CGNA.VmAgentState'stopped qpid 0 False 0 [] (zeroVmStats clk) startupError
+        Just code ->
+          pure $
+            baseEntry
+              vmId
+              live
+              CGNA.VmAgentState'errored
+              qpid
+              (fromIntegral code)
+              False
+              0
+              []
+              (zeroVmStats clk)
+              startupError
+        Nothing -> do
+          let spec = L.vlsSpec live
+              fields =
+                "vm_id="
+                  <> shown vmId
+                  <> " origin="
+                  <> origin
+                  <> " runtime_generation="
+                  <> shown (VS.vsRuntimeGeneration spec)
+                  <> " lifecycle_revision="
+                  <> shown (VS.vsLifecycleRevision spec)
+                  <> " qemu_pid="
+                  <> shown qpid
+                  <> " startup_pending="
+                  <> shown startupPending
+                  <> " startup_error_present="
+                  <> shown (isJust startupError)
+                  <> " startup_budget_ms="
+                  <> shown (VS.vsWaitForGuestAgentMs spec)
+                  <> " start_paused="
+                  <> shown (VS.vsStartPaused spec)
+                  <> " timeout_us=5000000"
+              event level name extra = logQgaEvent (guestAgentLogger qgaConns) level name (fields <> " " <> extra)
+          let enabled = VS.vsGuestAgent spec
+              probe = enabled && not startupPending && isNothing startupError && fst before == 0
+              identity = (vmId, VS.vsLifecycleRevision spec, VS.vsRuntimeGeneration spec, L.vlsQemuPid live)
+          event LevelDebug "status_probe_decision" ("probe=" <> shown probe)
+          result <- if probe then NGA.guestHealthProbeWhen (eligible before) qgaConns cfg vmId else pure (Just (Left "Guest agent probe skipped"))
+          unchanged <- eligible before
+          cached <- Map.findWithDefault (False, 0, []) identity <$> readTVarIO (subsGuestHealth subs)
+          now <- millisNow
+          let (ok, pingedAt, wireIfs, deferred, valid, message) = case if unchanged then result else Nothing of
+                Nothing -> let (priorOk, priorTime, priorIfs) = cached in (priorOk, priorTime, priorIfs, True, False, "Guest agent busy; observation deferred")
+                Just (Left reason) -> (False, 0, let (_, _, priorIfs) = cached in priorIfs, False, False, reason)
+                Just (Right interfaces) -> (True, now, maybe (let (_, _, priorIfs) = cached in priorIfs) (map encodeIf) interfaces, False, isJust interfaces, T.empty)
+          stats <- sampleVmStats cfg subs clk vmId live
+          committed <- atomically $ do
+            current <- eligibleSTM before
+            when (probe && current && not deferred) $ do
+              observations <- readTVar (subsGuestHealth subs)
+              writeTVar (subsGuestHealth subs) (Map.insert identity (ok, pingedAt, wireIfs) observations)
+            pure current
+          when (probe && committed && not deferred && not ok) $
+            event LevelWarn "status_probe_failed" "Guest agent health observation failed"
+          event LevelDebug "status_ping_end" ("deferred=" <> shown (deferred || not committed) <> " reachable=" <> shown ok)
+          pure $
+            (baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats startupError)
+              { CGNA.guestAgentDeferred = deferred || not committed
+              , CGNA.guestAgentMessage = if enabled then message else "Guest agent disabled"
+              , CGNA.netIfsValid = valid && committed
+              }
+
+    eligible before = atomically (eligibleSTM before)
+    eligibleSTM before = do
+      current <- L.lookupVm ledger vmId
+      stop <- readTVar (L.vlsStopState live)
+      exited <- readTVar (L.vlsLastExitCode live)
+      pending <- readTVar (L.vlsStartupPending live)
+      failure <- readTVar (L.vlsStartupError live)
+      pure $ maybe False (`sameRuntime` live) current && stop == before && fst stop == 0 && isNothing exited && not pending && isNothing failure
+
+-- Validate again after every VM and node measurement has completed.
+validateObservation :: L.VmLedger -> Word32 -> (L.VmLiveState, (Int, Integer), C.Parsed CGNA.VmStatusEntry) -> IO (Maybe (C.Parsed CGNA.VmStatusEntry))
+validateObservation ledger clk (live, before, entry) = atomically $ do
+  let vmId = VS.vsVmId (L.vlsSpec live)
+  current <- L.lookupVm ledger vmId
+  after <- readTVar (L.vlsStopState live)
+  exited <- readTVar (L.vlsLastExitCode live)
+  pure $ case current of
+    Just runtime | sameRuntime runtime live ->
+      Just $ case exited of
+        Just code -> baseEntry vmId live (if code == 0 then CGNA.VmAgentState'stopped else CGNA.VmAgentState'errored) (fromIntegral (L.vlsQemuPid live)) (fromIntegral code) False 0 [] (zeroVmStats clk) (Just (CGNA.startupError entry))
+        Nothing ->
+          if before /= after || fst after > 0
+            then entry {CGNA.guestAgentDeferred = True, CGNA.netIfsValid = False, CGNA.guestAgentMessage = "Runtime lifecycle changed; observation deferred"}
+            else entry
+    _ -> Nothing
+
+sameRuntime :: L.VmLiveState -> L.VmLiveState -> Bool
+sameRuntime a b = L.vlsQemuPid a == L.vlsQemuPid b && VS.vsRuntimeGeneration (L.vlsSpec a) == VS.vsRuntimeGeneration (L.vlsSpec b) && VS.vsLifecycleRevision (L.vlsSpec a) == VS.vsLifecycleRevision (L.vlsSpec b)
 
 -- | Seed readiness before exposing the runtime to nonblocking health probes.
 recordGuestAgentReady :: Subscribers -> L.VmLiveState -> IO ()
@@ -244,8 +290,9 @@ recordGuestAgentReady subs live = do
   now <- millisNow
   let spec = L.vlsSpec live
       identity = (VS.vsVmId spec, VS.vsLifecycleRevision spec, VS.vsRuntimeGeneration spec, L.vlsQemuPid live)
-  atomicModifyIORef' (subsGuestHealth subs) $ \observations ->
-    (Map.insert identity (True, now, []) observations, ())
+  atomically $ do
+    observations <- readTVar (subsGuestHealth subs)
+    writeTVar (subsGuestHealth subs) (Map.insert identity (True, now, []) observations)
 
 baseEntry
   :: Int64
@@ -320,7 +367,7 @@ sampleVmStats cfg subs clk vmId live = do
         Just p -> round ((now - p) * 1000) :: Word32
 
   mProc <-
-    E.handle (\(_ :: E.SomeException) -> pure Nothing) $
+    E.handleJust synchronousException (\_ -> pure Nothing) $
       PS.readProcSample (L.vlsQemuPid live)
   let (jiff, rss) = case mProc of
         Just s -> (PS.psCpuJiffies s, PS.psRssBytes s)
@@ -356,7 +403,7 @@ sampleVmStats cfg subs clk vmId live = do
 -- first-ping notification or the entire periodic snapshot.
 safeQmpResult :: IO (Either e a) -> IO (Maybe a)
 safeQmpResult io =
-  E.handle (\(_ :: E.SomeException) -> pure Nothing) $ do
+  E.handleJust synchronousException (\_ -> pure Nothing) $ do
     result <- timeout 1000000 io
     pure $ case result of
       Just (Right value) -> Just value
@@ -365,7 +412,7 @@ safeQmpResult io =
 sampleTap :: T.Text -> IO (Maybe (C.Parsed CGVM.NetIo))
 sampleTap tap = do
   m <-
-    E.handle (\(_ :: E.SomeException) -> pure Nothing) $
+    E.handleJust synchronousException (\_ -> pure Nothing) $
       PS.readTapSample tap
   pure $ case m of
     Nothing -> Nothing

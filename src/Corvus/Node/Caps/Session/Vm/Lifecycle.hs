@@ -109,7 +109,7 @@ stopGraceful sc vmId timeoutSec = do
         CGNA.Session'vmStopGraceful'results
           { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
           }
-    Just live -> do
+    Just live -> L.withVmStopping live $ do
       runStderrLoggingT . logInfoN $
         "[nodeagent] vmStopGraceful vm-"
           <> tshow vmId
@@ -194,7 +194,7 @@ stopHard sc vmId mRevision = do
             CGNA.Session'vmStopHard'results
               { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
               }
-    Just live -> do
+    Just live -> L.withVmStopping live $ do
       runStderrLoggingT . logInfoN $
         "[nodeagent] vmStopHard vm-"
           <> tshow vmId
@@ -295,7 +295,7 @@ handleVmSave sc vmId = do
   mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
   case mLive of
     Nothing -> throwFailed ("vmSave: unknown vmId " <> tshow vmId)
-    Just live -> do
+    Just live -> L.withVmStopping live $ do
       let cfg = agentQemuConfig
           vmName = VS.vsName (L.vlsSpec live)
       statePath <- NR.getSavedStateFile cfg vmName

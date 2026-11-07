@@ -12,6 +12,7 @@ where
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import System.Directory (getHomeDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
@@ -76,8 +77,8 @@ getEffectiveBasePath :: QemuConfig -> IO FilePath
 getEffectiveBasePath config = case qcBasePath config of
   Just path -> pure path
   Nothing -> do
-    mHome <- lookupEnv "HOME"
-    pure $ fromMaybe "/var/lib/qemu" mHome </> "VMs"
+    home <- getHomeDirectory
+    pure $ home </> "VMs"
 
 -- | Get the effective runtime directory for VM sockets
 -- Uses qcRuntimeDir if set, otherwise $XDG_RUNTIME_DIR/corvus

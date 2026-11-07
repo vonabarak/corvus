@@ -28,6 +28,7 @@ import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent (forkFinally)
 import Control.Exception (bracket, catch)
 import Control.Monad (forever, unless, void)
+import Corvus.Logging (withRpcSupervisor)
 import Corvus.Rpc.Daemon (newDaemonCap)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..), ServerState (..))
@@ -47,7 +48,7 @@ import Network.Socket
   , maxListenQueue
   , socket
   )
-import Supervisors (Supervisor, withSupervisor)
+import Supervisors (Supervisor)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn, stderr)
@@ -62,7 +63,7 @@ import System.IO.Error (isEOFError)
 -- connections from any other prefix are dropped before any RPC
 -- frame is dispatched.
 runCapnpServer :: ServerState -> ListenAddress -> IO ()
-runCapnpServer state addr = withSupervisor $ \sup ->
+runCapnpServer state addr = withRpcSupervisor "RPC" $ \sup ->
   case addr of
     TcpAddress host port ->
       TCP.serve (TCP.Host host) (show port) $
@@ -155,7 +156,7 @@ logTlsRejection what peerAddr why =
 -- The 'clientName' is propagated into every cap created off the
 -- daemon cap so 'runAction' calls can stamp it on the task row.
 runHandler :: ServerState -> Supervisor -> T.Text -> Transport -> IO ()
-runHandler state _ clientName transport = withSupervisor $ \sup -> do
+runHandler state _ clientName transport = withRpcSupervisor "RPC" $ \sup -> do
   -- Exported streaming capabilities must stop when this connection closes,
   -- even when the client still retains local references to them.
   -- In particular, upload shutdown releases its image-family reservation.

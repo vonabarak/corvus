@@ -96,7 +96,7 @@ logQga sock level event fields = do
           <> " "
           <> fields
   let expectedStartupTimeout = "purpose=startup_readiness " `T.isPrefixOf` operation && command == "guest-sync" && event `elem` ["operation_timeout", "receive_timeout"]
-  logQgaEvent (qgaLogger sock) (if expectedStartupTimeout then LevelDebug else level) event message
+  logQgaEvent (qgaLogger sock) (if expectedStartupTimeout || ("purpose=health_probe " `T.isPrefixOf` operation && level == LevelWarn) then LevelDebug else level) event message
   where
     shown :: (Show a) => a -> Text
     shown = T.pack . show

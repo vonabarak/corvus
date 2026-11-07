@@ -63,9 +63,10 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent (forkIO, myThreadId)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Exception (Exception, SomeException, fromException, throwIO, try)
+import Control.Exception (Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException, fromException, throwIO, try)
 import Control.Monad (when)
 import qualified Control.Monad.Catch as MC
+import Control.Monad.Logger (logInfoN)
 import Corvus.DiskSelector (publicationSelector)
 import Corvus.Handlers.Disk.Db (getBackingChainIds)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase)
@@ -149,7 +150,9 @@ mkActionContext state taskId clientName =
 data TaskCancelledException = TaskCancelledException
   deriving stock (Show)
 
-instance Exception TaskCancelledException
+instance Exception TaskCancelledException where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
 
 -- | Has cancellation been requested for this action's task tree?
 -- Resolves the token from the registry by the root task id, so it
@@ -310,7 +313,10 @@ runActionAsSubtask parentCtx action = do
       let ctx = parentCtx {acTaskId = taskKey}
       result <- runAndFinalizeResult state ctx action
       case result of
-        Left errResp -> do
+        Left ActionCancelled -> do
+          cancelRemainingSubtasks (ssDbPool state) parentId
+          throwIO TaskCancelledException
+        Left (ActionFailed errResp) -> do
           cancelRemainingSubtasks (ssDbPool state) parentId
           pure errResp
         Right resp -> do
@@ -356,12 +362,15 @@ runAndFinalize :: (Action a) => ServerState -> ActionContext -> a -> IO Response
 runAndFinalize state ctx action = do
   result <- runAndFinalizeResult state ctx action
   case result of
-    Left errResp -> pure errResp
+    Left ActionCancelled -> pure (RespError "Cancelled by operator")
+    Left (ActionFailed errResp) -> pure errResp
     Right resp -> pure resp
+
+data ActionFailure = ActionCancelled | ActionFailed Response
 
 -- | Execute an action and update its task record.
 -- Returns Left on exception, Right on normal completion.
-runAndFinalizeResult :: (Action a) => ServerState -> ActionContext -> a -> IO (Either Response Response)
+runAndFinalizeResult :: (Action a) => ServerState -> ActionContext -> a -> IO (Either ActionFailure Response)
 runAndFinalizeResult state ctx action = do
   let taskKey = acTaskId ctx
       pool = ssDbPool state
@@ -394,7 +403,10 @@ runAndFinalizeResult state ctx action = do
         )
         pool
       pushTaskFinished state (fromSqlKey taskKey) TaskCancelled (Just msg)
-      pure $ Left (RespError msg)
+      when (acTaskId ctx == acRootTaskId ctx) $
+        runServerLogging state $
+          logInfoN ("Task " <> T.pack (show (fromSqlKey taskKey)) <> " cancelled by operator")
+      pure $ Left ActionCancelled
     else case result of
       Right response -> do
         let (resultStatus, message) = classifyResponse response
@@ -427,7 +439,7 @@ runAndFinalizeResult state ctx action = do
         let errResp = RespError $ case fromException err of
               Just (OperationLeaseTimeout message) -> message
               Nothing -> "Internal error: " <> errMsg
-        pure $ Left errResp
+        pure $ Left (ActionFailed errResp)
 
 -- | Did this exception originate from a task cancellation?
 isCancellation :: SomeException -> Bool

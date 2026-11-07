@@ -739,6 +739,35 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
             assert b"healthy" in registered.stdout
             nodes = _shrun(self.controller, "crv node list", check=False)
             assert nodes.returncode == 0 and b"remote" in nodes.stdout
+            # A fresh remote has no VM storage directory yet. Sampling must
+            # report its backing filesystem without creating the directory.
+            deadline = time.monotonic() + 40.0
+            details: dict[str, object] = {}
+            while time.monotonic() < deadline:
+                shown = _shrun(self.controller, "crv -o json node show remote")
+                details = json.loads(shown.stdout)
+                if details.get("storage_bytes_total") is not None:
+                    break
+                time.sleep(0.5)
+            total = details.get("storage_bytes_total")
+            free = details.get("storage_bytes_free")
+            assert isinstance(total, int) and total > 0, details
+            assert isinstance(free, int) and 0 <= free <= total, details
+            base = details.get("base_path")
+            assert isinstance(base, str), details
+            import shlex
+
+            assert (
+                _run(
+                    self.remote, f"sudo test ! -e {shlex.quote(base)}", check=False
+                ).returncode
+                == 0
+            )
+            filesystem = _run(
+                self.remote,
+                f"sudo df --output=size -B1 -- {shlex.quote(str(Path(base).parent))}",
+            )
+            assert total == int(filesystem.stdout.splitlines()[-1].strip())
         finally:
             # Exercise remote cleanup explicitly rather than relying on VM teardown.
             _run(

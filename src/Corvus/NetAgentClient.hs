@@ -62,7 +62,7 @@ import Capnp.Rpc
   , withConn
   )
 import qualified Control.Exception as E
-import Corvus.Logging (synchronousException)
+import Corvus.Logging (synchronousException, withRpcSupervisor)
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import Data.Function ((&))
@@ -70,7 +70,7 @@ import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import qualified Network.Socket as NS
-import Supervisors (Supervisor, withSupervisor)
+import Supervisors (Supervisor)
 
 -- ---------------------------------------------------------------------------
 -- Spec types (mirror agent-side Network / Tap modules + Cap'n Proto)
@@ -197,7 +197,7 @@ withNetAgentClient host port owner mTlsCfg body = E.mask $ \restore -> do
             entered <- newIORef False
             r <-
               E.tryJust synchronousException $
-                withSupervisor $ \sup ->
+                withRpcSupervisor "RPC" $ \sup ->
                   withConn transport cfg $ \conn -> do
                     rawAgent <- requestBootstrap conn
                     let agent :: C.Client CGN.NetAgent

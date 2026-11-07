@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Corvus.Node.GuestAgent.Control
-  ( guestHealthProbe
+  ( guestHealthProbeWhen
+  , guestHealthProbe
   , guestPing
   , guestShutdown
   , guestFsFreeze
@@ -12,7 +13,7 @@ module Corvus.Node.GuestAgent.Control
 where
 
 import Control.Monad (join)
-import Corvus.Node.GuestAgent.Connection (GuestAgentConns, tryPersistentConn, withDiscardedConn, withPersistentConn)
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns, tryPersistentConnWhen, withDiscardedConn, withPersistentConn)
 import Corvus.Node.GuestAgent.Exec (pollRecvTimeoutMicros)
 import Corvus.Node.GuestAgent.Network (parseGuestInterfaces)
 import Corvus.Node.GuestAgent.Transport (recvQgaWithin, sendQga, timeoutQgaReceive)
@@ -119,7 +120,10 @@ qgaErrText object = case KM.lookup "error" object of
 -- | A single bounded health observation, including interfaces, after acquiring
 -- the lock. Nothing means busy; Left means an actual failed observation.
 guestHealthProbe :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe (Either Text (Maybe [GuestNetIf])))
-guestHealthProbe conns cfg vmId = tryPersistentConn conns cfg vmId 5000000 $ \sock -> do
+guestHealthProbe = guestHealthProbeWhen (pure True)
+
+guestHealthProbeWhen :: IO Bool -> GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe (Either Text (Maybe [GuestNetIf])))
+guestHealthProbeWhen allowed conns cfg vmId = tryPersistentConnWhen allowed conns cfg vmId 5000000 $ \sock -> do
   sendQga sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
   response <- recvQgaWithin 5000000 sock "guest-ping"
   case response of

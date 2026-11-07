@@ -39,6 +39,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc.Server (SomeServer, handleParsed)
 import qualified Control.Exception as E
+import Corvus.Logging (synchronousException)
 import Corvus.NodeAgentClient.Core
 import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe, isJust)
@@ -273,7 +274,7 @@ instance SomeServer DaemonDiskDownloadSink
 instance CGS.DiskDownloadSink'server_ DaemonDiskDownloadSink where
   diskDownloadSink'progress (DaemonDiskDownloadSink cb) =
     handleParsed $ \CGS.DiskDownloadSink'progress'params {CGS.downloaded = d, CGS.total = t} -> do
-      _ <- E.try (cb d t) :: IO (Either E.SomeException ())
+      _ <- E.tryJust synchronousException (cb d t) :: IO (Either E.SomeException ())
       pure CGS.DiskDownloadSink'progress'results
 
 -- | Download an image to the node. The optional @onProgress@

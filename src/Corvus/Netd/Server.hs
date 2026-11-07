@@ -32,6 +32,7 @@ import Control.Concurrent.STM (STM, atomically)
 import Control.Exception (catch, finally)
 import Control.Monad (void)
 import Control.Monad.Logger (LogLevel (..))
+import Corvus.Logging (withRpcSupervisor)
 import Corvus.Netd.Caps.NetAgent (newNetAgentCap)
 import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
 import qualified Corvus.Netd.Events as Ev
@@ -46,7 +47,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Network.Simple.TCP as TCP
 import Network.Socket (Socket)
-import Supervisors (withSupervisor)
 import System.IO.Error (isEOFError)
 
 -- | Default bind address. Mirrors the daemon's default of binding
@@ -88,7 +88,7 @@ runNetdServer logger host port mTlsCfg = do
         Nothing -> pure ()
         Just kind -> Ev.dispatchVanished subs kind ifname
   TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
-    withSupervisor $ \sup -> do
+    withRpcSupervisor "RPC" $ \sup -> do
       netAgentCap <- newNetAgentCap sup netLedger tapLedger subs
       bootClient <- export @CGN.NetAgent sup netAgentCap
       let handle transport =

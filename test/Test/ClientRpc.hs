@@ -25,8 +25,8 @@ import Capnp.Rpc (ConnConfig (..), fromClient, handleConn, socketTransport, toCl
 import Capnp.Rpc.Errors (throwFailed)
 import Capnp.Rpc.Server (MethodHandlerTree (..), ServerOps (..), SomeServer, exportToServerOps, findMethod, handleParsed, methodHandlerTree)
 import qualified Capnp.Rpc.Untyped as Untyped
-import Control.Concurrent.Async (AsyncCancelled, async, cancel, withAsync)
-import Control.Exception (SomeException, bracket, catch, finally, fromException)
+import Control.Concurrent.Async (async, cancel, withAsync)
+import Control.Exception (SomeException, bracket, catch, finally)
 import Control.Monad (forever, unless, (>=>))
 import Corvus.Rpc.Common (handleParsedAsync)
 import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
@@ -34,7 +34,6 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (..))
 import qualified Data.Vector as Vector
-import GHC.Conc (getUncaughtExceptionHandler, setUncaughtExceptionHandler)
 import Network.Socket (Family (AF_INET, AF_UNIX), SockAddr (SockAddrInet, SockAddrUnix), SocketType (Stream), accept, bind, close, getSocketName, listen, socket, tupleToHostAddress)
 import Supervisors (withSupervisor)
 import System.FilePath ((</>))
@@ -106,7 +105,7 @@ withMockTcp :: (Fixture -> IO a) -> IO a
 withMockTcp = withMockTransport True
 
 withMockTransport :: Bool -> (Fixture -> IO a) -> IO a
-withMockTransport tcp action = quietCancellation $ hSilence [stderr] $ withSystemTempDirectory "corvus-cli" $ \dir -> withSupervisor $ \sup -> do
+withMockTransport tcp action = hSilence [stderr] $ withSystemTempDirectory "corvus-cli" $ \dir -> withSupervisor $ \sup -> do
   port <- newIORef 0
   rs <- newIORef Map.empty
   expected <- newIORef []
@@ -881,12 +880,3 @@ sampleVmSnapshotInfo = GVm.VmSnapshotInfo {GVm.name = "fixture", GVm.createdAt =
 
 sampleVmStats :: C.Parsed GVm.VmStats
 sampleVmStats = GVm.VmStats {GVm.sampledAtNanos = 42, GVm.intervalMillis = 42, GVm.cpuJiffiesTotal = 42, GVm.clkTck = 42, GVm.hostRssBytes = 42, GVm.balloonActualBytes = 42, GVm.balloonMaxBytes = 42, GVm.drives = [sampleDriveIo], GVm.nets = [sampleNetIo]}
-
--- Capnp's supervised callback workers report cancellation through GHC's
--- uncaught-exception hook during normal teardown. Keep other errors visible.
-quietCancellation :: IO a -> IO a
-quietCancellation action = bracket getUncaughtExceptionHandler setUncaughtExceptionHandler $ \original -> do
-  setUncaughtExceptionHandler $ \exception -> case fromException exception :: Maybe AsyncCancelled of
-    Just _ -> pure ()
-    Nothing -> original exception
-  action

@@ -33,8 +33,8 @@ spec = describe "Haskell coverage gate" $ do
       meetsBaseline (Coverage 1 3) (Coverage 0 0) `shouldBe` False
       meetsBaseline (Coverage 4 3) (Coverage 1 3) `shouldBe` False
   describe "source scope" $ do
-    it "includes all three authored libraries" $
-      map isAuthoredSource ["src/Corvus/Database.hs", "vendor/haskell-capnp/capnp/lib/Capnp.hs", "vendor/lifetimes/src/Lifetimes.hs"] `shouldBe` replicate 3 True
+    it "includes all four authored libraries" $
+      map isAuthoredSource ["src/Corvus/Database.hs", "vendor/haskell-capnp/capnp/lib/Capnp.hs", "vendor/lifetimes/src/Lifetimes.hs", "vendor/supervisors/src/Supervisors.hs"] `shouldBe` replicate 4 True
     it "excludes generated, unrelated vendor, executable, test, and escaping paths" $
       map isAuthoredSource ["src-generated/X.hs", "vendor/X.hs", "app/X.hs", "test/X.hs", "src/../app/X.hs", "/src/X.hs"]
         `shouldBe` replicate 6 False
@@ -112,6 +112,7 @@ spec = describe "Haskell coverage gate" $ do
               [ (".", "corvus", "src", "Corvus.Client.Commands.Test", [1], [0])
               , ("vendor/haskell-capnp/capnp", "capnp", "lib", "Shared", [0], [1])
               , ("vendor/lifetimes", "lifetimes", "src", "Shared", [], [])
+              , ("vendor/supervisors", "supervisors", "src", "Supervisors", [], [])
               ]
         forM_ modules $ \(root, unit, sourceDirectory, name, _, _) -> do
           createDirectoryIfMissing True (root </> sourceDirectory)
@@ -123,8 +124,8 @@ spec = describe "Haskell coverage gate" $ do
         writeFile "first.tix" (show (trace fst))
         writeFile "second.tix" (show (trace snd))
         (actual, Tix included, clients, commands, _) <- loadCoverage [(root, "metadata" </> unit) | (root, unit, _, _, _, _) <- modules] ["first.tix", "second.tix"]
-        actual `shouldBe` Coverage 2 3
-        length included `shouldBe` 3
+        actual `shouldBe` Coverage 2 4
+        length included `shouldBe` 4
         clients `shouldBe` Coverage 1 1
         commands `shouldBe` [("Corvus.Client.Commands.Test", Coverage 1 1)]
     it "accepts the committed baseline for the quality compiler" $

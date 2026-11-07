@@ -8,10 +8,10 @@ packages:
   - vendor/haskell-capnp/capnp
   - vendor/haskell-capnp/capnp-tests
   - vendor/lifetimes
+  - vendor/supervisors
 
 extra-deps:
   - monad-stm-0.1.0.2
-  - supervisors-0.2.1.0
   - zenhack-prelude-0.1.1.0
 
 system-ghc: false

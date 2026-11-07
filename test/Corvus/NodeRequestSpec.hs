@@ -56,6 +56,14 @@ spec = sequential $ describe "node request isolation" $ do
       result <- waitCatch worker
       result `shouldSatisfy` either (const True) (const False)
 
+  it "joins a dispatch worker blocked inside the shared RPC wrapper" $ do
+    result <- timeout 2000000 $ withSupervisor $ \sup -> do
+      entered <- newEmptyTMVarIO
+      sink <- C.export @S.ByteSink sup (StalledSink entered)
+      withAsync (callSink #write S.ByteSink'write'params {S.chunk = "blocked"} sink) $ \_ ->
+        atomically $ takeTMVar entered
+    result `shouldBe` Just ()
+
   it "returns console input and serves ping while replay acknowledgement is stalled" $
     withSupervisor $ \sup -> do
       buf <- newSocketBuffer 32

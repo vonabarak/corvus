@@ -44,6 +44,7 @@ handleApplyExecute :: ActionContext -> ApplyConfig -> IO Response
 handleApplyExecute ctx config = runServerLogging (acState ctx) $ do
   logInfoN "Applying environment configuration..."
   result <- liftIO $ executeApply ctx config
+  liftIO $ throwIfCancelled ctx
   case result of
     Left err -> logWarnN ("Apply failed: " <> err) >> pure (RespError err)
     Right applyResult -> logInfoN "Apply completed successfully" >> pure (RespApplyResult applyResult)

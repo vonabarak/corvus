@@ -8,7 +8,7 @@ MYPY ?= .venv/bin/python -m mypy
 RUFF ?= .venv/bin/python -m ruff
 
 # Authored sources in maintained packages; generated bindings remain excluded.
-HASKELL_SOURCE_DIRS := src app test tools vendor/haskell-capnp/capnp/lib vendor/haskell-capnp/capnp/cmd vendor/haskell-capnp/capnp-tests/tests vendor/lifetimes/src vendor/lifetimes/tests
+HASKELL_SOURCE_DIRS := src app test tools vendor/haskell-capnp/capnp/lib vendor/haskell-capnp/capnp/cmd vendor/haskell-capnp/capnp-tests/tests vendor/lifetimes/src vendor/lifetimes/tests vendor/supervisors/src vendor/supervisors/tests
 HASKELL_SOURCES = $(shell find $(HASKELL_SOURCE_DIRS) \( -name '*.hs' -o -name '*.hs-boot' \) -not -path '*/.stack-work/*' -not -path '*/.stack-work-quality/*') vendor/haskell-capnp/capnp-examples/lib/Examples/Rpc/CalculatorClient.hs vendor/haskell-capnp/capnp-examples/lib/Examples/Rpc/CalculatorServer.hs
 
 # Build the pinned Haskell formatter and linter in the tools project.

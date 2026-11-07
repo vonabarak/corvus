@@ -25,10 +25,12 @@ import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (TVar)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Node.Caps.Session (SessionServer (..), newSessionCap)
+import Corvus.Node.Caps.Session.Utils (agentQemuConfig)
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
+import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle)
@@ -36,8 +38,6 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Supervisors (Supervisor)
-import System.Directory (getHomeDirectory)
-import System.FilePath ((</>))
 
 -- | Bootstrap-cap state. Holds the supervisor for child caps, the
 -- process-wide VM ledger, the status-subscriber registry, the
@@ -129,10 +129,10 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
     -- whose nodeagent runs as alice answers /home/alice/VMs and
     -- a node whose nodeagent runs as bob answers /home/bob/VMs,
     -- regardless of which user is invoking the daemon CLI.
-    home <- getHomeDirectory
+    base <- getEffectiveBasePath agentQemuConfig
     pure
       CGNA.NodeAgent'defaultBasePath'results
-        { CGNA.path = T.pack (home </> "VMs")
+        { CGNA.path = T.pack base
         }
 
 -- ----------------------------------------------------------------------

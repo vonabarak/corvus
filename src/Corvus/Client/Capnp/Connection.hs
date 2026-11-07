@@ -34,6 +34,7 @@ import Capnp.Rpc
   , withConn
   )
 import Control.Exception (Exception, SomeException, bracket, try)
+import Corvus.Logging (withRpcSupervisor)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..))
 import qualified Data.Default as Def
@@ -49,7 +50,7 @@ import Network.Socket
   , socket
   )
 import qualified Network.Socket as NS
-import Supervisors (Supervisor, withSupervisor)
+import Supervisors (Supervisor)
 
 -- | A live Cap'n Proto client session, scoped to the
 -- 'withCapnpConnection' callback. Holds the bootstrap 'Daemon'
@@ -100,7 +101,7 @@ withCapnpConnection addr mTlsCfg action = do
         Right (transport, cleanup) -> do
           let cfg = Def.def {debugMode = False}
           r <- try $
-            withSupervisor $ \sup ->
+            withRpcSupervisor "RPC" $ \sup ->
               withConn transport cfg $ \conn -> do
                 rawClient <- requestBootstrap conn
                 let daemon :: C.Client CGCorvus.Daemon

@@ -15,6 +15,7 @@
   "packages": [
     "corvus",
     "capnp",
-    "lifetimes"
+    "lifetimes",
+    "supervisors"
   ]
 }

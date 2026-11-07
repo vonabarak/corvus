@@ -5,7 +5,7 @@ module Corvus.NodeStartupSpec (spec) where
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.STM (atomically, newTVarIO, readTVarIO, writeTVar)
-import Control.Exception (bracket)
+import Control.Exception (IOException, bracket, try)
 import Control.Monad (void)
 import Corvus.Model (GraphicsAdapter (..))
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
@@ -69,6 +69,7 @@ spec = describe "QEMU startup failures" $ do
       startupPending <- newTVarIO True
       workers <- newTVarIO []
       stopRequested <- newTVarIO False
+      stopState <- newTVarIO (0, 0)
       let vmSpec = startupSpec
           live =
             L.VmLiveState
@@ -84,6 +85,7 @@ spec = describe "QEMU startup failures" $ do
               , L.vlsSpicePort = 0
               , L.vlsSpec = vmSpec
               , L.vlsWorkers = workers
+              , L.vlsStopState = stopState
               , L.vlsStopRequested = stopRequested
               }
           cfg = defaultQemuConfig {qcRuntimeDir = Just runtime, qcBasePath = Just runtime}
@@ -119,12 +121,31 @@ spec = describe "QEMU startup failures" $ do
       readyLogs `shouldSatisfy` any (Text.isInfixOf "startup_pending=False")
       readyLogs `shouldSatisfy` any (Text.isInfixOf "probe=True")
       writeIORef messages []
+      -- Even an overlapping or failed stop must fence probes only while active.
+      failedStop <- try $ L.withVmStopping live $ do
+        readTVarIO stopState `shouldReturn` (1, 1)
+        L.withVmStopping live $ readTVarIO stopState `shouldReturn` (2, 2)
+        probe
+        connected `shouldReturn` False
+        atomically $ writeTVar stopRequested True
+        ioError (userError "stop failed")
+      case failedStop :: Either IOException () of
+        Left _ -> pure ()
+        Right () -> expectationFailure "stop failure disappeared"
+      readTVarIO stopState `shouldReturn` (0, 2)
+      readTVarIO stopRequested `shouldReturn` True
+      probe
+      connected `shouldReturn` True
+      writeIORef messages []
       atomically $ writeTVar startupError (Just "startup timed out")
       probe
       connected `shouldReturn` False
 
       -- Disabling QGA suppresses all dispatched probes, including after startup.
-      atomically $ writeTVar startupError Nothing
+      -- Clear the simulated reaper fence before republishing this fixture.
+      atomically $ do
+        writeTVar startupError Nothing
+        writeTVar stopRequested False
       let disabled = live {L.vlsSpec = vmSpec {vsGuestAgent = False}}
       atomically (L.publishVmStart ledger 7 1 1 disabled) `shouldReturn` True
       writeIORef messages []

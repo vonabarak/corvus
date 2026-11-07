@@ -85,6 +85,23 @@ spec = describe "GuestAgent connection logs" $ do
         wait operation `shouldReturn` Right ()
         wait server
 
+  it "classifies cached-socket health failures by the current operation purpose" $ withFixture $ \cache config listener entries ->
+    withAsync
+      ( bracket (fst <$> accept listener) close $ \peer -> do
+          handshake peer
+          pingReply peer
+          readJson peer `shouldReturn` Just (object ["execute" .= ("guest-ping" :: Text)])
+      )
+      $ \server -> do
+        guestPing cache config 42 `shouldReturn` True
+        result <- guestHealthProbe cache config 42
+        wait server
+        result `shouldSatisfy` maybe False (either (const True) (const False))
+        logs <- entries
+        let healthLogs = filter (T.isInfixOf "purpose=health_probe " . snd) logs
+        healthLogs `shouldSatisfy` (not . null)
+        healthLogs `shouldSatisfy` all ((== LevelDebug) . fst)
+
   it "logs expected startup synchronization timeouts at Debug" $ withFixture $ \cache config listener entries ->
     withAsync (bracket (fst <$> accept listener) close (\_ -> Control.Concurrent.threadDelay 2000000)) $ \_ -> do
       _ <- withPersistentConn (cache {guestAgentStartupReadiness = True}) config 42 1 50000 (\_ -> pure ())

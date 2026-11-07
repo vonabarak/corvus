@@ -129,6 +129,7 @@ loadComponentSettings projectRoot = do
       , "tools/corvus-tools.cabal"
       , "vendor/haskell-capnp/capnp/capnp.cabal"
       , "vendor/lifetimes/lifetimes.cabal"
+      , "vendor/supervisors/supervisors.cabal"
       ]
   pure (concat <$> sequence results)
 
@@ -160,7 +161,7 @@ extensionFlag = \case
   UnknownExtension extension -> "-X" <> extension
 
 authoredHaskellFiles :: FilePath -> IO [FilePath]
-authoredHaskellFiles projectRoot = concat <$> mapM (findHaskellFiles . (projectRoot </>)) ["src", "app", "tools/code-metrics", "tools/code-metrics-cli", "tools/coverage-check", "tools/coverage-check-cli", "vendor/haskell-capnp/capnp/lib", "vendor/haskell-capnp/capnp/cmd/capnpc-haskell", "vendor/lifetimes/src"]
+authoredHaskellFiles projectRoot = concat <$> mapM (findHaskellFiles . (projectRoot </>)) ["src", "app", "tools/code-metrics", "tools/code-metrics-cli", "tools/coverage-check", "tools/coverage-check-cli", "vendor/haskell-capnp/capnp/lib", "vendor/haskell-capnp/capnp/cmd/capnpc-haskell", "vendor/lifetimes/src", "vendor/supervisors/src"]
 
 findHaskellFiles :: FilePath -> IO [FilePath]
 findHaskellFiles directory = do

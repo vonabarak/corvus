@@ -20,21 +20,23 @@ where
 
 import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Nodeagent as CGNA
-import Control.Exception (SomeException, try)
+import Control.Exception (IOException, try)
+import Control.Monad.Logger (LogLevel)
+import Corvus.Node.StorageStats (StorageStatsReader, readStorageStats)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Data.Int (Int32, Int64)
 import qualified Data.Text as T
 import Development.GitRev (gitHash)
 import System.Process (readProcess)
 
--- | Read the current node observation. Never throws — all parse
+-- | Read the current node observation. Synchronous read/parse
 -- failures land in the matching field's "unknown" sentinel.
-readNodeStats :: QemuConfig -> IO (C.Parsed CGNA.NodeStats)
-readNodeStats cfg = do
+readNodeStats :: StorageStatsReader -> (LogLevel -> T.Text -> IO ()) -> QemuConfig -> IO (C.Parsed CGNA.NodeStats)
+readNodeStats storage logger cfg = do
   basePath <- getEffectiveBasePath cfg
   cpuCount <- readCpuCount
   (ramTotal, ramFree) <- readMemInfo
-  (storTotal, storFree) <- readStatvfs basePath
+  (storTotal, storFree) <- readStorageStats storage logger basePath
   (l1, l5, l15) <- readLoadAvg
   kernel <- readKernelRelease
   pure
@@ -55,7 +57,7 @@ readNodeStats cfg = do
 -- @/proc/cpuinfo@. Falls back to 0 on read failure.
 readCpuCount :: IO Int32
 readCpuCount = do
-  r <- try (readFile "/proc/cpuinfo") :: IO (Either SomeException String)
+  r <- try (readFile "/proc/cpuinfo") :: IO (Either IOException String)
   pure $ case r of
     Right body ->
       fromIntegral $
@@ -69,7 +71,7 @@ readCpuCount = do
 -- on any failure.
 readMemInfo :: IO (Int64, Int64)
 readMemInfo = do
-  r <- try (readFile "/proc/meminfo") :: IO (Either SomeException String)
+  r <- try (readFile "/proc/meminfo") :: IO (Either IOException String)
   pure $ case r of
     Right body ->
       let ls = lines body
@@ -89,35 +91,10 @@ readMemInfo = do
       _ -> 0
     isPrefix p s = take (length p) s == p
 
--- | Run @df --output=size,avail -B1 <basePath>@ to get the
--- filesystem totals (bytes). statvfs(2) would be cleaner but
--- pulls in additional FFI work; @df@ is on every host the agent
--- runs on.
-readStatvfs :: FilePath -> IO (Int64, Int64)
-readStatvfs basePath = do
-  r <-
-    try
-      (readProcess "df" ["--output=size,avail", "-B1", basePath] "")
-      :: IO (Either SomeException String)
-  pure $ case r of
-    Right body -> case lines body of
-      (_ : datal : _) -> case words datal of
-        (totS : avS : _) ->
-          ( readInt64 totS
-          , readInt64 avS
-          )
-        _ -> (0, 0)
-      _ -> (0, 0)
-    Left _ -> (0, 0)
-  where
-    readInt64 s = case reads s of
-      [(n :: Integer, _)] -> fromIntegral n
-      _ -> 0
-
 -- | Read /proc/loadavg ("1m 5m 15m running/total lastPid").
 readLoadAvg :: IO (Double, Double, Double)
 readLoadAvg = do
-  r <- try (readFile "/proc/loadavg") :: IO (Either SomeException String)
+  r <- try (readFile "/proc/loadavg") :: IO (Either IOException String)
   pure $ case r of
     Right body -> case words body of
       (a : b : c : _) -> (parseD a, parseD b, parseD c)
@@ -131,7 +108,7 @@ readLoadAvg = do
 -- | @uname -r@ via the standard syscall.
 readKernelRelease :: IO T.Text
 readKernelRelease = do
-  r <- try (readProcess "uname" ["-r"] "") :: IO (Either SomeException String)
+  r <- try (readProcess "uname" ["-r"] "") :: IO (Either IOException String)
   pure $ case r of
     Right body -> T.strip (T.pack body)
     Left _ -> ""

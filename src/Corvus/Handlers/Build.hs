@@ -27,6 +27,7 @@ module Corvus.Handlers.Build
   )
 where
 
+import Control.Exception (SomeAsyncException, fromException, throwIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT (..), logInfoN, logWarnN, runLoggingT)
 import Corvus.Action
@@ -69,14 +70,14 @@ instance Action BuildPipelineAction where
   actionSubsystem _ = SubBuild
   actionCommand _ = "build"
   actionExecute ctx action =
-    runBuildPipeline (acState ctx) (acTaskId ctx) (buildSink action) (buildYaml action)
+    runBuildPipeline ctx (buildSink action) (buildYaml action)
 
 -- | Run a build pipeline, sending events to the supplied sink. Returns
 -- the same response shape as before. Per-step 'BuildEnd' events are
 -- emitted by 'runPipelineStep'; the caller is responsible for
 -- emitting the terminating 'PipelineEnd' once the response is in hand.
-runBuildPipeline :: ServerState -> TaskId -> BuildSink -> Text -> IO Response
-runBuildPipeline state parentTaskId sink yamlContent = runServerLogging state $ do
+runBuildPipeline :: ActionContext -> BuildSink -> Text -> IO Response
+runBuildPipeline ctx sink yamlContent = runServerLogging (acState ctx) $ do
   case decodeEither' (TE.encodeUtf8 yamlContent) of
     Left err -> do
       let msg = T.pack (show err)
@@ -88,34 +89,33 @@ runBuildPipeline state parentTaskId sink yamlContent = runServerLogging state $ 
           logWarnN $ "Pipeline config validation failed: " <> err
           pure $ RespError err
         Right () -> do
-          results <- runPipelineSteps state parentTaskId sink (pcSteps config)
+          results <- runPipelineSteps ctx sink (pcSteps config)
           pure $ RespBuildResult (BuildResult results)
 
 -- | Iterate over pipeline steps in order. A step that fails aborts the
 -- pipeline (no rollback of prior successful steps); the per-step
 -- result is appended either way so the caller sees how far we got.
 runPipelineSteps
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> [PipelineStep]
   -> LoggingT IO [BuildOne]
-runPipelineSteps _ _ _ [] = pure []
-runPipelineSteps state parentTaskId sink (s : rest) = do
+runPipelineSteps _ _ [] = pure []
+runPipelineSteps ctx sink (s : rest) = do
   -- Cooperative cancellation checkpoint: a `crv task cancel` on the
   -- build stops the pipeline here rather than launching the next step.
-  liftIO $ throwIfCancelled (mkActionContext state parentTaskId "system")
-  one <- runPipelineStep state parentTaskId sink s
+  liftIO $ throwIfCancelled ctx
+  one <- runPipelineStep ctx sink s
   case boError one of
     Just _ -> pure [one]
-    Nothing -> (one :) <$> runPipelineSteps state parentTaskId sink rest
+    Nothing -> (one :) <$> runPipelineSteps ctx sink rest
 
 -- | Dispatch a single 'PipelineStep' to the build orchestrator or the
 -- apply handler, then collapse the result into 'BuildOne' shape so a
 -- pipeline with mixed steps still produces a uniform 'BuildResult'.
-runPipelineStep :: ServerState -> TaskId -> BuildSink -> PipelineStep -> LoggingT IO BuildOne
-runPipelineStep state parentTaskId sink step = case step of
-  PipelineBuild b -> runOneBuildLogged state parentTaskId sink b
+runPipelineStep :: ActionContext -> BuildSink -> PipelineStep -> LoggingT IO BuildOne
+runPipelineStep ctx sink step = case step of
+  PipelineBuild b -> runOneBuildLogged ctx sink b
   PipelineApply cfg -> do
     logInfoN "Applying environment configuration (pipeline step)"
     liftIO $ sink (BuildLogLine "applying environment configuration")
@@ -123,8 +123,9 @@ runPipelineStep state parentTaskId sink step = case step of
         applySink ev = case renderApplyEventForBuild ev of
           Nothing -> pure ()
           Just txt -> sink (BuildLogLine txt)
-        ctx = (mkActionContext state parentTaskId "system") {acApplySink = applySink}
-    resp <- liftIO $ runActionAsSubtask ctx (ApplyAction cfg)
+        applyCtx = ctx {acApplySink = applySink}
+    resp <- liftIO $ runActionAsSubtask applyCtx (ApplyAction cfg)
+    liftIO $ throwIfCancelled ctx
     let one = case resp of
           RespApplyResult _ ->
             BuildOne {boName = "apply", boArtifactDiskId = Nothing, boError = Nothing}
@@ -253,11 +254,12 @@ validateProvisioner buildLbl p = case p of
 -- Single-build orchestration
 --------------------------------------------------------------------------------
 
-runOneBuildLogged :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO BuildOne
-runOneBuildLogged state parentTaskId sink b = do
+runOneBuildLogged :: ActionContext -> BuildSink -> Build -> LoggingT IO BuildOne
+runOneBuildLogged ctx sink b = do
   logInfoN $ "Starting build: " <> buildName b
   liftIO $ sink (BuildLogLine ("starting build: " <> buildName b))
-  result <- runOneBuild state parentTaskId sink b
+  result <- runOneBuild ctx sink b
+  liftIO $ throwIfCancelled ctx
   case result of
     Right diskId -> do
       logInfoN $ "Build '" <> buildName b <> "' completed; artifact disk #" <> T.pack (show diskId)
@@ -281,14 +283,16 @@ runOneBuildLogged state parentTaskId sink b = do
 -- | Run a single build, returning the published artifact disk id or an error.
 -- The build's @cleanup:@ mode controls whether ephemeral resources are torn
 -- down on failure. Published artifacts are preserved independently.
-runOneBuild :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO (Either Text Int64)
-runOneBuild state parentTaskId sink b = do
-  let ctx = mkActionContext state parentTaskId "system"
+runOneBuild :: ActionContext -> BuildSink -> Build -> LoggingT IO (Either Text Int64)
+runOneBuild ctx sink b = do
   stack <- liftIO newCleanupStack
   outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody ctx sink stack b)
+  liftIO $ throwIfCancelled ctx
   case outcome of
     Right inner -> pure inner
-    Left ex -> pure $ Left $ "exception: " <> T.pack (show ex)
+    Left ex -> case fromException ex :: Maybe SomeAsyncException of
+      Just _ -> liftIO (throwIO ex)
+      Nothing -> pure $ Left $ "exception: " <> T.pack (show ex)
 
 runOneBuildBody
   :: ActionContext
@@ -376,7 +380,9 @@ runOneBuildBody ctx sink stack b = do
                               Just key -> pure (Right key)
                               Nothing -> do
                                 outcome <- withCleanup (buildCleanup b) stack (runFreshBake leased sink stack captured)
-                                pure $ either (Left . T.pack . show) id outcome
+                                case outcome of
+                                  Left ex | Just (_ :: SomeAsyncException) <- fromException ex -> liftIO (throwIO ex)
+                                  _ -> pure $ either (Left . T.pack . show) id outcome
 
 runFreshBake
   :: ActionContext

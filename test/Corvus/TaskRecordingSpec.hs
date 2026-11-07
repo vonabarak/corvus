@@ -14,7 +14,9 @@
 module Corvus.TaskRecordingSpec (spec) where
 
 import Control.Exception (throwIO)
-import Corvus.Action (Action (..), TaskCancelledException (..), runAction)
+import Corvus.Action (Action (..), TaskCancelledException (..), runAction, runActionAsSubtask)
+import Database.Persist (selectList)
+import Test.DSL.Core (runDb)
 import Test.Prelude
 
 -- | A minimal Action that always cancels, used to exercise the
@@ -28,6 +30,15 @@ instance Action CancelAction where
   actionSubsystem _ = SubSystem
   actionCommand _ = "cancel-test"
   actionExecute _ _ = throwIO TaskCancelledException
+
+data ParentCancelAction = ParentCancelAction
+
+instance Action ParentCancelAction where
+  actionSubsystem _ = SubSystem
+  actionCommand _ = "parent-cancel-test"
+  actionExecute ctx _ = do
+    _ <- runActionAsSubtask ctx CancelAction
+    ioError (userError "parent continued after child cancellation")
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
@@ -115,3 +126,9 @@ spec = sequential $ withTestDb $ do
           taskCommand t `shouldBe` "cancel-test"
           taskResult t `shouldBe` TaskCancelled
         Nothing -> fail "expected one Task row, found none"
+
+    testCase "nested cancellation unwinds and records both tasks as cancelled" $ do
+      _ <- withState (\st -> runAction st "alice" ParentCancelAction)
+      then_ $ taskCount 2
+      rows <- runDb (selectList [] [])
+      liftIO $ map (taskResult . entityVal) rows `shouldBe` [TaskCancelled, TaskCancelled]

@@ -11,7 +11,7 @@ project_root=$PWD
 # Keep this a single path component: Stack cannot create a nested work directory
 # for freshly unpacked dependencies whose .stack-work parent does not exist.
 quality_dir=.stack-work-quality
-packages=(corvus capnp capnp-tests lifetimes)
+packages=(corvus capnp capnp-tests lifetimes supervisors)
 quality_stack() {
   stack "${stack_flags[@]}" --work-dir "$quality_dir" "$@"
 }
@@ -28,7 +28,7 @@ quality_stack build "${packages[@]}" --test --no-run-tests "${build_flags[@]}"
 tool_stack exec -- corvus-code-metrics
 
 # Stack reports package-relative dist paths, so ask from each package root.
-package_roots=(. vendor/haskell-capnp/capnp vendor/haskell-capnp/capnp-tests vendor/lifetimes)
+package_roots=(. vendor/haskell-capnp/capnp vendor/haskell-capnp/capnp-tests vendor/lifetimes vendor/supervisors)
 dist_dirs=()
 weeder_args=()
 for package_root in "${package_roots[@]}"; do
@@ -41,6 +41,7 @@ for package_root in "${package_roots[@]}"; do
     .) artifacts=(Corvus/Database.hie corvus/corvus-tmp/Main.hie crv/crv-tmp/Main.hie corvus-netd/corvus-netd-tmp/Main.hie corvus-nodeagent/corvus-nodeagent-tmp/Main.hie corvus-test/corvus-test-tmp/Main.hie) ;;
     vendor/haskell-capnp/capnp) artifacts=(Capnp.hie capnpc-haskell/capnpc-haskell-tmp/Main.hie) ;;
     vendor/haskell-capnp/capnp-tests) artifacts=(tests/tests-tmp/Main.hie) ;;
+    vendor/supervisors) artifacts=(Supervisors.hie tests/tests-tmp/Main.hie) ;;
     vendor/lifetimes) artifacts=(Lifetimes.hie tests/tests-tmp/Main.hie) ;;
   esac
   for artifact in "${artifacts[@]}"; do
@@ -82,18 +83,18 @@ for package in "${packages[@]}"; do
   rm -rf "$hpc_root/$package"
 done
 rm -rf "$hpc_root/combined" "$quality_dir/authored-coverage"
-TEST_DB_BACKEND=sqlite quality_stack test corvus capnp-tests lifetimes "${build_flags[@]}" --rerun-tests --test-arguments '--jobs=1 --seed=20261010'
+TEST_DB_BACKEND=sqlite quality_stack test corvus capnp-tests lifetimes supervisors "${build_flags[@]}" --rerun-tests --test-arguments '--jobs=1 --seed=20261010'
 
 package_db=$(quality_stack path --local-pkg-db)
 coverage_args=()
-for index in 0 1 3; do
+for index in 0 1 3 4; do
   package=${packages[$index]}
   unit_id=$(quality_stack exec -- ghc-pkg --package-db="$package_db" field "$package" id --simple-output)
   test -n "$unit_id"
   case "$package" in
     corvus) suite=corvus-test ;;
     capnp) suite=tests; trace_package=capnp-tests ;;
-    lifetimes) suite=tests ;;
+    lifetimes|supervisors) suite=tests ;;
   esac
   trace_package=${trace_package:-$package}
   trace="$hpc_root/$trace_package/$suite/$suite.tix"

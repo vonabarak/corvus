@@ -15,12 +15,13 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
-import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
+import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn, withPreparedConn)
 import Corvus.Node.GuestAgent.Transport (QgaSocket, decodeBase64Bytes, recvQga, sendQga, timeoutQgaReceive)
 import Corvus.Node.GuestAgent.Types
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Aeson (Value, (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
@@ -68,20 +69,28 @@ guestExecImpl conns config vmId command mStdin maxPolls = do
 runGuestExecWithSinks :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> Maybe BS.ByteString -> Int -> ChunkSink -> ChunkSink -> IO GuestExecResult
 runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
   let pollConnTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
-  dispatched <- withPersistentConn conns config vmId 5 30000000 $ \sock -> do
+  dispatchStarted <- newIORef False
+  dispatched <- withPreparedConn conns config vmId 5 30000000 30000000 $ \sock -> do
     (shellPath, shellArgs) <- detectGuestShell sock
     let stdinField = case mStdin of
           Nothing -> []
           Just bytes -> ["input-data" .= decodeUtf8 (B64.encode bytes)]
-    sendQga sock $
-      Aeson.object
-        [ "execute" .= ("guest-exec" :: Text)
-        , "arguments" .= Aeson.object (["path" .= shellPath, "arg" .= (shellArgs ++ [command]), "capture-output" .= True] ++ stdinField)
-        ]
-    response <- recvQga sock
-    pure $ maybe (Left ("Failed to parse guest-exec response: " <> T.pack (show response))) Right (parsePid response)
+    pure $ do
+      modifyIORef' dispatchStarted (const True)
+      sendQga sock $
+        Aeson.object
+          [ "execute" .= ("guest-exec" :: Text)
+          , "arguments" .= Aeson.object (["path" .= shellPath, "arg" .= (shellArgs ++ [command]), "capture-output" .= True] ++ stdinField)
+          ]
+      response <- recvQga sock
+      case parsePid response of
+        Just pid -> pure (Right pid)
+        Nothing | Just (Aeson.Object obj) <- response, KM.member "error" obj -> pure (Left "Guest agent rejected guest-exec")
+        Nothing -> ioError (userError "guest-exec PID reply missing or malformed")
   case dispatched of
-    Left err -> pure $ GuestExecConnectionFailed err
+    Left err -> do
+      started <- readIORef dispatchStarted
+      pure $ if started || "Execution outcome unknown" `T.isPrefixOf` err then GuestExecError err else GuestExecConnectionFailed err
     Right (Left err) -> pure $ GuestExecError err
     Right (Right pid) -> do
       result <- withPersistentConn conns config vmId 1 pollConnTimeoutMicros $ \sock ->

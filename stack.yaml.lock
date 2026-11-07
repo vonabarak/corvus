@@ -12,13 +12,6 @@ packages:
   original:
     hackage: monad-stm-0.1.0.2
 - completed:
-    hackage: supervisors-0.2.1.0@sha256:87fdab514df15c0079160f0f0dab04449fbc791b12edf21f7ccd56ff05d705c8,2121
-    pantry-tree:
-      sha256: 03ac9a330e5671369a520dc79e9f3e1dc556adb33dee17e472facbf20425564b
-      size: 416
-  original:
-    hackage: supervisors-0.2.1.0
-- completed:
     hackage: zenhack-prelude-0.1.1.0@sha256:1ffdc0ad17e7c25786ef671f5889c165b325265b6d85ef4518a38fb1c52c446a,960
     pantry-tree:
       sha256: e620f5d5831407f7f016e46e6c4bb70f3d3b7bdf650ff8227f531bc1c3092448

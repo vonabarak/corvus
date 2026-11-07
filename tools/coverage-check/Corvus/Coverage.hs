@@ -74,7 +74,7 @@ isAuthoredSource path =
     && ".." `notElem` splitDirectories path
     && any
       (`isPrefixOf` normalise path)
-      ["src/", "vendor/haskell-capnp/capnp/lib/", "vendor/lifetimes/src/"]
+      ["src/", "vendor/haskell-capnp/capnp/lib/", "vendor/lifetimes/src/", "vendor/supervisors/src/"]
 
 -- Missing trace modules are unexecuted, rather than absent from the denominator.
 calculateCoverage :: [FilePath] -> [(String, Mix)] -> Tix -> Either String (Coverage, Tix)
@@ -125,7 +125,7 @@ readBaseline path = do
             )
             $ fail "Coverage baseline configuration does not match the canonical quality build"
           packages <- o .: "packages" :: Parser [String]
-          unless (sort packages == ["capnp", "corvus", "lifetimes"]) $
+          unless (sort packages == ["capnp", "corvus", "lifetimes", "supervisors"]) $
             fail "Coverage baseline package scope does not match the quality build"
           baseline <- Coverage <$> o .: "covered_expressions" <*> o .: "total_expressions"
           unless (meetsBaseline baseline baseline) $ fail "Invalid coverage baseline counts"

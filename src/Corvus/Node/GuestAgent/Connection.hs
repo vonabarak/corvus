@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Serialized, persistent per-VM QGA connections.
 module Corvus.Node.GuestAgent.Connection
   ( GuestAgentConns (..)
   , newGuestAgentConns
-  , tryPersistentConn
+  , tryPersistentConnWhen
   , withPersistentConn
+  , withPreparedConn
   , withDiscardedConn
   , invalidateConn
   , releaseConn
@@ -67,23 +69,36 @@ getOrCreateConn cache vmId = do
 -- | Run an operation against the cached socket. The MVar both caches and
 -- serializes QGA traffic; QEMU's chardev listen backlog is only one deep.
 withPersistentConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
-withPersistentConn = withConnection True False
+withPersistentConn conns config vmId retries budget action = withConnection (pure True) True False conns config vmId retries budget (RetryWhole action)
 
 -- | Serialize once and discard the socket before releasing the lock. Used
 -- for shutdown, which has no success reply and invalidates the guest session.
 withDiscardedConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
-withDiscardedConn conns config vmId = withConnection True True conns config vmId 1
+withDiscardedConn conns config vmId budget action = withConnection (pure True) True True conns config vmId 1 budget (RetryWhole action)
 
-withConnection :: (HasCallStack) => Bool -> Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
-withConnection blocking discard connsVar config vmId retries timeoutMicros action = do
+-- | Retry only preparation. The returned action may mutate the guest and is
+-- run exactly once, with its own budget, while retaining the same socket lock.
+withPreparedConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> Int -> (QgaSocket -> IO (IO a)) -> IO (Either Text a)
+withPreparedConn conns config vmId retries prepareBudget dispatchBudget prepare =
+  withConnection (pure True) True False conns config vmId retries prepareBudget (PrepareThenDispatch dispatchBudget prepare)
+
+data QgaWork a
+  = RetryWhole (QgaSocket -> IO a)
+  | PrepareThenDispatch Int (QgaSocket -> IO (IO a))
+
+withConnection :: (HasCallStack) => IO Bool -> Bool -> Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> QgaWork a -> IO (Either Text a)
+withConnection allowed blocking discard connsVar config vmId retries timeoutMicros action = do
   operationId <- atomically $ do
     n <- readTVar (guestAgentNextOperationId connsVar)
     writeTVar (guestAgentNextOperationId connsVar) (n + 1)
     pure (n + 1)
   started <- getMonotonicTimeNSec
-  let purpose = if guestAgentStartupReadiness connsVar then "startup_readiness" else "operation"
+  let purpose
+        | guestAgentStartupReadiness connsVar = "startup_readiness"
+        | not blocking = "health_probe"
+        | otherwise = "operation"
       context = "purpose=" <> purpose <> " operation_id=" <> tshow operationId <> " caller=" <> tshow (prettyCallStack callStack)
-      event level name fields = logQgaEvent (guestAgentLogger connsVar) level name ("vm_id=" <> tshow vmId <> " " <> context <> " " <> fields)
+      event level name fields = logQgaEvent (guestAgentLogger connsVar) (if not blocking && level == LevelWarn then LevelDebug else level) name ("vm_id=" <> tshow vmId <> " " <> context <> " " <> fields)
       finish outcome = do
         now <- getMonotonicTimeNSec
         event LevelDebug "request_end" ("result=" <> outcome <> " duration_ms=" <> tshow ((now - started) `div` 1000000))
@@ -103,11 +118,11 @@ withConnection blocking discard connsVar config vmId retries timeoutMicros actio
       event LevelDebug "attempt_end" ("attempt=" <> tshow (retries - count + 1) <> " result=" <> either (const "error") (const "success") result)
       case result of
         Right value -> pure (Right value)
-        Left _ | count > 1 -> do
+        Left (_, True) | count > 1 -> do
           event LevelDebug "operation_retry" "delay_ms=1000"
           threadDelay 1000000
           go event context connVar path (count - 1)
-        Left err -> pure (Left err)
+        Left (err, _) -> pure (Left err)
 
     runOnce event context connVar path attempt = mask $ \restore -> do
       waiting <- getMonotonicTimeNSec
@@ -123,6 +138,8 @@ withConnection blocking discard connsVar config vmId retries timeoutMicros actio
         restore
           ( do
               event LevelDebug "lock_acquired" (attemptFields <> " wait_ms=" <> tshow ((acquired - waiting) `div` 1000000) <> " cached_connection_id=" <> maybe "none" (tshow . qgaConnectionId) mSock)
+              eligible <- allowed
+              if eligible then pure () else throwIO QgaBusy
               doWork event (context <> " slot_identity=" <> tshow slotIdentity) mSock path sockRef
           )
           `onException` do
@@ -131,24 +148,39 @@ withConnection blocking discard connsVar config vmId retries timeoutMicros actio
         Right (sock, value) -> do
           if discard then closeQga "shutdown_discard" sock `finally` putMVar connVar Nothing else putMVar connVar (Just sock)
           pure (Right value)
-        Left (err, reason) -> do
+        Left (err, reason, retryable) -> do
           (readIORef sockRef >>= closeMaybe reason) `finally` putMVar connVar Nothing
-          pure (Left err)
+          pure (Left (err, retryable))
 
     doWork event context mSock path sockRef = do
-      -- Let timeout consume its own exception before handling other failures.
-      mResult <- try $ timeout timeoutMicros $ do
-        sock <- case mSock of
-          Just existing -> writeIORef (qgaOperation existing) context >> logQga existing LevelDebug "reuse" "" >> pure existing
-          Nothing -> mask_ $ do
-            fresh <- connectWithRetry connsVar vmId context 10 path sockRef
-            writeIORef sockRef (Just fresh)
-            pure fresh
-        case mSock of
-          Nothing -> syncGuest sock
-          Just _ -> pure ()
-        value <- action sock
-        pure (sock, value)
+      committed <- newIORef False
+      -- Preparation and dispatch have separate deadlines. The commit marker is
+      -- set before invoking send, including writes that fail after partial delivery.
+      mResult <- try $ do
+        prepared <- timeout timeoutMicros $ do
+          sock <- case mSock of
+            Just existing -> writeIORef (qgaOperation existing) context >> logQga existing LevelDebug "reuse" "" >> pure existing
+            Nothing -> mask_ $ do
+              fresh <- connectWithRetry connsVar vmId context 10 path sockRef
+              writeIORef sockRef (Just fresh)
+              pure fresh
+          case mSock of
+            Nothing -> syncGuest sock
+            Just _ -> pure ()
+          case action of
+            RetryWhole run -> do
+              value <- run sock
+              pure (sock, pure value)
+            PrepareThenDispatch _ prepare -> (sock,) <$> prepare sock
+        case prepared of
+          Nothing -> pure Nothing
+          Just (sock, dispatch) -> case action of
+            RetryWhole _ -> Just . (sock,) <$> dispatch
+            PrepareThenDispatch budget _ -> do
+              writeIORef committed True
+              fmap (sock,) <$> timeout budget dispatch
+      dispatched <- readIORef committed
+      let failure err reason = Left (if dispatched then "Execution outcome unknown; command may have started; not retried: " <> err else err, reason, not dispatched)
       case mResult of
         Right (Just result) -> pure (Right result)
         Left (err :: SomeException) ->
@@ -162,10 +194,10 @@ withConnection blocking discard connsVar config vmId retries timeoutMicros actio
                     Nothing -> "non_io_exception"
               event LevelWarn "attempt_exception" ("error_type=" <> category) :: IO ()
               readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelWarn "operation_error" ("reason=exception error_type=" <> category))
-              pure (Left (T.pack (show err), "exception"))
+              pure (failure (T.pack (show err)) "exception")
         Right Nothing -> do
           readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelWarn "operation_timeout" ("timeout_us=" <> T.pack (show timeoutMicros)))
-          pure (Left ("Timed out waiting for guest agent", "timeout"))
+          pure (failure "Timed out waiting for guest agent" "timeout")
 
 -- Each connect attempt owns its socket and ID, including backlog retries.
 connectWithRetry :: GuestAgentConns -> Int64 -> Text -> Int -> FilePath -> IORef (Maybe QgaSocket) -> IO QgaSocket
@@ -273,7 +305,8 @@ data QgaBusy = QgaBusy deriving stock (Show)
 
 instance Exception QgaBusy
 
-tryPersistentConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Maybe (Either Text a))
-tryPersistentConn conns cfg vmId deadline action =
-  (Just <$> withConnection False False conns cfg vmId 1 deadline action)
+-- | Eligibility is checked while holding the VM connection lock.
+tryPersistentConnWhen :: (HasCallStack) => IO Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Maybe (Either Text a))
+tryPersistentConnWhen allowed conns cfg vmId deadline action =
+  (Just <$> withConnection allowed False False conns cfg vmId 1 deadline (RetryWhole action))
     `catch` (\QgaBusy -> pure Nothing)

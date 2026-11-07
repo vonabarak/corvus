@@ -12,15 +12,13 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT)
-import Corvus.Action (ActionContext (..), mkActionContext, runActionAsSubtask)
+import Corvus.Action (ActionContext (..), runActionAsSubtask)
 import Corvus.Handlers.Build.Artifact (publishArtifact)
 import Corvus.Handlers.Build.Installer (runInstallerPhase)
 import Corvus.Handlers.Build.Provisioner (runProvisioners)
 import Corvus.Handlers.Vm (VmStart (..), VmStop (..))
-import Corvus.Model
 import Corvus.Protocol
 import Corvus.Schema.Build (Build, BuildStrategy (..), BuildTarget)
-import Corvus.Types (ServerState)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -64,8 +62,7 @@ runBakeAndPublish ctx sink vmIdLong strategy artifactDiskId target needFlatten b
           b
       _ ->
         runProvisionersStopAndPublish
-          state
-          parentTaskId
+          ctx
           sink
           vmIdLong
           artifactDiskId
@@ -75,8 +72,7 @@ runBakeAndPublish ctx sink vmIdLong strategy artifactDiskId target needFlatten b
 
 -- | Run provisioners over QGA, stop the bake VM, and publish the artifact.
 runProvisionersStopAndPublish
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> Int64
   -> Int64
@@ -84,14 +80,16 @@ runProvisionersStopAndPublish
   -> Bool
   -> Build
   -> LoggingT IO (Either Text Int64)
-runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId _target needFlatten b = do
-  provResult <- runProvisioners state parentTaskId sink vmIdLong b
+runProvisionersStopAndPublish ctx sink vmIdLong artifactDiskId _target needFlatten b = do
+  let state = acState ctx
+      parentTaskId = acTaskId ctx
+  provResult <- runProvisioners ctx sink vmIdLong b
   case provResult of
     Left err -> pure $ Left err
     Right () -> do
       stopResp <-
         liftIO $
-          runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300 False)
+          runActionAsSubtask ctx (VmStop vmIdLong 300 False)
       case classifyStopResp stopResp of
         Left err -> pure $ Left $ "stop bake VM: " <> err
         Right () -> do

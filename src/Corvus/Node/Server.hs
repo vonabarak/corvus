@@ -32,6 +32,7 @@ import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
 import Control.Exception (catch, finally)
 import Control.Monad.Logger (LogLevel (..))
+import Corvus.Logging (withRpcSupervisor)
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
@@ -46,7 +47,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Network.Simple.TCP as TCP
 import Network.Socket (Socket)
-import Supervisors (withSupervisor)
 import System.IO.Error (isEOFError)
 
 -- | Default bind address. Mirrors the daemon's default of binding
@@ -98,7 +98,7 @@ runNodeAgentServer logger host port mTlsCfg = do
     (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000)
     ( \_ ->
         TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
-          withSupervisor $ \sup -> do
+          withRpcSupervisor "RPC" $ \sup -> do
             nodeAgentCap <-
               newNodeAgentCap
                 sup

@@ -35,7 +35,7 @@ import qualified Corvus.Handlers.Network.PeerSpec as PS
 import Corvus.Handlers.Vm.Monitor (reattachVmMonitors)
 import Corvus.Handlers.Vm.Start (autostartVmsOnNode)
 import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
-import Corvus.Logging (synchronousException)
+import Corvus.Logging (synchronousException, withRpcSupervisor)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.Node.StatusFreshness (newStatusFreshness, waitForStaleStatus)
@@ -57,7 +57,6 @@ import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
 import GHC.Clock (getMonotonicTime)
-import Supervisors (withSupervisor)
 import System.Posix.User (getRealUserID)
 import System.Timeout (timeout)
 
@@ -221,7 +220,7 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
 -- | Missing snapshots indicate a lost subscription even if RPC pings still work.
 -- Keep the watcher active during reconciliation/autostart as well as steady state.
 holdNodeAgentConnection :: ServerState -> M.NodeId -> T.Text -> NOA.NodeAgentClient -> IO ()
-holdNodeAgentConnection state nodeKey nodeLabel noac = withSupervisor $ \sup -> do
+holdNodeAgentConnection state nodeKey nodeLabel noac = withRpcSupervisor "RPC" $ \sup -> do
   freshness <- newStatusFreshness getMonotonicTime
   sinkClient <- C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state nodeKey freshness)
   result <- timeout 10000000 (NOA.subscribeVmStatus noac sinkClient)

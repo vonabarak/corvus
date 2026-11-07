@@ -21,10 +21,10 @@ module Corvus.Handlers.Build.Provisioner
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeAsyncException, SomeException, fromException, throwIO, try)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN)
-import Corvus.Action (Action (..), ActionContext (..), cancelRemainingSubtasks, mkActionContext)
+import Corvus.Action (Action (..), ActionContext (..), TaskCancelledException (..), cancelRemainingSubtasks, isCancelled, throwIfCancelled)
 import Corvus.Handlers.Build.Qga
   ( agentGuestExec
   , agentGuestExecWithTail
@@ -67,19 +67,21 @@ provisionerOutputCap :: Int
 provisionerOutputCap = 64 * 1024
 
 runProvisioners
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> Int64
   -> Build
   -> LoggingT IO (Either Text ())
-runProvisioners state parentTaskId sink vmId b = do
+runProvisioners parentCtx sink vmId b = do
+  let state = acState parentCtx
+      parentTaskId = acTaskId parentCtx
   cEnv <- liftIO $ buildCorvusEnv state b vmId parentTaskId
   let sd = buildShellDefaults b
       provs = buildProvisioners b
       go _ [] = pure $ Right ()
       go idx (p : ps) = do
-        r <- runProvisioner state parentTaskId sink vmId sd cEnv idx p
+        liftIO $ throwIfCancelled parentCtx
+        r <- runProvisioner parentCtx sink vmId sd cEnv idx p
         case r of
           Left err -> pure $ Left err
           Right () -> go (idx + 1) ps
@@ -123,8 +125,7 @@ strategyName BuildStrategyOfflineOverlay = "offline-overlay"
 -- finalize the row with the result + (cropped) output, emit the
 -- bracketing 'StepStart'/'StepEnd' events.
 runProvisioner
-  :: ServerState
-  -> TaskId
+  :: ActionContext
   -> BuildSink
   -> Int64
   -> ShellDefaults
@@ -132,8 +133,11 @@ runProvisioner
   -> Int
   -> Provisioner
   -> LoggingT IO (Either Text ())
-runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
-  let kind = provKind p
+runProvisioner parentCtx sink vmId sd cEnv stepIdx p = do
+  liftIO $ throwIfCancelled parentCtx
+  let state = acState parentCtx
+      parentTaskId = acTaskId parentCtx
+      kind = provKind p
       desc = provDesc p
   logInfoN $ "step " <> T.pack (show stepIdx) <> " (" <> kind <> "): " <> desc
   liftIO $ sink (StepStart stepIdx kind desc)
@@ -156,22 +160,33 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
               }
         )
         (ssDbPool state)
+  let ctx = parentCtx {acTaskId = taskKey}
   bodyResult <- liftIO $ try $ case p of
     ProvReboot rb -> do
       sink (StepOutput stepIdx "rebooting via guest-shutdown")
-      result <- actionExecute (mkActionContext state taskKey "system") (BuildGuestReboot vmId (rebootTimeoutSec rb))
+      result <- actionExecute ctx (BuildGuestReboot vmId (rebootTimeoutSec rb))
       pure $ case result of
         RespOk -> Right (Just "guest reboot confirmed; guest-ping ready")
         RespError err -> Left (err, Just err)
         other -> Left (T.pack (show other), Just (T.pack (show other)))
-    _ -> runProvisionerBody (mkActionContext state taskKey "system") vmId sd cEnv stepIdx sink p
+    _ -> runProvisionerBody ctx vmId sd cEnv stepIdx sink p
   finishedAt <- liftIO getCurrentTime
-  let (orchResult, taskMsg, resultStatus) = case bodyResult of
-        Right (Right msg) -> (Right (), msg, TaskSuccess)
-        Right (Left (shortErr, longMsg)) -> (Left shortErr, longMsg, TaskError)
-        Left (e :: SomeException) ->
-          let txt = T.pack (show e)
-           in (Left txt, Just txt, TaskError)
+  requested <- liftIO $ isCancelled parentCtx
+  let cancelled =
+        requested || case bodyResult of
+          Left e -> case fromException e :: Maybe TaskCancelledException of
+            Just _ -> True
+            Nothing -> False
+          Right _ -> False
+      (orchResult, taskMsg, resultStatus) =
+        if cancelled
+          then (Left "Cancelled by operator", Just "Cancelled by operator", TaskCancelled)
+          else case bodyResult of
+            Right (Right msg) -> (Right (), msg, TaskSuccess)
+            Right (Left (shortErr, longMsg)) -> (Left shortErr, longMsg, TaskError)
+            Left (e :: SomeException) ->
+              let txt = T.pack (show e)
+               in (Left txt, Just txt, TaskError)
   liftIO $
     runSqlPool
       ( update
@@ -188,9 +203,13 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
     Right _ -> pure ()
   let endEvent = case orchResult of
         Right _ -> StepEnd stepIdx TaskSuccess Nothing
-        Left e -> StepEnd stepIdx TaskError (Just e)
+        Left e -> StepEnd stepIdx resultStatus (Just e)
   liftIO $ sink endEvent
-  pure orchResult
+  if cancelled
+    then liftIO (throwIO TaskCancelledException)
+    else case bodyResult of
+      Left err | Just (_ :: SomeAsyncException) <- fromException err -> liftIO (throwIO err)
+      _ -> pure orchResult
 
 -- | The body half of 'runProvisioner', isolated so subtask bookkeeping
 -- stays out of the per-kind logic. Returns:

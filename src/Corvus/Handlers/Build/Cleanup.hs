@@ -28,10 +28,11 @@ module Corvus.Handlers.Build.Cleanup
 where
 
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
-import Control.Exception (SomeException, throwIO, try)
+import Control.Exception (SomeException, fromException, throwIO, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, askLoggerIO, logWarnN, runLoggingT)
+import Control.Monad.Logger (LoggingT, askLoggerIO, logDebugN, logWarnN, runLoggingT)
+import Corvus.Action (TaskCancelledException)
 import Corvus.Schema.Build (CleanupMode (..))
 import Data.Either (lefts)
 import Data.Text (Text)
@@ -83,7 +84,10 @@ runCleanup (CleanupStack var) = do
         Right () -> pure (Right ())
         Left (ex :: SomeException) ->
           do
-            logWarnN $ "build cleanup: '" <> entryTag e <> "' failed: " <> T.pack (show ex)
+            let logFailure = case fromException ex :: Maybe TaskCancelledException of
+                  Just _ -> logDebugN
+                  Nothing -> logWarnN
+            logFailure $ "build cleanup: '" <> entryTag e <> "' failed: " <> T.pack (show ex)
             pure (Left ex)
 
 -- | Run a build body and run cleanup based on whether it succeeded.

@@ -512,7 +512,7 @@ applyNodeStats state nid stats snapMs = do
         , M.NodeRamTotal =. maybeIfNonZero ramTotal
         , M.NodeRamFree =. maybeIfNonZero ramFree
         , M.NodeStorageBytesTotal =. maybeIfNonZero64 storTotal
-        , M.NodeStorageBytesFree =. maybeIfNonZero64 storFree
+        , M.NodeStorageBytesFree =. (if storTotal > 0 && storFree >= 0 && storFree <= storTotal then Just storFree else Nothing)
         , M.NodeLoadAvg1 =. maybeIfNonZeroD l1
         , M.NodeLoadAvg5 =. maybeIfNonZeroD l5
         , M.NodeLoadAvg15 =. maybeIfNonZeroD l15

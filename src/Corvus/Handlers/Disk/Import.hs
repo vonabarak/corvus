@@ -92,8 +92,8 @@ nodeBasePathFor state nid = do
 -- checksum matches, the download is skipped; on mismatch the import
 -- fails without overwriting. Fresh downloads are retried up to
 -- 'maxImportAttempts' times on hash mismatch.
-handleDiskImportCopy :: Maybe Text -> ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
-handleDiskImportCopy identity state sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
+handleDiskImportCopy :: Maybe Text -> ActionContext -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
+handleDiskImportCopy identity ctx sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -140,6 +140,7 @@ handleDiskImportCopy identity state sink name source mDestPath mFormatStr mCheck
                                 , fsIsXz = isXz
                                 , fsChecksum = mChecksum
                                 }
+                        liftIO $ throwIfCancelled ctx
                         case fetchResult of
                           Left err -> do
                             logWarnN err
@@ -156,6 +157,7 @@ handleDiskImportCopy identity state sink name source mDestPath mFormatStr mCheck
                           else do
                             logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
                             copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format Nothing False
+                            liftIO $ throwIfCancelled ctx
                             case copyResult of
                               ImageSuccess -> registerImportedFile state reservedId nid basePath safeName format destPath ephemeral
                               ImageError err -> do
@@ -178,6 +180,7 @@ handleDiskImportCopy identity state sink name source mDestPath mFormatStr mCheck
                 Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
                 Right nidRaw -> placeOn (M.toSqlKey nidRaw)
   where
+    state = acState ctx
     recipeContent recipe = case eitherDecodeStrict (TE.encodeUtf8 recipe) of
       Right (Object fields) -> KeyMap.lookup "content" fields
       _ -> Nothing
@@ -409,7 +412,7 @@ instance Action DiskImportAction where
   actionExecute ctx a =
     handleDiskImportCopy
       (diaApplyIdentity a)
-      (acState ctx)
+      ctx
       (acApplySink ctx)
       (diaName a)
       (diaSource a)

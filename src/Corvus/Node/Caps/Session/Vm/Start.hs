@@ -390,6 +390,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
   forwardQemuOutput (VS.vsVmId spec) mStdoutH mStderrH stderrTailVar stderrDoneVar
   workersVar <- newTVarIO []
   stopRequestedVar <- newTVarIO False
+  stopState <- newTVarIO (0, 0)
   pure $
     L.VmLiveState
       { L.vlsQemuPid = qemuPidW
@@ -404,6 +405,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
       , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
       , L.vlsSpec = spec
       , L.vlsWorkers = workersVar
+      , L.vlsStopState = stopState
       , L.vlsStopRequested = stopRequestedVar
       }
 

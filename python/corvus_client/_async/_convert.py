@@ -316,7 +316,9 @@ def node_info(r: capnp.lib.capnp._DynamicStructReader) -> t.NodeInfo:
         ram_total=_nz_int(r.ramTotal),
         ram_free=_nz_int(r.ramFree),
         storage_bytes_total=_nz_int(r.storageBytesTotal),
-        storage_bytes_free=_nz_int(r.storageBytesFree),
+        storage_bytes_free=(
+            int(r.storageBytesFree) if r.storageBytesTotal > 0 else None
+        ),
         load_avg1=_nz_float(r.loadAvg1),
         last_node_agent_push_at=_ts(r.lastNodeAgentPushAt),
         last_net_agent_push_at=_ts(r.lastNetAgentPushAt),
@@ -340,7 +342,9 @@ def node_details(r: capnp.lib.capnp._DynamicStructReader) -> t.NodeDetails:
         ram_total=_nz_int(r.ramTotal),
         ram_free=_nz_int(r.ramFree),
         storage_bytes_total=_nz_int(r.storageBytesTotal),
-        storage_bytes_free=_nz_int(r.storageBytesFree),
+        storage_bytes_free=(
+            int(r.storageBytesFree) if r.storageBytesTotal > 0 else None
+        ),
         load_avg1=_nz_float(r.loadAvg1),
         load_avg5=_nz_float(r.loadAvg5),
         load_avg15=_nz_float(r.loadAvg15),

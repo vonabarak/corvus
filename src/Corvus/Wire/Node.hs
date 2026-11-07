@@ -63,7 +63,7 @@ fromCapnpNodeInfo CGNode.NodeInfo {..} = do
       , P.noiRamTotal = nonZero ramTotal
       , P.noiRamFree = nonZero ramFree
       , P.noiStorageBytesTotal = nonZeroInt64 storageBytesTotal
-      , P.noiStorageBytesFree = nonZeroInt64 storageBytesFree
+      , P.noiStorageBytesFree = if storageBytesTotal > 0 then Just (fromIntegral storageBytesFree) else Nothing
       , P.noiLoadAvg1 = if loadAvg1 == 0 then Nothing else Just loadAvg1
       , P.noiLastNodeAgentPushAt = nanosToUtcTimeMaybe lastNodeAgentPushAt
       , P.noiLastNetAgentPushAt = nanosToUtcTimeMaybe lastNetAgentPushAt
@@ -121,7 +121,7 @@ fromCapnpNodeDetails CGNode.NodeDetails {..} = do
       , P.nodRamTotal = nonZero ramTotal
       , P.nodRamFree = nonZero ramFree
       , P.nodStorageBytesTotal = nonZeroInt64 storageBytesTotal
-      , P.nodStorageBytesFree = nonZeroInt64 storageBytesFree
+      , P.nodStorageBytesFree = if storageBytesTotal > 0 then Just (fromIntegral storageBytesFree) else Nothing
       , P.nodLoadAvg1 = if loadAvg1 == 0 then Nothing else Just loadAvg1
       , P.nodLoadAvg5 = if loadAvg5 == 0 then Nothing else Just loadAvg5
       , P.nodLoadAvg15 = if loadAvg15 == 0 then Nothing else Just loadAvg15

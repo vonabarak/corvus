@@ -29,13 +29,14 @@ import Capnp.Rpc
   , withConn
   )
 import qualified Control.Exception as E
+import Corvus.Logging (withRpcSupervisor)
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import Data.Function ((&))
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Text as T
 import qualified Network.Socket as NS
-import Supervisors (Supervisor, withSupervisor)
+import Supervisors (Supervisor)
 import qualified System.Timeout as Timeout
 
 -- ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ withNodeAgentClient host port owner mTlsCfg body = do
             bodyEntered <- newIORef False
             r <-
               E.tryJust synchronousException $
-                withSupervisor $ \sup ->
+                withRpcSupervisor "RPC" $ \sup ->
                   withConn transport cfg $ \conn -> do
                     rawAgent <- requestBootstrap conn
                     let agent :: C.Client CGNA.NodeAgent
