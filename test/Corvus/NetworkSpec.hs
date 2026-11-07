@@ -17,7 +17,7 @@ import Corvus.Handlers.Network (NetworkCreate (..), NetworkEdit (..), NetworkSta
 import qualified Corvus.Model as M
 import qualified Corvus.Protocol as P
 import qualified Data.Text as T
-import Database.Persist (get, update, (=.))
+import Database.Persist (count, get, insert_, update, (=.), (==.))
 import Test.DSL.Core (runDb)
 import Test.Prelude
 
@@ -93,6 +93,44 @@ spec = sequential $ withTestDb $ do
       then_ $ responseIs $ \case
         RespNetworkDeleted -> True
         _ -> False
+
+    testCase "deletes peer rows together with a stopped unused network" $ do
+      ident <- insertNetwork "overlay" "10.0.0.0/24"
+      node <- seedTestNode
+      let key = M.toSqlKey ident :: M.NetworkId
+      runDb $ insert_ (M.NetworkPeer key node)
+      _ <- whenNetworkDelete ident
+      responseIs (== RespNetworkDeleted)
+      remaining <- runDb $ count [M.NetworkPeerNetworkId ==. key]
+      liftIO $ remaining `shouldBe` 0
+      row <- runDb $ get key
+      liftIO $ row `shouldBe` Nothing
+
+    testCase "preserves peers when a running network cannot be deleted" $ do
+      ident <- insertNetwork "overlay" "10.0.0.0/24"
+      node <- seedTestNode
+      let key = M.toSqlKey ident :: M.NetworkId
+      runDb $ do
+        insert_ (M.NetworkPeer key node)
+        update key [M.NetworkRunning =. True]
+      _ <- whenNetworkDelete ident
+      responseIs (== RespNetworkInUse)
+      remaining <- runDb $ count [M.NetworkPeerNetworkId ==. key]
+      liftIO $ remaining `shouldBe` 1
+
+    testCase "preserves peers when a NIC still references the network" $ do
+      ident <- insertNetwork "overlay" "10.0.0.0/24"
+      node <- seedTestNode
+      vm <- insertVm "attached" M.VmStopped
+      nic <- insertNetworkInterface vm M.NetManaged "" "52:54:00:01:02:03"
+      let key = M.toSqlKey ident :: M.NetworkId
+      runDb $ do
+        insert_ (M.NetworkPeer key node)
+        update (M.toSqlKey nic :: M.NetworkInterfaceId) [M.NetworkInterfaceNetworkId =. Just key]
+      _ <- whenNetworkDelete ident
+      responseIs (== RespNetworkInUse)
+      remaining <- runDb $ count [M.NetworkPeerNetworkId ==. key]
+      liftIO $ remaining `shouldBe` 1
 
   describe "network edit actions" $ do
     testCase "normalizes CIDR and persists every editable field" $ do

@@ -169,6 +169,7 @@ handleNetworkDelete state networkId = do
               if networkRunning network
                 then pure $ Just False
                 else do
+                  deleteWhere [M.NetworkPeerNetworkId ==. key]
                   delete key
                   pure $ Just True
 
