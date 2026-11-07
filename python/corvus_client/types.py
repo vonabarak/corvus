@@ -345,6 +345,14 @@ class VmSnapshotInfo:
 
 
 @dataclass(frozen=True)
+class NodePingResult:
+    """Reachability through the daemon's current nodeagent session."""
+
+    reachable: bool
+    message: str
+
+
+@dataclass(frozen=True)
 class NodeInfo:
     """Short node summary surfaced by ``crv node list``.
 

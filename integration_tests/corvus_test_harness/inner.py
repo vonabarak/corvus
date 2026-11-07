@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 
 from corvus_client import Client
-from corvus_client.exceptions import ConnectError, CorvusError
+from corvus_client._sync.node import SyncNode
+from corvus_client.exceptions import ConnectError, CorvusError, NodeNotFound
 
 from .transport import VsockTcpRelay
 
@@ -59,13 +60,13 @@ def open_client(
     while time.monotonic() < deadline:
         try:
             c = Client(host=host, port=port, cert_dir=cert_dir, tls=tls)
-        except (ConnectError, CorvusError, OSError) as e:
+        except (ConnectError, CorvusError, NodeNotFound, OSError) as e:
             last_err = e
             time.sleep(poll_interval_sec)
             continue
         try:
             c.status()
-        except (ConnectError, CorvusError, OSError) as e:
+        except (ConnectError, CorvusError, NodeNotFound, OSError) as e:
             last_err = e
             try:
                 c.close()
@@ -93,89 +94,30 @@ def open_client(
 
 
 def _register_self_node(client: Client, name: str, host: str) -> None:
-    """Idempotently register a self-pointing Node row and wait for
-    its per-node supervisor to dial the nodeagent.
-
-    Inner daemons run with their nodeagent + netd on the same
-    box, listening on the conventional 9878 / 9877 ports.
-    Single-node tests can pass ``host="127.0.0.1"`` since there's
-    no cross-host hop — but multi-node scenarios that use
-    inter-agent disk transfer need the routable outer_ip so
-    OTHER nodeagents can dial this node by the same address the
-    daemon recorded.
-
-    The daemon's 'handleNodeAdd' spawns the per-node reconnect
-    supervisor as a background async; the supervisor's dial
-    races with whichever test method runs next. Without the
-    poll below, the first 'client.disks.create(…)' inside a
-    test sees 'nodeagent for node 1 unavailable' before the
-    dial completes. We probe a cheap agent-dependent op
-    ('disks.create' on a sentinel name, immediately deleted)
-    until it succeeds.
-    """
-    # If a node with this name already exists, skip the create
-    # but still run the connectivity poll — across test re-runs
-    # against a long-lived daemon the supervisor may already be
-    # connected; the probe returns fast in that case.
-    need_create = True
+    """Register this node and wait for its supervisor-owned agent session."""
     try:
-        existing = client.nodes.get(name, by_name=True)
-        del existing
-        need_create = False
-    except CorvusError:
-        pass
-    if need_create:
-        client.nodes.create(name, host)
-    _wait_for_self_node_ready(client)
-
-
-_TRANSIENT_AGENT_SUBSTRINGS: tuple[str, ...] = (
-    # 'lookupNodeAgent' returns this when the per-node supervisor
-    # hasn't yet placed a live agent cap into 'ssAgents' — either
-    # we're racing the initial dial, or the supervisor has cleared
-    # the slot because a disconnect was observed and is now
-    # backing off before redialling.
-    "unavailable",
-    # During a nodeagent restart there's a brief window where the
-    # daemon still holds a stale TCP-backed cap from before the
-    # restart. The next RPC over that cap returns the capnp wire
-    # error 'Exception''Type''disconnected' before the supervisor
-    # unwinds and 'clearNodeConn' wipes the slot. Same retry
-    # semantics as "unavailable" — the supervisor will clear the
-    # slot momentarily and a later attempt will land cleanly on
-    # the fresh dial.
-    "disconnected",
-)
+        node = client.nodes.get(name, by_name=True)
+    except NodeNotFound:
+        node = client.nodes.create(name, host)
+    _wait_for_self_node_ready(node)
 
 
 def _wait_for_self_node_ready(
-    client: Client,
+    node: SyncNode,
     *,
     timeout_sec: float = 30.0,
     poll_interval_sec: float = 0.1,
 ) -> None:
-    """Block until the inner daemon's per-node supervisor has
-    finished its initial nodeagent dial.
-
-    Probes a cheap, idempotent agent call. Errors whose message
-    looks transient (per :data:`_TRANSIENT_AGENT_SUBSTRINGS`) keep
-    the poll going; anything else surfaces immediately (it's a
-    real problem).
-    """
+    """Wait for a read-only round trip through the daemon's existing session."""
     deadline = time.monotonic() + timeout_sec
-    last_err: BaseException | None = None
+    last_message = "No probe completed"
     while time.monotonic() < deadline:
-        try:
-            d = client.disks.create("__harness_probe__", size=1048576)  # 1Mb
-            d.delete()
+        result = node.ping()
+        last_message = result.message
+        if result.reachable:
             return
-        except CorvusError as e:
-            last_err = e
-            msg = str(e).lower()
-            if not any(s in msg for s in _TRANSIENT_AGENT_SUBSTRINGS):
-                raise
-            time.sleep(poll_interval_sec)
+        time.sleep(poll_interval_sec)
     raise RuntimeError(
-        f"inner daemon's nodeagent never became reachable through "
-        f"the supervisor: {last_err!r}"
+        "inner daemon's nodeagent never became reachable through "
+        f"the supervisor: {last_message}"
     )

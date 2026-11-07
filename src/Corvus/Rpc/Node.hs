@@ -20,6 +20,7 @@ import Corvus.Handlers.Node
   , NodeDrain (..)
   , NodeEdit (..)
   , handleNodeList
+  , handleNodePing
   , handleNodeShow
   )
 import qualified Corvus.Handlers.Resolve as Resolve
@@ -90,6 +91,12 @@ data NodeCap = NodeCap
 instance SomeServer NodeCap
 
 instance CGNode.Node'server_ NodeCap where
+  node'ping (NodeCap st eid _) = handleParsed $ \_ -> do
+    result <- handleNodePing st eid
+    case result of
+      Left err -> throwError err
+      Right (reachable, message) -> pure CGNode.Node'ping'results {CGNode.reachable = reachable, CGNode.message = message}
+
   node'show (NodeCap st eid _) = handleParsed $ \_ -> do
     resp <- handleNodeShow st eid
     case resp of

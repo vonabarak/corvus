@@ -17,6 +17,7 @@ module Corvus.Handlers.Node
 
     -- * Handlers
   , handleNodeList
+  , handleNodePing
   , handleNodeShow
   )
 where
@@ -37,6 +38,7 @@ import qualified Corvus.Tls as Tls
 import Corvus.Types
   ( NodeConns (..)
   , ServerState (..)
+  , lookupNodeAgent
   , removeNodeConns
   , runServerLogging
   , ssTlsConfig
@@ -51,6 +53,7 @@ import Database.Persist
 import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 import qualified Database.Persist.Sql
 import System.Posix.User (getRealUserID)
+import System.Timeout (timeout)
 
 --------------------------------------------------------------------------------
 -- handleNodeAdd
@@ -547,3 +550,21 @@ instance Action NodeDrain where
   actionCommand _ = "drain"
   actionEntityId = Just . fromIntegral . ndrNodeId
   actionExecute ctx a = runActionAsSubtask ctx (NodeEdit (ndrNodeId a) Nothing Nothing Nothing Nothing Nothing Nothing (Just M.NodeDraining) Nothing)
+
+-- | Probe only the supervisor-owned session; never allocate a task or resource.
+handleNodePing :: ServerState -> Int64 -> IO (Either Response (Bool, Text))
+handleNodePing state nodeId = do
+  let key = toSqlKey nodeId :: M.NodeId
+  found <- runSqlPool (get key) (ssDbPool state)
+  case found of
+    Nothing -> pure (Left RespNodeNotFound)
+    Just _ -> do
+      agent <- lookupNodeAgent state key
+      case agent of
+        Left message -> pure (Right (False, message))
+        Right nac -> do
+          result <- timeout 2000000 (NAC.sessionPing nac)
+          pure $ Right $ case result of
+            Nothing -> (False, "Nodeagent ping timed out")
+            Just (Left err) -> (False, T.pack (show err))
+            Just (Right ()) -> (True, "Nodeagent reachable")

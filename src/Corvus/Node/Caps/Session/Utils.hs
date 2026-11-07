@@ -60,7 +60,8 @@ import Capnp.Rpc (throwFailed)
 import Control.Concurrent (MVar, myThreadId, newMVar, threadDelay, withMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logDebugN, runStderrLoggingT)
+import Corvus.Logging (exceptionCategory)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.GuestAgent as NGA
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
@@ -246,13 +247,13 @@ waitForFirstQgaPing
 waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
   let budgetSec = fromIntegral timeoutMs / 1000 :: Double
   start <- getMonotonicTime
-  event LevelInfo "startup_wait_start" ("timeout_ms=" <> tshow timeoutMs)
+  event LevelDebug "startup_wait_start" ("timeout_ms=" <> tshow timeoutMs)
   result <-
     loop (start + budgetSec) (1 :: Int)
-      `E.onException` event LevelWarn "startup_wait_cancelled" "reason=exception_or_cancellation"
+      `E.onException` event LevelDebug "startup_wait_cancelled" "reason=exception_or_cancellation"
   after <- getMonotonicTime
   event
-    LevelInfo
+    LevelDebug
     "startup_wait_end"
     ( "duration_ms="
         <> tshow (floor ((after - start) * 1000) :: Integer)
@@ -261,6 +262,7 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
     )
   pure result
   where
+    startupConns = conns {guestAgentStartupReadiness = True}
     event level name fields = logQgaEvent (guestAgentLogger conns) level name ("vm_id=" <> tshow vmId <> " caller=startup_readiness " <> fields)
     loop deadline attempt = do
       mExit <- readTVarIO exitVar
@@ -275,9 +277,9 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
               -- Cap it at the remaining startup budget.
               let remainingUs = ceiling ((deadline - now) * 1000000)
               event LevelDebug "startup_ping_start" ("attempt=" <> tshow attempt <> " outer_timeout_us=" <> tshow remainingUs)
-              ping <- timeout remainingUs (NGA.guestPing conns cfg vmId)
+              ping <- timeout remainingUs (NGA.guestPing startupConns cfg vmId)
               event
-                (case ping of Nothing -> LevelWarn; _ -> LevelDebug)
+                LevelDebug
                 "startup_ping_end"
                 ("attempt=" <> tshow attempt <> " result=" <> case ping of Nothing -> "outer_timeout"; Just True -> "ready"; Just False -> "unready")
               -- Re-check the reaper after the (potentially slow)
@@ -512,15 +514,21 @@ vmOpLockFor sc vid = do
             pure lk
 
 -- Log only operation names and correlation IDs; parameters can contain secrets.
-traceNodeRequest :: Text -> (a -> IO b) -> a -> IO b
-traceNodeRequest name handler params = E.mask $ \restore -> do
+traceNodeRequest :: NGA.GuestAgentConns -> Text -> (a -> IO b) -> a -> IO b
+traceNodeRequest conns name handler params = E.mask $ \restore -> do
   requestId <- myThreadId
   started <- getMonotonicTimeNSec
-  let prefix = "[nodeagent] request=" <> tshow requestId <> " operation=" <> name
-      finish outcome = do
+  let logger = guestAgentLogger conns
+      prefix = "[nodeagent] request=" <> tshow requestId <> " operation=" <> name
+      finish level outcome = do
         ended <- getMonotonicTimeNSec
-        runStderrLoggingT $ logInfoN (prefix <> " result=" <> outcome <> " duration_ms=" <> tshow ((ended - started) `div` 1000000))
-  runStderrLoggingT $ logInfoN (prefix <> " result=start")
-  result <- restore (handler params) `E.onException` finish "error_or_cancellation"
-  finish "success"
+        logger level (prefix <> " result=" <> outcome <> " duration_ms=" <> tshow ((ended - started) `div` 1000000))
+  logger LevelDebug (prefix <> " result=start")
+  result <-
+    restore (handler params) `E.catch` \(err :: E.SomeException) -> do
+      case E.fromException err :: Maybe E.SomeAsyncException of
+        Just _ -> finish LevelDebug "cancelled"
+        Nothing -> finish LevelWarn ("error category=" <> exceptionCategory err)
+      E.throwIO err
+  finish LevelDebug "success"
   pure result

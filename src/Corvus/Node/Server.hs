@@ -29,8 +29,9 @@ import Capnp.Rpc
 import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (newMVar)
-import Control.Concurrent.STM (newTVarIO)
-import Control.Exception (catch)
+import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
+import Control.Exception (catch, finally)
+import Control.Monad.Logger (LogLevel (..))
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
@@ -43,11 +44,10 @@ import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Network.Simple.TCP as TCP
 import Network.Socket (Socket)
 import Supervisors (withSupervisor)
-import System.IO (stderr)
+import System.IO.Error (isEOFError)
 
 -- | Default bind address. Mirrors the daemon's default of binding
 -- on every interface — multi-node deploys need the agent
@@ -94,36 +94,46 @@ runNodeAgentServer logger host port mTlsCfg = do
   -- namespace. Keep the launch gate here rather than in a session cap.
   vsockLaunchLock <- newMVar ()
   -- Run the status-push ticker for the lifetime of the listener.
-  withAsync (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000) $ \_ ->
-    TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
-      withSupervisor $ \sup -> do
-        nodeAgentCap <-
-          newNodeAgentCap
-            sup
-            vmLedger
-            subs
-            qgaConns
-            serialBufs
-            monitorBufs
-            transferTokens
-            mTlsCfg
-            vsockLaunchLock
-        bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
-        -- See the matching note in 'Corvus.NodeAgentClient' for
-        -- the rationale on the inflated limits. The agent
-        -- receives a burst of LineBufferSink writes during long
-        -- streaming builds; the default budget can starve under
-        -- emerge-class output and trigger STM-retry pathologies.
-        let handle transport =
-              handleConn
-                transport
-                Def.def
-                  { debugMode = False
-                  , bootstrap = Just (toClient bootClient)
-                  , maxQuestions = 4096
-                  , maxCallWords = 128 * 1024 * 1024 `div` 8
-                  }
-        runOneConn mTlsCfg sock handle
+  withAsync
+    (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000)
+    ( \_ ->
+        TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
+          withSupervisor $ \sup -> do
+            nodeAgentCap <-
+              newNodeAgentCap
+                sup
+                vmLedger
+                subs
+                qgaConns
+                serialBufs
+                monitorBufs
+                transferTokens
+                mTlsCfg
+                vsockLaunchLock
+            bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
+            -- See the matching note in 'Corvus.NodeAgentClient' for
+            -- the rationale on the inflated limits. The agent
+            -- receives a burst of LineBufferSink writes during long
+            -- streaming builds; the default budget can starve under
+            -- emerge-class output and trigger STM-retry pathologies.
+            let handle transport =
+                  handleConn
+                    transport
+                    Def.def
+                      { debugMode = False
+                      , bootstrap = Just (toClient bootClient)
+                      , maxQuestions = 4096
+                      , maxCallWords = 128 * 1024 * 1024 `div` 8
+                      }
+            runOneConn logger mTlsCfg sock handle
+    )
+    `finally` ( do
+                  live <- atomically $ do
+                    current <- L.readVms vmLedger
+                    mapM_ (\runtime -> writeTVar (L.vlsStopRequested runtime) True) current
+                    pure current
+                  mapM_ L.stopVmWorkers live
+              )
 
 -- | Run one Cap'n Proto session, optionally wrapping the socket
 -- with TLS + validating the peer CN first.
@@ -141,31 +151,29 @@ runNodeAgentServer logger host port mTlsCfg = do
 -- agent will dial in (and per-session pinning offers no extra
 -- security on top of CA-signed certs with the right prefix).
 runOneConn
-  :: Maybe Tls.TlsConfig
+  :: QgaLogger
+  -> Maybe Tls.TlsConfig
   -> Socket
   -> (Transport -> IO ())
   -> IO ()
-runOneConn mTlsCfg sock handle = case mTlsCfg of
+runOneConn logger mTlsCfg sock handle = case mTlsCfg of
   Nothing -> handle (socketTransport sock defaultLimit)
   Just cfg -> do
     r <-
       (Right <$> Tls.wrapServerSocket cfg sock)
         `catch` \(e :: IOError) -> pure (Left (show e))
     case r of
-      Left e -> logTlsRejection "nodeagent: TLS handshake failed" e
-      Right (ctx, ref) -> do
+      Left e -> logTlsRejection logger "nodeagent: TLS handshake failed" e
+      Right (ctx, ref) -> (`finally` Tls.closeTlsContext ctx) $ do
         v <- Tls.validatePeerCNAnyRole [Tls.RoleDaemon, Tls.RoleNode] ref
         case v of
           Left msg -> do
-            logTlsRejection "nodeagent: TLS peer rejected" (T.unpack msg)
-            Tls.closeTlsContext ctx
+            logTlsRejection logger "nodeagent: TLS peer rejected" (T.unpack msg)
           Right () -> do
             transport <- Tls.tlsTransport ctx defaultLimit
             handle transport `catch` \(e :: IOError) ->
-              TIO.hPutStrLn stderr $
+              logger (if isEOFError e then LevelDebug else LevelWarn) $
                 T.pack ("nodeagent: TLS connection error: " <> show e)
-            Tls.closeTlsContext ctx
 
-logTlsRejection :: String -> String -> IO ()
-logTlsRejection what why =
-  TIO.hPutStrLn stderr $ T.pack (what <> ": " <> why)
+logTlsRejection :: QgaLogger -> String -> String -> IO ()
+logTlsRejection logger what why = logger LevelWarn $ T.pack (what <> ": " <> why)

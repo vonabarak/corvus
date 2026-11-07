@@ -29,8 +29,9 @@ import Capnp.Rpc
 import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (STM, atomically)
-import Control.Exception (catch)
+import Control.Exception (catch, finally)
 import Control.Monad (void)
+import Control.Monad.Logger (LogLevel (..))
 import Corvus.Netd.Caps.NetAgent (newNetAgentCap)
 import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
 import qualified Corvus.Netd.Events as Ev
@@ -38,15 +39,15 @@ import qualified Corvus.Netd.IpMonitor as Mon
 import qualified Corvus.Netd.Ledger as L
 import qualified Corvus.Netd.Network as Net
 import qualified Corvus.Netd.Tap as Tap
+import Corvus.Node.GuestAgent.Transport (QgaLogger)
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Network.Simple.TCP as TCP
 import Network.Socket (Socket)
 import Supervisors (withSupervisor)
-import System.IO (stderr)
+import System.IO.Error (isEOFError)
 
 -- | Default bind address. Mirrors the daemon's default of binding
 -- on every interface — multi-node deploys need netd reachable
@@ -72,12 +73,12 @@ defaultNetdPort = 9877
 -- wrapped with mutual TLS and the peer's CN is validated against
 -- the @corvus-daemon:@ prefix before any RPC frame is exchanged.
 -- 'Nothing' (@--no-tls@) falls back to plain TCP.
-runNetdServer :: String -> Int -> Maybe Tls.TlsConfig -> IO ()
-runNetdServer host port mTlsCfg = do
+runNetdServer :: QgaLogger -> String -> Int -> Maybe Tls.TlsConfig -> IO ()
+runNetdServer logger host port mTlsCfg = do
   cleanupCorvusKernelState
   netLedger <- L.newNetworkLedger
   tapLedger <- L.newTapLedger
-  subs <- Ev.newSubscribers
+  subs <- Ev.newSubscribers logger
   -- Background drift watcher: parse `ip monitor link`, fire
   -- onResourceVanished for any deleted name we own.
   void . forkIO $
@@ -97,39 +98,37 @@ runNetdServer host port mTlsCfg = do
                 { debugMode = False
                 , bootstrap = Just (toClient bootClient)
                 }
-      runOneConn mTlsCfg sock handle
+      runOneConn logger mTlsCfg sock handle
 
 -- | Run one Cap'n Proto session, optionally wrapping the socket
 -- with TLS + validating the peer CN first.
 runOneConn
-  :: Maybe Tls.TlsConfig
+  :: QgaLogger
+  -> Maybe Tls.TlsConfig
   -> Socket
   -> (Transport -> IO ())
   -> IO ()
-runOneConn mTlsCfg sock handle = case mTlsCfg of
+runOneConn logger mTlsCfg sock handle = case mTlsCfg of
   Nothing -> handle (socketTransport sock defaultLimit)
   Just cfg -> do
     r <-
       (Right <$> Tls.wrapServerSocket cfg sock)
         `catch` \(e :: IOError) -> pure (Left (show e))
     case r of
-      Left e -> logTlsRejection "netd: TLS handshake failed" e
-      Right (ctx, ref) -> do
+      Left e -> logTlsRejection logger "netd: TLS handshake failed" e
+      Right (ctx, ref) -> (`finally` Tls.closeTlsContext ctx) $ do
         v <- Tls.validatePeerCN cfg ref
         case v of
           Left msg -> do
-            logTlsRejection "netd: TLS peer rejected" (T.unpack msg)
-            Tls.closeTlsContext ctx
+            logTlsRejection logger "netd: TLS peer rejected" (T.unpack msg)
           Right () -> do
             transport <- Tls.tlsTransport ctx defaultLimit
             handle transport `catch` \(e :: IOError) ->
-              TIO.hPutStrLn stderr $
+              logger (if isEOFError e then LevelDebug else LevelWarn) $
                 T.pack ("netd: TLS connection error: " <> show e)
-            Tls.closeTlsContext ctx
 
-logTlsRejection :: String -> String -> IO ()
-logTlsRejection what why =
-  TIO.hPutStrLn stderr $ T.pack (what <> ": " <> why)
+logTlsRejection :: QgaLogger -> String -> String -> IO ()
+logTlsRejection logger what why = logger LevelWarn $ T.pack (what <> ": " <> why)
 
 -- | Look up an ifname in both ledgers; return the 'kind' label
 -- used in 'onResourceVanished' events.

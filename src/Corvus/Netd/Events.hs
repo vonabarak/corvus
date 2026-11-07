@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | EventSink subscriber registry + dispatch.
 --
@@ -16,6 +15,7 @@
 module Corvus.Netd.Events
   ( Subscribers
   , newSubscribers
+  , subscriberLogger
   , addSink
   , dispatchVanished
   )
@@ -32,18 +32,22 @@ import Control.Concurrent.STM
   )
 import qualified Control.Exception as E
 import Control.Monad (foldM)
-import Control.Monad.Logger (logWarnN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..))
+import Corvus.Logging (exceptionCategory, subscriberFailureLevel, synchronousException)
+import Corvus.Node.GuestAgent.Transport (QgaLogger)
 import Corvus.Rpc.Streams (callSink)
 import qualified Data.Text as T
+import System.Timeout (timeout)
 
 -- | The list of currently-subscribed sinks. New sinks are
 -- prepended; failed sinks are removed during dispatch.
-newtype Subscribers = Subscribers
-  { subsList :: TVar [Client CGN.EventSink]
+data Subscribers = Subscribers
+  { subscriberLogger :: QgaLogger
+  , subsList :: TVar [Client CGN.EventSink]
   }
 
-newSubscribers :: IO Subscribers
-newSubscribers = Subscribers <$> newTVarIO []
+newSubscribers :: QgaLogger -> IO Subscribers
+newSubscribers logger = Subscribers logger <$> newTVarIO []
 
 -- | Add a sink to the registry. There's no automatic removal —
 -- failed sinks are pruned only when a dispatch attempt fails
@@ -62,13 +66,14 @@ dispatchVanished subs kind name = do
   remaining <-
     foldM
       ( \acc sink -> do
-          result <- E.try @E.SomeException $ deliver sink
+          result <- E.tryJust synchronousException $ timeout 5000000 (deliver sink)
           case result of
-            Right () -> pure (sink : acc)
+            Right (Just ()) -> pure (sink : acc)
             Left e -> do
-              runStderrLoggingT $
-                logWarnN
-                  ("[netd] dropping event sink (" <> T.pack (show e) <> ")")
+              subscriberLogger subs (subscriberFailureLevel e) ("[netd] dropping event sink category=" <> exceptionCategory e)
+              pure acc
+            Right Nothing -> do
+              subscriberLogger subs LevelWarn "[netd] dropping event sink: no ACK within 5s"
               pure acc
       )
       []

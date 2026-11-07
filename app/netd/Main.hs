@@ -21,7 +21,7 @@ module Main (main) where
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (void)
-import Control.Monad.Logger (LogLevel (..), logInfoN)
+import Control.Monad.Logger (LogLevel (..), logInfoN, logWithoutLoc)
 import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
 import Corvus.Netd.Server (defaultNetdHost, defaultNetdPort, runNetdServer)
 import Corvus.Tls
@@ -140,7 +140,7 @@ main = do
   -- cleanup (in Corvus.Netd.Server.runNetdServer) before it
   -- binds the listener.
   serverThread <-
-    async $ runNetdServer (optHost opts) (optPort opts) tlsCfg
+    async $ runNetdServer (\level message -> runFilteredLogging (optLogLevel opts) $ logWithoutLoc "netd" level message) (optHost opts) (optPort opts) tlsCfg
 
   -- Block until SIGTERM/SIGINT.
   takeMVar stopMV

@@ -25,7 +25,7 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (Async, async, cancel, race_)
+import Control.Concurrent.Async (Async, async, race_, withAsync)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, when)
@@ -35,6 +35,7 @@ import qualified Corvus.Handlers.Network.PeerSpec as PS
 import Corvus.Handlers.Vm.Monitor (reattachVmMonitors)
 import Corvus.Handlers.Vm.Start (autostartVmsOnNode)
 import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
+import Corvus.Logging (synchronousException)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.Node.StatusFreshness (newStatusFreshness, waitForStaleStatus)
@@ -50,6 +51,7 @@ import Corvus.Types
   , registerNodeConns
   , runFilteredLogging
   )
+import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
@@ -125,15 +127,9 @@ runNodeSupervisor state nodeKey node = do
         <> ", netd "
         <> (if netdDisabled then "disabled" else T.pack (show netPort))
         <> ")"
-  nodeAgentChild <-
-    async $ runNodeAgentLoop state nodeKey nodeLabel host noaPort owner nodeagentTls
-  netdChild <-
-    if netdDisabled
-      then async (pure ())
-      else async $ runNetdLoop state nodeKey nodeLabel host netPort owner netdTls
-  blockUntilShutdown state
-  cancel nodeAgentChild
-  cancel netdChild
+  withAsync (runNodeAgentLoop state nodeKey nodeLabel host noaPort owner nodeagentTls) $ \_ ->
+    withAsync (unless netdDisabled (runNetdLoop state nodeKey nodeLabel host netPort owner netdTls)) $ \_ ->
+      blockUntilShutdown state
 
 -- | Single-node nodeagent connect-and-hold loop.
 runNodeAgentLoop
@@ -269,10 +265,17 @@ runNetdLoop
   -- ^ per-node TLS config (peer = @corvus-netd:<name>@) or
   -- 'Nothing' for plaintext
   -> IO ()
-runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
+runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = do
+  started <- getMonotonicTime
+  connected <- newIORef False
+  loop started connected
   where
-    loop = do
-      result <- NA.withNetAgentClient host port owner mTlsCfg onConnect
+    loop started connected = do
+      attempt <- E.tryJust synchronousException $ NA.withNetAgentClient host port owner mTlsCfg (onConnect started connected)
+      let result = case attempt of Left _ -> Left (); Right value -> value
+      case attempt of
+        Left err -> runFilteredLogging (ssLogLevel state) $ logWarnN ("node " <> nodeLabel <> " netd session failed: " <> T.pack (show err))
+        Right _ -> pure ()
       shouldStop <- readTVarIO (ssShutdownFlag state)
       if shouldStop
         then pure ()
@@ -280,18 +283,25 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
           case result of
             Right () -> pure ()
             Left _ -> threadDelay 5000000
-          loop
+          loop started connected
 
-    onConnect (Left e) = do
+    onConnect started connected (Left e) = do
+      now <- getMonotonicTime
+      everConnected <- readIORef connected
+      let initialUnavailable =
+            not everConnected && now - started < 30 && case e of
+              NA.NetAgentUnavailable _ -> True
+              _ -> False
       runFilteredLogging (ssLogLevel state) $
-        logWarnN $
+        (if initialUnavailable then logInfoN else logWarnN) $
           "node "
             <> nodeLabel
             <> " netd dial failed: "
             <> T.pack (show e)
             <> "; retrying in 5s"
       pure (Left ())
-    onConnect (Right nac) = do
+    onConnect _ connected (Right nac) = E.mask $ \restore -> do
+      writeIORef connected True
       runFilteredLogging (ssLogLevel state) $
         logInfoN $
           "node "
@@ -302,29 +312,29 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
         modifyTVar' (ssAgents state) $ \m -> case Map.lookup nodeKey m of
           Nothing -> m
           Just nc -> Map.insert nodeKey nc {ncNetAgent = Just nac} m
-      reapplyRunningNetworks state nodeKey nodeLabel nac
-      -- First-connect-only per-node network autostart. Mirrors
-      -- the VM-autostart hook on the nodeagent side: gated by
-      -- 'claimAutostartSlot' so a netd flap doesn't re-issue
-      -- 'network start' on networks the operator may have
-      -- stopped post-startup. 'reapplyRunningNetworks' above
-      -- already covers the "was-running before the flap" set;
-      -- this hook strictly handles "marked autostart but not
-      -- yet running".
-      shouldFireNetAutostart <-
-        claimAutostartSlot state nodeKey ncNetAutostartFired
-      when shouldFireNetAutostart $
-        autostartNetworksOnNode state nodeKey
-      -- Block until the daemon shuts down OR the netd socket
-      -- dies. The 'finally' is load-bearing: when the underlying
-      -- TCP connection drops, 'withConn' (further up the stack
-      -- in 'withNetAgentClient') interrupts this body with an
-      -- async exception. Without 'finally', 'clearNetConn'
-      -- would be skipped on that path and the cap would remain
-      -- in 'ssAgents' — exactly the bug 'blockUntilShutdownOr-
-      -- NetdDead' is meant to close.
-      blockUntilShutdownOrNetdDead state nodeLabel nac
-        `E.finally` clearNetConn state nodeKey
+      (`E.finally` clearNetConn state nodeKey) $ restore $ do
+        reapplyRunningNetworks state nodeKey nodeLabel nac
+        -- First-connect-only per-node network autostart. Mirrors
+        -- the VM-autostart hook on the nodeagent side: gated by
+        -- 'claimAutostartSlot' so a netd flap doesn't re-issue
+        -- 'network start' on networks the operator may have
+        -- stopped post-startup. 'reapplyRunningNetworks' above
+        -- already covers the "was-running before the flap" set;
+        -- this hook strictly handles "marked autostart but not
+        -- yet running".
+        shouldFireNetAutostart <-
+          claimAutostartSlot state nodeKey ncNetAutostartFired
+        when shouldFireNetAutostart $
+          autostartNetworksOnNode state nodeKey
+        -- Block until the daemon shuts down OR the netd socket
+        -- dies. The 'finally' is load-bearing: when the underlying
+        -- TCP connection drops, 'withConn' (further up the stack
+        -- in 'withNetAgentClient') interrupts this body with an
+        -- async exception. Without 'finally', 'clearNetConn'
+        -- would be skipped on that path and the cap would remain
+        -- in 'ssAgents' — exactly the bug 'blockUntilShutdownOr-
+        -- NetdDead' is meant to close.
+        blockUntilShutdownOrNetdDead state nodeLabel nac
       pure (Right ())
 
 -- | Re-apply every running network this node participates in (as

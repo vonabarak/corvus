@@ -8,9 +8,16 @@ module Corvus.SocketBufferSpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 
-import Control.Concurrent.Async (wait, withAsync)
-import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
-import Corvus.Node.SocketBuffer (newSocketBuffer, stripTerminalQueries, waitForData, writeBuffer)
+import Control.Concurrent.Async (cancel, wait, withAsync)
+import Control.Concurrent.STM (atomically, check, newTVarIO, readTVar, readTVarIO, writeTVar)
+import Control.Exception (bracket, finally)
+import Corvus.Node.SocketBuffer (newSocketBuffer, startSocketBufferThread, stripTerminalQueries, waitForData, writeBuffer)
+import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Types (SocketBufferHandle (..))
+import qualified Data.Map.Strict as Map
+import qualified Network.Socket as NS
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
 import Test.Hspec
 
@@ -103,3 +110,42 @@ spec = describe "stripTerminalQueries" $ do
       withAsync (waitForData buf 0 stopped) $ \subscriber -> do
         atomically $ writeTVar stopped True
         timeout 1000000 (wait subscriber) `shouldReturn` Just ("", 0)
+
+  describe "managed socket workers" $ do
+    it "connects after delayed socket creation and wakes subscribers on cancellation" $
+      within $
+        withSystemTempDirectory "corvus-buffer" $ \dir -> do
+          buffers <- newTVarIO Map.empty
+          workers <- newTVarIO []
+          eligible <- newTVarIO True
+          let path = dir </> "serial.sock"
+              cleanup = readTVarIO workers >>= mapM_ cancel
+          flip finally cleanup $ do
+            startSocketBufferThread defaultQemuConfig 1 path buffers 64 "serial" workers (readTVar eligible) (\_ _ -> pure ())
+            bracket (NS.socket NS.AF_UNIX NS.Stream NS.defaultProtocol) NS.close $ \listener -> do
+              NS.bind listener (NS.SockAddrUnix path)
+              NS.listen listener 1
+              bracket (fst <$> NS.accept listener) NS.close $ \_ -> do
+                found <- timeout 2000000 $ atomically $ do
+                  current <- readTVar buffers
+                  check (Map.member 1 current)
+                  pure (current Map.! 1)
+                case found of
+                  Nothing -> expectationFailure "worker failed to register after socket appeared"
+                  Just handle -> withAsync (waitForData (sbhBuffer handle) 0 (sbhShutdown handle)) $ \subscriber -> do
+                    cleanup
+                    timeout 1000000 (wait subscriber) `shouldReturn` Just ("", 0)
+                    Map.null <$> readTVarIO buffers `shouldReturn` True
+
+    it "does not publish a socket for a retired runtime" $
+      within $
+        withSystemTempDirectory "corvus-retired-buffer" $ \dir -> do
+          buffers <- newTVarIO Map.empty
+          workers <- newTVarIO []
+          startSocketBufferThread defaultQemuConfig 1 (dir </> "missing.sock") buffers 64 "serial" workers (pure False) (\_ _ -> pure ())
+          owned <- readTVarIO workers
+          timeout 1000000 (mapM_ wait owned) `shouldReturn` Just ()
+          Map.null <$> readTVarIO buffers `shouldReturn` True
+
+within :: IO () -> IO ()
+within action = timeout 10000000 action `shouldReturn` Just ()

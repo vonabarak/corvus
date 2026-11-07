@@ -9,6 +9,7 @@ module Corvus.Node.Ledger
   ( -- * VM ledger
     VmLedger
   , VmLiveState (..)
+  , stopVmWorkers
   , vmOperationLocks
   , newVmLedger
   , readVms
@@ -25,8 +26,9 @@ module Corvus.Node.Ledger
   )
 where
 
+import Control.Concurrent.Async (Async, cancel)
 import Control.Concurrent.MVar (MVar)
-import Control.Concurrent.STM (STM, TVar, check, modifyTVar', newTVarIO, readTVar, stateTVar, writeTVar)
+import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
 import qualified Corvus.Node.VmSpec as VS
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
@@ -86,6 +88,7 @@ data VmLiveState = VmLiveState
   -- reboot-quirk re-spawn path can re-launch QEMU with identical
   -- settings (drives, NICs, shared dirs, vsock CID, …) without
   -- having to round-trip back to the daemon.
+  , vlsWorkers :: !(TVar [Async ()])
   , vlsStopRequested :: !(TVar Bool)
   -- ^ Set by 'handleVmStopGraceful' / 'handleVmStopHard' before
   -- they signal QEMU. The reaper consults this flag on QEMU
@@ -248,3 +251,11 @@ fenceVmStop :: VmLedger -> Int64 -> STM (Either T.Text (Maybe VmLiveState))
 fenceVmStop ledger vmId = do
   fences <- readTVar (vmFences ledger)
   fenceVmReset ledger vmId (maybe (-1) vfHighestRevision (Map.lookup vmId fences))
+
+-- | Called after confirmed QEMU exit and on agent shutdown. Cancellation joins
+-- each worker, so no retired runtime can publish another socket handle.
+stopVmWorkers :: VmLiveState -> IO ()
+stopVmWorkers live = do
+  workers <- readTVarIO (vlsWorkers live)
+  mapM_ cancel workers
+  atomically $ modifyTVar' (vlsWorkers live) (filter (`notElem` workers))

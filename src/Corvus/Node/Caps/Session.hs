@@ -85,9 +85,9 @@ instance CGNA.Session'server_ SessionServer where
 
   -- ---- Disk image operations -----------------------------------------------
 
-  session'diskCreate _ =
+  session'diskCreate (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskCreate" $
+      traceNodeRequest (scQgaConns sc) "diskCreate" $
         \CGNA.Session'diskCreate'params
           { CGNA.path = p
           , CGNA.format = fmt
@@ -100,9 +100,9 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'diskCreateOverlay _ =
+  session'diskCreateOverlay (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskCreateOverlay" $
+      traceNodeRequest (scQgaConns sc) "diskCreateOverlay" $
         \CGNA.Session'diskCreateOverlay'params
           { CGNA.overlayPath = ov
           , CGNA.backingPath = bk
@@ -115,22 +115,22 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'diskDelete _ =
-    handleParsedAsync $ traceNodeRequest "diskDelete" $ \CGNA.Session'diskDelete'params {CGNA.path = p} -> do
+  session'diskDelete (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskDelete" $ \CGNA.Session'diskDelete'params {CGNA.path = p} -> do
       result <- NI.deleteImage (T.unpack p)
       pure
         CGNA.Session'diskDelete'results
           { CGNA.result = encodeDiskOpResult result
           }
 
-  session'removeDirectoryIfEmpty _ =
-    handleParsedAsync $ traceNodeRequest "removeDirectoryIfEmpty" $ \CGNA.Session'removeDirectoryIfEmpty'params {CGNA.path = path, CGNA.protectedBasePath = protectedBase} -> do
+  session'removeDirectoryIfEmpty (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "removeDirectoryIfEmpty" $ \CGNA.Session'removeDirectoryIfEmpty'params {CGNA.path = path, CGNA.protectedBasePath = protectedBase} -> do
       base <- getEffectiveBasePath agentQemuConfig
       DC.removeDirectoryIfEmpty (base : [T.unpack protectedBase | not (T.null protectedBase)]) (T.unpack path)
       pure CGNA.Session'removeDirectoryIfEmpty'results
 
-  session'removeVmDirectoryIfEmpty _ =
-    handleParsedAsync $ traceNodeRequest "removeVmDirectoryIfEmpty" $ \CGNA.Session'removeVmDirectoryIfEmpty'params {CGNA.vmName = name} -> do
+  session'removeVmDirectoryIfEmpty (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "removeVmDirectoryIfEmpty" $ \CGNA.Session'removeVmDirectoryIfEmpty'params {CGNA.vmName = name} -> do
       case sanitiseVmName name of
         Left err -> throwFailed ("removeVmDirectoryIfEmpty: " <> err)
         Right safeName -> do
@@ -139,9 +139,9 @@ instance CGNA.Session'server_ SessionServer where
           DC.removeDirectoryIfEmpty [base] (takeDirectory path)
           pure CGNA.Session'removeVmDirectoryIfEmpty'results
 
-  session'diskResize _ =
+  session'diskResize (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskResize" $
+      traceNodeRequest (scQgaConns sc) "diskResize" $
         \CGNA.Session'diskResize'params
           { CGNA.path = p
           , CGNA.newSize = sz
@@ -152,9 +152,9 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'diskRebase _ =
+  session'diskRebase (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskRebase" $
+      traceNodeRequest (scQgaConns sc) "diskRebase" $
         \CGNA.Session'diskRebase'params
           { CGNA.overlayPath = ov
           , CGNA.newBacking = nb
@@ -174,10 +174,10 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'diskClone _ =
+  session'diskClone (SessionServer sc) =
     -- Publication can take minutes; keep status and control RPCs dispatching.
     handleParsedAsync $
-      traceNodeRequest "diskClone" $
+      traceNodeRequest (scQgaConns sc) "diskClone" $
         \CGNA.Session'diskClone'params
           { CGNA.sourcePath = src
           , CGNA.destPath = dst
@@ -194,8 +194,8 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'diskInspect _ =
-    handleParsedAsync $ traceNodeRequest "diskInspect" $ \CGNA.Session'diskInspect'params {CGNA.path = p} -> do
+  session'diskInspect (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskInspect" $ \CGNA.Session'diskInspect'params {CGNA.path = p} -> do
       result <- NI.getImageInfo (T.unpack p)
       case result of
         Left err -> throwFailed err
@@ -207,9 +207,9 @@ instance CGNA.Session'server_ SessionServer where
 
   -- ---- Snapshot operations -------------------------------------------------
 
-  session'snapshotCreate _ =
+  session'snapshotCreate (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "snapshotCreate" $
+      traceNodeRequest (scQgaConns sc) "snapshotCreate" $
         \CGNA.Session'snapshotCreate'params
           { CGNA.path = p
           , CGNA.name = n
@@ -220,9 +220,9 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'snapshotDelete _ =
+  session'snapshotDelete (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "snapshotDelete" $
+      traceNodeRequest (scQgaConns sc) "snapshotDelete" $
         \CGNA.Session'snapshotDelete'params
           { CGNA.path = p
           , CGNA.name = n
@@ -233,9 +233,9 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'snapshotRollback _ =
+  session'snapshotRollback (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "snapshotRollback" $
+      traceNodeRequest (scQgaConns sc) "snapshotRollback" $
         \CGNA.Session'snapshotRollback'params
           { CGNA.path = p
           , CGNA.name = n
@@ -253,7 +253,7 @@ instance CGNA.Session'server_ SessionServer where
     -- Held under the per-VM op lock so it serialises against
     -- start/stop/save on the same VM.
     handleParsedAsync $
-      traceNodeRequest "snapshotCreateLive" $
+      traceNodeRequest (scQgaConns sc) "snapshotCreateLive" $
         \CGNA.Session'snapshotCreateLive'params
           { CGNA.path = p
           , CGNA.name = n
@@ -277,7 +277,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'snapshotDeleteLive (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "snapshotDeleteLive" $
+      traceNodeRequest (scQgaConns sc) "snapshotDeleteLive" $
         \CGNA.Session'snapshotDeleteLive'params
           { CGNA.path = p
           , CGNA.name = n
@@ -300,7 +300,7 @@ instance CGNA.Session'server_ SessionServer where
     -- VM op lock keeps a parallel `applyVm` or `vmStop` from
     -- racing the save.
     handleParsedAsync $
-      traceNodeRequest "snapshotCreateWithVmstate" $
+      traceNodeRequest (scQgaConns sc) "snapshotCreateWithVmstate" $
         \CGNA.Session'snapshotCreateWithVmstate'params
           { CGNA.vmstateDevicePath = vp
           , CGNA.devicePaths = ps
@@ -324,7 +324,7 @@ instance CGNA.Session'server_ SessionServer where
     -- Async + op-lock; the caller has already issued QMP `stop`
     -- per the contract documented in 'NSL.loadSnapshotWithVmstate'.
     handleParsedAsync $
-      traceNodeRequest "snapshotLoadWithVmstate" $
+      traceNodeRequest (scQgaConns sc) "snapshotLoadWithVmstate" $
         \CGNA.Session'snapshotLoadWithVmstate'params
           { CGNA.vmstateDevicePath = vp
           , CGNA.devicePaths = ps
@@ -346,7 +346,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'snapshotDeleteWithVmstate (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "snapshotDeleteWithVmstate" $
+      traceNodeRequest (scQgaConns sc) "snapshotDeleteWithVmstate" $
         \CGNA.Session'snapshotDeleteWithVmstate'params
           { CGNA.devicePaths = ps
           , CGNA.name = n
@@ -370,7 +370,7 @@ instance CGNA.Session'server_ SessionServer where
     -- this is a guest-only operation that doesn't touch QEMU
     -- state or the qcow2 file.
     handleParsedAsync $
-      traceNodeRequest "guestSetTime" $
+      traceNodeRequest (scQgaConns sc) "guestSetTime" $
         \CGNA.Session'guestSetTime'params {CGNA.vmId = vid} -> do
           eResult <-
             NGA.guestSetTime (scQgaConns sc) agentQemuConfig vid
@@ -386,9 +386,9 @@ instance CGNA.Session'server_ SessionServer where
 
   -- These operations can run for minutes. Fork them so unrelated calls on
   -- the shared agent session (including VM deletion) can still be dispatched.
-  session'diskDownload _ =
+  session'diskDownload (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskDownload" $
+      traceNodeRequest (scQgaConns sc) "diskDownload" $
         \CGNA.Session'diskDownload'params
           { CGNA.destPath = d
           , CGNA.url = u
@@ -413,8 +413,8 @@ instance CGNA.Session'server_ SessionServer where
                 { CGNA.result = encodeDiskOpResult result
                 }
 
-  session'diskDecompressXz _ =
-    handleParsedAsync $ traceNodeRequest "diskDecompressXz" $ \CGNA.Session'diskDecompressXz'params {CGNA.xzPath = p} -> do
+  session'diskDecompressXz (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskDecompressXz" $ \CGNA.Session'diskDecompressXz'params {CGNA.xzPath = p} -> do
       result <- NI.decompressXz (T.unpack p)
       case result of
         Left err -> throwFailed err
@@ -424,13 +424,13 @@ instance CGNA.Session'server_ SessionServer where
               { CGNA.finalPath = T.pack final
               }
 
-  session'diskSourceIdentity _ =
-    handleParsedAsync $ traceNodeRequest "diskSourceIdentity" $ \CGNA.Session'diskSourceIdentity'params {CGNA.path = p} -> do
+  session'diskSourceIdentity (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskSourceIdentity" $ \CGNA.Session'diskSourceIdentity'params {CGNA.path = p} -> do
       result <- NI.sourceIdentity (T.unpack p)
       either throwFailed (\identity -> pure CGNA.Session'diskSourceIdentity'results {CGNA.identity = identity}) result
 
-  session'diskHash _ =
-    handleParsedAsync $ traceNodeRequest "diskHash" $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do
+  session'diskHash (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskHash" $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do
       result <- NI.hashFile a (T.unpack p)
       case result of
         Left err -> throwFailed err
@@ -444,7 +444,7 @@ instance CGNA.Session'server_ SessionServer where
     -- block for hundreds of ms spawning virtiofsd + QEMU and
     -- waiting on sockets; under the per-VM op lock so two starts
     -- for the same VM can't orphan each other's processes.
-    handleParsedAsync $ traceNodeRequest "vmStart" $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} -> do
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmStart" $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} -> do
       spec <- either (throwFailed . showWireError) pure (decodeVmSpec wireSpec)
       withVmOpLock sc (VS.vsVmId spec) (handleVmStart sc spec)
 
@@ -459,7 +459,7 @@ instance CGNA.Session'server_ SessionServer where
     -- 'vmStopHard' signals before acquiring the lock so a reset can
     -- still interrupt a stuck graceful stop.
     handleParsedAsync $
-      traceNodeRequest "vmStopGraceful" $
+      traceNodeRequest (scQgaConns sc) "vmStopGraceful" $
         \CGNA.Session'vmStopGraceful'params
           { CGNA.vmId = vid
           , CGNA.timeoutSec = tmo
@@ -468,7 +468,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'vmStopHard (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "vmStopHard" $
+      traceNodeRequest (scQgaConns sc) "vmStopHard" $
         \CGNA.Session'vmStopHard'params
           { CGNA.vmId = vid
           , CGNA.lifecycleRevision = revision
@@ -477,55 +477,55 @@ instance CGNA.Session'server_ SessionServer where
             handleVmStopHard sc vid (if hasFence then Just revision else Nothing)
 
   session'vmPause (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmPause" $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmPause" $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->
       withVmOpLock sc vid (handleVmPause sc vid)
 
   session'vmScreenshot (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmScreenshot" $ \CGNA.Session'vmScreenshot'params {CGNA.vmId = vid, CGNA.sink = sink} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmScreenshot" $ \CGNA.Session'vmScreenshot'params {CGNA.vmId = vid, CGNA.sink = sink} ->
       handleVmScreenshot sc vid sink
 
   session'vmSetBalloon (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmSetBalloon" $ \CGNA.Session'vmSetBalloon'params {CGNA.vmId = vid, CGNA.targetBytes = target} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmSetBalloon" $ \CGNA.Session'vmSetBalloon'params {CGNA.vmId = vid, CGNA.targetBytes = target} ->
       withVmOpLock sc vid (handleVmSetBalloon sc vid target)
 
   session'vmResume (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmResume" $ \CGNA.Session'vmResume'params {CGNA.vmId = vid} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmResume" $ \CGNA.Session'vmResume'params {CGNA.vmId = vid} ->
       withVmOpLock sc vid (handleVmResume sc vid)
 
   session'vmSave (SessionServer sc) =
     -- Async dispatch (see 'session'vmStopGraceful'): vmSave polls
     -- the outgoing QMP migration for up to 300 s. Under the per-VM
     -- op lock so it serialises against start/stop on the same VM.
-    handleParsedAsync $ traceNodeRequest "vmSave" $ \CGNA.Session'vmSave'params {CGNA.vmId = vid} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmSave" $ \CGNA.Session'vmSave'params {CGNA.vmId = vid} ->
       withVmOpLock sc vid (handleVmSave sc vid)
 
   session'deleteSavedState (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "deleteSavedState" $ \CGNA.Session'deleteSavedState'params {CGNA.vmName = name} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "deleteSavedState" $ \CGNA.Session'deleteSavedState'params {CGNA.vmName = name} ->
       handleDeleteSavedState sc name
 
   session'deleteTpmState (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "deleteTpmState" $ \CGNA.Session'deleteTpmState'params {CGNA.vmName = name} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "deleteTpmState" $ \CGNA.Session'deleteTpmState'params {CGNA.vmName = name} ->
       handleDeleteTpmState sc name
 
   session'prepareTpmMigration (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "prepareTpmMigration" $ \CGNA.Session'prepareTpmMigration'params {CGNA.vmName = name} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "prepareTpmMigration" $ \CGNA.Session'prepareTpmMigration'params {CGNA.vmName = name} ->
       handlePrepareTpmMigration sc name
 
   session'restoreTpmMigration (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "restoreTpmMigration" $ \CGNA.Session'restoreTpmMigration'params {CGNA.vmName = name} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "restoreTpmMigration" $ \CGNA.Session'restoreTpmMigration'params {CGNA.vmName = name} ->
       handleRestoreTpmMigration sc name
 
   session'cleanupTpmMigrationArchive (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "cleanupTpmMigrationArchive" $ \CGNA.Session'cleanupTpmMigrationArchive'params {CGNA.vmName = name} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "cleanupTpmMigrationArchive" $ \CGNA.Session'cleanupTpmMigrationArchive'params {CGNA.vmName = name} ->
       handleCleanupTpmMigrationArchive sc name
 
   session'vmGuestWriteFile (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmGuestWriteFile" $ \CGNA.Session'vmGuestWriteFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.source = source} -> guestFileRpc $ do
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestWriteFile" $ \CGNA.Session'vmGuestWriteFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.source = source} -> guestFileRpc $ do
       count <- NGA.guestWriteFile (scQgaConns sc) agentQemuConfig vid path (readSource source)
       pure CGNA.Session'vmGuestWriteFile'results {CGNA.bytesTransferred = count}
 
   session'vmGuestReadFile (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmGuestReadFile" $ \CGNA.Session'vmGuestReadFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.sink = sink} -> guestFileRpc $ do
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestReadFile" $ \CGNA.Session'vmGuestReadFile'params {CGNA.vmId = vid, CGNA.path = path, CGNA.sink = sink} -> guestFileRpc $ do
       let boundedCall action = do
             result <- timeout 60000000 action
             maybe (throwFailed "guest file sink timed out") pure result
@@ -540,7 +540,7 @@ instance CGNA.Session'server_ SessionServer where
       pure CGNA.Session'vmGuestReadFile'results {CGNA.bytesTransferred = count}
 
   session'vmGuestSshAddAuthorizedKeys (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmGuestSshAddAuthorizedKeys" $ \CGNA.Session'vmGuestSshAddAuthorizedKeys'params {CGNA.vmId = vid, CGNA.username = username, CGNA.keys = keys, CGNA.reset = reset} -> do
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestSshAddAuthorizedKeys" $ \CGNA.Session'vmGuestSshAddAuthorizedKeys'params {CGNA.vmId = vid, CGNA.username = username, CGNA.keys = keys, CGNA.reset = reset} -> do
       live <- atomically $ L.lookupVm (scVmLedger sc) vid
       case live of
         Nothing -> throwFailed ("vmGuestSshAddAuthorizedKeys: unknown vmId " <> tshow vid)
@@ -549,11 +549,11 @@ instance CGNA.Session'server_ SessionServer where
           either throwFailed (const $ pure CGNA.Session'vmGuestSshAddAuthorizedKeys'results) result
 
   session'vmGuestPing (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmGuestPing" $ \CGNA.Session'vmGuestPing'params {CGNA.vmId = vid} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestPing" $ \CGNA.Session'vmGuestPing'params {CGNA.vmId = vid} ->
       handleVmGuestPing sc vid
 
   session'vmGuestReboot (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmGuestReboot" $ \CGNA.Session'vmGuestReboot'params {CGNA.vmId = vid, CGNA.timeoutSec = seconds} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestReboot" $ \CGNA.Session'vmGuestReboot'params {CGNA.vmId = vid, CGNA.timeoutSec = seconds} ->
       withVmOpLock sc vid (handleVmGuestReboot sc vid seconds)
 
   session'vmGuestExec (SessionServer sc) =
@@ -567,7 +567,7 @@ instance CGNA.Session'server_ SessionServer where
     -- call immediately; the per-VM QGA MVar still serialises
     -- \*guest-side* access to one VM, which is the only place
     -- the agent actually needs serialisation.
-    handleParsedAsync $ traceNodeRequest "vmGuestExec" $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestExec" $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
       handleVmGuestExec sc (decodeVmGuestExecReq wireReq)
 
   session'vmGuestExecStream (SessionServer sc) =
@@ -575,7 +575,7 @@ instance CGNA.Session'server_ SessionServer where
     -- (build provisioners) run even longer than the aggregating
     -- variant, so they MUST NOT block the session dispatcher.
     handleParsedAsync $
-      traceNodeRequest "vmGuestExecStream" $
+      traceNodeRequest (scQgaConns sc) "vmGuestExecStream" $
         \CGNA.Session'vmGuestExecStream'params
           { CGNA.req = wireReq
           , CGNA.stdoutSink = stdoutCli
@@ -593,7 +593,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'vmSetSpiceTicket (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "vmSetSpiceTicket" $
+      traceNodeRequest (scQgaConns sc) "vmSetSpiceTicket" $
         \CGNA.Session'vmSetSpiceTicket'params
           { CGNA.vmId = vid
           , CGNA.password = pw
@@ -610,14 +610,14 @@ instance CGNA.Session'server_ SessionServer where
 
   session'openSerialConsole (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "openSerialConsole" $
+      traceNodeRequest (scQgaConns sc) "openSerialConsole" $
         \CGNA.Session'openSerialConsole'params {CGNA.vmId = vid, CGNA.sink = sink} -> do
           inputCap <- openChardev (scSerialBuffers sc) sc vid sink
           pure CGNA.Session'openSerialConsole'results {CGNA.input = inputCap}
 
   session'openHmpMonitor (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "openHmpMonitor" $
+      traceNodeRequest (scQgaConns sc) "openHmpMonitor" $
         \CGNA.Session'openHmpMonitor'params {CGNA.vmId = vid, CGNA.sink = sink} -> do
           inputCap <- openChardev (scMonitorBuffers sc) sc vid sink
           pure CGNA.Session'openHmpMonitor'results {CGNA.input = inputCap}
@@ -635,7 +635,7 @@ instance CGNA.Session'server_ SessionServer where
   -- ---- QMP-mediated runtime VM changes -------------------------------------
 
   session'vmAttachDrive (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "vmAttachDrive" $ \CGNA.Session'vmAttachDrive'params {CGNA.req = req} -> do
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmAttachDrive" $ \CGNA.Session'vmAttachDrive'params {CGNA.req = req} -> do
       let CGNA.VmAttachDriveReq
             { CGNA.vmId = vid
             , CGNA.driveId = drvId
@@ -684,7 +684,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'vmDetachDrive (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "vmDetachDrive" $
+      traceNodeRequest (scQgaConns sc) "vmDetachDrive" $
         \CGNA.Session'vmDetachDrive'params
           { CGNA.vmId = vid
           , CGNA.driveId = drvId
@@ -721,7 +721,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'vmEjectMedia (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "vmEjectMedia" $
+      traceNodeRequest (scQgaConns sc) "vmEjectMedia" $
         \CGNA.Session'vmEjectMedia'params
           { CGNA.vmId = vid
           , CGNA.driveId = drvId
@@ -736,7 +736,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'vmChangeMedia (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "vmChangeMedia" $
+      traceNodeRequest (scQgaConns sc) "vmChangeMedia" $
         \CGNA.Session'vmChangeMedia'params
           { CGNA.vmId = vid
           , CGNA.driveId = drvId
@@ -753,18 +753,18 @@ instance CGNA.Session'server_ SessionServer where
 
   -- ---- Vsock probe ---------------------------------------------------------
 
-  session'probeVsockCid _ =
+  session'probeVsockCid (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "probeVsockCid" $
+      traceNodeRequest (scQgaConns sc) "probeVsockCid" $
         \CGNA.Session'probeVsockCid'params {CGNA.cid = cid} -> do
           free <- liftIO $ VC.isHostFree (fromIntegral cid)
           pure CGNA.Session'probeVsockCid'results {CGNA.free = free}
 
   -- ---- Cloud-init ----------------------------------------------------------
 
-  session'cloudInitGenerateIso _ =
+  session'cloudInitGenerateIso (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "cloudInitGenerateIso" $
+      traceNodeRequest (scQgaConns sc) "cloudInitGenerateIso" $
         \CGNA.Session'cloudInitGenerateIso'params
           { CGNA.targetDir = td
           , CGNA.userData = ud
@@ -786,7 +786,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'diskOpenRead (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskOpenRead" $
+      traceNodeRequest (scQgaConns sc) "diskOpenRead" $
         \CGNA.Session'diskOpenRead'params {CGNA.path = pTxt} -> do
           let path = T.unpack pTxt
           -- Stat the file + hash it. The hash is computed once, up
@@ -841,7 +841,7 @@ instance CGNA.Session'server_ SessionServer where
 
   session'diskImportFromPeer (SessionServer sc) =
     handleParsedAsync $
-      traceNodeRequest "diskImportFromPeer" $
+      traceNodeRequest (scQgaConns sc) "diskImportFromPeer" $
         \CGNA.Session'diskImportFromPeer'params
           { CGNA.destPath = destPathTxt
           , CGNA.peerHost = peerHostTxt
@@ -912,7 +912,7 @@ instance CGNA.Session'server_ SessionServer where
             pure CGNA.Session'diskImportFromPeer'results
 
   session'diskOpenWrite (SessionServer sc) =
-    handleParsedAsync $ traceNodeRequest "diskOpenWrite" $ \CGNA.Session'diskOpenWrite'params {CGNA.destPath = destPathTxt} -> do
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskOpenWrite" $ \CGNA.Session'diskOpenWrite'params {CGNA.destPath = destPathTxt} -> do
       -- The daemon resolves and validates this path before asking the node to
       -- open it.  The sink itself writes to a sibling .upload.part and only
       -- renames on end(), so a disconnected client cannot publish a partial

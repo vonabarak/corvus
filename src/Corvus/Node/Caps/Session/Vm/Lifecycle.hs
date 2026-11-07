@@ -148,6 +148,7 @@ stopGraceful sc vmId timeoutSec = do
           -- The QGA chardev is gone with QEMU; drop our cached
           -- per-VM socket so its fd doesn't sit in the conns map
           -- until the agent process restarts.
+          L.stopVmWorkers live
           NGA.releaseConn (scQgaConns sc) vmId
           _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
           pure
@@ -227,6 +228,7 @@ stopHard sc vmId mRevision = do
                 throwFailed "Hard stop was superseded; runtime retained"
           _ -> do
             reapVmHelpers live
+            L.stopVmWorkers live
             NGA.releaseConn (scQgaConns sc) vmId
             _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
             pure ()
@@ -426,6 +428,7 @@ reapEntryAfterQuit sc vmId live = do
   exited <- pollForExit (L.vlsLastExitCode live) 5
   unless exited $ throwFailed "QEMU exit after save was not confirmed; runtime retained"
   reapVmHelpers live
+  L.stopVmWorkers live
   NGA.releaseConn (scQgaConns sc) vmId
   _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
   pure ()

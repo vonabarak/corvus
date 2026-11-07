@@ -67,6 +67,7 @@ spec = describe "QEMU startup failures" $ do
       stderrDone <- newTVarIO True
       startupError <- newTVarIO Nothing
       startupPending <- newTVarIO True
+      workers <- newTVarIO []
       stopRequested <- newTVarIO False
       let vmSpec = startupSpec
           live =
@@ -82,6 +83,7 @@ spec = describe "QEMU startup failures" $ do
               , L.vlsStartupPending = startupPending
               , L.vlsSpicePort = 0
               , L.vlsSpec = vmSpec
+              , L.vlsWorkers = workers
               , L.vlsStopRequested = stopRequested
               }
           cfg = defaultQemuConfig {qcRuntimeDir = Just runtime, qcBasePath = Just runtime}
@@ -118,6 +120,14 @@ spec = describe "QEMU startup failures" $ do
       readyLogs `shouldSatisfy` any (Text.isInfixOf "probe=True")
       writeIORef messages []
       atomically $ writeTVar startupError (Just "startup timed out")
+      probe
+      connected `shouldReturn` False
+
+      -- Disabling QGA suppresses all dispatched probes, including after startup.
+      atomically $ writeTVar startupError Nothing
+      let disabled = live {L.vlsSpec = vmSpec {vsGuestAgent = False}}
+      atomically (L.publishVmStart ledger 7 1 1 disabled) `shouldReturn` True
+      writeIORef messages []
       probe
       connected `shouldReturn` False
 

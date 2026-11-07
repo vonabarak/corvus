@@ -5822,7 +5822,7 @@ instance (C.HasTypeId VmStatusEntry) where
     typeId  = 18089874872843444784
 instance (C.TypedStruct VmStatusEntry) where
     numStructWords  = 6
-    numStructPtrs  = 3
+    numStructPtrs  = 4
 instance (C.Allocate VmStatusEntry) where
     type AllocHint VmStatusEntry = ()
     new _ = C.newTypedStruct
@@ -5843,7 +5843,10 @@ data instance C.Parsed VmStatusEntry
         ,stats :: (RP.Parsed Capnp.Gen.ById.Xa7366eabdb0b1db4.VmStats)
         ,lifecycleRevision :: (RP.Parsed Std_.Int64)
         ,runtimeGeneration :: (RP.Parsed Std_.Int64)
-        ,startupError :: (RP.Parsed Basics.Text)}
+        ,startupError :: (RP.Parsed Basics.Text)
+        ,guestAgentDeferred :: (RP.Parsed Std_.Bool)
+        ,guestAgentMessage :: (RP.Parsed Basics.Text)
+        ,netIfsValid :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStatusEntry))
 deriving instance (Std_.Eq (C.Parsed VmStatusEntry))
@@ -5858,7 +5861,10 @@ instance (C.Parse VmStatusEntry (C.Parsed VmStatusEntry)) where
                                 <*> (GH.parseField #stats raw_)
                                 <*> (GH.parseField #lifecycleRevision raw_)
                                 <*> (GH.parseField #runtimeGeneration raw_)
-                                <*> (GH.parseField #startupError raw_))
+                                <*> (GH.parseField #startupError raw_)
+                                <*> (GH.parseField #guestAgentDeferred raw_)
+                                <*> (GH.parseField #guestAgentMessage raw_)
+                                <*> (GH.parseField #netIfsValid raw_))
 instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
     marshalInto raw_ VmStatusEntry{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -5872,6 +5878,9 @@ instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
         (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
         (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
         (GH.encodeField #startupError startupError raw_)
+        (GH.encodeField #guestAgentDeferred guestAgentDeferred raw_)
+        (GH.encodeField #guestAgentMessage guestAgentMessage raw_)
+        (GH.encodeField #netIfsValid netIfsValid raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmStatusEntry Std_.Int64) where
@@ -5896,6 +5905,12 @@ instance (GH.HasField "runtimeGeneration" GH.Slot VmStatusEntry Std_.Int64) wher
     fieldByLabel  = (GH.dataField 0 5 64 0)
 instance (GH.HasField "startupError" GH.Slot VmStatusEntry Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "guestAgentDeferred" GH.Slot VmStatusEntry Std_.Bool) where
+    fieldByLabel  = (GH.dataField 17 1 1 0)
+instance (GH.HasField "guestAgentMessage" GH.Slot VmStatusEntry Basics.Text) where
+    fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "netIfsValid" GH.Slot VmStatusEntry Std_.Bool) where
+    fieldByLabel  = (GH.dataField 18 1 1 0)
 data GuestNetIf 
 type instance (R.ReprFor GuestNetIf) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestNetIf) where

@@ -315,7 +315,7 @@ doVmStart sc spec = do
   live <- spawnQemu spec command virtiofsdEntries swtpmEntry
   publishStartedVm sc live
   claimVmVsock sc cfg live
-  startVmBuffers sc cfg spec serialSock monitorSock
+  startVmBuffers sc cfg live serialSock monitorSock
   startVmReaper sc live
   forkStartupCoordinator sc cfg live savedStateFile
   waitForPausedVm cfg spec
@@ -388,6 +388,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
   startupErrorVar <- newTVarIO Nothing
   startupPendingVar <- newTVarIO (needsGuestAgentWait spec)
   forwardQemuOutput (VS.vsVmId spec) mStdoutH mStderrH stderrTailVar stderrDoneVar
+  workersVar <- newTVarIO []
   stopRequestedVar <- newTVarIO False
   pure $
     L.VmLiveState
@@ -402,6 +403,7 @@ newVmLiveState spec qemuPidW qemuPh mStdoutH mStderrH virtiofsdEntries swtpmEntr
       , L.vlsStartupPending = startupPendingVar
       , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
       , L.vlsSpec = spec
+      , L.vlsWorkers = workersVar
       , L.vlsStopRequested = stopRequestedVar
       }
 
@@ -477,11 +479,17 @@ claimVmVsock sc cfg live = do
         throwFailed ("vmStart failed: " <> reason)
 
 -- | Buffer chardev output until QEMU exits, then unregister the buffers.
--- Threads wait about a second for sockets to appear. Serial is headless-only
+-- Workers retry socket creation for up to five seconds. Serial is headless-only
 -- (graphical VMs use SPICE); the HMP monitor is always buffered.
-startVmBuffers :: SessionCap -> QemuConfig -> VS.VmSpec -> FilePath -> FilePath -> IO ()
-startVmBuffers sc cfg spec serialSock monitorSock = do
-  let vmId = VS.vsVmId spec
+startVmBuffers :: SessionCap -> QemuConfig -> L.VmLiveState -> FilePath -> FilePath -> IO ()
+startVmBuffers sc cfg live serialSock monitorSock = do
+  let spec = L.vlsSpec live
+      vmId = VS.vsVmId spec
+      eligible = do
+        current <- L.lookupVm (scVmLedger sc) vmId
+        stopped <- readTVar (L.vlsStopRequested live)
+        exited <- readTVar (L.vlsLastExitCode live)
+        pure (not stopped && isNothing exited && maybe False (\v -> L.vlsLastExitCode v == L.vlsLastExitCode live) current)
   when (VS.vsHeadless spec) $
     startSocketBufferThread
       cfg
@@ -490,7 +498,9 @@ startVmBuffers sc cfg spec serialSock monitorSock = do
       (scSerialBuffers sc)
       serialBufferCapacity
       "serial"
-      LevelInfo
+      (L.vlsWorkers live)
+      eligible
+      (guestAgentLogger (scQgaConns sc))
   startSocketBufferThread
     cfg
     vmId
@@ -498,7 +508,9 @@ startVmBuffers sc cfg spec serialSock monitorSock = do
     (scMonitorBuffers sc)
     monitorBufferCapacity
     "monitor"
-    LevelInfo
+    (L.vlsWorkers live)
+    eligible
+    (guestAgentLogger (scQgaConns sc))
 
 -- | Record ordinary exits, or restart a reboot-quirk VM after a guest-initiated
 -- exit. The callback repeats the entire start path: helpers, QEMU, buffers,
@@ -512,7 +524,8 @@ startVmReaper sc live =
     (L.vlsQemuPid live)
     (L.vlsLastExitCode live)
     (L.vlsStopRequested live)
-    (respawnAfterExit sc (L.vlsSpec live))
+    (L.stopVmWorkers live)
+    (respawnAfterExit sc live)
 
 -- | Restore incoming state before waiting for QGA, since a postmigrate guest
 -- cannot answer until QMP cont resumes it. Run independently of the RPC so
@@ -538,7 +551,7 @@ forkStartupCoordinator sc cfg live savedStateFile = do
 -- the agent must not wait for the guest in the meantime.
 needsGuestAgentWait :: VS.VmSpec -> Bool
 needsGuestAgentWait spec =
-  VS.vsWaitForGuestAgentMs spec > 0 && not (VS.vsStartPaused spec)
+  VS.vsGuestAgent spec && VS.vsWaitForGuestAgentMs spec > 0 && not (VS.vsStartPaused spec)
 
 -- | Incoming saved-state QEMU starts in postmigrate. Wait for query-migrate
 -- completion, then cont, and only then discard the state file. Any failure
@@ -604,10 +617,9 @@ awaitGuestAgent sc cfg live = do
       (VS.vsWaitForGuestAgentMs spec)
   case result of
     FirstQgaPingSucceeded -> do
+      SP.recordGuestAgentReady (scSubs sc) live
       atomically $ writeTVar (L.vlsStartupPending live) False
       logStartupState sc live "startup_ready"
-      runStderrLoggingT . logInfoN $
-        "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
     FirstQgaPingTimedOut reason -> do
       runStderrLoggingT . logWarnN $
@@ -677,14 +689,15 @@ waitForPausedVm cfg spec =
 -- (downstream failure), the captured TVar is no longer
 -- referenced from the ledger and the write is a harmless
 -- no-op on a garbage-collectable orphan.
-respawnAfterExit :: SessionCap -> VS.VmSpec -> IO ()
-respawnAfterExit sc spec = withVmOpLock sc (VS.vsVmId spec) $ do
+respawnAfterExit :: SessionCap -> L.VmLiveState -> IO ()
+respawnAfterExit sc original = withVmOpLock sc (VS.vsVmId (L.vlsSpec original)) $ do
+  let spec = L.vlsSpec original
   current <- atomically $ L.lookupVm (scVmLedger sc) (VS.vsVmId spec)
   forM_ current $ \live ->
-    when (VS.vsRuntimeGeneration (L.vlsSpec live) == VS.vsRuntimeGeneration spec) $ do
+    when (L.vlsLastExitCode live == L.vlsLastExitCode original) $ do
       stopped <- readTVarIO (L.vlsStopRequested live)
       if stopped
-        then atomically $ writeTVar (L.vlsLastExitCode live) (Just 0)
+        then guestAgentLogger (scQgaConns sc) LevelDebug "[nodeagent] reboot-quirk re-spawn superseded by stop"
         else respawnCurrent sc spec
 
 respawnCurrent :: SessionCap -> VS.VmSpec -> IO ()
@@ -721,15 +734,18 @@ respawnCurrent sc spec = do
     Right _ ->
       runStderrLoggingT . logInfoN $
         "[nodeagent] vm-" <> tshow vmId <> ": reboot-quirk re-spawn succeeded"
-    Left e -> do
-      forM_ mOldLive $ \live ->
-        atomically $ writeTVar (L.vlsLastExitCode live) (Just 1)
-      runStderrLoggingT . logWarnN $
-        "[nodeagent] vm-"
-          <> tshow vmId
-          <> ": reboot-quirk re-spawn FAILED: "
-          <> T.pack (show e)
-          <> "; old entry marked errored so daemon will reconcile"
+    Left e -> case E.fromException e :: Maybe E.SomeAsyncException of
+      Just _ -> E.throwIO e
+      Nothing -> do
+        failed <- atomically $ do
+          current <- L.lookupVm (scVmLedger sc) vmId
+          case (mOldLive, current) of
+            (Just old, Just live) | L.vlsLastExitCode old == L.vlsLastExitCode live -> do
+              stopped <- readTVar (L.vlsStopRequested live)
+              if stopped then pure False else writeTVar (L.vlsLastExitCode live) (Just 1) >> pure True
+            _ -> pure False
+        guestAgentLogger (scQgaConns sc) (if failed then LevelError else LevelDebug) $
+          "[nodeagent] vm-" <> tshow vmId <> if failed then ": reboot-quirk re-spawn failed: " <> T.pack (show e) else ": reboot-quirk re-spawn superseded"
 
 -- | VM IDs survive restarts; record PID and generation to distinguish runtimes.
 logStartupState :: SessionCap -> L.VmLiveState -> Text -> IO ()
@@ -738,7 +754,7 @@ logStartupState sc live event = do
   let spec = L.vlsSpec live
   logQgaEvent
     (guestAgentLogger (scQgaConns sc))
-    LevelInfo
+    (if event == "startup_ready" then LevelInfo else LevelDebug)
     event
     ( "vm_id="
         <> tshow (VS.vsVmId spec)

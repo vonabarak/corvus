@@ -785,6 +785,9 @@ struct VmStatusEntry {
   lifecycleRevision @8 :Int64;
   runtimeGeneration @9 :Int64;
   startupError @10 :Text;             # nonempty after first QGA ping timeout; QEMU remains live
+  guestAgentDeferred @11 :Bool;
+  guestAgentMessage @12 :Text;
+  netIfsValid @13 :Bool;
 }
 
 struct GuestNetIf {

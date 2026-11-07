@@ -134,16 +134,16 @@ class _VmLifecycleBase(SingleNodeCase):
         directly grep-able.
         """
         r = self.nodes[0].run(
-            f"pgrep -f 'corvus-vm-{vm_id}' || true",
+            f"pgrep -f '[c]orvus-vm-{vm_id}(,| |$)' || true",
             check=False,
             timeout_sec=10.0,
         )
         out = r.stdout.decode("utf-8", errors="replace").strip()
         if not out:
             return None
+        # Exclude the query shell itself with [c], and match the full VM id
+        # so VM 4 cannot accidentally match VM 40.
         # pgrep prints one pid per line; the first match is enough.
-        # The shell that wraps this command runs `pgrep` directly via
-        # exec, so it does not appear in the result set.
         return int(out.splitlines()[0].strip())
 
 
@@ -1121,6 +1121,36 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 f"after a guest-initiated reboot (still {pid_before}) — "
                 f"the reboot-quirk reaper did not re-spawn"
             )
+
+    def test_hard_stop_supersedes_reboot_respawn(self) -> None:
+        """Stopping a replacement QEMU must not publish a stale startup failure."""
+
+        class _RebootQuirkVm(VmSsh):
+            reboot_quirk = True
+
+        with _RebootQuirkVm(self) as vm:
+            vm_id = vm.cap.show().id
+            original_pid = self._read_qemu_pid(vm_id)
+            assert original_pid is not None
+            try:
+                vm.run("doas /sbin/reboot -f", check=False, timeout_sec=5)
+            except Exception:
+                pass
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                pid = self._read_qemu_pid(vm_id)
+                if pid is not None and pid != original_pid:
+                    break
+                time.sleep(0.1)
+            else:
+                raise AssertionError("QEMU did not respawn after reboot")
+
+            vm.cap.stop(wait=True, timeout_sec=0)
+            self._wait_status(vm.cap, "stopped", timeout_sec=30)
+            for _ in range(5):
+                assert vm.cap.show().status == "stopped"
+                assert self._read_qemu_pid(vm_id) is None
+                time.sleep(1)
 
     def test_no_reboot_quirk_qemu_pid_unchanged_on_reboot(self) -> None:
         """Without ``reboot_quirk``, a guest-initiated reboot keeps

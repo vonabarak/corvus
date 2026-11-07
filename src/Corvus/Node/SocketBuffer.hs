@@ -28,12 +28,13 @@ module Corvus.Node.SocketBuffer
   )
 where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (Async, asyncWithUnmask)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, bracket, finally, try)
-import Control.Monad (void)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel, LoggingT, filterLogger, logDebugN, logWarnN, runStdoutLoggingT)
+import Control.Exception (SomeAsyncException, SomeException, bracket, finally, fromException, mask, mask_, throwIO, try)
+import Control.Monad (when)
+import Control.Monad.Logger (LogLevel (..))
+import Corvus.Node.GuestAgent.Transport (QgaLogger)
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types (SocketBuffer (..), SocketBufferHandle (..))
 import qualified Data.ByteString as BS
@@ -41,9 +42,12 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
+import Foreign.C.Error (Errno (..), eCONNREFUSED)
+import GHC.IO.Exception (IOException (ioe_errno))
 import Network.Socket (Family (..), SockAddr (..), Socket)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv)
+import System.IO.Error (isDoesNotExistError)
 
 --------------------------------------------------------------------------------
 -- Ring Buffer Operations
@@ -154,36 +158,45 @@ startSocketBufferThread
   -- ^ Ring buffer capacity in bytes
   -> Text
   -- ^ Label for log messages (e.g. @"serial"@ or @"monitor"@)
-  -> LogLevel
+  -> TVar [Async ()]
+  -> STM Bool
+  -- ^ Current runtime, still running and not stopping.
+  -> QgaLogger
   -> IO ()
-startSocketBufferThread _config vmId sockPath bufferMap capacity label logLevel =
-  void $ forkIO $ runFiltered logLevel $ do
-    -- Wait for QEMU to create the socket
-    liftIO $ threadDelay 1000000
-    logDebugN $ label <> " buffer connecting to " <> T.pack sockPath <> " for VM " <> T.pack (show vmId)
-    result <-
-      liftIO $
-        try $
-          bracket
-            ( do
-                sock <- NS.socket AF_UNIX NS.Stream NS.defaultProtocol
-                NS.connect sock (SockAddrUnix sockPath)
-                pure sock
-            )
-            NS.close
-            (runReader vmId bufferMap capacity)
+startSocketBufferThread _config vmId sockPath bufferMap capacity label workers eligible logger = mask_ $ do
+  gate <- newEmptyTMVarIO
+  worker <- asyncWithUnmask $ \unmask -> unmask $ do
+    atomically $ takeTMVar gate
+    result <- try $ connectLoop (50 :: Int)
     case result of
-      Left (e :: SomeException) ->
-        logWarnN $ label <> " buffer for VM " <> T.pack (show vmId) <> " failed: " <> T.pack (show e)
-      Right () ->
-        logDebugN $ label <> " buffer for VM " <> T.pack (show vmId) <> " exited"
+      Left (e :: SomeException) -> case fromException e :: Maybe SomeAsyncException of
+        Just _ -> logger LevelDebug (prefix <> "retired") >> throwIO e
+        Nothing -> do
+          current <- atomically eligible
+          logger (if current then LevelWarn else LevelDebug) (prefix <> "failed: " <> T.pack (show e))
+      Right () -> logger LevelDebug (prefix <> "exited")
+  atomically $ modifyTVar' workers (worker :) >> putTMVar gate ()
   where
-    runFiltered :: LogLevel -> LoggingT IO a -> IO a
-    runFiltered minLvl = runStdoutLoggingT . filterLogger (\_ lvl -> lvl >= minLvl)
+    prefix = label <> " buffer for VM " <> T.pack (show vmId) <> " "
+    connectLoop attempts = do
+      current <- atomically eligible
+      when current $ do
+        -- Own the descriptor before connect: a failed connect must close it.
+        result <- bracket (NS.socket AF_UNIX NS.Stream NS.defaultProtocol) NS.close $ \sock -> do
+          connected <- try $ NS.connect sock (SockAddrUnix sockPath)
+          case connected of
+            Left err -> pure (Left err)
+            Right () -> runReader vmId bufferMap capacity eligible sock >> pure (Right ())
+        case result of
+          Right () -> pure ()
+          Left (err :: IOError)
+            | attempts > 0 && (isDoesNotExistError err || ioe_errno err == Just refused) -> threadDelay 100000 >> connectLoop (attempts - 1)
+            | otherwise -> ioError err
+    Errno refused = eCONNREFUSED
 
 -- | QEMU reader loop. Registers the buffer handle, reads until EOF, then cleans up.
-runReader :: Int64 -> TVar (Map.Map Int64 SocketBufferHandle) -> Int -> Socket -> IO ()
-runReader vmId bufferMap capacity qemuSock = do
+runReader :: Int64 -> TVar (Map.Map Int64 SocketBufferHandle) -> Int -> STM Bool -> Socket -> IO ()
+runReader vmId bufferMap capacity eligible qemuSock = mask $ \restore -> do
   buf <- newSocketBuffer capacity
   qemuSockVar <- newTVarIO (Just qemuSock)
   shutdownVar <- newTVarIO False
@@ -194,7 +207,10 @@ runReader vmId bufferMap capacity qemuSock = do
           , sbhShutdown = shutdownVar
           }
   -- Register in map
-  atomically $ modifyTVar' bufferMap (Map.insert vmId handle)
+  registered <- atomically $ do
+    current <- eligible
+    when current $ modifyTVar' bufferMap (Map.insert vmId handle)
+    pure current
   -- Read loop. The cleanup runs under 'finally' so the map entry +
   -- shutdown signal land even if 'recv' throws (which it does on a
   -- hard-killed QEMU — the kernel resets the socket instead of
@@ -212,4 +228,4 @@ runReader vmId bufferMap capacity qemuSock = do
         writeTVar shutdownVar True
         writeTVar qemuSockVar Nothing
         modifyTVar' bufferMap (Map.update (\current -> if sbhShutdown current == shutdownVar then Nothing else Just current) vmId)
-  loop `finally` cleanup
+  restore (when registered loop) `finally` cleanup

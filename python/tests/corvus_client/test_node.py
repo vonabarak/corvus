@@ -37,7 +37,7 @@ def test_self_node_is_visible_after_fixture(daemon_socket: Path) -> None:
         assert self_node.admin_state == "online"
         # Stats columns are populated by the agent's first
         # 'NodeStats' push (Phase 5). The fixture polls
-        # 'disks.create' which forces a successful nodeagent
+        # read-only node ping, which forces a successful nodeagent
         # round-trip, but the stats poll is on a ~10 s tick
         # of its own so we don't assert on capacity values.
 
@@ -292,5 +292,42 @@ def test_cross_node_disk_attach_is_refused(daemon_socket: Path) -> None:
         await vm.delete()
         await disk.delete()
         await beta.delete()
+
+    run(go)
+
+
+def test_node_ping_is_read_only(daemon_socket: Path) -> None:
+    run = with_client(daemon_socket)
+
+    async def go(c: AsyncClient) -> None:
+        node = await c.nodes.get("self", by_name=True)
+        tasks_before = await c.tasks.list()
+        disks_before = await c.disks.list()
+        for _ in range(3):
+            result = await node.ping()
+            assert result.reachable, result.message
+        assert await c.tasks.list() == tasks_before
+        assert await c.disks.list() == disks_before
+
+    run(go)
+
+
+def test_node_ping_reports_unavailable_and_deleted_nodes(daemon_socket: Path) -> None:
+    run = with_client(daemon_socket)
+
+    async def go(c: AsyncClient) -> None:
+        node = await c.nodes.create(
+            "ping-offline",
+            "127.0.0.1",
+            node_agent_port=1,
+            base_path="/tmp/corvus-ping-offline",
+            netd_disabled=True,
+        )
+        result = await node.ping()
+        assert not result.reachable
+        assert result.message
+        await node.delete()
+        with pytest.raises(NodeNotFound):
+            await node.ping()
 
     run(go)

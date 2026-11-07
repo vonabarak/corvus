@@ -79,6 +79,11 @@ class AsyncNode:
     def __init__(self, cap: capnp.lib.capnp._DynamicCapabilityClient) -> None:
         self._cap = cap
 
+    async def ping(self) -> t.NodePingResult:
+        """Probe the existing supervisor session without changing resources."""
+        resp = await self._cap.ping()
+        return t.NodePingResult(reachable=resp.reachable, message=resp.message)
+
     async def show(self) -> t.NodeDetails:
         resp = await self._cap.show()
         return conv.node_details(resp.details)

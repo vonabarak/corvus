@@ -53,6 +53,9 @@ class SyncNode(LoopBoundResource):
         self._a = async_node
         self._rl = runloop
 
+    def ping(self) -> t.NodePingResult:
+        return self._rl.run(self._a.ping())
+
     def show(self) -> t.NodeDetails:
         return self._rl.run(self._a.show())
 

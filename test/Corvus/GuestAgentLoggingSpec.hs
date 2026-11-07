@@ -11,7 +11,7 @@ import qualified Control.Exception
 import Control.Monad (replicateM_, void)
 import Control.Monad.Logger (LogLevel (..))
 import Corvus.Node.GuestAgent.Connection
-import Corvus.Node.GuestAgent.Control (guestPing, guestShutdown)
+import Corvus.Node.GuestAgent.Control (guestHealthProbe, guestPing, guestShutdown)
 import Corvus.Node.GuestAgent.Transport
 import Corvus.Node.Runtime (getGuestAgentSocket)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
@@ -74,6 +74,24 @@ contains needle = T.isInfixOf needle . messages
 
 spec :: Spec
 spec = describe "GuestAgent connection logs" $ do
+  it "defers a health probe without cancelling an operation holding the connection" $ withFixture $ \cache config listener _ -> do
+    held <- newEmptyMVar
+    release <- newEmptyMVar
+    withAsync (bracket (fst <$> accept listener) close handshake) $ \server ->
+      withAsync (withPersistentConn cache config 42 1 2000000 (\_ -> putMVar held () >> takeMVar release)) $ \operation -> do
+        takeMVar held
+        timeout 100000 (guestHealthProbe cache config 42) `shouldReturn` Just Nothing
+        putMVar release ()
+        wait operation `shouldReturn` Right ()
+        wait server
+
+  it "logs expected startup synchronization timeouts at Debug" $ withFixture $ \cache config listener entries ->
+    withAsync (bracket (fst <$> accept listener) close (\_ -> Control.Concurrent.threadDelay 2000000)) $ \_ -> do
+      _ <- withPersistentConn (cache {guestAgentStartupReadiness = True}) config 42 1 50000 (\_ -> pure ())
+      logs <- entries
+      logs `shouldSatisfy` contains "event=operation_timeout"
+      filter (T.isInfixOf "event=operation_timeout" . snd) logs `shouldSatisfy` all ((== LevelDebug) . fst)
+
   it "correlates synchronization, reuse, commands and lifecycle release" $ withFixture $ \cache config listener entries ->
     withAsync (bracket (fst <$> accept listener) close $ \peer -> handshake peer >> replicateM_ 2 (pingReply peer)) $ \server -> do
       replicateM_ 2 (guestPing cache config 42 `shouldReturn` True)

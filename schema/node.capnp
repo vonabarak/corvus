@@ -128,4 +128,6 @@ interface Node {
   # Refuses while any VMs / disks / networks reference this node.
   # Deletion never cascades to referenced resources.
   delete @3 () -> ();
+  # Read-only probe through the daemon supervisor's existing session.
+  ping @4 () -> (reachable :Bool, message :Text);
 }

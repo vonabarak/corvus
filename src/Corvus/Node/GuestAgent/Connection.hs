@@ -5,6 +5,7 @@
 module Corvus.Node.GuestAgent.Connection
   ( GuestAgentConns (..)
   , newGuestAgentConns
+  , tryPersistentConn
   , withPersistentConn
   , withDiscardedConn
   , invalidateConn
@@ -14,9 +15,9 @@ module Corvus.Node.GuestAgent.Connection
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
-import Control.Exception (SomeAsyncException, SomeException, catch, evaluate, finally, fromException, mask, mask_, onException, throwIO, try)
+import Control.Exception (Exception, SomeAsyncException, SomeException, catch, evaluate, finally, fromException, mask, mask_, onException, throwIO, try)
 import Control.Monad.Logger (LogLevel (..))
 import Corvus.Node.GuestAgent.Transport (QgaLogger, QgaSocket (..), closeQga, logQga, logQgaEvent, newQgaSocket, recvQga, sendQga)
 import Corvus.Node.Runtime (getGuestAgentSocket)
@@ -40,13 +41,14 @@ import System.Timeout (timeout)
 
 data GuestAgentConns = GuestAgentConns
   { guestAgentSlots :: TVar (Map.Map Int64 (MVar (Maybe QgaSocket)))
+  , guestAgentStartupReadiness :: Bool
   , guestAgentLogger :: QgaLogger
   , guestAgentNextOperationId :: TVar Integer
   , guestAgentNextId :: TVar Integer
   }
 
 newGuestAgentConns :: QgaLogger -> IO GuestAgentConns
-newGuestAgentConns logger = GuestAgentConns <$> newTVarIO Map.empty <*> pure logger <*> newTVarIO 0 <*> newTVarIO 0
+newGuestAgentConns logger = GuestAgentConns <$> newTVarIO Map.empty <*> pure False <*> pure logger <*> newTVarIO 0 <*> newTVarIO 0
 
 getOrCreateConn :: GuestAgentConns -> Int64 -> IO (MVar (Maybe QgaSocket))
 getOrCreateConn cache vmId = do
@@ -65,21 +67,22 @@ getOrCreateConn cache vmId = do
 -- | Run an operation against the cached socket. The MVar both caches and
 -- serializes QGA traffic; QEMU's chardev listen backlog is only one deep.
 withPersistentConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
-withPersistentConn = withConnection False
+withPersistentConn = withConnection True False
 
 -- | Serialize once and discard the socket before releasing the lock. Used
 -- for shutdown, which has no success reply and invalidates the guest session.
 withDiscardedConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
-withDiscardedConn conns config vmId = withConnection True conns config vmId 1
+withDiscardedConn conns config vmId = withConnection True True conns config vmId 1
 
-withConnection :: (HasCallStack) => Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
-withConnection discard connsVar config vmId retries timeoutMicros action = do
+withConnection :: (HasCallStack) => Bool -> Bool -> GuestAgentConns -> QemuConfig -> Int64 -> Int -> Int -> (QgaSocket -> IO a) -> IO (Either Text a)
+withConnection blocking discard connsVar config vmId retries timeoutMicros action = do
   operationId <- atomically $ do
     n <- readTVar (guestAgentNextOperationId connsVar)
     writeTVar (guestAgentNextOperationId connsVar) (n + 1)
     pure (n + 1)
   started <- getMonotonicTimeNSec
-  let context = "operation_id=" <> tshow operationId <> " caller=" <> tshow (prettyCallStack callStack)
+  let purpose = if guestAgentStartupReadiness connsVar then "startup_readiness" else "operation"
+      context = "purpose=" <> purpose <> " operation_id=" <> tshow operationId <> " caller=" <> tshow (prettyCallStack callStack)
       event level name fields = logQgaEvent (guestAgentLogger connsVar) level name ("vm_id=" <> tshow vmId <> " " <> context <> " " <> fields)
       finish outcome = do
         now <- getMonotonicTimeNSec
@@ -111,7 +114,9 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
       slotIdentity <- hashStableName <$> (evaluate connVar >>= makeStableName)
       let attemptFields = "attempt=" <> tshow attempt <> " slot_identity=" <> tshow slotIdentity
       event LevelDebug "lock_wait" attemptFields :: IO ()
-      mSock <- takeMVar connVar `onException` event LevelWarn "lock_wait_cancelled" attemptFields
+      mSock <-
+        (if blocking then takeMVar connVar else tryTakeMVar connVar >>= maybe (throwIO QgaBusy) pure)
+          `onException` event LevelDebug "lock_wait_cancelled" attemptFields
       acquired <- getMonotonicTimeNSec
       sockRef <- newIORef mSock
       result <-
@@ -149,7 +154,7 @@ withConnection discard connsVar config vmId retries timeoutMicros action = do
         Left (err :: SomeException) ->
           case fromException err :: Maybe SomeAsyncException of
             Just _ -> do
-              readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelWarn "operation_cancelled" "reason=external_cancellation")
+              readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelDebug "operation_cancelled" "reason=external_cancellation")
               throwIO err
             Nothing -> do
               let category = case fromException err :: Maybe IOError of
@@ -262,3 +267,13 @@ tshow = T.pack . show
 lifecycleEvent :: GuestAgentConns -> Int64 -> Text -> Text -> IO ()
 lifecycleEvent cache vmId event fields =
   logQgaEvent (guestAgentLogger cache) LevelDebug event ("vm_id=" <> tshow vmId <> " " <> fields)
+
+-- | Health observations must never queue behind an interactive guest operation.
+data QgaBusy = QgaBusy deriving stock (Show)
+
+instance Exception QgaBusy
+
+tryPersistentConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> Int -> (QgaSocket -> IO a) -> IO (Maybe (Either Text a))
+tryPersistentConn conns cfg vmId deadline action =
+  (Just <$> withConnection False False conns cfg vmId 1 deadline action)
+    `catch` (\QgaBusy -> pure Nothing)

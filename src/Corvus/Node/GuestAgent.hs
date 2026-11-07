@@ -15,9 +15,9 @@ module Corvus.Node.GuestAgent
   , guestExecWithStdin
   , guestExecStream
   , ChunkSink
+  , guestHealthProbe
   , guestPing
   , guestShutdown
-  , guestNetworkGetInterfaces
   , guestFsFreeze
   , guestFsThaw
   , guestSetTime
@@ -30,9 +30,9 @@ module Corvus.Node.GuestAgent
 where
 
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns, releaseConn)
-import Corvus.Node.GuestAgent.Control (guestFsFreeze, guestFsThaw, guestPing, guestSetTime, guestShutdown, guestSshAddAuthorizedKeys)
+import Corvus.Node.GuestAgent.Control (guestFsFreeze, guestFsThaw, guestHealthProbe, guestPing, guestSetTime, guestShutdown, guestSshAddAuthorizedKeys)
 import Corvus.Node.GuestAgent.Exec (guestExecWithStdin, guestExecWithTimeout, pollRecvTimeoutMicros, pollStatus, splitLines)
 import Corvus.Node.GuestAgent.Exec.Stream (guestExecStream)
 import Corvus.Node.GuestAgent.File (guestReadFile, guestWriteFile)
-import Corvus.Node.GuestAgent.Network (guestNetworkGetInterfaces, parseGuestInterfaces)
+import Corvus.Node.GuestAgent.Network (parseGuestInterfaces)
 import Corvus.Node.GuestAgent.Types (ChunkSink, GuestExecResult (..), GuestIpAddress (..), GuestNetIf (..))

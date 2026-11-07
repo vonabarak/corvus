@@ -19,7 +19,7 @@ where
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logInfoN, logWarnN)
+import Control.Monad.Logger (logInfoN)
 import Corvus.Action
 import Corvus.Model
 import qualified Corvus.Model as M
@@ -82,7 +82,7 @@ instance Action Startup where
       let anyNetdLive = any (isJust . ncNetAgent) (Map.elems agents)
       if anyNetdLive
         then logInfoN "corvus-netd connection ready (one or more nodes)"
-        else logWarnN "corvus-netd not yet connected; networking will retry once agent is up"
+        else logInfoN "corvus-netd not yet connected; networking will retry once agent is up"
 
       -- Autostart (both VMs and networks) has moved to the
       -- per-node supervisor's onConnect callbacks: see

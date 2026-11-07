@@ -3,7 +3,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Daemon-side Cap'n Proto client for `corvus-netd`.
 --
@@ -63,9 +62,11 @@ import Capnp.Rpc
   , withConn
   )
 import qualified Control.Exception as E
+import Corvus.Logging (synchronousException)
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import Data.Function ((&))
+import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import qualified Network.Socket as NS
@@ -159,7 +160,8 @@ data NetAgentClient = NetAgentClient
   }
 
 data NetAgentError
-  = NetAgentConnectFailed !T.Text
+  = NetAgentUnavailable !T.Text
+  | NetAgentConnectFailed !T.Text
   | NetAgentRemoteError !T.Text
   deriving stock (Show)
 
@@ -177,23 +179,24 @@ withNetAgentClient
   -- 'Tls.withPeerExpectation'.
   -> (Either NetAgentError NetAgentClient -> IO a)
   -> IO a
-withNetAgentClient host port owner mTlsCfg body = do
-  sockResult <- E.try @E.SomeException (openTcp host port)
+withNetAgentClient host port owner mTlsCfg body = E.mask $ \restore -> do
+  sockResult <- E.tryJust synchronousException (openTcp host port)
   case sockResult of
     Left e ->
-      body (Left (NetAgentConnectFailed (T.pack (show e))))
+      restore $ body (Left (NetAgentUnavailable (T.pack (show e))))
     Right sock ->
-      E.bracket (pure sock) NS.close $ \_ -> runOnSocket sock
+      E.bracket (pure sock) NS.close $ \_ -> restore (runOnSocket sock)
   where
-    runOnSocket sock = do
+    runOnSocket sock = E.mask $ \restore -> do
       eTransport <- buildTransport mTlsCfg sock
       case eTransport of
-        Left err -> body (Left (NetAgentConnectFailed err))
+        Left err -> restore $ body (Left (NetAgentConnectFailed err))
         Right (transport, cleanup) ->
-          (`E.finally` cleanup) $ do
+          (`E.finally` cleanup) $ restore $ do
             let cfg = Def.def {debugMode = False}
+            entered <- newIORef False
             r <-
-              E.try @E.SomeException $
+              E.tryJust synchronousException $
                 withSupervisor $ \sup ->
                   withConn transport cfg $ \conn -> do
                     rawAgent <- requestBootstrap conn
@@ -204,6 +207,7 @@ withNetAgentClient host port owner mTlsCfg body = do
                         #session
                         CGN.NetAgent'session'params {CGN.owner = owner}
                         agent
+                    writeIORef entered True
                     body $
                       Right
                         NetAgentClient
@@ -213,8 +217,9 @@ withNetAgentClient host port owner mTlsCfg body = do
                           , nacOwner = owner
                           }
             case r of
-              Left (e :: E.SomeException) ->
-                body (Left (NetAgentConnectFailed (T.pack (show e))))
+              Left (e :: E.SomeException) -> do
+                called <- readIORef entered
+                if called then E.throwIO e else body (Left (NetAgentConnectFailed (T.pack (show e))))
               Right out -> pure out
 
 -- | Build a Cap'n Proto 'Transport' over the connected socket,
@@ -226,18 +231,18 @@ buildTransport
   -> IO (Either T.Text (Transport, IO ()))
 buildTransport Nothing sock =
   pure (Right (socketTransport sock C.defaultLimit, pure ()))
-buildTransport (Just cfg) sock = do
-  r <- E.try @E.SomeException (Tls.wrapClientSocket cfg sock)
+buildTransport (Just cfg) sock = E.mask $ \restore -> do
+  r <- E.tryJust synchronousException (restore (Tls.wrapClientSocket cfg sock))
   case r of
     Left e -> pure (Left (T.pack ("TLS handshake failed: " <> show e)))
     Right (ctx, ref) -> do
-      v <- Tls.validatePeerCN cfg ref
+      v <- restore (Tls.validatePeerCN cfg ref) `E.onException` Tls.closeTlsContext ctx
       case v of
         Left msg -> do
           Tls.closeTlsContext ctx
           pure (Left ("TLS peer rejected: " <> msg))
         Right () -> do
-          transport <- Tls.tlsTransport ctx C.defaultLimit
+          transport <- Tls.tlsTransport ctx C.defaultLimit `E.onException` Tls.closeTlsContext ctx
           pure (Right (transport, Tls.closeTlsContext ctx))
 
 -- ---------------------------------------------------------------------------
@@ -478,18 +483,18 @@ decodeTapSpec
 -- Internals
 
 openTcp :: String -> Int -> IO NS.Socket
-openTcp host port = do
-  ais <- NS.getAddrInfo Nothing (Just host) (Just (show port))
+openTcp host port = E.mask $ \restore -> do
+  ais <- restore $ NS.getAddrInfo Nothing (Just host) (Just (show port))
   case ais of
     (ai : _) -> do
       sock <- NS.socket (NS.addrFamily ai) NS.Stream NS.defaultProtocol
-      NS.connect sock (NS.addrAddress ai)
+      restore (NS.connect sock (NS.addrAddress ai)) `E.onException` NS.close sock
       pure sock
     [] -> E.throwIO (userError ("no addrinfo for " <> host))
 
 remote :: IO a -> IO (Either NetAgentError a)
 remote action = do
-  r <- E.try @E.SomeException action
+  r <- E.tryJust synchronousException action
   case r of
     Right a -> pure (Right a)
     Left e -> pure (Left (NetAgentRemoteError (T.pack (show e))))

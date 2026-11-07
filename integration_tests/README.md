@@ -194,6 +194,11 @@ can start as soon as a worker is available.
 The harness orders test methods by source line and skips remaining methods in
 a class after the first real failure.
 
+After registering the self node, the harness waits up to 30 seconds using
+`node.ping()`. This read-only probe uses the daemon supervisor’s existing
+nodeagent session and creates no tasks, disks, or image files. Failure reports
+the last reachability diagnostic.
+
 ### Networking and logging
 
 Networking tests drive a `corvus-netd` instance with `CAP_NET_ADMIN`; the netd

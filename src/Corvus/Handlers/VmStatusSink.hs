@@ -100,11 +100,20 @@ instance CGNA.VmStatusSink'server_ DaemonVmStatusSink where
 -- | Reconcile one 'VmStatusEntry' with daemon state.
 processEntry :: ServerState -> C.Parsed CGNA.VmStatusEntry -> IO ()
 processEntry state entry = do
+  let CGNA.VmStatusEntry {CGNA.vmId = vid, CGNA.lifecycleRevision = rev, CGNA.runtimeGeneration = gen} = entry
+  current <- runSqlPool (isCurrentRuntime vid rev gen) (ssDbPool state)
+  when current (processCurrentEntry state entry)
+
+processCurrentEntry :: ServerState -> C.Parsed CGNA.VmStatusEntry -> IO ()
+processCurrentEntry state entry = do
   let CGNA.VmStatusEntry
         { CGNA.vmId = vmId
         , CGNA.lifecycleRevision = lifecycleRevision
         , CGNA.runtimeGeneration = runtimeGeneration
         , CGNA.state = agentState
+        , CGNA.guestAgentDeferred = deferred
+        , CGNA.guestAgentMessage = message
+        , CGNA.netIfsValid = netIfsValid
         , CGNA.guestAgentOk = ok
         , CGNA.lastPingMillis = pingMillis
         , CGNA.lastExitCode = exitCode
@@ -126,12 +135,12 @@ processEntry state entry = do
   pushVmStats state vmId stats
   -- Stamp healthcheck on successful ping; reflect MAC→IP map in
   -- the network_interface table.
-  when (ok && T.null startupError) $ do
+  when (ok && not deferred && T.null startupError) $ do
     let pingedAt = millisToUtc pingMillis
     current <- runSqlPool (isCurrentRuntime vmId lifecycleRevision runtimeGeneration) pool
     when current $ do
       runSqlPool (updateHealthcheck vmId pingedAt) pool
-      runSqlPool (updateGuestNetworkData vmId ifs) pool
+      when netIfsValid $ runSqlPool (updateGuestNetworkData vmId ifs) pool
   -- Translate agent-side state into DB transitions for the
   -- subset of states the agent owns (start completion + crash
   -- detection). 'attachVmMonitor' still drives the running →
@@ -145,10 +154,11 @@ processEntry state entry = do
     then runSqlPool (markGuestAgentTimedOut vmId lifecycleRevision runtimeGeneration startupError) pool
     else case agentState of
       CGNA.VmAgentState'running
-        | ok ->
+        | ok && not deferred ->
             -- QGA pinged — definitively running. Promotes any
             -- 'VmStarting' or 'VmLoading' row to 'VmRunning'.
             runSqlPool (promoteStartingToRunning vmId lifecycleRevision runtimeGeneration) pool
+        | deferred -> pure ()
         | otherwise ->
             -- No QGA ping (either GA disabled, or first ping not
             -- yet). For 'VmStarting' the daemon waits for QGA before
@@ -166,7 +176,7 @@ processEntry state entry = do
   -- Fan out the per-VM GuestAgentStatus to anyone subscribed via
   -- @vm.subscribeGuestAgent@. Mirrors the old in-daemon poller's
   -- 'pushGuestAgentStatus' helper.
-  pushGuestAgentStatus state vmId ok pingMillis
+  pushGuestAgentStatus state vmId ok pingMillis message
 
 -- | A first-ping timeout is a startup failure, but QEMU remains live.
 -- Keep the SPICE port and other runtime resources for diagnostics.
@@ -398,8 +408,8 @@ pushVmStats state vmId stats = do
 -- subscriber registered for this VM. Subscribers whose @push@
 -- call raises are dropped from the registry, keeping the set
 -- self-pruning. Mirrors the daemon's old in-process poller helper.
-pushGuestAgentStatus :: ServerState -> Int64 -> Bool -> Int64 -> IO ()
-pushGuestAgentStatus state vmId reachable pingMillis = do
+pushGuestAgentStatus :: ServerState -> Int64 -> Bool -> Int64 -> Text -> IO ()
+pushGuestAgentStatus state vmId reachable pingMillis message = do
   subs <- readTVarIO (ssGuestAgentSubs state)
   let sinks = Map.findWithDefault [] vmId subs
   case sinks of
@@ -424,7 +434,7 @@ pushGuestAgentStatus state vmId reachable pingMillis = do
               , CGS.lastHealthcheck = lastHc
               , CGS.enabled = maybe False M.vmGuestAgent mVm
               , CGS.reachable = reachable
-              , CGS.message = T.empty
+              , CGS.message = message
               }
           params = CGS.GuestAgentStatusSink'push'params {CGS.status = status}
       alive <- traverse (tryPush params) sinks

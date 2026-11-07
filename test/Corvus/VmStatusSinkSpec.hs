@@ -33,7 +33,7 @@ import qualified Corvus.Node.NodeStats as NS
 import Corvus.Node.StatusFreshness (newStatusFreshness)
 import Corvus.Types (ServerState)
 import qualified Data.Text as T
-import Database.Persist (get, update, (=.))
+import Database.Persist (get, getJust, update, (=.))
 import Database.Persist.Sql (toSqlKey)
 import Supervisors (withSupervisor)
 import Test.DSL.Core (getDbPool, getTempDir, runDb)
@@ -113,6 +113,9 @@ spec = sequential $ withTestDb $ do
                   , CGNA.stats = stats
                   , CGNA.lifecycleRevision = M.vmLifecycleRevision vm
                   , CGNA.runtimeGeneration = 7
+                  , CGNA.guestAgentDeferred = False
+                  , CGNA.guestAgentMessage = ""
+                  , CGNA.netIfsValid = True
                   , CGNA.startupError = ""
                   }
               snapshot = CGNA.VmStatusSnapshot 0 [entry] (statsWithVersion NS.agentVersion)
@@ -122,6 +125,87 @@ spec = sequential $ withTestDb $ do
       liftIO $ do
         fmap M.vmStatus current `shouldBe` Just VmStopping
         fmap M.vmSpicePort current `shouldBe` Just (Just 5901)
+
+  describe "deferred and stale guest health" $ do
+    testCase "a busy probe neither stamps health nor promotes a loading VM" $ do
+      vmId <- insertVm "busy-health" VmLoading
+      let key = toSqlKey vmId :: M.VmId
+      runDb $ update key [M.VmRuntimeGeneration =. Just 7]
+      vm <- runDb $ getJust key
+      state <- mkState
+      liftIO $ withSupervisor $ \sup -> do
+        freshness <- newStatusFreshness (pure 0)
+        sink <- C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state testNodeId freshness)
+        let entry =
+              CGNA.VmStatusEntry
+                { CGNA.vmId = vmId
+                , CGNA.state = CGNA.VmAgentState'running
+                , CGNA.qemuPid = 123
+                , CGNA.lastExitCode = 0
+                , CGNA.guestAgentOk = True
+                , CGNA.lastPingMillis = 1000
+                , CGNA.netIfs = []
+                , CGNA.stats = CGVM.VmStats 0 0 0 100 0 0 0 [] []
+                , CGNA.lifecycleRevision = M.vmLifecycleRevision vm
+                , CGNA.runtimeGeneration = 7
+                , CGNA.guestAgentDeferred = True
+                , CGNA.guestAgentMessage = "health probe deferred: connection busy"
+                , CGNA.netIfsValid = False
+                , CGNA.startupError = ""
+                }
+            send e =
+              C.callP
+                #onSnapshot
+                CGNA.VmStatusSink'onSnapshot'params
+                  { CGNA.snapshot = CGNA.VmStatusSnapshot 0 [e] (statsWithVersion NS.agentVersion)
+                  }
+                sink
+                >>= C.waitPipeline
+        _ <- send entry
+        pure ()
+      current <- runDb $ get key
+      liftIO $ do
+        fmap M.vmStatus current `shouldBe` Just VmLoading
+        fmap M.vmHealthcheck current `shouldBe` Just (M.vmHealthcheck vm)
+
+    testCase "a successful ping from an old generation cannot promote the current VM" $ do
+      vmId <- insertVm "stale-health" VmStarting
+      let key = toSqlKey vmId :: M.VmId
+      runDb $ update key [M.VmRuntimeGeneration =. Just 8]
+      vm <- runDb $ getJust key
+      state <- mkState
+      liftIO $ withSupervisor $ \sup -> do
+        freshness <- newStatusFreshness (pure 0)
+        sink <- C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state testNodeId freshness)
+        let entry =
+              CGNA.VmStatusEntry
+                vmId
+                CGNA.VmAgentState'running
+                123
+                0
+                True
+                1000
+                []
+                (CGVM.VmStats 0 0 0 100 0 0 0 [] [])
+                (M.vmLifecycleRevision vm)
+                7
+                ""
+                False
+                ""
+                True
+        _ <-
+          C.callP
+            #onSnapshot
+            CGNA.VmStatusSink'onSnapshot'params
+              { CGNA.snapshot = CGNA.VmStatusSnapshot 0 [entry] (statsWithVersion NS.agentVersion)
+              }
+            sink
+            >>= C.waitPipeline
+        pure ()
+      current <- runDb $ get key
+      liftIO $ do
+        fmap M.vmStatus current `shouldBe` Just VmStarting
+        fmap M.vmHealthcheck current `shouldBe` Just (M.vmHealthcheck vm)
 
   describe "applyNodeStats version-mismatch auto-drain" $ do
     testCase "first mismatched push flips an online node to draining" $ do

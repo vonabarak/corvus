@@ -1,32 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Corvus.Node.GuestAgent.Network
-  ( guestNetworkGetInterfaces
-  , parseGuestInterfaces
+  ( parseGuestInterfaces
   )
 where
 
-import Corvus.Node.GuestAgent.Connection (GuestAgentConns, withPersistentConn)
-import Corvus.Node.GuestAgent.Transport (recvQga, sendQga)
 import Corvus.Node.GuestAgent.Types
-import Corvus.Qemu.Config (QemuConfig)
-import Data.Aeson (Value, (.:), (.:?), (.=))
-import qualified Data.Aeson as Aeson
+import Data.Aeson (Value, (.:), (.:?))
 import qualified Data.Aeson.Types as AT
-import Data.Either (fromRight)
-import Data.Int (Int64)
 import Data.Maybe (mapMaybe)
-import Data.Text (Text)
-import GHC.Stack (HasCallStack)
-
--- | Query network interfaces from the guest. Failures are represented as
--- 'Nothing'; a successful query with no interfaces returns @Just []@.
-guestNetworkGetInterfaces :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
-guestNetworkGetInterfaces conns config vmId = do
-  result <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
-    sendQga sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
-    parseGuestInterfaces <$> recvQga sock
-  pure $ fromRight Nothing result
 
 -- | Leniently parse QGA interfaces: malformed addresses and interfaces are
 -- dropped independently, while address-less (e.g. Windows loopback)

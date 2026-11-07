@@ -478,3 +478,13 @@ all authorized keys for the existing account; the default appends. Cloud-init
 configuration does not govern this operation. VM and guest-agent errors retain
 their existing wire codes; invalid usernames and empty assignments use
 `internal_error`.
+
+Protocol version 8 adds read-only `Node.ping() -> (reachable, message)`. It probes
+the daemon supervisor's existing nodeagent session with a two-second deadline;
+it does not dial a new connection or create tasks or resources.
+
+The version also adds internal `VmStatusEntry` fields for deferred QGA health
+observations and network-interface validity. A busy QGA connection retains its
+last runtime-scoped observation without refreshing the healthcheck or promoting
+VM startup. Invalid network observations do not clear previously observed IPs.
+Daemon and nodeagent must use matching protocol versions.

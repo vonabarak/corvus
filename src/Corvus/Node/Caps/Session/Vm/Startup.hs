@@ -11,7 +11,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Corvus.Node.Caps.Session.Vm.Startup
   ( stopVmAfterStartFailure
@@ -27,6 +26,7 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.IO.Class
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import qualified Control.Monad.Logger
+import Corvus.Logging (synchronousException)
 import Corvus.Node.Caps.Session.Utils
   ( SessionCap (..)
   , scQgaConns
@@ -73,15 +73,16 @@ stopVmAfterStartFailure sc cfg vmId qemuPidW qemuPh stopRequestedVar virtiofsdEn
 -- | Watch QEMU independently of the start RPC. Guest-initiated exits use the
 -- reboot-quirk path; all other exits become visible to status polling and
 -- release the persistent QGA connection.
-forkVmReaper :: (Show a) => SessionCap -> VS.VmSpec -> System.Process.ProcessHandle -> a -> Control.Concurrent.STM.TVar (Maybe Int) -> Control.Concurrent.STM.TVar Bool -> IO () -> IO ()
-forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar respawn =
+forkVmReaper :: (Show a) => SessionCap -> VS.VmSpec -> System.Process.ProcessHandle -> a -> Control.Concurrent.STM.TVar (Maybe Int) -> Control.Concurrent.STM.TVar Bool -> IO () -> IO () -> IO ()
+forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar retireWorkers respawn =
   void $ forkIO $ do
-    r <- E.try @E.SomeException (waitForProcess qemuPh)
+    r <- E.tryJust synchronousException (waitForProcess qemuPh)
     let vmId = VS.vsVmId spec
         code = case r of
           Right ExitSuccess -> 0
           Right (ExitFailure n) -> n
           Left _ -> 1
+    retireWorkers
     stopReq <- readTVarIO stopRequestedVar
     if VS.vsRebootQuirk spec && not stopReq
       then do

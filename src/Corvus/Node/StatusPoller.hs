@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Periodic status push for `corvus-nodeagent`.
 --
@@ -28,6 +27,7 @@ module Corvus.Node.StatusPoller
   , newSubscribers
   , addSubscriber
   , runStatusPoller
+  , recordGuestAgentReady
   , dispatchVm
   )
 where
@@ -39,8 +39,9 @@ import Control.Concurrent (threadDelay)
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM (atomically, readTVar, readTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (forever)
-import Control.Monad.Logger (LogLevel (..), logWarnN, runStderrLoggingT)
+import Control.Monad (forever, when)
+import Control.Monad.Logger (LogLevel (..))
+import Corvus.Logging (exceptionCategory, subscriberFailureLevel, synchronousException)
 import qualified Corvus.Node.GuestAgent as NGA
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
 import Corvus.Node.GuestAgent.Transport (logQgaEvent)
@@ -52,7 +53,7 @@ import Corvus.Node.StatusSubscribers (SubscriberRegistry, dispatchSubscribers, n
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Rpc.Streams (callSink)
-import Data.IORef (IORef, atomicModifyIORef', newIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
@@ -68,6 +69,7 @@ import System.Timeout (timeout)
 -- failure.
 data Subscribers = Subscribers
   { subsList :: SubscriberRegistry (C.Client CGNA.VmStatusSink)
+  , subsGuestHealth :: IORef (Map.Map (Int64, Int64, Int64, Word32) (Bool, Int64, [C.Parsed CGNA.GuestNetIf]))
   , subsPriorSample :: IORef (Map.Map Int64 POSIXTime)
   -- ^ Wall-clock of the previous successful stats sample per VM.
   -- @intervalMillis = now - prior@. First sample for a VM has
@@ -76,7 +78,7 @@ data Subscribers = Subscribers
   }
 
 newSubscribers :: IO Subscribers
-newSubscribers = Subscribers <$> newSubscriberRegistry <*> newIORef Map.empty
+newSubscribers = Subscribers <$> newSubscriberRegistry <*> newIORef Map.empty <*> newIORef Map.empty
 
 addSubscriber :: Subscribers -> C.Client CGNA.VmStatusSink -> IO ()
 addSubscriber Subscribers {subsList = ref} = registerSubscriber ref
@@ -99,6 +101,8 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = do
   forever $ do
     threadDelay (tickIntervalMs * 1000)
     vms <- atomically $ L.readVms ledger
+    atomicModifyIORef' (subsGuestHealth subs) $ \observations ->
+      (Map.filterWithKey (\(vid, rev, gen, pid) _ -> maybe False (\live -> VS.vsLifecycleRevision (L.vlsSpec live) == rev && VS.vsRuntimeGeneration (L.vlsSpec live) == gen && L.vlsQemuPid live == pid) (Map.lookup vid vms)) observations, ())
     now <- millisNow
     -- Sample VMs concurrently, with bounded QGA observations in buildEntry:
     -- the snapshot cannot be dispatched until every entry has completed.
@@ -116,7 +120,7 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = do
             , CGNA.entries = entries
             , CGNA.nodeStats = stats
             }
-    dispatch subs snapshot
+    dispatch qgaConns subs snapshot
 
 -- | Push a single-VM snapshot to every subscriber, out of band
 -- from the 10 s ticker. Used by the agent's @vmStart@ forked
@@ -151,7 +155,7 @@ dispatchVm cfg qgaConns ledger subs vmId = do
               , CGNA.entries = [entry]
               , CGNA.nodeStats = stats
               }
-      dispatch subs snapshot
+      dispatch qgaConns subs snapshot
 
 -- | One pass per VM in the ledger. Reads the reaper's last-exit
 -- code, decides the agent-side state, and (for running VMs)
@@ -211,46 +215,37 @@ buildEntry origin cfg qgaConns subs clk (vmId, live) = do
               <> shown (VS.vsStartPaused spec)
               <> " timeout_us=5000000"
           event level name extra = logQgaEvent (guestAgentLogger qgaConns) level name (fields <> " " <> extra)
-      event LevelDebug "status_probe_decision" ("probe=" <> shown (not startupPending && isNothing startupError))
-      -- A timed-out runtime stays errored even if QGA responds later.
-      pingResult <-
-        -- The startup coordinator has a boot-sized deadline. Let it finish
-        -- before using five-second health probes: disconnecting mid-handshake
-        -- can leave QGA spinning on EAGAIN and wedge virtio-serial reconnects.
-        if not startupPending && isNothing startupError
-          -- Include waiting for the per-VM connection lock in the deadline.
-          -- A streaming provisioner can hold that lock for several minutes.
-          then E.try @E.SomeException (timeout 5000000 (NGA.guestPing qgaConns cfg vmId))
-          else pure (Right (Just False))
-      event
-        (case pingResult of Right (Just _) -> LevelDebug; _ -> LevelWarn)
-        "status_ping_end"
-        ( "result=" <> case pingResult of
-            Right Nothing -> "outer_timeout"
-            Left _ -> "exception"
-            Right (Just True) -> "ready"
-            Right (Just False) -> if startupPending || isJust startupError then "skipped" else "unready"
-        )
-      let ok = case pingResult of
-            Right (Just b) -> b
-            _ -> False
-      pingedAt <- if ok then millisNow else pure 0
-      ifs <-
-        if ok
-          then do
-            r <- E.try @E.SomeException (timeout 5000000 (NGA.guestNetworkGetInterfaces qgaConns cfg vmId))
-            event
-              (case r of Right (Just _) -> LevelDebug; _ -> LevelWarn)
-              "status_network_end"
-              ("result=" <> case r of Right Nothing -> "outer_timeout"; Left _ -> "exception"; Right (Just _) -> "complete")
-            pure $ case r of
-              Right (Just (Just list)) -> list
-              _ -> []
-          else pure []
-      let wireIfs = map encodeIf ifs
+      let enabled = VS.vsGuestAgent spec
+          probe = enabled && not startupPending && isNothing startupError
+          identity = (vmId, VS.vsLifecycleRevision spec, VS.vsRuntimeGeneration spec, L.vlsQemuPid live)
+      event LevelDebug "status_probe_decision" ("probe=" <> shown probe)
+      result <- if probe then NGA.guestHealthProbe qgaConns cfg vmId else pure (Just (Left "Guest agent probe skipped"))
+      cached <- Map.findWithDefault (False, 0, []) identity <$> readIORef (subsGuestHealth subs)
+      now <- millisNow
+      let (ok, pingedAt, wireIfs, deferred, valid, message) = case result of
+            Nothing -> let (priorOk, priorTime, priorIfs) = cached in (priorOk, priorTime, priorIfs, True, False, "Guest agent busy; observation deferred")
+            Just (Left reason) -> (False, 0, let (_, _, priorIfs) = cached in priorIfs, False, False, reason)
+            Just (Right interfaces) -> (True, now, maybe (let (_, _, priorIfs) = cached in priorIfs) (map encodeIf) interfaces, False, isJust interfaces, T.empty)
+      -- Retain only the current runtime of this VM. Busy probes never refresh time.
+      when (probe && not deferred) $ atomicModifyIORef' (subsGuestHealth subs) $ \observations ->
+        (Map.insert identity (ok, pingedAt, wireIfs) observations, ())
+      event LevelDebug "status_ping_end" ("deferred=" <> shown deferred <> " reachable=" <> shown ok)
       stats <- sampleVmStats cfg subs clk vmId live
       pure $
-        baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats startupError
+        (baseEntry vmId live CGNA.VmAgentState'running qpid 0 ok pingedAt wireIfs stats startupError)
+          { CGNA.guestAgentDeferred = deferred
+          , CGNA.guestAgentMessage = if enabled then message else "Guest agent disabled"
+          , CGNA.netIfsValid = valid
+          }
+
+-- | Seed readiness before exposing the runtime to nonblocking health probes.
+recordGuestAgentReady :: Subscribers -> L.VmLiveState -> IO ()
+recordGuestAgentReady subs live = do
+  now <- millisNow
+  let spec = L.vlsSpec live
+      identity = (VS.vsVmId spec, VS.vsLifecycleRevision spec, VS.vsRuntimeGeneration spec, L.vlsQemuPid live)
+  atomicModifyIORef' (subsGuestHealth subs) $ \observations ->
+    (Map.insert identity (True, now, []) observations, ())
 
 baseEntry
   :: Int64
@@ -276,6 +271,9 @@ baseEntry vid live st qpid code ok pingedAt ifs stats startupError =
     , CGNA.stats = stats
     , CGNA.lifecycleRevision = VS.vsLifecycleRevision (L.vlsSpec live)
     , CGNA.runtimeGeneration = VS.vsRuntimeGeneration (L.vlsSpec live)
+    , CGNA.guestAgentDeferred = False
+    , CGNA.guestAgentMessage = T.empty
+    , CGNA.netIfsValid = False
     , CGNA.startupError = fromMaybe T.empty startupError
     }
 
@@ -416,18 +414,20 @@ encodeIp ip =
 -- back-pressured by its own stuck subscriber chain) would
 -- otherwise freeze the ticker, since 'callSink' is a blocking
 -- 'callP >>= waitPipeline' round-trip with no built-in deadline.
-dispatch :: Subscribers -> C.Parsed CGNA.VmStatusSnapshot -> IO ()
-dispatch Subscribers {subsList = ref} snapshot =
+dispatch :: GuestAgentConns -> Subscribers -> C.Parsed CGNA.VmStatusSnapshot -> IO ()
+dispatch conns Subscribers {subsList = ref} snapshot =
   dispatchSubscribers ref $ \sink -> do
-    r <- E.try @E.SomeException $ timeout dispatchTimeoutMicros (deliver sink)
+    r <- E.tryJust synchronousException $ timeout dispatchTimeoutMicros (deliver sink)
     case r of
       Right (Just ()) -> pure True
       _ -> do
         let reason = case r of
-              Left e -> T.pack (show e)
+              Left e -> exceptionCategory e
               Right Nothing -> "no ACK within 5s"
-        runStderrLoggingT $
-          logWarnN ("[nodeagent] dropping VmStatusSink: " <> reason)
+        guestAgentLogger
+          conns
+          (either subscriberFailureLevel (const LevelWarn) r)
+          ("[nodeagent] dropping VmStatusSink: " <> reason)
         pure False
   where
     deliver =

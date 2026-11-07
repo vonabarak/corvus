@@ -250,52 +250,26 @@ def _ensure_self_node(sock: Path, agent_port: int) -> None:
     isn't installed yet.
     """
     from corvus_client import Client
-    from corvus_client.exceptions import CorvusError
 
     with Client(unix_socket=str(sock)) as c:
-        c.nodes.create(
+        node = c.nodes.create(
             "self",
             "127.0.0.1",
             node_agent_port=agent_port,
-            # The conftest spawns no netd (it's not needed for
-            # the python-level tests, which don't exercise
-            # virtual networks). Point the netd port at the
-            # nodeagent's port too — the per-node supervisor
-            # will retry-and-warn on netd dial failure but the
-            # nodeagent stays reachable.
-            net_agent_port=agent_port,
             # Keep the node record aligned with the HOME inherited by
             # the nodeagent fixture. Disk paths are resolved from this
             # target node's base path, not from the daemon process.
             base_path=str(sock.parent / "home" / "VMs"),
         )
-        # The daemon's per-node supervisor dials the agent
-        # asynchronously from 'handleNodeAdd'; tests that hit
-        # 'createImageViaAgent' immediately afterwards see
-        # 'nodeagent for node 1 unavailable' until the dial
-        # finishes. Poll a cheap agent-dependent op
-        # ('disks.create' on a sentinel name, deleted
-        # immediately) until it succeeds or we exhaust the
-        # budget. Both calls are idempotent in the failing
-        # case so retrying is safe.
-        deadline = time.monotonic() + 10.0
-        last_err: BaseException | None = None
+        deadline = time.monotonic() + 30.0
+        last_message = "not yet probed"
         while time.monotonic() < deadline:
-            try:
-                d = c.disks.create("__conftest_probe__", size=1048576)
-                d.delete()
+            result = node.ping()
+            if result.reachable:
                 return
-            except CorvusError as e:
-                last_err = e
-                msg = str(e)
-                if "unavailable" not in msg.lower():
-                    # Real error — surface immediately.
-                    raise
-                time.sleep(0.05)
-        raise RuntimeError(
-            f"nodeagent never became reachable through the daemon's "
-            f"registry: {last_err!r}"
-        )
+            last_message = result.message
+            time.sleep(0.1)
+        raise RuntimeError(f"nodeagent never became reachable: {last_message}")
 
 
 @pytest.fixture(scope="module")

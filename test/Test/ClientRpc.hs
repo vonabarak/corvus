@@ -441,6 +441,7 @@ instance GNode.NodeManager'server_ Mock where
   nodeManager'create (Mock f) = handleParsed (respond f "NodeManager.create")
 
 instance GNode.Node'server_ Mock where
+  node'ping (Mock f) = handleParsed (respond f "Node.ping")
   node'show (Mock f) = handleParsed (respond f "Node.show")
   node'edit (Mock f) = handleParsed (respond f "Node.edit")
   node'drain (Mock f) = handleParsed (respond f "Node.drain")

@@ -22,7 +22,7 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Netagent as CGN
 import Capnp.Rpc.Server (SomeServer)
-import Control.Monad.Logger (logInfoN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..))
 import Corvus.Netd.Caps.Session (newSessionCap)
 import qualified Corvus.Netd.Events as Ev
 import qualified Corvus.Netd.Ledger as L
@@ -52,12 +52,12 @@ newNetAgentCap sup nl tl subs =
 instance SomeServer NetAgentCap
 
 instance CGN.NetAgent'server_ NetAgentCap where
-  netAgent'ping _ = handleParsed $ \_ -> do
-    logLine "ping"
+  netAgent'ping nac = handleParsed $ \_ -> do
+    Ev.subscriberLogger (nacSubs nac) LevelDebug "[netd] ping"
     pure CGN.NetAgent'ping'results
 
-  netAgent'version _ = handleParsed $ \_ -> do
-    logLine "version"
+  netAgent'version nac = handleParsed $ \_ -> do
+    Ev.subscriberLogger (nacSubs nac) LevelDebug "[netd] version"
     let info =
           CGN.AgentInfo
             { CGN.semver = T.pack agentSemver
@@ -67,7 +67,7 @@ instance CGN.NetAgent'server_ NetAgentCap where
 
   netAgent'session nac =
     handleParsed $ \CGN.NetAgent'session'params {CGN.owner = owner} -> do
-      logLine ("session owner=" <> owner)
+      Ev.subscriberLogger (nacSubs nac) LevelDebug ("[netd] session owner=" <> owner)
       impl <-
         newSessionCap
           owner
@@ -91,6 +91,3 @@ capnpCapabilities :: [T.Text]
 capnpCapabilities = ["network", "tap", "ip-forwarding", "events"]
 
 -- ----------------------------------------------------------------------
-
-logLine :: T.Text -> IO ()
-logLine msg = runStderrLoggingT $ logInfoN ("[netd] " <> msg)

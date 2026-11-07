@@ -671,9 +671,10 @@ instance (GH.Export Node) where
     methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(Node)) [(GH.toUntypedMethodHandler ((node'show) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'edit) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'drain) s_))
-                                                                      ,(GH.toUntypedMethodHandler ((node'delete) s_))] [])
+                                                                      ,(GH.toUntypedMethodHandler ((node'delete) s_))
+                                                                      ,(GH.toUntypedMethodHandler ((node'ping) s_))] [])
 class (Node'server_ s_) where
-    {-# MINIMAL node'show,node'edit,node'drain,node'delete #-}
+    {-# MINIMAL node'show,node'edit,node'drain,node'delete,node'ping #-}
     node'show :: s_ -> (GH.MethodHandler Node'show'params Node'show'results)
     node'show _ = GH.methodUnimplemented
     node'edit :: s_ -> (GH.MethodHandler Node'edit'params Node'edit'results)
@@ -682,6 +683,8 @@ class (Node'server_ s_) where
     node'drain _ = GH.methodUnimplemented
     node'delete :: s_ -> (GH.MethodHandler Node'delete'params Node'delete'results)
     node'delete _ = GH.methodUnimplemented
+    node'ping :: s_ -> (GH.MethodHandler Node'ping'params Node'ping'results)
+    node'ping _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Node Node'show'params Node'show'results) where
     methodByLabel  = (GH.Method 9857192839459206243 0)
 instance (GH.HasMethod "edit" Node Node'edit'params Node'edit'results) where
@@ -690,6 +693,8 @@ instance (GH.HasMethod "drain" Node Node'drain'params Node'drain'results) where
     methodByLabel  = (GH.Method 9857192839459206243 2)
 instance (GH.HasMethod "delete" Node Node'delete'params Node'delete'results) where
     methodByLabel  = (GH.Method 9857192839459206243 3)
+instance (GH.HasMethod "ping" Node Node'ping'params Node'ping'results) where
+    methodByLabel  = (GH.Method 9857192839459206243 4)
 data Node'show'params 
 type instance (R.ReprFor Node'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Node'show'params) where
@@ -900,3 +905,63 @@ instance (C.Parse Node'delete'results (C.Parsed Node'delete'results)) where
     parse raw_ = (Std_.pure Node'delete'results)
 instance (C.Marshal Node'delete'results (C.Parsed Node'delete'results)) where
     marshalInto _raw (Node'delete'results) = (Std_.pure ())
+data Node'ping'params
+type instance (R.ReprFor Node'ping'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'ping'params) where
+    typeId  = 13672120818276688919
+instance (C.TypedStruct Node'ping'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Node'ping'params) where
+    type AllocHint Node'ping'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Node'ping'params (C.Parsed Node'ping'params))
+instance (C.AllocateList Node'ping'params) where
+    type ListAllocHint Node'ping'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Node'ping'params (C.Parsed Node'ping'params))
+data instance C.Parsed Node'ping'params
+    = Node'ping'params
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Node'ping'params))
+deriving instance (Std_.Eq (C.Parsed Node'ping'params))
+instance (C.Parse Node'ping'params (C.Parsed Node'ping'params)) where
+    parse raw_ = (Std_.pure Node'ping'params)
+instance (C.Marshal Node'ping'params (C.Parsed Node'ping'params)) where
+    marshalInto _raw (Node'ping'params) = (Std_.pure ())
+data Node'ping'results
+type instance (R.ReprFor Node'ping'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'ping'results) where
+    typeId  = 14326423000820343387
+instance (C.TypedStruct Node'ping'results) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Node'ping'results) where
+    type AllocHint Node'ping'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Node'ping'results (C.Parsed Node'ping'results))
+instance (C.AllocateList Node'ping'results) where
+    type ListAllocHint Node'ping'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Node'ping'results (C.Parsed Node'ping'results))
+data instance C.Parsed Node'ping'results
+    = Node'ping'results
+        {reachable :: (RP.Parsed Std_.Bool)
+        ,message :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Node'ping'results))
+deriving instance (Std_.Eq (C.Parsed Node'ping'results))
+instance (C.Parse Node'ping'results (C.Parsed Node'ping'results)) where
+    parse raw_ = (Node'ping'results <$> (GH.parseField #reachable raw_)
+                                    <*> (GH.parseField #message raw_))
+instance (C.Marshal Node'ping'results (C.Parsed Node'ping'results)) where
+    marshalInto raw_ Node'ping'results{..} = (do
+        (GH.encodeField #reachable reachable raw_)
+        (GH.encodeField #message message raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "reachable" GH.Slot Node'ping'results Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+instance (GH.HasField "message" GH.Slot Node'ping'results Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
