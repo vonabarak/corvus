@@ -338,8 +338,14 @@ superviseReader sup reader =
 cancelReader :: FileReader -> IO ()
 cancelReader reader = do
   worker <- atomically $ do
-    writeTVar (frCancelled reader) True
-    readTVar (frWorker reader)
+    finished <- readTVar (frFinished reader)
+    if finished
+      -- Completion wakes the supervisor watcher before pipeInto necessarily
+      -- clears frWorker or fulfils its RPC promise. Never kill that reply.
+      then pure Nothing
+      else do
+        writeTVar (frCancelled reader) True
+        readTVar (frWorker reader)
   case worker of
     Nothing -> void $ timeout 1000000 (closeReader reader)
     Just tid -> void $ timeout 1000000 (killThread tid)

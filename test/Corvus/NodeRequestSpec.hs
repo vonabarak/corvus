@@ -9,7 +9,7 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as N
 import qualified Capnp.Gen.Streams as S
 import Capnp.Rpc.Server (SomeServer)
-import Control.Concurrent.Async (cancel, waitCatch, withAsync)
+import Control.Concurrent.Async (asyncThreadId, cancel, poll, waitCatch, withAsync)
 import Control.Concurrent.MVar (newMVar, readMVar)
 import Control.Concurrent.STM
 import Control.Monad (void)
@@ -91,6 +91,23 @@ spec = sequential $ describe "node request isolation" $ do
           timeout 1000000 (atomically $ takeTMVar entered) `shouldReturn` Just ()
           timeout 1000000 (C.callP #ping N.Session'ping'params client >>= C.waitPipeline >> pure ()) `shouldReturn` Just ()
           timeout 2000000 (callSink #end S.ByteSink'end'params input) `shouldReturn` Just ()
+
+  it "does not kill a completed reader worker before its RPC reply" $
+    withSystemTempDirectory "corvus-reader-completed" $ \dir ->
+      withSupervisor $ \sup -> do
+        let path = dir </> "source"
+        writeFile path "payload"
+        reader <- newFileReader path
+        client <- C.export @N.DiskReader sup reader
+        -- Model the boundary after closeReader signals completion but before
+        -- pipeInto clears frWorker and sends its successful RPC reply.
+        withAsync (atomically retry :: IO ()) $ \worker -> do
+          atomically $ do
+            writeTVar (frWorker reader) (Just (asyncThreadId worker))
+            writeTVar (frFinished reader) True
+          timeout 2000000 (C.callP #cancel N.DiskReader'cancel'params client >>= C.waitPipeline >> pure ()) `shouldReturn` Just ()
+          poll worker >>= (`shouldSatisfy` isNothing)
+          readMVar (frHandle reader) >>= (`shouldSatisfy` isNothing)
 
   it "cancels a disk reader while its callback is stalled and rejects reuse" $
     withSystemTempDirectory "corvus-reader-cancel" $ \dir ->
