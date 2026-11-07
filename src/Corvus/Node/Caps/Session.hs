@@ -25,6 +25,8 @@ module Corvus.Node.Caps.Session
   ( SessionServer (..)
   , SessionCap (..)
   , newSessionCap
+  , cleanupDetachedDrive
+  , withVmOpLock
   )
 where
 
@@ -65,7 +67,7 @@ import Supervisors (supervise)
 import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
 import System.Timeout (timeout)
 
-import Corvus.Node.Caps.Session.Utils (SessionCap (..), decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, traceNodeRequest, tshow, withVmOpLock)
+import Corvus.Node.Caps.Session.Utils (SessionCap (..), cleanupDetachedDrive, decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, traceNodeRequest, tshow, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
 import Corvus.Node.Caps.Session.Vm.Lifecycle (sanitiseVmName)
@@ -703,14 +705,7 @@ instance CGNA.Session'server_ SessionServer where
                     -- PCI unplug is accepted before the guest acknowledges it.
                     -- Keep delayed backend cleanup owned by this connection and
                     -- guard it against a replacement QEMU runtime.
-                    supervise (scSup sc) $ void $ timeout 60000000 $ withVmOpLock sc vid $ do
-                      current <- atomically $ L.lookupVm (scVmLedger sc) vid
-                      case (original, current) of
-                        (Just old, Just live)
-                          | L.vlsLastExitCode old == L.vlsLastExitCode live
-                          , L.vlsQemuPid old == L.vlsQemuPid live ->
-                              void $ retryBlockdevDel agentQemuConfig vid nodeName 600
-                        _ -> pure ()
+                    supervise (scSup sc) $ cleanupDetachedDrive agentQemuConfig sc vid original nodeName
                     pure CGNA.Session'vmDetachDrive'results
                   NQ.QmpError err -> throwFailed ("blockdev-del: " <> err)
                   NQ.QmpConnectionFailed err ->

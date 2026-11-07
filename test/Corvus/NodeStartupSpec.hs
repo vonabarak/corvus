@@ -3,22 +3,28 @@
 module Corvus.NodeStartupSpec (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.Async (withAsync)
-import Control.Concurrent.STM (atomically, newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent.Async (wait, withAsync)
+import Control.Concurrent.MVar (newMVar)
+import Control.Concurrent.STM (atomically, check, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Exception (IOException, bracket, try)
-import Control.Monad (void)
+import Control.Monad (forever, void)
 import Corvus.Model (GraphicsAdapter (..))
+import Corvus.Node.Caps.Session (cleanupDetachedDrive, newSessionCap, withVmOpLock)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
 import qualified Corvus.Node.Ledger as L
 import Corvus.Node.QemuStartup (waitForVsockOwnership)
 import Corvus.Node.Runtime (createVmRuntimeDir, getQmpSocket)
 import qualified Corvus.Node.StatusPoller as SP
+import Corvus.Node.Transfer (newTokenRegistry)
 import Corvus.Node.VmSpec (VmSpec (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import qualified Data.Text.IO as T
 import qualified Network.Socket as Socket
+import qualified Network.Socket.ByteString as SocketBytes
+import Supervisors (withSupervisor)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
@@ -158,6 +164,72 @@ spec = describe "QEMU startup failures" $ do
       -- A rejected publication must stay owned until its process is reaped.
       owned <- atomically $ L.readVms ledger
       length owned `shouldBe` 1
+
+  it "yields the VM lock during deferred unplug and stops when the runtime is retired" $
+    withSystemTempDirectory "corvus-unplug" $ \runtime -> withSupervisor $ \sup -> do
+      (_, _, _, process) <- createProcess (proc "true" [])
+      _ <- waitForProcess process
+      lastExit <- newTVarIO Nothing
+      stderrTail <- newTVarIO ""
+      stderrDone <- newTVarIO True
+      startupError <- newTVarIO Nothing
+      startupPending <- newTVarIO True
+      workers <- newTVarIO []
+      stopRequested <- newTVarIO False
+      stopState <- newTVarIO (0, 0)
+      let vmSpec = startupSpec
+          live =
+            L.VmLiveState
+              { L.vlsQemuPid = 0
+              , L.vlsQemuHandle = process
+              , L.vlsVirtiofsd = []
+              , L.vlsSwtpm = Nothing
+              , L.vlsLastExitCode = lastExit
+              , L.vlsStderrTail = stderrTail
+              , L.vlsStderrDone = stderrDone
+              , L.vlsStartupError = startupError
+              , L.vlsStartupPending = startupPending
+              , L.vlsSpicePort = 0
+              , L.vlsSpec = vmSpec
+              , L.vlsWorkers = workers
+              , L.vlsStopState = stopState
+              , L.vlsStopRequested = stopRequested
+              }
+          cfg = defaultQemuConfig {qcRuntimeDir = Just runtime, qcBasePath = Just runtime}
+
+      ledger <- L.newVmLedger
+      _ <- atomically $ L.admitVmStart ledger 7 1 1
+      atomically (L.publishVmStart ledger 7 1 1 live) `shouldReturn` True
+      conns <- newGuestAgentConns (\_ _ -> pure ())
+      subs <- SP.newSubscribers
+      buffers <- newTVarIO Map.empty
+      tokens <- newTokenRegistry
+      launch <- newMVar ()
+      sc <- newSessionCap "test" sup ledger subs conns buffers buffers tokens Nothing launch
+      path <- getQmpSocket cfg 7
+      _ <- createVmRuntimeDir cfg 7
+      attempts <- newTVarIO (0 :: Int)
+      bracket (Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol) Socket.close $ \listener -> do
+        Socket.bind listener (Socket.SockAddrUnix path)
+        Socket.listen listener 1
+        let serve = forever $ bracket (fst <$> Socket.accept listener) Socket.close $ \peer -> do
+              SocketBytes.sendAll peer "{\"QMP\":{}}\n"
+              _ <- SocketBytes.recv peer 4096
+              SocketBytes.sendAll peer "{\"return\":{}}\n"
+              _ <- SocketBytes.recv peer 4096
+              atomically $ modifyTVar' attempts (+ 1)
+              SocketBytes.sendAll peer "{\"error\":{\"desc\":\"Node is in use\"}}\n"
+        withAsync serve $ \_ ->
+          withAsync (cleanupDetachedDrive cfg sc 7 (Just live) "drive-1") $ \worker -> do
+            timeout 1000000 (atomically $ readTVar attempts >>= check . (> 0)) `shouldReturn` Just ()
+            -- A real foreground operation must obtain the same lock while the
+            -- backend remains busy. Removing the runtime also fences retries.
+            retired <- timeout 1000000 $ withVmOpLock sc 7 $ do
+              _ <- atomically $ L.removeVm ledger 7
+              readTVarIO attempts
+            retired `shouldSatisfy` (/= Nothing)
+            timeout 1000000 (wait worker) `shouldReturn` Just ()
+            Just <$> readTVarIO attempts `shouldReturn` retired
 
 -- A cold boot whose first QGA handshake belongs to the startup coordinator.
 startupSpec :: VmSpec

@@ -23,6 +23,7 @@ module Corvus.Node.Caps.Session.Utils
     -- * QMP helpers
   , isBlockdevBusy
   , retryBlockdevDel
+  , cleanupDetachedDrive
   , requireRemovableDrive
 
     -- * QEMU config
@@ -60,6 +61,7 @@ import Capnp.Rpc (throwFailed)
 import Control.Concurrent (MVar, myThreadId, newMVar, threadDelay, withMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
+import Control.Monad (void)
 import Control.Monad.Logger (LogLevel (..), logDebugN, runStderrLoggingT)
 import Corvus.Logging (exceptionCategory)
 import qualified Corvus.Model as M
@@ -158,15 +160,36 @@ monitorBufferCapacity = 65536
 -- | Retry while the guest still owns the backend. Callers must hold the
 -- VM operation lock and bound the entire operation, including QMP calls.
 retryBlockdevDel :: QemuConfig -> Int64 -> Text -> Int -> IO NQ.QmpResult
-retryBlockdevDel cfg vid nodeName = go
+retryBlockdevDel cfg vid nodeName = retryBlockdevDelWith (NQ.qmpBlockdevDel cfg vid nodeName)
+
+-- The attempt owns any required lock; the backoff never does.
+retryBlockdevDelWith :: IO NQ.QmpResult -> Int -> IO NQ.QmpResult
+retryBlockdevDelWith attempt = go
   where
     go remaining = do
-      r <- NQ.qmpBlockdevDel cfg vid nodeName
+      r <- attempt
       case r of
         NQ.QmpError err | isBlockdevBusy err && remaining > 0 -> do
           threadDelay 100000
           go (remaining - 1)
         _ -> pure r
+
+-- | Deferred unplug cleanup must yield the VM lock between attempts so a
+-- second detach or a lifecycle operation can proceed before its RPC deadline.
+-- Recheck runtime identity under that lock on every attempt: stop/start may
+-- replace QEMU while cleanup is sleeping.
+cleanupDetachedDrive :: QemuConfig -> SessionCap -> Int64 -> Maybe L.VmLiveState -> Text -> IO ()
+cleanupDetachedDrive cfg sc vid original nodeName =
+  void $ timeout 60000000 $ retryBlockdevDelWith attempt 600
+  where
+    attempt = withVmOpLock sc vid $ do
+      current <- atomically $ L.lookupVm (scVmLedger sc) vid
+      case (original, current) of
+        (Just old, Just live)
+          | L.vlsLastExitCode old == L.vlsLastExitCode live
+          , L.vlsQemuPid old == L.vlsQemuPid live ->
+              NQ.qmpBlockdevDel cfg vid nodeName
+        _ -> pure NQ.QmpSuccess
 
 isBlockdevBusy :: Text -> Bool
 isBlockdevBusy err =
