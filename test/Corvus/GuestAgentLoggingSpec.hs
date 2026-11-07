@@ -8,7 +8,7 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (AsyncException (ThreadKilled), bracket, throwIO)
 import qualified Control.Exception
-import Control.Monad (replicateM_, void)
+import Control.Monad (replicateM_, void, when)
 import Control.Monad.Logger (LogLevel (..))
 import Corvus.Node.GuestAgent.Connection
 import Corvus.Node.GuestAgent.Control (guestHealthProbe, guestPing, guestShutdown)
@@ -212,6 +212,73 @@ spec = describe "GuestAgent connection logs" $ do
           finalLogs <- entries
           finalLogs `shouldSatisfy` contains "cached_connection_id=1"
           finalLogs `shouldSatisfy` (not . contains "connection_id=2")
+
+  it "retires queued callers without dispatching them or stranding their slot" $ withFixture $ \cache config listener _ -> do
+    held <- newEmptyMVar
+    resume <- newEmptyMVar
+    queued <- newEmptyMVar
+    retired <- newEmptyMVar
+    let logger level message = do
+          guestAgentLogger cache level message
+          when ("event=lock_wait " `T.isInfixOf` message && "operation_id=2 " `T.isInfixOf` message) $ putMVar queued ()
+          when ("event=release_lock_wait " `T.isInfixOf` message) $ putMVar retired ()
+        observed = cache {guestAgentLogger = logger}
+    withAsync (bracket (fst <$> accept listener) close $ \peer -> handshake peer >> (recv peer 1 `shouldReturn` "")) $ \server ->
+      withAsync (withPersistentConn observed config 42 1 2000000 $ \_ -> putMVar held () >> takeMVar resume) $ \holder -> do
+        takeMVar held
+        slots <- readTVarIO (guestAgentSlots cache)
+        oldSlot <- maybe (expectationFailure "missing held slot" >> fail "missing held slot") pure (Map.lookup 42 slots)
+        withAsync (withPersistentConn observed config 42 2 2000000 $ \_ -> expectationFailure "retired request dispatched") $ \waiter -> do
+          takeMVar queued
+          withAsync (releaseConn observed 42) $ \releaser -> do
+            takeMVar retired
+            putMVar resume ()
+            wait holder `shouldReturn` Right ()
+            wait waiter `shouldReturn` Left "Guest agent connection retired by VM lifecycle change"
+            wait releaser
+            readMVar oldSlot `shouldReturn` Nothing
+        wait server
+
+  it "does not dispatch prepared work after a cancelled lifecycle release" $ withFixture $ \cache config listener _ -> do
+    prepared <- newEmptyMVar
+    resume <- newEmptyMVar
+    retired <- newEmptyMVar
+    let logger level message = do
+          guestAgentLogger cache level message
+          when ("event=release_lock_wait " `T.isInfixOf` message) $ putMVar retired ()
+        observed = cache {guestAgentLogger = logger}
+    withAsync (bracket (fst <$> accept listener) close $ \peer -> handshake peer >> (recv peer 1 `shouldReturn` "")) $ \server ->
+      withAsync
+        ( withPreparedConn observed config 42 2 2000000 2000000 $ \_ -> do
+            putMVar prepared ()
+            takeMVar resume
+            pure (expectationFailure "retired prepared command dispatched")
+        )
+        $ \worker -> do
+          takeMVar prepared
+          slots <- readTVarIO (guestAgentSlots cache)
+          oldSlot <- maybe (fail "missing held slot") pure (Map.lookup 42 slots)
+          withAsync (releaseConn observed 42) $ \releaser -> do
+            takeMVar retired
+            cancel releaser
+          putMVar resume ()
+          wait worker `shouldReturn` Left "Guest agent connection retired by VM lifecycle change"
+          readMVar oldSlot `shouldReturn` Nothing
+          wait server
+
+  it "does not reconnect a retry after its slot is retired" $ withFixture $ \cache config _ _ -> do
+    retrying <- newEmptyMVar
+    resume <- newEmptyMVar
+    let logger level message = do
+          guestAgentLogger cache level message
+          when ("event=operation_retry " `T.isInfixOf` message) $ putMVar retrying () >> takeMVar resume
+        observed = cache {guestAgentLogger = logger}
+    withAsync (withPersistentConn observed config {qcRuntimeDir = Just "/nonexistent-corvus-qga-test"} 42 2 100000 (const (pure ()))) $ \worker -> do
+      takeMVar retrying
+      releaseConn observed 42
+      putMVar resume ()
+      wait worker `shouldReturn` Left "Guest agent connection retired by VM lifecycle change"
+      Map.member 42 <$> readTVarIO (guestAgentSlots cache) `shouldReturn` False
 
   it "attributes external cancellation during synchronization and restores the slot" $ withFixture $ \cache config listener entries -> do
     syncing <- newEmptyMVar

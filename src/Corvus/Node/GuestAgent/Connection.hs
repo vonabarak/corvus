@@ -114,7 +114,9 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
   where
     go _ _ _ _ 0 = pure (Left "Guest agent unavailable after retries")
     go event context connVar path count = do
-      result <- runOnce event context connVar path (retries - count + 1)
+      result <-
+        runOnce event context connVar path (retries - count + 1)
+          `catch` (\QgaRetired -> pure (Left ("Guest agent connection retired by VM lifecycle change", False)))
       event LevelDebug "attempt_end" ("attempt=" <> tshow (retries - count + 1) <> " result=" <> either (const "error") (const "success") result)
       case result of
         Right value -> pure (Right value)
@@ -138,21 +140,27 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
         restore
           ( do
               event LevelDebug "lock_acquired" (attemptFields <> " wait_ms=" <> tshow ((acquired - waiting) `div` 1000000) <> " cached_connection_id=" <> maybe "none" (tshow . qgaConnectionId) mSock)
+              current <- isCurrentSlot connsVar vmId connVar
+              if current then pure () else throwIO QgaRetired
               eligible <- allowed
               if eligible then pure () else throwIO QgaBusy
-              doWork event (context <> " slot_identity=" <> tshow slotIdentity) mSock path sockRef
+              doWork event (context <> " slot_identity=" <> tshow slotIdentity) connVar mSock path sockRef
           )
           `onException` do
             (readIORef sockRef >>= closeMaybe "cancelled") `finally` putMVar connVar Nothing
       case result of
         Right (sock, value) -> do
-          if discard then closeQga "shutdown_discard" sock `finally` putMVar connVar Nothing else putMVar connVar (Just sock)
+          current <- isCurrentSlot connsVar vmId connVar
+          if discard || not current then closeQga (if discard then "shutdown_discard" else "lifecycle_release") sock `finally` putMVar connVar Nothing else putMVar connVar (Just sock)
           pure (Right value)
         Left (err, reason, retryable) -> do
           (readIORef sockRef >>= closeMaybe reason) `finally` putMVar connVar Nothing
           pure (Left (err, retryable))
 
-    doWork event context mSock path sockRef = do
+    doWork event context connVar mSock path sockRef = do
+      let ensureCurrent = do
+            current <- isCurrentSlot connsVar vmId connVar
+            if current then pure () else throwIO QgaRetired
       committed <- newIORef False
       -- Preparation and dispatch have separate deadlines. The commit marker is
       -- set before invoking send, including writes that fail after partial delivery.
@@ -161,7 +169,7 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
           sock <- case mSock of
             Just existing -> writeIORef (qgaOperation existing) context >> logQga existing LevelDebug "reuse" "" >> pure existing
             Nothing -> mask_ $ do
-              fresh <- connectWithRetry connsVar vmId context 10 path sockRef
+              fresh <- connectWithRetry ensureCurrent connsVar vmId context 10 path sockRef
               writeIORef sockRef (Just fresh)
               pure fresh
           case mSock of
@@ -169,6 +177,7 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
             Just _ -> pure ()
           case action of
             RetryWhole run -> do
+              ensureCurrent
               value <- run sock
               pure (sock, pure value)
             PrepareThenDispatch _ prepare -> (sock,) <$> prepare sock
@@ -177,12 +186,14 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
           Just (sock, dispatch) -> case action of
             RetryWhole _ -> Just . (sock,) <$> dispatch
             PrepareThenDispatch budget _ -> do
+              ensureCurrent
               writeIORef committed True
               fmap (sock,) <$> timeout budget dispatch
       dispatched <- readIORef committed
       let failure err reason = Left (if dispatched then "Execution outcome unknown; command may have started; not retried: " <> err else err, reason, not dispatched)
       case mResult of
         Right (Just result) -> pure (Right result)
+        Left err | Just QgaRetired <- fromException err -> pure (Left ("Guest agent connection retired by VM lifecycle change", "retired", False))
         Left (err :: SomeException) ->
           case fromException err :: Maybe SomeAsyncException of
             Just _ -> do
@@ -200,8 +211,9 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
           pure (failure "Timed out waiting for guest agent" "timeout")
 
 -- Each connect attempt owns its socket and ID, including backlog retries.
-connectWithRetry :: GuestAgentConns -> Int64 -> Text -> Int -> FilePath -> IORef (Maybe QgaSocket) -> IO QgaSocket
-connectWithRetry cache vmId context count path sockRef = do
+connectWithRetry :: IO () -> GuestAgentConns -> Int64 -> Text -> Int -> FilePath -> IORef (Maybe QgaSocket) -> IO QgaSocket
+connectWithRetry ensureCurrent cache vmId context count path sockRef = do
+  ensureCurrent
   connectionId <- atomically $ do
     n <- readTVar (guestAgentNextId cache)
     writeTVar (guestAgentNextId cache) (n + 1)
@@ -224,7 +236,7 @@ connectWithRetry cache vmId context count path sockRef = do
         then do
           logQga sock LevelDebug "retry" "delay_ms=300"
           threadDelay 300000
-          connectWithRetry cache vmId context (count - 1) path sockRef
+          connectWithRetry ensureCurrent cache vmId context (count - 1) path sockRef
         else ioError err
 
 closeMaybe :: Text -> Maybe QgaSocket -> IO ()
@@ -248,10 +260,22 @@ releaseConn cache vmId = mask_ $ do
       slotIdentity <- hashStableName <$> (evaluate slot >>= makeStableName)
       lifecycleEvent cache vmId "release_lock_wait" ("slot_identity=" <> tshow slotIdentity)
       cached <- takeMVar slot
-      lifecycleEvent cache vmId "release_lock_acquired" ("slot_identity=" <> tshow slotIdentity)
-        `onException` closeMaybe "lifecycle_release" cached
-      closeMaybe "lifecycle_release" cached
+      ( lifecycleEvent cache vmId "release_lock_acquired" ("slot_identity=" <> tshow slotIdentity)
+          `finally` closeMaybe "lifecycle_release" cached
+        )
+        `finally` putMVar slot Nothing
   lifecycleEvent cache vmId "release_complete" ""
+
+-- | Slot identity is the lifecycle token: a removed or replaced entry is retired.
+-- Old waiters retain their slot, but must never reconnect to a new VM runtime.
+isCurrentSlot :: GuestAgentConns -> Int64 -> MVar (Maybe QgaSocket) -> IO Bool
+isCurrentSlot cache vmId slot = atomically $ do
+  current <- Map.lookup vmId <$> readTVar (guestAgentSlots cache)
+  pure (current == Just slot)
+
+data QgaRetired = QgaRetired deriving stock (Show)
+
+instance Exception QgaRetired
 
 -- | Sync IDs stay below 2^30 so JSON implementations using doubles retain
 -- them exactly. Stale replies are drained until the matching ID arrives.
