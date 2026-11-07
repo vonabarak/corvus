@@ -72,6 +72,7 @@ import Corvus.Node.Image (ImageResult (..))
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
 import Corvus.Types (ServerState (..), lookupNodeAgent, runServerLogging)
+import Data.Either (rights)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -821,13 +822,31 @@ instance Action SnapshotCreate where
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "create"
   actionEntityId = Just . fromIntegral . scrDiskId
-  actionExecute ctx a =
-    handleSnapshotCreate
-      (acState ctx)
-      (scrDiskId a)
-      (scrName a)
-      (scrQuiesce a)
-      (scrFullMachine a)
+  actionResources state a = do
+    target <- imageResources state ExclusiveAccess (scrDiskId a)
+    family <- imageFamilyResources state (scrDiskId a)
+    vms <- snapshotVms state a
+    siblings <- concat <$> mapM (vmImageResources state . fromSqlKey) vms
+    pure (target ++ family ++ siblings)
+  actionObjectResources state a = do
+    vms <- snapshotVms state a
+    concat <$> mapM (objectResources state ExclusiveAccess VmObject . fromSqlKey) vms
+  actionExecute ctx a = do
+    let state = acState ctx
+    vms <- snapshotVms state a
+    siblings <- runSqlPool (mapM listVmstateSiblingDrives vms) (ssDbPool state)
+    let disks = toSqlKey (scrDiskId a) : concat (rights siblings)
+    duplicate <- runSqlPool (exists [SnapshotDiskImageId <-. disks, SnapshotName ==. scrName a]) (ssDbPool state)
+    if duplicate
+      then pure $ RespError ("Snapshot '" <> scrName a <> "' already exists")
+      else handleSnapshotCreate state (scrDiskId a) (scrName a) (scrQuiesce a) (scrFullMachine a)
+
+-- Full-machine snapshots mutate every writable sibling disk. VM object leases
+-- keep attachments stable while the shared action runner rechecks this inventory.
+snapshotVms :: ServerState -> SnapshotCreate -> IO [VmId]
+snapshotVms state a
+  | scrFullMachine a = runSqlPool (map (driveVmId . entityVal) <$> selectList [DriveDiskImageId ==. Just (toSqlKey (scrDiskId a))] []) (ssDbPool state)
+  | otherwise = pure []
 
 data SnapshotDelete = SnapshotDelete
   { sdelDiskId :: Int64

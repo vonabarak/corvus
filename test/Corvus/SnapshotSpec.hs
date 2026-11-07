@@ -132,6 +132,27 @@ spec = sequential $ withTestDb $ do
       vmHasStatus ident VmRunning
       rows <- runDb $ count ([] :: [Filter M.Snapshot])
       liftIO $ rows `shouldBe` 1
+    testCase "rejects duplicate names before contacting an unavailable agent" $ do
+      disk <- insertDiskImageOnTestNode "disk" "/disk.qcow2" FormatQcow2
+      snap <- insertSnapshot disk "saved"
+      original <- runDb $ get (M.toSqlKey snap :: M.SnapshotId)
+      _ <- withState (\st -> runAction st "alice" (SnapshotCreate disk "saved" QuiesceSkip False))
+      responseIs (== RespError "Snapshot 'saved' already exists")
+      preserved <- runDb $ get (M.toSqlKey snap :: M.SnapshotId)
+      liftIO $ preserved `shouldBe` original
+
+    testCase "rejects a full-machine name conflict on a sibling disk" $ do
+      carrier <- insertDiskImageOnTestNode "carrier" "/carrier.qcow2" FormatQcow2
+      sibling <- insertDiskImageOnTestNode "sibling" "/sibling.qcow2" FormatQcow2
+      vm <- insertVm "running" VmRunning
+      _ <- attachDrive vm carrier InterfaceVirtio
+      _ <- attachDrive vm sibling InterfaceVirtio
+      _ <- insertSnapshot sibling "saved"
+      _ <- withState (\st -> runAction st "alice" (SnapshotCreate carrier "saved" QuiesceSkip True))
+      responseIs (== RespError "Snapshot 'saved' already exists")
+      rows <- runDb $ count ([] :: [Filter M.Snapshot])
+      liftIO $ rows `shouldBe` 1
+
     testCase "reports full-machine guards before attempting agent calls" $ do
       disk <- insertDiskImageOnTestNode "disk" "/disk.qcow2" FormatQcow2
       _ <- withState (\st -> runAction st "alice" (SnapshotCreate disk "saved" QuiesceSkip True))

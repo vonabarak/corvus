@@ -13,7 +13,9 @@ ControlMaster VmSsh keeps alive cannot span a stop/start.
 
 from __future__ import annotations
 
+import json
 import secrets
+import shlex
 
 import pytest
 from corvus_client import CorvusError, VmMustBeStopped
@@ -56,8 +58,15 @@ class TestSnapshots(SingleNodeCase):
         try:
             first = disk.snapshot_create("same-name")
             try:
-                with pytest.raises(CorvusError):
+                with pytest.raises(CorvusError, match="already exists"):
                     disk.snapshot_create("same-name")
+                path = disk.show().placements[0].file_path
+                physical = json.loads(
+                    self.node.run(
+                        f"qemu-img info --output=json {shlex.quote(path)}"
+                    ).stdout
+                )
+                assert [s["name"] for s in physical["snapshots"]] == ["same-name"]
                 # Only one row exists.
                 listed = disk.snapshot_list()
                 assert [s.name for s in listed] == ["same-name"]
