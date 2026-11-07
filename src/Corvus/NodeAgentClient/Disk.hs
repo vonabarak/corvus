@@ -249,14 +249,19 @@ diskClone nac src dest destFormat backing compact = remote $ do
 diskInspect
   :: NodeAgentClient
   -> T.Text
-  -> IO (Either NodeAgentError DiskInspectInfo)
+  -> IO (Either NodeAgentError (Either T.Text (Maybe DiskInspectInfo)))
 diskInspect nac path = remote $ do
-  CGNA.Session'diskInspect'results {CGNA.info = i} <-
+  CGNA.Session'diskInspect'results {CGNA.result = result} <-
     callOn
       #diskInspect
       CGNA.Session'diskInspect'params {CGNA.path = path}
       (nacSession nac)
-  pure (decodeDiskInspectInfo i)
+  let CGNA.DiskInspectResult {CGNA.union' = outcome} = result
+  pure $ case outcome of
+    CGNA.DiskInspectResult'present info -> Right (Just (decodeDiskInspectInfo info))
+    CGNA.DiskInspectResult'missing -> Right Nothing
+    CGNA.DiskInspectResult'failed err -> Left err
+    CGNA.DiskInspectResult'unknown' _ -> Left "Unknown disk inspection result"
 
 -- ---------------------------------------------------------------------------
 -- Download / decompress / hash

@@ -139,6 +139,32 @@ class _ImportServer:
 class TestDiskImport(SingleNodeCase):
     """Import, version publication, decompression, and conditional updates."""
 
+    def test_inspection_failure_does_not_start_download(self) -> None:
+        destination = (
+            self.node.run("mktemp -d /tmp/corvus-import-destination.XXXXXX")
+            .stdout.decode()
+            .strip()
+        )
+        name = _uniq("inspect-failure")
+        try:
+            with _ImportServer(self.node, suffix=".raw") as server:
+                server.set_payload(b"must not be downloaded")
+                task_id = self.client.disks.import_url(
+                    name, f"{server.url}/payload.raw", path=destination, format="raw"
+                )
+                with pytest.raises(AssertionError, match="Inspect import destination"):
+                    self.wait_for_task(self.client, task_id, timeout_sec=30.0)
+                assert server.request_count() == 0
+                self.node.run(f"test -d {shlex.quote(destination)}")
+                # The failed operation leaves the nodeagent session usable.
+                assert (
+                    self.client.nodes.get(self.client.nodes.list()[0].id)
+                    .ping()
+                    .reachable
+                )
+        finally:
+            self.node.run(f"rmdir -- {shlex.quote(destination)}")
+
     def _delete_versions_silent(self, *names: str) -> None:
         """Clean up superseded versions as well as the currently selected one."""
         logical_names = {name.split(":", 1)[0] for name in names}

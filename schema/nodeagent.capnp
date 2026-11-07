@@ -107,7 +107,7 @@ interface Session {
   # row will record.
   # Optional backing preserves a registered backing dependency in the output.
   # compact enables qcow2 compression during conversion.
-  diskInspect        @7 (path :Text) -> (info :DiskInspectInfo);
+  diskInspect        @7 (path :Text) -> (result :DiskInspectResult);
 
   # Snapshot operations (qcow2 only; format errors surface via DiskOpResult).
   #
@@ -538,6 +538,15 @@ enum DiskOpKind {
   errorGeneric           @1;
   errorNotFound          @2;
   errorFormatUnsupported @3;
+}
+
+# Missing is an expected read-only probe outcome; failures never imply absence.
+struct DiskInspectResult {
+  union {
+    present @0 :DiskInspectInfo;
+    missing @1 :Void;
+    failed @2 :Text;
+  }
 }
 
 # DiskInspectInfo mirrors Corvus.Qemu.Image.ImageInfo.

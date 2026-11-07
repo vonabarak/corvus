@@ -67,7 +67,7 @@ import Supervisors (supervise)
 import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
 import System.Timeout (timeout)
 
-import Corvus.Node.Caps.Session.Utils (SessionCap (..), cleanupDetachedDrive, decodeQuiesceMode, encodeDiskInspectInfo, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, traceNodeRequest, tshow, withVmOpLock)
+import Corvus.Node.Caps.Session.Utils (SessionCap (..), cleanupDetachedDrive, decodeQuiesceMode, encodeDiskInspectResult, encodeDiskOpResult, flushBufferForVm, isBlockdevBusy, logNodeFailure, newSessionCap, parseFormat, requireRemovableDrive, retryBlockdevDel, traceNodeRequest, tshow, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
 import Corvus.Node.Caps.Session.Vm.Lifecycle (sanitiseVmName)
@@ -198,14 +198,14 @@ instance CGNA.Session'server_ SessionServer where
 
   session'diskInspect (SessionServer sc) =
     handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskInspect" $ \CGNA.Session'diskInspect'params {CGNA.path = p} -> do
-      result <- NI.getImageInfo (T.unpack p)
+      result <- NI.inspectImage (T.unpack p)
       case result of
-        Left err -> throwFailed err
-        Right info ->
-          pure
-            CGNA.Session'diskInspect'results
-              { CGNA.info = encodeDiskInspectInfo info
-              }
+        Left _ -> logNodeFailure (scQgaConns sc) "diskInspect" "image_inspection_failed"
+        Right _ -> pure ()
+      pure
+        CGNA.Session'diskInspect'results
+          { CGNA.result = encodeDiskInspectResult result
+          }
 
   -- ---- Snapshot operations -------------------------------------------------
 
@@ -429,7 +429,11 @@ instance CGNA.Session'server_ SessionServer where
   session'diskSourceIdentity (SessionServer sc) =
     handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskSourceIdentity" $ \CGNA.Session'diskSourceIdentity'params {CGNA.path = p} -> do
       result <- NI.sourceIdentity (T.unpack p)
-      either throwFailed (\identity -> pure CGNA.Session'diskSourceIdentity'results {CGNA.identity = identity}) result
+      case result of
+        Left err -> do
+          logNodeFailure (scQgaConns sc) "diskSourceIdentity" "source_backing_chain_inspection_failed"
+          throwFailed err
+        Right identity -> pure CGNA.Session'diskSourceIdentity'results {CGNA.identity = identity}
 
   session'diskHash (SessionServer sc) =
     handleParsedAsync $ traceNodeRequest (scQgaConns sc) "diskHash" $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do

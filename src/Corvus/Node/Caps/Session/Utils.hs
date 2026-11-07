@@ -13,7 +13,7 @@ module Corvus.Node.Caps.Session.Utils
     parseFormat
   , encodeDiskOpResult
   , decodeQuiesceMode
-  , encodeDiskInspectInfo
+  , encodeDiskInspectResult
   , encodeDiskSnapshotInfo
 
     -- * Chardev streaming constants
@@ -42,6 +42,7 @@ module Corvus.Node.Caps.Session.Utils
 
     -- * Tiny helpers
   , traceNodeRequest
+  , logNodeFailure
   , tshow
 
     -- * Chardev helpers
@@ -555,3 +556,21 @@ traceNodeRequest conns name handler params = E.mask $ \restore -> do
       E.throwIO err
   finish LevelDebug "success"
   pure result
+
+-- | Log a safe, operation-specific reason without request parameters or paths.
+logNodeFailure :: NGA.GuestAgentConns -> Text -> Text -> IO ()
+logNodeFailure conns name reason = do
+  ident <- myThreadId
+  guestAgentLogger
+    conns
+    LevelWarn
+    ("[nodeagent] request=" <> tshow ident <> " operation=" <> name <> " result=failed reason=" <> reason)
+
+encodeDiskInspectResult :: Either Text (Maybe NI.ImageInfo) -> CGNA.Parsed CGNA.DiskInspectResult
+encodeDiskInspectResult result =
+  CGNA.DiskInspectResult
+    { CGNA.union' = case result of
+        Left err -> CGNA.DiskInspectResult'failed err
+        Right Nothing -> CGNA.DiskInspectResult'missing
+        Right (Just info) -> CGNA.DiskInspectResult'present (encodeDiskInspectInfo info)
+    }

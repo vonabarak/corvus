@@ -246,7 +246,8 @@ vmStart nac spec = remoteWithin 120 $ do
       #vmStart
       CGNA.Session'vmStart'params {CGNA.spec = encodeVmSpec spec}
       (nacSession nac)
-  pure $ case CGNA.union' result of
+  let CGNA.VmStartResult {CGNA.union' = outcome} = result
+  pure $ case outcome of
     CGNA.VmStartResult'started i -> VmStartStarted (decodeVmRuntimeInfo i)
     CGNA.VmStartResult'vsockCidBusy -> VmStartVsockCidBusy
     CGNA.VmStartResult'unknown' tag -> error ("unknown VmStartResult tag: " <> show tag)

@@ -1168,18 +1168,18 @@ instance (C.AllocateList Session'diskInspect'results) where
 instance (C.EstimateListAlloc Session'diskInspect'results (C.Parsed Session'diskInspect'results))
 data instance C.Parsed Session'diskInspect'results
     = Session'diskInspect'results 
-        {info :: (RP.Parsed DiskInspectInfo)}
+        {result :: (RP.Parsed DiskInspectResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskInspect'results))
 deriving instance (Std_.Eq (C.Parsed Session'diskInspect'results))
 instance (C.Parse Session'diskInspect'results (C.Parsed Session'diskInspect'results)) where
-    parse raw_ = (Session'diskInspect'results <$> (GH.parseField #info raw_))
+    parse raw_ = (Session'diskInspect'results <$> (GH.parseField #result raw_))
 instance (C.Marshal Session'diskInspect'results (C.Parsed Session'diskInspect'results)) where
     marshalInto raw_ Session'diskInspect'results{..} = (do
-        (GH.encodeField #info info raw_)
+        (GH.encodeField #result result raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "info" GH.Slot Session'diskInspect'results DiskInspectInfo) where
+instance (GH.HasField "result" GH.Slot Session'diskInspect'results DiskInspectResult) where
     fieldByLabel  = (GH.ptrField 0)
 data Session'snapshotCreate'params 
 type instance (R.ReprFor Session'snapshotCreate'params) = (R.Ptr (Std_.Just R.Struct))
@@ -4787,6 +4787,87 @@ instance (C.Parse DiskOpKind DiskOpKind) where
 instance (C.AllocateList DiskOpKind) where
     type ListAllocHint DiskOpKind = Std_.Int
 instance (C.EstimateListAlloc DiskOpKind DiskOpKind)
+data DiskInspectResult
+type instance (R.ReprFor DiskInspectResult) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskInspectResult) where
+    typeId  = 15412532011138905971
+instance (C.TypedStruct DiskInspectResult) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate DiskInspectResult) where
+    type AllocHint DiskInspectResult = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskInspectResult (C.Parsed DiskInspectResult))
+instance (C.AllocateList DiskInspectResult) where
+    type ListAllocHint DiskInspectResult = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskInspectResult (C.Parsed DiskInspectResult))
+data instance C.Parsed DiskInspectResult
+    = DiskInspectResult
+        {union' :: (C.Parsed (GH.Which DiskInspectResult))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskInspectResult))
+deriving instance (Std_.Eq (C.Parsed DiskInspectResult))
+instance (C.Parse DiskInspectResult (C.Parsed DiskInspectResult)) where
+    parse raw_ = (DiskInspectResult <$> (C.parse (GH.structUnion raw_)))
+instance (C.Marshal DiskInspectResult (C.Parsed DiskInspectResult)) where
+    marshalInto raw_ DiskInspectResult{..} = (do
+        (C.marshalInto (GH.structUnion raw_) union')
+        )
+instance (GH.HasUnion DiskInspectResult) where
+    unionField  = (GH.dataField 0 0 16 0)
+    data RawWhich DiskInspectResult mut_
+        = RW_DiskInspectResult'present (R.Raw DiskInspectInfo mut_)
+        | RW_DiskInspectResult'missing (R.Raw () mut_)
+        | RW_DiskInspectResult'failed (R.Raw Basics.Text mut_)
+        | RW_DiskInspectResult'unknown' Std_.Word16
+    internalWhich tag_ struct_ = case tag_ of
+        0 ->
+            (RW_DiskInspectResult'present <$> (GH.readVariant #present struct_))
+        1 ->
+            (RW_DiskInspectResult'missing <$> (GH.readVariant #missing struct_))
+        2 ->
+            (RW_DiskInspectResult'failed <$> (GH.readVariant #failed struct_))
+        _ ->
+            (Std_.pure (RW_DiskInspectResult'unknown' tag_))
+    data Which DiskInspectResult
+instance (GH.HasVariant "present" GH.Slot DiskInspectResult DiskInspectInfo) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 0)
+instance (GH.HasVariant "missing" GH.Slot DiskInspectResult ()) where
+    variantByLabel  = (GH.Variant GH.voidField 1)
+instance (GH.HasVariant "failed" GH.Slot DiskInspectResult Basics.Text) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 2)
+data instance C.Parsed (GH.Which DiskInspectResult)
+    = DiskInspectResult'present (RP.Parsed DiskInspectInfo)
+    | DiskInspectResult'missing
+    | DiskInspectResult'failed (RP.Parsed Basics.Text)
+    | DiskInspectResult'unknown' Std_.Word16
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed (GH.Which DiskInspectResult)))
+deriving instance (Std_.Eq (C.Parsed (GH.Which DiskInspectResult)))
+instance (C.Parse (GH.Which DiskInspectResult) (C.Parsed (GH.Which DiskInspectResult))) where
+    parse raw_ = (do
+        rawWhich_ <- (GH.unionWhich raw_)
+        case rawWhich_ of
+            (RW_DiskInspectResult'present rawArg_) ->
+                (DiskInspectResult'present <$> (C.parse rawArg_))
+            (RW_DiskInspectResult'missing _) ->
+                (Std_.pure DiskInspectResult'missing)
+            (RW_DiskInspectResult'failed rawArg_) ->
+                (DiskInspectResult'failed <$> (C.parse rawArg_))
+            (RW_DiskInspectResult'unknown' tag_) ->
+                (Std_.pure (DiskInspectResult'unknown' tag_))
+        )
+instance (C.Marshal (GH.Which DiskInspectResult) (C.Parsed (GH.Which DiskInspectResult))) where
+    marshalInto raw_ parsed_ = case parsed_ of
+        (DiskInspectResult'present arg_) ->
+            (GH.encodeVariant #present arg_ (GH.unionStruct raw_))
+        (DiskInspectResult'missing) ->
+            (GH.encodeVariant #missing () (GH.unionStruct raw_))
+        (DiskInspectResult'failed arg_) ->
+            (GH.encodeVariant #failed arg_ (GH.unionStruct raw_))
+        (DiskInspectResult'unknown' tag_) ->
+            (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
 data DiskInspectInfo 
 type instance (R.ReprFor DiskInspectInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskInspectInfo) where

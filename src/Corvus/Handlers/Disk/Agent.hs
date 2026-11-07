@@ -27,6 +27,7 @@ module Corvus.Handlers.Disk.Agent
   , rebaseImageViaAgent
   , cloneImageViaAgent
   , getImageInfoViaAgent
+  , inspectImageViaAgent
   , getImageSizeViaAgent
 
     -- * Snapshot operations
@@ -54,7 +55,7 @@ module Corvus.Handlers.Disk.Agent
 where
 
 import Control.Exception (IOException, try)
-import Control.Monad (when)
+import Control.Monad (join, when)
 import Control.Monad.Logger (logWarnN)
 import Corvus.Model (DriveFormat, EnumText (..))
 import qualified Corvus.Model as M
@@ -193,10 +194,18 @@ cloneImageViaAgent state nid src dest destFormat backing compact =
 getImageInfoViaAgent
   :: ServerState -> M.NodeId -> FilePath -> IO (Either Text NI.ImageInfo)
 getImageInfoViaAgent state nid path = do
+  result <- inspectImageViaAgent state nid path
+  pure $ result >>= maybe (Left "Image file not found") Right
+
+-- | Probe a destination without conflating absence with an inspection failure.
+inspectImageViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text (Maybe NI.ImageInfo))
+inspectImageViaAgent state nid path = do
   r <- withEitherText state nid $ \nac -> NOA.diskInspect nac (T.pack path)
-  pure $ case r of
-    Left e -> Left e
-    Right info -> case enumFromText (NOA.diiFormat info) of
+  pure $ do
+    result <- join r
+    traverse convert result
+  where
+    convert info = case enumFromText (NOA.diiFormat info) of
       Left _ -> Left ("unknown disk format: " <> NOA.diiFormat info)
       Right fmt ->
         Right
@@ -206,7 +215,7 @@ getImageInfoViaAgent state nid path = do
             , NI.iiActualSize = NOA.diiActualSize info
             , NI.iiSnapshots = map toSnap (NOA.diiSnapshots info)
             }
-  where
+
     toSnap s =
       NI.SnapshotData
         { NI.sdId = NOA.dsiId s

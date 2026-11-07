@@ -43,7 +43,6 @@ module Corvus.Qemu
   , deleteImage
   , resizeImage
   , rebaseImage
-  , getImageInfo
   , createSnapshot
   , deleteSnapshot
   , rollbackSnapshot

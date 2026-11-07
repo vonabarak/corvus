@@ -488,3 +488,8 @@ observations and network-interface validity. A busy QGA connection retains its
 last runtime-scoped observation without refreshing the healthcheck or promoting
 VM startup. Invalid network observations do not clear previously observed IPs.
 Daemon and nodeagent must use matching protocol versions.
+
+Protocol version 9 makes nodeagent `diskInspect` return a `DiskInspectResult`
+union: `present` carries image information, `missing` denotes ENOENT, and
+`failed` carries an inspection error. Imports only download on `missing`;
+permission, corrupt-image, and transport failures abort the import.

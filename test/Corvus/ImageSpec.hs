@@ -16,8 +16,10 @@ import Corvus.Node.Image
 import Data.Aeson (Value, encode)
 import Data.Aeson.QQ (aesonQQ)
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import System.FilePath ((</>))
 import System.IO (hClose)
-import System.IO.Temp (withSystemTempFile)
+import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
+import System.Posix.Files (createSymbolicLink)
 import Test.Hspec
 
 -- | Encode an 'aesonQQ'-produced 'Value' to the JSON 'String' that
@@ -27,6 +29,26 @@ jsonStr = BSL.unpack . encode
 
 spec :: Spec
 spec = do
+  describe "inspectImage" $ do
+    it "returns missing for an absent destination" $
+      withSystemTempDirectory "inspect" $ \dir ->
+        inspectImage (dir </> "missing") `shouldReturn` Right Nothing
+    it "does not treat a dangling symlink as an absent destination" $
+      withSystemTempDirectory "inspect" $ \dir -> do
+        let destination = dir </> "image"
+        createSymbolicLink (dir </> "missing") destination
+        inspectImage destination >>= (`shouldSatisfy` isLeft)
+    it "does not treat an uninspectable directory as missing" $
+      withSystemTempDirectory "inspect" $ \dir -> do
+        result <- inspectImage dir
+        result `shouldSatisfy` isLeft
+    it "returns info for an existing raw image" $
+      withSystemTempFile "inspect.raw" $ \path handle -> do
+        hClose handle
+        result <- inspectImage path
+        case result of
+          Right (Just info) -> iiFormat info `shouldBe` FormatRaw
+          other -> expectationFailure (show other)
   describe "parseImageInfo" $ do
     it "parses qcow2 image info" $ do
       let fixture =

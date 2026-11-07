@@ -24,7 +24,7 @@ module Corvus.Node.Image
   , deleteImage
   , resizeImage
   , rebaseImage
-  , getImageInfo
+  , inspectImage
   , parseImageInfo
 
     -- * Snapshot operations
@@ -75,7 +75,8 @@ import qualified System.Directory as D
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension)
 import System.IO (hClose, openBinaryTempFile)
-import System.Posix.Files (createLink)
+import System.IO.Error (isDoesNotExistError, tryIOError)
+import System.Posix.Files (createLink, getSymbolicLinkStatus)
 import qualified System.Posix.Files as Posix
 import System.Process
   ( ProcessHandle
@@ -246,26 +247,20 @@ rebaseImage overlayPath mNewBacking unsafe = do
         ExitSuccess -> pure ImageSuccess
         ExitFailure _ -> pure $ ImageError $ T.pack stderr
 
--- | Get information about a disk image.
---
--- Runs @qemu-img info --output=json@ and decodes the resulting JSON.
--- JSON output is stable across qemu versions (it tracks the QAPI
--- @ImageInfo@ schema); the older human-readable output changed format
--- between releases and required fragile line-grepping.
-getImageInfo
-  :: FilePath
-  -- ^ File path
-  -> IO (Either Text ImageInfo)
-getImageInfo path = do
-  exists <- doesFileExist path
-  if not exists
-    then pure $ Left "Image file not found"
-    else do
-      let args = ["info", "--output=json", path]
-      (exitCode, stdout, stderr) <- readProcessWithExitCode qemuImgBinary args ""
-      case exitCode of
-        ExitFailure _ -> pure $ Left $ T.pack stderr
-        ExitSuccess -> pure $ parseImageInfo stdout
+-- | Only ENOENT is absence. Permission, process, and decoding failures remain
+-- failures so destination probes cannot accidentally authorize overwriting.
+inspectImage :: FilePath -> IO (Either Text (Maybe ImageInfo))
+inspectImage path = do
+  status <- tryIOError (getSymbolicLinkStatus path)
+  case status of
+    Left err | isDoesNotExistError err -> pure (Right Nothing)
+    Left _ -> pure (Left "Unable to stat image file")
+    Right _ -> do
+      process <- tryIOError (readProcessWithExitCode qemuImgBinary ["info", "--output=json", path] "")
+      pure $ case process of
+        Left _ -> Left "Unable to run qemu-img info"
+        Right (ExitFailure _, _, _) -> Left "qemu-img info failed"
+        Right (ExitSuccess, stdout, _) -> Just <$> parseImageInfo stdout
 
 --------------------------------------------------------------------------------
 -- JSON wire types for @qemu-img info --output=json@.

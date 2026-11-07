@@ -21,9 +21,9 @@ import Corvus.Handlers.Disk.Agent
   , decompressXzViaAgent
   , deleteImageViaAgent
   , downloadImageViaAgent
-  , getImageInfoViaAgent
   , getImageSizeViaAgent
   , hashFileViaAgent
+  , inspectImageViaAgent
   , sourceIdentityViaAgent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
@@ -287,12 +287,13 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
   -- The final path belongs to the target node. Inspection through the
   -- nodeagent keeps remote-node imports from accidentally probing the
   -- daemon host's filesystem.
-  finalExists <- either (const False) (const True) <$> getImageInfoViaAgent state nid fsFinalPath
-  case (finalExists, fsChecksum) of
-    (True, Just cs@ImportChecksum {icTarget = ChecksumTargetFinal}) ->
+  inspected <- inspectImageViaAgent state nid fsFinalPath
+  case (inspected, fsChecksum) of
+    (Left err, _) -> pure (Left ("Inspect import destination: " <> err))
+    (Right (Just _), Just cs@ImportChecksum {icTarget = ChecksumTargetFinal}) ->
       verifyExistingFinal cs
-    (True, _) -> pure $ Left "Destination file already exists"
-    (False, _) -> downloadLoop 1
+    (Right (Just _), _) -> pure $ Left "Destination file already exists"
+    (Right Nothing, _) -> downloadLoop 1
   where
     onProgress d t = sink (DownloadProgress diskName d t)
 
