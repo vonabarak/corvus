@@ -153,6 +153,16 @@ spec = sequential $ withTestDb $ do
         _ -> False
       row <- runDb $ get (M.toSqlKey ident :: M.NetworkId)
       liftIO $ M.networkRunning <$> row `shouldBe` Just False
+    testCase "keeps a network running when teardown cannot reach its netagent" $ do
+      ident <- insertNetwork "net" "10.0.0.0/24"
+      let key = M.toSqlKey ident :: M.NetworkId
+      runDb $ update key [M.NetworkRunning =. True]
+      _ <- withState (\st -> runAction st "alice" (NetworkStop ident True))
+      responseIs $ \case
+        RespNetworkError _ -> True
+        _ -> False
+      row <- runDb $ get key
+      liftIO $ M.networkRunning <$> row `shouldBe` Just True
     testCase "rejects a requested node that does not exist" $ do
       _ <- withState (\st -> runAction st "alice" (NetworkCreate "net" "missing" "10.0.0.0/24" False False False [] "" True))
       responseIs $ \case

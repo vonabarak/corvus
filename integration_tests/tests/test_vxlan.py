@@ -243,6 +243,15 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             beta_dsts = _fdb_dsts(self.node_beta, vx)
             assert self.node_beta.outer_ip in alpha_dsts
             assert self.node_alpha.outer_ip in beta_dsts
+            # Stopping must remove remote state before the network's VNI
+            # can be reused by another network. Restart also exercises a
+            # fresh create on every member rather than a stale reconcile.
+            nw.stop()
+            assert not _link_exists(self.node_alpha, vx)
+            assert not _link_exists(self.node_beta, vx)
+            nw.start()
+            assert _link_exists(self.node_alpha, vx)
+            assert _link_exists(self.node_beta, vx)
         finally:
             self._delete_silent_network(nw_name)
 

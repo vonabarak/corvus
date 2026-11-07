@@ -14,7 +14,6 @@ module Corvus.NodeRouting
   ( -- * Dispatch wrappers
     withVmNodeAgent
   , withVmNetAgent
-  , withNetworkNetAgent
   )
 where
 
@@ -42,14 +41,6 @@ vmNodeIdById state eid = do
     Nothing -> Left "VM not found"
     Just vm -> Right (M.vmNodeId vm)
 
--- | Look up a Network's 'NodeId'.
-networkNodeIdById :: (MonadIO m) => ServerState -> Int64 -> m (Either Text M.NodeId)
-networkNodeIdById state nid = do
-  mNw <- liftIO $ runSqlPool (get (toSqlKey nid :: M.NetworkId)) (ssDbPool state)
-  pure $ case mNw of
-    Nothing -> Left "Network not found"
-    Just nw -> Right (M.networkNodeId nw)
-
 -- | Resolve VM's node and run an action through its nodeagent.
 withVmNodeAgent
   :: ServerState
@@ -74,15 +65,3 @@ withVmNetAgent state eid action = do
   case r of
     Left e -> pure (Left e)
     Right nid -> withNetAgent state nid action
-
--- | Resolve Network's node and run an action through its netd cap.
-withNetworkNetAgent
-  :: ServerState
-  -> Int64
-  -> (NA.NetAgentClient -> IO a)
-  -> IO (Either Text a)
-withNetworkNetAgent state nid action = do
-  r <- networkNodeIdById state nid
-  case r of
-    Left e -> pure (Left e)
-    Right node -> withNetAgent state node action

@@ -29,7 +29,7 @@ where
 
 import Corvus.Action
 
-import Control.Monad (forM_, unless)
+import Control.Monad (forM, forM_, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import qualified Corvus.Handlers.Network.Ipam as Ipam
@@ -41,7 +41,6 @@ import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.NetAgentClient.Spec (corvusBridgeName, networkToSpec)
 import qualified Corvus.NetAgentClient.Spec as Spec
-import Corvus.NodeRouting (withNetworkNetAgent)
 import Corvus.Protocol
 import Corvus.Types (ServerState (..), runServerLogging, withNetAgent)
 import Corvus.Utils.Network (validateSubnet)
@@ -254,33 +253,36 @@ handleNetworkStop state networkId force _parentTaskId = runServerLogging state $
                 else doStop key network
             else doStop key network
   where
-    doStop key _network = do
+    doStop key network = do
       logInfoN $ "Stopping network " <> T.pack (show networkId)
-      outer <- liftIO $ withNetworkNetAgent state networkId $ \nac ->
-        NA.deleteNetwork nac (corvusBridgeName networkId)
-      case outer of
-        Left err -> do
-          logWarnN $ "netd unavailable; cannot stop network: " <> err
-          pure $ RespNetworkError err
-        Right result -> do
-          case result of
-            Left e ->
-              logWarnN $
-                "deleteNetwork failed for "
-                  <> T.pack (show networkId)
-                  <> ": "
-                  <> T.pack (show e)
-            Right () -> pure ()
-          -- Clear DB state regardless of agent response — the agent's
-          -- destroy is idempotent and a stale ledger entry that
-          -- happens to survive will be reaped by its next
-          -- 'applyNetwork' delta or by an agent restart's cleanup pass.
+      peers <- liftIO $ runSqlPool (selectList [M.NetworkPeerNetworkId ==. key] []) (ssDbPool state)
+      let members = M.networkNodeId network : map (M.networkPeerNodeId . entityVal) peers
+      failures <- liftIO $ fmap concat $ forM members $ \nodeId -> do
+        result <- withNetAgent state nodeId $ \nac ->
+          NA.deleteNetwork nac (corvusBridgeName networkId)
+        pure $ case result of
+          Right (Right ()) -> []
+          Left err -> [memberError nodeId err]
+          Right (Left err) -> [memberError nodeId (T.pack (show err))]
+      if null failures
+        then do
           liftIO $
             runSqlPool
               (update key [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing])
               (ssDbPool state)
           logInfoN $ "Network " <> T.pack (show networkId) <> " stopped"
           pure RespNetworkStopped
+        else do
+          let err = T.intercalate "; " failures
+          logWarnN $ "Cannot stop network " <> T.pack (show networkId) <> ": " <> err
+          -- Retain running state and membership until every member has
+          -- acknowledged teardown. A retry can safely repeat deleteNetwork,
+          -- and deletion cannot release a VNI still present on a peer.
+          pure $ RespNetworkError err
+
+    memberError :: M.NodeId -> Text -> Text
+    memberError nodeId err =
+      "deleteNetwork on node " <> T.pack (show (fromSqlKey nodeId)) <> " failed: " <> err
 
     checkRunningVms key = do
       netIfs <- selectList [M.NetworkInterfaceNetworkId ==. Just key] []
