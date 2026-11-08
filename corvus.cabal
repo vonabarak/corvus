@@ -567,6 +567,7 @@ test-suite corvus-test
       Corvus.ActionSpec
       Corvus.ApplySpec
       Corvus.ApplyValidationSpec
+      Corvus.BakeVmCleanupSpec
       Corvus.BalloonParserSpec
       Corvus.BuildCleanupSpec
       Corvus.BuildIdentitySpec
