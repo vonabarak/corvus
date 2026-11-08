@@ -271,8 +271,14 @@ A failed startup remains errored and is not retried by the periodic poller.
 QMP resource-counter queries have a one-second deadline per exchange: missing
 statistics must not hold up startup notifications or periodic status delivery.
 
-The nodeagent logs QEMU guest agent (QGA) routine request and connection lifecycle events at `debug`,
-failures at `warn`, and command send/reply metadata and socket reuse at `debug`.
+The nodeagent logs QEMU guest agent (QGA) request/connection lifecycle events,
+transport attempts, and recovered retries at `debug`. Exhausted operations emit
+one `operation_failed` warning with sanitized reason and command metadata.
+Lifecycle-retired work, startup readiness attempts, and shutdown signalling stay
+at `debug`: their coordinators report the overall result. Periodic health
+failures are reported once by the status poller. Explicit guest protocol errors
+and malformed replies remain warnings. These levels do not change retry counts,
+command dispatch, or cancellation semantics.
 Use the nodeagent's `--log-level debug` option when investigating a stall.
 The messages use the `qga` logging source and include UTC timestamps, VM ID,
 a process-local connection ID, operation ID, caller source stack, thread ID,

@@ -155,9 +155,8 @@ recvQga sock = do
                 _ -> "unknown"
         _ | eof -> "result=eof"
         _ -> "result=malformed"
-  (_, command, _) <- readIORef (qgaExchange sock)
   let level
-        | "result=qga_error" `T.isPrefixOf` summary || summary == "result=malformed" || summary == "result=eof" && command /= "guest-shutdown" = LevelWarn
+        | "result=qga_error" `T.isPrefixOf` summary || summary == "result=malformed" = LevelWarn
         | otherwise = LevelDebug
   logQga sock level "reply" summary
   writePhase sock "idle"
@@ -170,17 +169,16 @@ recvQgaWithin micros sock callLabel = do
     Just response -> pure response
     Nothing -> ioError . userError $ T.unpack callLabel <> ": no reply within " <> show (micros `div` 1000000) <> "s"
 
--- | Preserve each caller's timeout result and error policy while recording the
--- missing reply. A quiet shutdown is expected and stays at debug level.
+-- | Preserve the caller's timeout policy. Attempt diagnostics stay at Debug;
+-- the connection wrapper reports an exhausted operation once, after retries.
 timeoutQgaReceive :: Int -> QgaSocket -> IO (Maybe (Maybe Value))
 timeoutQgaReceive micros sock = do
   result <- timeout micros (recvQga sock)
   case result of
     Nothing -> do
-      (_, command, _) <- readIORef (qgaExchange sock)
       logQga
         sock
-        (if command == "guest-shutdown" then LevelDebug else LevelWarn)
+        LevelDebug
         "receive_timeout"
         ("timeout_us=" <> T.pack (show micros))
     Just _ -> pure ()

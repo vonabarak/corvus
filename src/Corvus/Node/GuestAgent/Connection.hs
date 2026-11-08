@@ -82,6 +82,20 @@ withPreparedConn :: (HasCallStack) => GuestAgentConns -> QemuConfig -> Int64 -> 
 withPreparedConn conns config vmId retries prepareBudget dispatchBudget prepare =
   withConnection (pure True) True False conns config vmId retries prepareBudget (PrepareThenDispatch dispatchBudget prepare)
 
+-- | Transport diagnostics are emitted per attempt at Debug. Only a terminal
+-- failure escapes the retry loop; its structured metadata never includes a
+-- guest payload or arbitrary exception text.
+data QgaFailure = QgaFailure
+  { qfMessage :: Text
+  , qfReason :: Text
+  , qfRetryable :: Bool
+  , qfSocket :: Maybe QgaSocket
+  , qfFields :: Text
+  }
+
+retiredFailure :: QgaFailure
+retiredFailure = QgaFailure "Guest agent connection retired by VM lifecycle change" "retired" False Nothing ""
+
 data QgaWork a
   = RetryWhole (QgaSocket -> IO a)
   | PrepareThenDispatch Int (QgaSocket -> IO (IO a))
@@ -107,24 +121,32 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
       connVar <- getOrCreateConn connsVar vmId
       path <- getGuestAgentSocket config vmId
       result <- go event context connVar path retries
+      case result of
+        Left failure -> do
+          let level = if qfReason failure == "retired" || discard || guestAgentStartupReadiness connsVar then LevelDebug else LevelWarn
+              fields = "reason=" <> qfReason failure <> " " <> qfFields failure
+          case qfSocket failure of
+            Just sock -> logQga sock level "operation_failed" fields
+            Nothing -> event level "operation_failed" fields
+        Right _ -> pure ()
       finish (either (const "error") (const "success") result)
-      pure result
+      pure $ either (Left . qfMessage) Right result
     )
     `onException` finish "exception_or_cancellation"
   where
-    go _ _ _ _ 0 = pure (Left "Guest agent unavailable after retries")
+    go _ _ _ _ 0 = pure (Left (QgaFailure "Guest agent unavailable after retries" "no_attempts" False Nothing ""))
     go event context connVar path count = do
       result <-
         runOnce event context connVar path (retries - count + 1)
-          `catch` (\QgaRetired -> pure (Left ("Guest agent connection retired by VM lifecycle change", False)))
+          `catch` (\QgaRetired -> pure (Left retiredFailure))
       event LevelDebug "attempt_end" ("attempt=" <> tshow (retries - count + 1) <> " result=" <> either (const "error") (const "success") result)
       case result of
         Right value -> pure (Right value)
-        Left (_, True) | count > 1 -> do
+        Left failure | qfRetryable failure && count > 1 -> do
           event LevelDebug "operation_retry" "delay_ms=1000"
           threadDelay 1000000
           go event context connVar path (count - 1)
-        Left (err, _) -> pure (Left err)
+        Left failure -> pure (Left failure)
 
     runOnce event context connVar path attempt = mask $ \restore -> do
       waiting <- getMonotonicTimeNSec
@@ -153,9 +175,9 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
           current <- isCurrentSlot connsVar vmId connVar
           if discard || not current then closeQga (if discard then "shutdown_discard" else "lifecycle_release") sock `finally` putMVar connVar Nothing else putMVar connVar (Just sock)
           pure (Right value)
-        Left (err, reason, retryable) -> do
-          (readIORef sockRef >>= closeMaybe reason) `finally` putMVar connVar Nothing
-          pure (Left (err, retryable))
+        Left failure -> do
+          (readIORef sockRef >>= closeMaybe (qfReason failure)) `finally` putMVar connVar Nothing
+          pure (Left failure)
 
     doWork event context connVar mSock path sockRef = do
       let ensureCurrent = do
@@ -190,10 +212,11 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
               writeIORef committed True
               fmap (sock,) <$> timeout budget dispatch
       dispatched <- readIORef committed
-      let failure err reason = Left (if dispatched then "Execution outcome unknown; command may have started; not retried: " <> err else err, reason, not dispatched)
+      failureSocket <- readIORef sockRef
+      let failure err reason fields = Left (QgaFailure (if dispatched then "Execution outcome unknown; command may have started; not retried: " <> err else err) reason (not dispatched) failureSocket ("dispatched=" <> tshow dispatched <> " " <> fields))
       case mResult of
         Right (Just result) -> pure (Right result)
-        Left err | Just QgaRetired <- fromException err -> pure (Left ("Guest agent connection retired by VM lifecycle change", "retired", False))
+        Left err | Just QgaRetired <- fromException err -> pure (Left retiredFailure)
         Left (err :: SomeException) ->
           case fromException err :: Maybe SomeAsyncException of
             Just _ -> do
@@ -203,12 +226,16 @@ withConnection allowed blocking discard connsVar config vmId retries timeoutMicr
               let category = case fromException err :: Maybe IOError of
                     Just ioErr -> T.pack (show (ioeGetErrorType ioErr))
                     Nothing -> "non_io_exception"
-              event LevelWarn "attempt_exception" ("error_type=" <> category) :: IO ()
-              readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelWarn "operation_error" ("reason=exception error_type=" <> category))
-              pure (failure (T.pack (show err)) "exception")
+              event LevelDebug "attempt_exception" ("error_type=" <> category) :: IO ()
+              readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelDebug "operation_error" ("reason=exception error_type=" <> category))
+              pure (failure (T.pack (show err)) "exception" ("error_type=" <> category))
         Right Nothing -> do
-          readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelWarn "operation_timeout" ("timeout_us=" <> T.pack (show timeoutMicros)))
-          pure (failure "Timed out waiting for guest agent" "timeout")
+          let (scope, budget) = case action of
+                PrepareThenDispatch dispatchBudget _ | dispatched -> ("dispatch", dispatchBudget)
+                _ -> ("prepare", timeoutMicros)
+              fields = "timeout_scope=" <> scope <> " timeout_us=" <> tshow budget
+          readIORef sockRef >>= maybe (pure ()) (\sock -> logQga sock LevelDebug "operation_timeout" fields)
+          pure (failure "Timed out waiting for guest agent" "timeout" fields)
 
 -- Each connect attempt owns its socket and ID, including backlog retries.
 connectWithRetry :: IO () -> GuestAgentConns -> Int64 -> Text -> Int -> FilePath -> IORef (Maybe QgaSocket) -> IO QgaSocket
@@ -229,7 +256,7 @@ connectWithRetry ensureCurrent cache vmId context count path sockRef = do
       pure sock
     )
     `catch` \(err :: IOError) -> do
-      logQga sock LevelWarn "connect_error" ("error_type=" <> T.pack (show (ioeGetErrorType err)))
+      logQga sock LevelDebug "connect_error" ("error_type=" <> T.pack (show (ioeGetErrorType err)))
       closeQga "connect_failed" sock
       writeIORef sockRef Nothing
       if count > 0 && ioeGetErrorType err == ResourceExhausted

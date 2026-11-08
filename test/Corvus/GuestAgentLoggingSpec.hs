@@ -146,7 +146,10 @@ spec = describe "GuestAgent connection logs" $ do
       wait server
       logs <- entries
       logs `shouldSatisfy` contains "event=operation_timeout"
-      filter (contains "event=operation_timeout" . pure) logs `shouldSatisfy` all ((== LevelWarn) . fst)
+      filter (contains "event=operation_timeout" . pure) logs `shouldSatisfy` all ((== LevelDebug) . fst)
+      let failures = filter ((== LevelWarn) . fst) logs
+      length failures `shouldBe` 1
+      failures `shouldSatisfy` contains "event=operation_failed"
       logs `shouldSatisfy` contains "command=guest-sync phase=receive"
       logs `shouldSatisfy` contains "timeout_us=30000"
       logs `shouldSatisfy` contains "reason=timeout"
@@ -162,7 +165,10 @@ spec = describe "GuestAgent connection logs" $ do
       wait server
       logs <- entries
       logs `shouldSatisfy` contains "event=operation_timeout"
-      filter (contains "event=operation_timeout" . pure) logs `shouldSatisfy` all ((== LevelWarn) . fst)
+      filter (contains "event=operation_timeout" . pure) logs `shouldSatisfy` all ((== LevelDebug) . fst)
+      let failures = filter ((== LevelWarn) . fst) logs
+      length failures `shouldBe` 1
+      failures `shouldSatisfy` contains "event=operation_failed"
       logs `shouldSatisfy` contains "command=guest-exec phase=send"
       filter (contains "command=guest-exec" . pure) logs `shouldSatisfy` (not . contains "event=send_complete")
       logs `shouldSatisfy` (not . contains "SECRET")
@@ -213,7 +219,7 @@ spec = describe "GuestAgent connection logs" $ do
           finalLogs `shouldSatisfy` contains "cached_connection_id=1"
           finalLogs `shouldSatisfy` (not . contains "connection_id=2")
 
-  it "retires queued callers without dispatching them or stranding their slot" $ withFixture $ \cache config listener _ -> do
+  it "retires queued callers without dispatching them or stranding their slot" $ withFixture $ \cache config listener entries -> do
     held <- newEmptyMVar
     resume <- newEmptyMVar
     queued <- newEmptyMVar
@@ -238,6 +244,8 @@ spec = describe "GuestAgent connection logs" $ do
             wait releaser
             readMVar oldSlot `shouldReturn` Nothing
         wait server
+        logs <- entries
+        filter ((>= LevelWarn) . fst) logs `shouldBe` []
 
   it "does not dispatch prepared work after a cancelled lifecycle release" $ withFixture $ \cache config listener _ -> do
     prepared <- newEmptyMVar
@@ -266,7 +274,7 @@ spec = describe "GuestAgent connection logs" $ do
           readMVar oldSlot `shouldReturn` Nothing
           wait server
 
-  it "does not reconnect a retry after its slot is retired" $ withFixture $ \cache config _ _ -> do
+  it "does not reconnect a retry after its slot is retired" $ withFixture $ \cache config _ entries -> do
     retrying <- newEmptyMVar
     resume <- newEmptyMVar
     let logger level message = do
@@ -279,6 +287,9 @@ spec = describe "GuestAgent connection logs" $ do
       putMVar resume ()
       wait worker `shouldReturn` Left "Guest agent connection retired by VM lifecycle change"
       Map.member 42 <$> readTVarIO (guestAgentSlots cache) `shouldReturn` False
+      logs <- entries
+      filter ((>= LevelWarn) . fst) logs `shouldBe` []
+      logs `shouldSatisfy` contains "event=operation_failed"
 
   it "attributes external cancellation during synchronization and restores the slot" $ withFixture $ \cache config listener entries -> do
     syncing <- newEmptyMVar
@@ -306,6 +317,44 @@ spec = describe "GuestAgent connection logs" $ do
     logs `shouldSatisfy` contains "event=connect_error"
     logs `shouldSatisfy` contains "reason=connect_failed"
     logs `shouldSatisfy` contains "connection_id=2"
+    let failures = filter ((== LevelWarn) . fst) logs
+    length failures `shouldBe` 1
+    failures `shouldSatisfy` contains "event=operation_failed"
+    failures `shouldSatisfy` contains "error_type="
+    failures `shouldSatisfy` (not . contains "/nonexistent-corvus-qga-test")
+
+  it "logs a recovered transport retry only at Debug" $ withFixture $ \cache config listener entries ->
+    withAsync
+      ( do
+          bracket (fst <$> accept listener) close $ \peer -> void (readJson peer)
+          bracket (fst <$> accept listener) close $ \peer -> handshake peer >> pingReply peer
+      )
+      $ \server -> do
+        result <- withPersistentConn cache config 42 2 500000 $ \sock -> do
+          sendQga sock (object ["execute" .= ("guest-ping" :: Text)])
+          recvQgaWithin 100000 sock "guest-ping"
+        result `shouldBe` Right (Just (object ["return" .= object []]))
+        wait server
+        logs <- entries
+        logs `shouldSatisfy` contains "event=operation_retry"
+        filter ((>= LevelWarn) . fst) logs `shouldBe` []
+
+  it "defers failed startup readiness diagnostics to its coordinator" $ withFixture $ \cache config _ entries -> do
+    let readiness = cache {guestAgentStartupReadiness = True}
+        missing = config {qcRuntimeDir = Just "/nonexistent-corvus-qga-test"}
+    result <- withPersistentConn readiness missing 42 1 100000 (const (pure ()))
+    result `shouldSatisfy` isLeft
+    logs <- entries
+    logs `shouldSatisfy` contains "event=operation_failed"
+    logs `shouldSatisfy` contains "purpose=startup_readiness"
+    filter ((>= LevelWarn) . fst) logs `shouldBe` []
+
+  it "defers failed shutdown signalling diagnostics to the lifecycle caller" $ withFixture $ \cache config _ entries -> do
+    result <- guestShutdown cache config {qcRuntimeDir = Just "/nonexistent-corvus-qga-test"} 42 "powerdown"
+    result `shouldSatisfy` isLeft
+    logs <- entries
+    logs `shouldSatisfy` contains "event=operation_failed"
+    filter ((>= LevelWarn) . fst) logs `shouldBe` []
 
   it "logs stale synchronization IDs before the matching reply" $ withFixture $ \cache config listener entries ->
     withAsync
@@ -353,6 +402,8 @@ spec = describe "GuestAgent connection logs" $ do
         logs <- readIORef entries
         logs `shouldSatisfy` contains "result=malformed"
         logs `shouldSatisfy` contains "result=eof"
+        filter (contains "result=malformed" . pure) logs `shouldSatisfy` all ((== LevelWarn) . fst)
+        filter (contains "result=eof" . pure) logs `shouldSatisfy` all ((== LevelDebug) . fst)
         logs `shouldSatisfy` (not . contains "SECRET")
 
   it "logs receive timeouts and redacts payloads and error descriptions" $ withFixture $ \cache config listener entries ->
