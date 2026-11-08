@@ -17,12 +17,11 @@ instance is private to the class.
 from __future__ import annotations
 
 import contextlib
-import re
 import time
 from collections.abc import Callable, Iterable, Iterator
 
 import pytest
-from corvus_client import Client
+from corvus_client import Client, ServerError
 from corvus_client._sync.network import SyncNetwork
 from corvus_test_harness import SingleNodeCase, TestNode, VmSsh
 from corvus_test_harness.guest_network import renew_dhcp
@@ -92,6 +91,17 @@ def _bridge_ifindex(node: TestNode, bridge: str) -> int:
             f"bridge {bridge} not present: {r.stderr.decode(errors='replace')}"
         )
     return int(r.stdout.strip())
+
+
+def _wait_for_netd(client: Client, node_name: str, connected: bool) -> None:
+    """Observe the daemon's session, rather than probing it with mutations."""
+    deadline = time.monotonic() + 30.0
+    node = client.nodes.get(node_name)
+    while time.monotonic() < deadline:
+        if node.show().netd_connected is connected:
+            return
+        time.sleep(0.1)
+    pytest.fail(f"netd_connected did not become {connected} for {node_name!r}")
 
 
 @contextlib.contextmanager
@@ -675,82 +685,32 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        # Best-effort: there shouldn't be any networks running yet for
-        # this test (every other test in this class wraps networks in
-        # `_network`, which deletes on exit). Sanity check anyway.
-        for _nw in client.networks.list():
-            pass  # purely existence-check; we don't act on stale rows.
-
-        node.run("sudo systemctl stop corvus-netd.service")
+        nw = client.networks.create("noagent", "10.54.0.0/24", dhcp=False, nat=False)
         try:
+            node.run("sudo systemctl stop corvus-netd.service")
+            _wait_for_netd(client, node.short_name, False)
             t0 = time.monotonic()
-            with pytest.raises(Exception) as exc_info:
-                client.networks.create(
-                    "noagent", "10.54.0.0/24", dhcp=False, nat=False
-                ).start()
+            with pytest.raises(ServerError, match=r"(?i)netd.*unavailable"):
+                nw.start()
             elapsed = time.monotonic() - t0
-            # Hard contract: hard error, no hang.
             assert elapsed < 10.0, (
                 f"network start hung for {elapsed:.1f}s with no agent"
             )
-            msg = str(exc_info.value)
-            # Either "netd … unavailable" (ncNetAgent cleared by the
-            # supervisor's liveness ping after the agent's listener
-            # went away — daemon-side error is the verbose "netd for
-            # node N unavailable") or a Cap'n Proto disconnect error
-            # (the daemon's cached client surfaces the dead socket
-            # before the supervisor's next ping). Both prove the
-            # daemon didn't fall back to a legacy path.
-            assert re.search(r"netd.*unavailable", msg, re.IGNORECASE) or re.search(
-                r"disconnect", msg, re.IGNORECASE
-            ), (
-                f"unexpected error (no 'netd ... unavailable' or "
-                f"disconnect substring): {msg!r}"
-            )
         finally:
-            node.run("sudo systemctl start corvus-netd.service")
-            # Wait for the listener.
-            for _ in range(50):
-                r = node.run("ss -ltn | grep -q ':9877 '", check=False)
-                if r.returncode == 0:
-                    break
-                time.sleep(0.1)
-
-            # Drop the half-created DB row from the failed start.
             try:
-                client.networks.get("noagent").delete()
-            except Exception:
-                pass
+                node.run("sudo systemctl start corvus-netd.service")
+                _wait_for_netd(client, node.short_name, True)
+            finally:
+                nw.delete()
 
-        # Retry once the daemon's connect-and-hold async has
-        # reconnected. The async retries with backoff (~1-2 s);
-        # poll until a fresh `applyNetwork` succeeds via create+start.
-        deadline = time.monotonic() + 30.0
-        last_exc = None
-        while time.monotonic() < deadline:
+        # The daemon has a live session now: starting once must succeed.
+        nw = client.networks.create("after", "10.54.0.0/24", dhcp=False, nat=False)
+        try:
+            nw.start()
+            assert nw.show().running is True
+        finally:
             try:
-                nw = client.networks.create(
-                    "after", "10.54.0.0/24", dhcp=False, nat=False
-                )
-                nw.start()
-                break
-            except Exception as e:
-                last_exc = e
-                # Tear down the half-created row so create() works
-                # next iteration.
-                try:
-                    client.networks.get("after").delete()
-                except Exception:
-                    pass
-                time.sleep(1.0)
-        else:
-            pytest.fail(f"daemon never re-applied after netd restart: {last_exc}")
-        # Clean up.
-        try:
-            nw.stop(force=True)
-        except Exception:
-            pass
-        try:
-            nw.delete()
-        except Exception:
-            pass
+                if nw.show().running:
+                    nw.stop(force=True)
+            finally:
+                nw.delete()
