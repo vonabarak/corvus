@@ -24,6 +24,7 @@ SQLITE_PATH = "/var/lib/corvus/migration-test.db"
 class DatabaseMigrationCase(SingleNodeCase):
     """Each concrete backend owns one isolated outer test node."""
 
+    NODES = ("migration-node",)
     BACKEND: str
 
     @property
@@ -135,6 +136,15 @@ class DatabaseMigrationCase(SingleNodeCase):
             boot_timeout_sec=60,
         )
 
+    def _assert_agents_connected(self, client: Client) -> None:
+        node = client.nodes.get("migration-node")
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if node.ping().reachable and node.show().netd_connected:
+                return
+            time.sleep(0.2)
+        raise AssertionError("migrated nodeagent and netd did not authenticate")
+
     def test_01_upgrade_version_2_and_restart(self) -> None:
         self._prepare(historical=True)
         assert self._query("SELECT version FROM schema_version") == "2"
@@ -148,6 +158,7 @@ class DatabaseMigrationCase(SingleNodeCase):
         self._start()
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
+            self._assert_agents_connected(client)
             details = client.vms.get("migration-vm").show()
             assert details.name == "migration-vm"
             assert details.startup_timeout_sec == 120
@@ -214,6 +225,7 @@ class DatabaseMigrationCase(SingleNodeCase):
         self._start()
         with self._connect() as client:
             assert client.status().database_backend == self.BACKEND
+            self._assert_agents_connected(client)
         assert (
             self._query("SELECT fingerprint, inputs FROM disk_image_build_identity")
             == "abc|{}"
