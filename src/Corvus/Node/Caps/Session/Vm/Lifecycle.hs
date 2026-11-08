@@ -35,7 +35,7 @@ module Corvus.Node.Caps.Session.Vm.Lifecycle
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (atomically, writeTVar)
+import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStderrLoggingT)
@@ -96,7 +96,11 @@ handleVmStopGraceful
   -> IO (CGNA.Parsed CGNA.Session'vmStopGraceful'results)
 handleVmStopGraceful sc vmId timeoutSec = do
   result <- timeout ((fromIntegral timeoutSec + 20) * 1000000) (stopGraceful sc vmId timeoutSec)
-  pure $ fromMaybe (CGNA.Session'vmStopGraceful'results {CGNA.result = encodeVmStopResult VS.VmStopTimeout "Graceful stop deadline exceeded; runtime retained"}) result
+  case result of
+    Just stopped -> pure stopped
+    Nothing -> do
+      runStderrLoggingT $ logWarnN ("[nodeagent] vmStopGraceful vm-" <> tshow vmId <> ": deadline exceeded; runtime retained")
+      pure (CGNA.Session'vmStopGraceful'results {CGNA.result = encodeVmStopResult VS.VmStopTimeout "Graceful stop deadline exceeded; runtime retained"})
 
 stopGraceful :: SessionCap -> Int64 -> Word32 -> IO (CGNA.Parsed CGNA.Session'vmStopGraceful'results)
 stopGraceful sc vmId timeoutSec = do
@@ -131,17 +135,24 @@ stopGraceful sc vmId timeoutSec = do
       -- with acpid but no QGA, and guests with both. Either one
       -- exiting the QEMU process is good enough.
       shutdownResult <- E.try @E.IOException (NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId "powerdown")
+      -- QGA can power off the guest before we open QMP. A missing socket
+      -- matters only if neither shutdown mechanism makes the process exit.
+      alreadyExited <- readTVarIO (L.vlsLastExitCode live)
+      qmpResult <- case alreadyExited of
+        Just _ -> pure NQ.QmpSuccess
+        Nothing -> NQ.qmpShutdown agentQemuConfig vmId
+      exited <- pollForExit (L.vlsLastExitCode live) (fromIntegral timeoutSec)
+      let report = if exited then logDebugN else logWarnN
+          diagnostic context err = runStderrLoggingT $ report ("[nodeagent] vmStopGraceful vm-" <> tshow vmId <> " " <> context <> ": " <> err)
       case shutdownResult of
-        Left err -> runStderrLoggingT $ logWarnN ("QGA powerdown: " <> tshow err)
-        Right (Left err) -> runStderrLoggingT $ logWarnN ("QGA powerdown: " <> err)
+        Left err -> diagnostic "QGA powerdown" (tshow err)
+        Right (Left err) -> diagnostic "QGA powerdown" err
         Right (Right ()) -> pure ()
-      qmpResult <- NQ.qmpShutdown agentQemuConfig vmId
       case qmpResult of
         NQ.QmpSuccess -> pure ()
-        NQ.QmpError err -> runStderrLoggingT $ logQmpErr "system_powerdown" err
-        NQ.QmpConnectionFailed err ->
-          runStderrLoggingT $ logQmpErr "QMP connect" err
-      exited <- pollForExit (L.vlsLastExitCode live) (fromIntegral timeoutSec)
+        NQ.QmpError err -> diagnostic "system_powerdown" err
+        NQ.QmpConnectionFailed err -> diagnostic "QMP connect" err
+      unless exited $ runStderrLoggingT $ logWarnN ("[nodeagent] vmStopGraceful vm-" <> tshow vmId <> ": timed out waiting for QEMU exit; runtime retained")
       if exited
         then do
           reapVmHelpers live
@@ -160,10 +171,6 @@ stopGraceful sc vmId timeoutSec = do
             CGNA.Session'vmStopGraceful'results
               { CGNA.result = encodeVmStopResult VS.VmStopTimeout ""
               }
-  where
-    logQmpErr ctx err =
-      logWarnN
-        ("[nodeagent] vmStopGraceful " <> tshow vmId <> " " <> ctx <> ": " <> err)
 
 -- | Hard stop: SIGTERM-then-SIGKILL QEMU + every virtiofsd
 -- helper. Drops the ledger entry.

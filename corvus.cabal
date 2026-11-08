@@ -269,6 +269,7 @@ library
       Corvus.Node.Caps.NodeAgent
       Corvus.Node.Caps.Session
       Corvus.Node.Caps.Session.Vm.Startup
+      Corvus.Node.Caps.Session.Vm.Lifecycle
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums
@@ -317,7 +318,6 @@ library
       Corvus.Node.Caps.Session.Vm
       Corvus.Node.Caps.Session.Vm.Access
       Corvus.Node.Caps.Session.Vm.Balloon
-      Corvus.Node.Caps.Session.Vm.Lifecycle
       Corvus.Node.Caps.Session.Vm.Process
       Corvus.Node.Caps.Session.Vm.Reboot
       Corvus.Node.Caps.Session.Vm.Screenshot

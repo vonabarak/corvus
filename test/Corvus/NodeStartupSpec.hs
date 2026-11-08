@@ -1,7 +1,9 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Corvus.NodeStartupSpec (spec) where
 
+import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Async (wait, withAsync)
 import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar)
@@ -10,25 +12,34 @@ import Control.Exception (IOException, bracket, finally, try)
 import Control.Monad (forM_, forever, void, when)
 import Corvus.Model (GraphicsAdapter (..))
 import Corvus.Node.Caps.Session (cleanupDetachedDrive, newSessionCap, withVmOpLock)
+import Corvus.Node.Caps.Session.Vm.Lifecycle (handleVmStopGraceful)
 import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
+import Corvus.Node.GuestAgent.Transport (recvFrame, sendJson)
 import qualified Corvus.Node.Ledger as L
 import Corvus.Node.QemuStartup (waitForVsockOwnership)
-import Corvus.Node.Runtime (createVmRuntimeDir, getQmpSocket)
+import Corvus.Node.Runtime (createVmRuntimeDir, getGuestAgentSocket, getQmpSocket)
 import qualified Corvus.Node.StatusPoller as SP
 import Corvus.Node.Transfer (newTokenRegistry)
 import Corvus.Node.VmSpec (VmSpec (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Data.Aeson (Value (..), object, (.=))
+import qualified Data.Aeson.KeyMap as KM
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as T
+import Data.Unique (hashUnique, newUnique)
 import qualified Network.Socket as Socket
 import qualified Network.Socket.ByteString as SocketBytes
 import Supervisors (withSupervisor)
-import System.IO (hClose)
+import System.Directory (removePathForcibly)
+import System.IO (hClose, stderr)
+import System.IO.Silently (hCapture)
 import System.IO.Temp (withSystemTempDirectory)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, terminateProcess, waitForProcess)
 import System.Timeout (timeout)
 import Test.Hspec
 
@@ -234,6 +245,92 @@ spec = describe "QEMU startup failures" $ do
             timeout 1000000 (atomically $ readTVar lastExit >>= check . (== Just 0)) `shouldReturn` Just ()
             tryTakeMVar respawned `shouldReturn` Nothing
           else timeout 1000000 (takeMVar respawned) `shouldReturn` Just ()
+
+  forM_ [True, False] $ \exits ->
+    it (if exits then "skips QMP after a fast QGA poweroff and reports a successful stop without warnings" else "warns and retains the runtime when shutdown signalling does not stop QEMU") $
+      withSupervisor $ \sup -> do
+        vmId <- (+ 1000000000) . fromIntegral . hashUnique <$> newUnique
+        (_, _, _, process) <- createProcess (proc "sleep" ["30"])
+        lastExit <- newTVarIO Nothing
+        stderrTail <- newTVarIO ""
+        stderrDone <- newTVarIO True
+        startupError <- newTVarIO Nothing
+        startupPending <- newTVarIO False
+        workers <- newTVarIO []
+        stopRequested <- newTVarIO False
+        stopState <- newTVarIO (0, 0)
+        let vmSpec = startupSpec {vsVmId = vmId}
+            live =
+              L.VmLiveState
+                { L.vlsQemuPid = 0
+                , L.vlsQemuHandle = process
+                , L.vlsVirtiofsd = []
+                , L.vlsSwtpm = Nothing
+                , L.vlsLastExitCode = lastExit
+                , L.vlsStderrTail = stderrTail
+                , L.vlsStderrDone = stderrDone
+                , L.vlsStartupError = startupError
+                , L.vlsStartupPending = startupPending
+                , L.vlsSpicePort = 0
+                , L.vlsSpec = vmSpec
+                , L.vlsWorkers = workers
+                , L.vlsStopState = stopState
+                , L.vlsStopRequested = stopRequested
+                }
+            cfg = defaultQemuConfig
+        ledger <- L.newVmLedger
+        _ <- atomically $ L.admitVmStart ledger vmId 1 1
+        atomically (L.publishVmStart ledger vmId 1 1 live) `shouldReturn` True
+        messages <- newIORef []
+        conns <- newGuestAgentConns (\_ message -> modifyIORef' messages (message :))
+        subs <- SP.newSubscribers
+        buffers <- newTVarIO Map.empty
+        tokens <- newTokenRegistry
+        launch <- newMVar ()
+        sc <- newSessionCap "test" sup ledger subs conns buffers buffers tokens Nothing launch
+        path <- getGuestAgentSocket cfg vmId
+        bracket (createVmRuntimeDir cfg vmId) removePathForcibly $ \_ ->
+          bracket (Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol) Socket.close $ \listener ->
+            do
+              Socket.bind listener (Socket.SockAddrUnix path)
+              Socket.listen listener 1
+              let poweroff = bracket (fst <$> Socket.accept listener) Socket.close $ \peer -> do
+                    request <- fst <$> recvFrame peer
+                    case request of
+                      Just (Object obj)
+                        | Just (Object args) <- KM.lookup "arguments" obj
+                        , Just ident <- KM.lookup "id" args ->
+                            sendJson peer (object ["return" .= ident])
+                      _ -> expectationFailure "expected guest-sync before poweroff"
+                    command <- fst <$> recvFrame peer
+                    command `shouldBe` Just (object ["execute" .= ("guest-shutdown" :: Text.Text), "arguments" .= object ["mode" .= ("powerdown" :: Text.Text)]])
+                    when exits $ do
+                      terminateProcess process
+                      _ <- waitForProcess process
+                      atomically $ writeTVar lastExit (Just 0)
+              (output, result) <- hCapture [stderr] $
+                withAsync poweroff $ \server -> do
+                  stopped <- timeout 5000000 (handleVmStopGraceful sc vmId 1)
+                  wait server
+                  pure stopped
+              let outcome = if exits then CGNA.VmStopKind'stopped else CGNA.VmStopKind'timeout
+                  ownOutput = filter (isInfixOf ("vm-" ++ show vmId)) (lines output)
+              result `shouldBe` Just (CGNA.Session'vmStopGraceful'results {CGNA.result = CGNA.VmStopResult {CGNA.kind = outcome, CGNA.message = ""}})
+              current <- atomically (L.lookupVm ledger vmId)
+              if exits
+                then do
+                  ownOutput `shouldSatisfy` (not . any (isInfixOf "[Warn"))
+                  output `shouldSatisfy` (not . isInfixOf "QMP connect")
+                  isNothing current `shouldBe` True
+                else do
+                  ownOutput `shouldSatisfy` any (isInfixOf "[Warn")
+                  ownOutput `shouldSatisfy` any (isInfixOf "QMP connect")
+                  ownOutput `shouldSatisfy` any (isInfixOf "timed out waiting for QEMU exit")
+                  (fmap L.vlsLastExitCode current == Just lastExit) `shouldBe` True
+                  readTVarIO lastExit `shouldReturn` Nothing
+              logs <- readIORef messages
+              logs `shouldSatisfy` (not . any (Text.isInfixOf "event=operation_failed"))
+              `finally` (terminateProcess process >> void (waitForProcess process))
 
   it "yields the VM lock during deferred unplug and stops when the runtime is retired" $
     withSystemTempDirectory "corvus-unplug" $ \runtime -> withSupervisor $ \sup -> do
