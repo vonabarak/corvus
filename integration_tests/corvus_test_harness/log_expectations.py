@@ -66,13 +66,20 @@ class Expected:
     warnings: int
     errors: int
     patterns: tuple[Pattern, ...] = ()
+    variable_warnings: tuple[Pattern, ...] = ()
+
+    @property
+    def fixed_warnings(self) -> int:
+        return self.warnings - sum(rule.count for rule in self.variable_warnings)
 
     def as_dict(self) -> dict[str, object]:
         result: dict[str, object] = {"warnings": self.warnings, "errors": self.errors}
-        if self.patterns:
-            result["patterns"] = [
-                {"regex": rule.regex, "count": rule.count} for rule in self.patterns
-            ]
+        for name in ("patterns", "variable_warnings"):
+            rules = getattr(self, name)
+            if rules:
+                result[name] = [
+                    {"regex": rule.regex, "count": rule.count} for rule in rules
+                ]
         return result
 
 
@@ -97,24 +104,28 @@ def load_baseline(path: Path) -> Baseline:
                 if filename not in {f"{service}.log" for service in SERVICES}:
                     raise ValueError(f"unknown service log: {filename}")
                 counts = _object(counts_value, filename)
-                _keys(counts, {"warnings", "errors"}, {"patterns"})
-                rules = counts.get("patterns", [])
-                if not isinstance(rules, list):
-                    raise ValueError("patterns must be a list")
-                patterns: list[Pattern] = []
-                for rule in rules:
-                    pattern = _object(rule, "pattern")
-                    _keys(pattern, {"regex", "count"}, set())
-                    regex = pattern["regex"]
-                    if not isinstance(regex, str):
-                        raise ValueError("regex must be a string")
-                    re.compile(regex)
-                    patterns.append(Pattern(regex, _count(pattern["count"])))
-                files[filename] = Expected(
-                    _count(counts["warnings"]),
-                    _count(counts["errors"]),
-                    tuple(patterns),
+                _keys(counts, {"warnings", "errors"}, {"patterns", "variable_warnings"})
+                groups: list[tuple[Pattern, ...]] = []
+                for key in ("patterns", "variable_warnings"):
+                    rules = counts.get(key, [])
+                    if not isinstance(rules, list):
+                        raise ValueError(f"{key} must be a list")
+                    patterns: list[Pattern] = []
+                    for rule in rules:
+                        pattern = _object(rule, "pattern")
+                        _keys(pattern, {"regex", "count"}, set())
+                        regex = pattern["regex"]
+                        if not isinstance(regex, str):
+                            raise ValueError("regex must be a string")
+                        re.compile(regex)
+                        patterns.append(Pattern(regex, _count(pattern["count"])))
+                    groups.append(tuple(patterns))
+                expected = Expected(
+                    _count(counts["warnings"]), _count(counts["errors"]), *groups
                 )
+                if expected.fixed_warnings < 0:
+                    raise ValueError("variable warning counts exceed total warnings")
+                files[filename] = expected
             nodes[node] = files
         result[class_name] = nodes
     return result
@@ -141,16 +152,27 @@ def save_baseline(path: Path, baseline: Baseline) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
-def count_log(path: Path, patterns: tuple[Pattern, ...] = ()) -> Expected:
+def count_log(
+    path: Path,
+    patterns: tuple[Pattern, ...] = (),
+    variable_warnings: tuple[Pattern, ...] = (),
+) -> Expected:
     warnings = errors = 0
     compiled = [re.compile(pattern.regex) for pattern in patterns]
     matches = [0] * len(patterns)
+    variable_regexes = [re.compile(rule.regex) for rule in variable_warnings]
+    variable_matches = [0] * len(variable_warnings)
     with path.open(errors="replace") as log:
         for line in log:
             severity = _SEVERITY.match(line)
             if severity:
                 warnings += severity[1] == "Warn"
                 errors += severity[1] == "Error"
+                if severity[1] == "Warn":
+                    for index, regex in enumerate(variable_regexes):
+                        if regex.search(line.rstrip("\r\n")) is not None:
+                            variable_matches[index] += 1
+                            break
             for index, regex in enumerate(compiled):
                 if regex.search(line.rstrip("\r\n")) is not None:
                     matches[index] += 1
@@ -161,12 +183,20 @@ def count_log(path: Path, patterns: tuple[Pattern, ...] = ()) -> Expected:
             Pattern(rule.regex, count)
             for rule, count in zip(patterns, matches, strict=True)
         ),
+        tuple(
+            Pattern(rule.regex, count)
+            for rule, count in zip(variable_warnings, variable_matches, strict=True)
+        ),
     )
 
 
 def differences(expected: Expected, actual: Expected) -> list[str]:
     metrics = [
-        ("warnings", expected.warnings, actual.warnings),
+        (
+            "fixed warnings" if expected.variable_warnings else "warnings",
+            expected.fixed_warnings,
+            actual.fixed_warnings,
+        ),
         ("errors", expected.errors, actual.errors),
     ] + [
         (f"regex {rule.regex!r}", rule.count, observed.count)
@@ -176,4 +206,15 @@ def differences(expected: Expected, actual: Expected) -> list[str]:
         f"{label}: expected {wanted}, actual {observed} ({observed - wanted:+d})"
         for label, wanted, observed in metrics
         if wanted != observed
+    ]
+
+
+def variable_differences(expected: Expected, actual: Expected) -> list[str]:
+    """Inform about reviewed variability without relaxing other assertions."""
+    return [
+        f"variable warning regex {rule.regex!r}: baseline {rule.count}, actual {observed.count} ({observed.count - rule.count:+d})"
+        for rule, observed in zip(
+            expected.variable_warnings, actual.variable_warnings, strict=True
+        )
+        if rule.count != observed.count
     ]

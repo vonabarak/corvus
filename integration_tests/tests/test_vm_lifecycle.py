@@ -18,6 +18,7 @@ needed on top.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 import pytest
 from corvus_client import VmNotFound
@@ -961,6 +962,16 @@ class TestVmRebootQuirk(_VmLifecycleBase):
     ``_RebootQuirkVm`` / ``_NoQuirkVm`` mixin pattern and the
     QEMU-pid scrape helper, so they live together."""
 
+    def _wait_for_reboot_health(self, vm: SyncVm) -> None:
+        recovered_after = datetime.now(timezone.utc)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            checked = vm.show().last_healthcheck
+            if checked is not None and checked > recovered_after:
+                return
+            time.sleep(1)
+        raise AssertionError("No fresh health observation after guest reboot")
+
     def test_reboot_quirk_restart_on_guest_reboot(self) -> None:
         """With ``reboot_quirk=True``, a guest-initiated reboot
         bounces QEMU transparently.
@@ -1122,6 +1133,8 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 f"the reboot-quirk reaper did not re-spawn"
             )
 
+            self._wait_for_reboot_health(vm.cap)
+
     def test_hard_stop_supersedes_reboot_respawn(self) -> None:
         """Stopping a replacement QEMU must not publish a stale startup failure."""
 
@@ -1217,3 +1230,4 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 f"Without reboot_quirk the same qemu-system process should "
                 f"survive the guest reset"
             )
+            self._wait_for_reboot_health(vm.cap)

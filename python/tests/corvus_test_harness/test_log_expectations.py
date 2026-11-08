@@ -324,3 +324,91 @@ def test_worker_crash_never_initializes_baseline(project: Path) -> None:
     assert result.returncode != 0, result.stdout + result.stderr
     assert "session interrupted or worker crashed; baseline unchanged" in result.stdout
     assert not (project / "baseline.yaml").exists()
+
+
+def test_variable_warnings_are_reported_separately_without_hiding_new_warnings(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "corvus.log"
+    rules = (Pattern("reboot", 2), Pattern("boot", 0))
+    wanted = Expected(3, 1, (Pattern("reboot", 2),), rules)
+    path.write_text(
+        _PREFIX
+        + "[Warn] reboot\n"
+        + _PREFIX
+        + "[Warn] fixed warning\n"
+        + _PREFIX
+        + "[Warn] new bug\n"
+        + _PREFIX
+        + "[Error] reboot\n"
+        + _PREFIX
+        + "[Info] reboot\n"
+        + "continuation reboot\n"
+    )
+    actual = count_log(path, wanted.patterns, wanted.variable_warnings)
+    assert actual.warnings == wanted.warnings
+    assert actual.errors == 1
+    assert actual.variable_warnings == (Pattern("reboot", 1), Pattern("boot", 0))
+    assert actual.patterns == (Pattern("reboot", 4),)
+    assert differences(wanted, actual) == [
+        "fixed warnings: expected 1, actual 2 (+1)",
+        "regex 'reboot': expected 2, actual 4 (+2)",
+    ]
+
+
+def test_only_reviewed_variable_warnings_can_drift(tmp_path: Path) -> None:
+    from corvus_test_harness.log_expectations import variable_differences
+
+    path = tmp_path / "corvus.log"
+    wanted = Expected(1, 0, (), (Pattern("reboot", 1),))
+    path.write_text(_PREFIX + "[Warn] reboot\n" + _PREFIX + "[Warn] reboot\n")
+    actual = count_log(path, variable_warnings=wanted.variable_warnings)
+    assert differences(wanted, actual) == []
+    assert variable_differences(wanted, actual) == [
+        "variable warning regex 'reboot': baseline 1, actual 2 (+1)"
+    ]
+    path.write_text(_PREFIX + "[Error] reboot\n")
+    actual = count_log(path, variable_warnings=wanted.variable_warnings)
+    assert differences(wanted, actual) == ["errors: expected 0, actual 1 (+1)"]
+
+
+def test_variable_warning_rules_roundtrip_and_validate_totals(tmp_path: Path) -> None:
+    path = tmp_path / "expectations.yaml"
+    wanted = Expected(2, 0, (Pattern("exact", 1),), (Pattern("reboot", 1),))
+    baseline = {"Test": {"single": {"corvus.log": wanted}}}
+    save_baseline(path, baseline)
+    assert load_baseline(path) == baseline
+    path.write_text(path.read_text().replace("warnings: 2", "warnings: 0"))
+    with pytest.raises(ValueError, match="exceed total"):
+        load_baseline(path)
+
+
+def test_variable_rules_report_info_and_survive_explicit_update(project: Path) -> None:
+    path = project / "baseline.yaml"
+    counts = Expected(2, 0, (Pattern("failure", 2),), (Pattern("expected failure", 2),))
+    baseline = {
+        "TestLogs": {
+            "single": {
+                "corvus.log": counts,
+                "corvus-nodeagent.log": Expected(0, 0),
+                "corvus-netd.log": Expected(0, 0),
+            }
+        }
+    }
+    save_baseline(path, baseline)
+    before = path.read_bytes()
+    result = run_project(project, "-n", "2")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "INFO TestLogs/single/corvus.log: variable warning regex" in result.stdout
+    assert "regex 'failure': expected 2, actual 1 (-1)" in result.stdout
+    assert "fixed warnings:" not in result.stdout
+    assert path.read_bytes() == before
+    result = run_project(project, "--update-log-expectations")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert load_baseline(path)["TestLogs"]["single"]["corvus.log"] == Expected(
+        1, 0, (Pattern("failure", 1),), (Pattern("expected failure", 1),)
+    )
+    (project / "records.txt").write_text(_PREFIX + "[Warn] new bug\n")
+    result = run_project(project)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "fixed warnings: expected 0, actual 1 (+1)" in result.stdout

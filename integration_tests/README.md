@@ -269,6 +269,30 @@ several times; overlapping rules count independently. The expected count must
 match exactly, including zero. Prefer stable message text over timestamps, PIDs,
 generated names, or run IDs.
 
+Optional `variable_warnings` rules identify reviewed warnings whose counts can
+vary, for example a health probe racing an intentional in-guest reboot:
+
+```yaml
+warnings: 2
+errors: 0
+variable_warnings:
+  - regex: 'qga event=status_probe_failed .* vm_id=3 '
+    count: 1
+```
+
+Here `warnings` stays the raw total, and `count` is the observed baseline for
+the rule, not an assertion. Comparison requires the remaining warnings
+(`warnings` minus the sum of variable counts) to match exactly. Only Warn
+records qualify; errors never qualify. The first matching variable rule owns a
+record, so overlapping rules cannot subtract it twice. A variable count change
+prints `INFO` with the artifact path. Existing `patterns` still assert their
+exact counts independently, even for lines covered by a variable rule.
+
+Add variable rules manually only after checking the underlying cause. Keep
+expressions limited to the known event and test VM; avoid patterns that could
+hide unrelated failures. Updates refresh observed counts and preserve rules;
+new classes never receive variable rules automatically.
+
 A missing or empty baseline is initialized automatically. New classes are
 announced and saved only after every test in the class, including teardown,
 passes and all service logs are successfully exported. Review generated entries
@@ -280,9 +304,11 @@ produce warnings and require an explicit update.
 After investigating differences, edit the YAML or refresh eligible classes with:
 
 ```sh
-PYTHONPATH=python:integration_tests .venv/bin/pytest integration_tests/tests -n 10 \
-  --update-log-expectations
+make integration-tests WORKERS=10 UPDATE_LOG_EXPECTATIONS=1
 ```
+
+The same variable works with `make test`. It defaults to `0`; only `1` enables
+updates. Direct pytest runs can pass `--update-log-expectations` instead.
 
 The update refreshes warning/error totals and counts for existing regex rules,
 preserves the regex expressions, and leaves unselected classes unchanged. Use
@@ -296,8 +322,8 @@ method selections are conservatively treated as partial classes. Missing or
 partial exports are reported separately and never treated as zero counts.
 Interrupted sessions and worker crashes disable baseline updates. Only the
 pytest controller compares counts and atomically writes the YAML, so xdist
-workers cannot race to update it. Exact totals may vary with retries or timing;
-the harness deliberately reports that variation without adding tolerances.
+workers cannot race to update it. Counts remain exact except for explicitly
+reviewed `variable_warnings` rules; no implicit tolerances are applied.
 
 For a class-fixture failure in the outer `crv vm start --wait`, collect the
 **outer host's nodeagent journal**, including the period before the timeout.

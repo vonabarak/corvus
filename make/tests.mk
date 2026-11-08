@@ -5,6 +5,9 @@
 # override explicitly with: make integration-tests WORKERS=4
 WORKERS ?=
 
+# Explicitly refresh eligible integration-test log baselines when set to 1.
+UPDATE_LOG_EXPECTATIONS ?= 0
+
 # Run BOTH Python pytest suites (corvus_client + corvus_admin) against
 # a real corvus daemon spawned per-test on a temp Unix socket. Both
 # packages share the consolidated /python/tests tree and one editable
@@ -31,10 +34,12 @@ python-test: build venv
 # MATCH=<expr>: runs the pytest -k filter (substring or boolean expr).
 #               Suppresses `-n` so the matched tests run sequentially.
 # WORKERS=<N>:  bypass the detector and pin the worker count.
+# UPDATE_LOG_EXPECTATIONS=1: refresh counts for complete, successful classes.
 #
 # Examples:
 #   make integration-tests
 #   make integration-tests WORKERS=4
+#   make test WORKERS=10 UPDATE_LOG_EXPECTATIONS=1
 #   make integration-tests MATCH=test_apply
 #   make integration-tests MATCH="lifecycle and not edit"
 integration-tests: build venv
@@ -44,7 +49,8 @@ integration-tests: build venv
 	  fi; \
 	  echo "integration tests: $$workers parallel workers"; \
 	  PYTHONPATH=python:integration_tests .venv/bin/pytest integration_tests/tests -v -W always \
-	    $(if $(MATCH),-k "$(MATCH)",-n $$workers)
+	    $(if $(MATCH),-k "$(MATCH)",-n $$workers) \
+	    $(if $(filter 1,$(UPDATE_LOG_EXPECTATIONS)),--update-log-expectations)
 
 # Sweep orphan integration-test VMs left behind by aborted test runs.
 # pycapnp 2.x sometimes triggers SIGABRT on inner-daemon disconnects,

@@ -20,6 +20,7 @@ from .log_expectations import (
     differences,
     load_baseline,
     save_baseline,
+    variable_differences,
 )
 
 if TYPE_CHECKING:
@@ -182,7 +183,9 @@ class LogExpectationsPlugin:
                 expected = self.baseline.get(name, {}).get(short_name, {}).get(filename)
                 try:
                     observed[short_name][filename] = count_log(
-                        path, expected.patterns if expected else ()
+                        path,
+                        expected.patterns if expected else (),
+                        expected.variable_warnings if expected else (),
                     )
                 except OSError as error:
                     self.messages.append(
@@ -215,6 +218,10 @@ class LogExpectationsPlugin:
                     expected[node][filename], observed[node][filename]
                 ):
                     self.messages.append(f"WARNING {label}: {difference}; {path}")
+                for difference in variable_differences(
+                    expected[node][filename], observed[node][filename]
+                ):
+                    self.messages.append(f"INFO {label}: {difference}; {path}")
 
     def _compare(self, interrupted: bool) -> None:
         classes, registered = self._inventory()
@@ -278,10 +285,14 @@ class LogExpectationsPlugin:
                 self.messages.append(
                     f"  {name}/{node}/{filename}: warnings={counts.warnings}, errors={counts.errors}"
                 )
-                for rule in counts.patterns:
-                    self.messages.append(
-                        f"    regex {rule.regex!r}: count={rule.count}"
-                    )
+                for kind, rules in (
+                    ("regex", counts.patterns),
+                    ("variable warning regex", counts.variable_warnings),
+                ):
+                    for rule in rules:
+                        self.messages.append(
+                            f"    {kind} {rule.regex!r}: count={rule.count}"
+                        )
 
     def pytest_terminal_summary(self, terminalreporter: TerminalReporter) -> None:
         if self.messages:

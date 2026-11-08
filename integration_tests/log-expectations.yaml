@@ -63,7 +63,7 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 2
+          warnings: 0
           errors: 0
         corvus.log:
           warnings: 4
@@ -135,7 +135,7 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 1
+          warnings: 0
           errors: 0
         corvus.log:
           warnings: 4
@@ -337,7 +337,7 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 2
+          warnings: 1
           errors: 0
         corvus.log:
           warnings: 0
@@ -352,7 +352,7 @@ classes:
           warnings: 0
           errors: 0
         corvus.log:
-          warnings: 8
+          warnings: 3
           errors: 0
   TestMtlsHandshakeFailures:
     nodes:
@@ -617,8 +617,12 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 3
+          warnings: 1
           errors: 0
+          variable_warnings:
+          - regex: 'qga event=status_probe_failed .* vm_id=3 origin=periodic runtime_generation=1
+              lifecycle_revision=1 '
+            count: 1
         corvus.log:
           warnings: 0
           errors: 0
@@ -867,7 +871,7 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 1
+          warnings: 0
           errors: 0
         corvus.log:
           warnings: 0
@@ -911,7 +915,7 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 2
+          warnings: 1
           errors: 0
         corvus.log:
           warnings: 0
@@ -925,6 +929,10 @@ classes:
         corvus-nodeagent.log:
           warnings: 1
           errors: 0
+          variable_warnings:
+          - regex: 'qga event=status_probe_failed .* vm_id=5 origin=periodic runtime_generation=1
+              lifecycle_revision=1 '
+            count: 1
         corvus.log:
           warnings: 0
           errors: 0
@@ -1029,8 +1037,12 @@ classes:
           warnings: 0
           errors: 0
         corvus-nodeagent.log:
-          warnings: 2
+          warnings: 1
           errors: 0
+          variable_warnings:
+          - regex: 'qga event=status_probe_failed .* vm_id=1 origin=periodic runtime_generation=1
+              lifecycle_revision=1 '
+            count: 1
         corvus.log:
           warnings: 0
           errors: 0
