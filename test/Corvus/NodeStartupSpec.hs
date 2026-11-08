@@ -4,12 +4,13 @@ module Corvus.NodeStartupSpec (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Async (wait, withAsync)
-import Control.Concurrent.MVar (newMVar)
+import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Concurrent.STM (atomically, check, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
-import Control.Exception (IOException, bracket, try)
-import Control.Monad (forever, void)
+import Control.Exception (IOException, bracket, finally, try)
+import Control.Monad (forM_, forever, void, when)
 import Corvus.Model (GraphicsAdapter (..))
 import Corvus.Node.Caps.Session (cleanupDetachedDrive, newSessionCap, withVmOpLock)
+import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
 import qualified Corvus.Node.Ledger as L
 import Corvus.Node.QemuStartup (waitForVsockOwnership)
@@ -164,6 +165,75 @@ spec = describe "QEMU startup failures" $ do
       -- A rejected publication must stay owned until its process is reaped.
       owned <- atomically $ L.readVms ledger
       length owned `shouldBe` 1
+
+  forM_ [False, True] $ \stopping ->
+    it (if stopping then "honours a stop requested during reboot-quirk worker retirement" else "fences reboot-quirk health probes before worker retirement without publishing an exit") $
+      withSystemTempDirectory "corvus-respawn-poll" $ \runtime -> withSupervisor $ \sup -> do
+        (_, _, _, process) <- createProcess (proc "true" [])
+        _ <- waitForProcess process
+        lastExit <- newTVarIO Nothing
+        stderrTail <- newTVarIO ""
+        stderrDone <- newTVarIO True
+        startupError <- newTVarIO Nothing
+        startupPending <- newTVarIO False
+        workers <- newTVarIO []
+        stopRequested <- newTVarIO False
+        stopState <- newTVarIO (0, 0)
+        let vmSpec = startupSpec {vsRebootQuirk = True}
+            live =
+              L.VmLiveState
+                { L.vlsQemuPid = 0
+                , L.vlsQemuHandle = process
+                , L.vlsVirtiofsd = []
+                , L.vlsSwtpm = Nothing
+                , L.vlsLastExitCode = lastExit
+                , L.vlsStderrTail = stderrTail
+                , L.vlsStderrDone = stderrDone
+                , L.vlsStartupError = startupError
+                , L.vlsStartupPending = startupPending
+                , L.vlsSpicePort = 0
+                , L.vlsSpec = vmSpec
+                , L.vlsWorkers = workers
+                , L.vlsStopState = stopState
+                , L.vlsStopRequested = stopRequested
+                }
+            cfg = defaultQemuConfig {qcRuntimeDir = Just runtime, qcBasePath = Just runtime}
+        ledger <- L.newVmLedger
+        _ <- atomically $ L.admitVmStart ledger 7 1 1
+        atomically (L.publishVmStart ledger 7 1 1 live) `shouldReturn` True
+        messages <- newIORef []
+        conns <- newGuestAgentConns (\_ message -> modifyIORef' messages (message :))
+        subs <- SP.newSubscribers
+        buffers <- newTVarIO Map.empty
+        tokens <- newTokenRegistry
+        launch <- newMVar ()
+        sc <- newSessionCap "test" sup ledger subs conns buffers buffers tokens Nothing launch
+        retiring <- newEmptyMVar
+        resume <- newEmptyMVar
+        respawned <- newEmptyMVar
+        let retire = putMVar retiring () >> takeMVar resume
+        forkVmReaper sc vmSpec process (0 :: Int) lastExit stopRequested retire (putMVar respawned ())
+        ( do
+            timeout 1000000 (takeMVar retiring) `shouldReturn` Just ()
+            readTVarIO startupPending `shouldReturn` True
+            readTVarIO lastExit `shouldReturn` Nothing
+            SP.dispatchVm cfg conns ledger subs 7
+            logs <- readIORef messages
+            logs `shouldSatisfy` any (Text.isInfixOf "probe=False")
+            logs `shouldSatisfy` (not . any (Text.isInfixOf "event=connect_start"))
+            logs `shouldSatisfy` (not . any (Text.isInfixOf "event=status_probe_failed"))
+            -- The respawn coordinator replaces this entry; it must remain owned
+            -- and running rather than reporting a spurious stopped transition.
+            current <- atomically $ L.lookupVm ledger 7
+            (fmap L.vlsLastExitCode current == Just lastExit) `shouldBe` True
+            when stopping $ atomically $ writeTVar stopRequested True
+          )
+          `finally` putMVar resume ()
+        if stopping
+          then do
+            timeout 1000000 (atomically $ readTVar lastExit >>= check . (== Just 0)) `shouldReturn` Just ()
+            tryTakeMVar respawned `shouldReturn` Nothing
+          else timeout 1000000 (takeMVar respawned) `shouldReturn` Just ()
 
   it "yields the VM lock during deferred unplug and stops when the runtime is retired" $
     withSystemTempDirectory "corvus-unplug" $ \runtime -> withSupervisor $ \sup -> do

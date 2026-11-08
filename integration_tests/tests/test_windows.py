@@ -34,7 +34,7 @@ import base64
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
@@ -369,6 +369,19 @@ class TestWindows(SingleNodeCase):
                     # ticks every ~10 s, so by now we have plenty.
                     # Two distinct timestamps with the second strictly
                     # later than the first is the renewal proof.
+                    # Old-runtime timestamps can both precede the reboot.
+                    # Require a fresh observation now that the guest is back.
+                    recovered_after = datetime.now(timezone.utc)
+                    health_deadline = time.monotonic() + 60.0
+                    while time.monotonic() < health_deadline:
+                        health = vm.cap.show().last_healthcheck
+                        if health is not None and health > recovered_after:
+                            break
+                        time.sleep(0.2)
+                    else:
+                        pytest.fail(
+                            "QGA health did not recover after the Windows reboot"
+                        )
                     with hc_lock:
                         snapshot = list(hc_events)
                         distinct = sorted({ts for ts in snapshot if ts is not None})

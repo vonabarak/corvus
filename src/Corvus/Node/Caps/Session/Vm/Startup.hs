@@ -18,7 +18,7 @@ module Corvus.Node.Caps.Session.Vm.Startup
   ) where
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
+import Control.Concurrent.STM (atomically, readTVar, readTVarIO, writeTVar)
 import qualified Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (void)
@@ -82,6 +82,19 @@ forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar retireWorkers 
           Right ExitSuccess -> 0
           Right (ExitFailure n) -> n
           Left _ -> 1
+    -- Fence health observations before retiring workers: that retirement can
+    -- wait for a QMP connection, while QEMU and its QGA socket are already gone.
+    -- Keep lastExitVar empty during a reboot so the daemon retains running state.
+    atomically $ do
+      requested <- readTVar stopRequestedVar
+      current <- L.lookupVm (scVmLedger sc) vmId
+      case current of
+        Just live
+          | VS.vsRebootQuirk spec
+              && not requested
+              && L.vlsLastExitCode live == lastExitVar ->
+              writeTVar (L.vlsStartupPending live) True
+        _ -> pure ()
     retireWorkers
     stopReq <- readTVarIO stopRequestedVar
     if VS.vsRebootQuirk spec && not stopReq

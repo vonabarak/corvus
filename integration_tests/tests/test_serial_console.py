@@ -34,6 +34,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import pytest
 from corvus_client._sync.vm import SyncByteStream
@@ -276,6 +277,21 @@ class TestSerialConsole(SingleNodeCase):
             with vm.cap.serial_console() as stream3:
                 data = _drain_until(stream3, LOGIN_PROMPT, timeout=120.0)
                 assert LOGIN_PROMPT in data
+
+            # A replayed login prompt alone cannot prove the current runtime's
+            # QGA recovered. Require a new health observation after the reboot.
+            recovered_after = datetime.now(timezone.utc)
+            health_deadline = time.monotonic() + 60.0
+            while time.monotonic() < health_deadline:
+                health = vm.cap.show().last_healthcheck
+                if health is not None and health > recovered_after:
+                    break
+                time.sleep(0.2)
+            else:
+                pytest.fail(
+                    "QGA health did not recover after the serial-console reboot"
+                )
+            assert vm.cap.guest_exec("true").exit_code == 0
 
             # ── Phase F: stop the VM; the cap rejects with the
             # `vm_not_running` wire error ("VM not running") — the

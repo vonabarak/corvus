@@ -271,12 +271,13 @@ validateObservation ledger clk (live, before, entry) = atomically $ do
   current <- L.lookupVm ledger vmId
   after <- readTVar (L.vlsStopState live)
   exited <- readTVar (L.vlsLastExitCode live)
+  pending <- readTVar (L.vlsStartupPending live)
   pure $ case current of
     Just runtime | sameRuntime runtime live ->
       Just $ case exited of
         Just code -> baseEntry vmId live (if code == 0 then CGNA.VmAgentState'stopped else CGNA.VmAgentState'errored) (fromIntegral (L.vlsQemuPid live)) (fromIntegral code) False 0 [] (zeroVmStats clk) (Just (CGNA.startupError entry))
         Nothing ->
-          if before /= after || fst after > 0
+          if before /= after || fst after > 0 || pending
             then entry {CGNA.guestAgentDeferred = True, CGNA.netIfsValid = False, CGNA.guestAgentMessage = "Runtime lifecycle changed; observation deferred"}
             else entry
     _ -> Nothing
