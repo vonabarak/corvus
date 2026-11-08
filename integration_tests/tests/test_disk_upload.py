@@ -160,7 +160,7 @@ class TestDiskUpload(SingleNodeCase):
         destination = info.placements[0].file_path
         try:
             source.write_bytes(b"replacement" * 1024)
-            with pytest.raises(CorvusError):
+            with pytest.raises(CorvusError, match="destination already exists"):
                 self.client.disks.upload_from_file(
                     name + ":v2", source, format="raw", path=destination
                 )

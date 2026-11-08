@@ -61,6 +61,7 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
+import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent (ThreadId, killThread, myThreadId)
 import Control.Concurrent.MVar
@@ -94,6 +95,7 @@ import System.IO
   , openBinaryFile
   , openBinaryTempFile
   )
+import System.IO.Error (catchIOError, isAlreadyExistsError, isPermissionError)
 import System.Posix.Files (createLink)
 import qualified System.Random as Random
 import System.Timeout (timeout)
@@ -285,7 +287,16 @@ newAtomicFileWriterSink :: FilePath -> IO FileWriterSink
 newAtomicFileWriterSink destPath = do
   createDirectoryIfMissing True (takeDirectory destPath)
   (partPath, handle) <- openBinaryTempFile (takeDirectory destPath) ".corvus-upload.part"
-  newFileWriterSinkWithHandle handle (createLink partPath destPath `E.finally` removeFile partPath) (removeFile partPath)
+  let publish =
+        createLink partPath destPath `catchIOError` \err ->
+          throwFailed $
+            if isAlreadyExistsError err
+              then "Upload destination already exists"
+              else
+                if isPermissionError err
+                  then "Permission denied publishing upload destination"
+                  else "Failed publishing upload destination"
+  newFileWriterSinkWithHandle handle (publish `E.finally` removeFile partPath) (removeFile partPath)
 
 newFileWriterSinkWith :: FilePath -> IO () -> IO FileWriterSink
 newFileWriterSinkWith path onClose = do
