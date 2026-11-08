@@ -16,11 +16,13 @@ from .ssh import HOST_TEST_KEY_PATH, NodeShell
 
 SERVICES = ("corvus", "corvus-nodeagent", "corvus-netd")
 _run_directory: Path | None = None
+_node_names: dict[str, dict[str, str]] = {}
 
 
 def configure_run_directory(directory: Path | None = None) -> Path:
     """Select a fresh invocation directory, or adopt the controller's path."""
     global _run_directory
+    _node_names.clear()
     if directory is None:
         root = Path(
             os.environ.get("CORVUS_TEST_LOG_DIR", REPO_ROOT / "integration_tests/logs")
@@ -34,6 +36,15 @@ def configure_run_directory(directory: Path | None = None) -> Path:
 def run_directory() -> Path:
     """Also support topologies constructed outside pytest."""
     return _run_directory if _run_directory is not None else configure_run_directory()
+
+
+def register_node(class_name: str, name: str, short_name: str) -> None:
+    """Remember stable identities independently of successful node creation."""
+    _node_names.setdefault(class_name, {})[name] = short_name
+
+
+def node_names() -> dict[str, dict[str, str]]:
+    return {name: dict(nodes) for name, nodes in _node_names.items()}
 
 
 def _record_error(path: Path, error: Exception) -> None:

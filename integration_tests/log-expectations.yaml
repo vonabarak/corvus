@@ -1,0 +1,1036 @@
+version: 1
+classes:
+  TestAdminDeployAndRegister:
+    nodes:
+      deploy_test:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestAdminRemoteDeploy:
+    nodes:
+      controller:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 2
+          errors: 0
+      remote:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestAdminStateStickiness:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestApply:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 4
+          errors: 0
+  TestApplyUpdate:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 8
+          errors: 0
+  TestBridgeNic:
+    nodes:
+      bridge-net:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestBuildAlmaLinuxInstaller:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestBuildInstaller:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestBuildModes:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 3
+          errors: 0
+  TestBuildOfflineOverlay:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 1
+          errors: 0
+        corvus.log:
+          warnings: 4
+          errors: 0
+  TestBuildPipeline:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestBuildUpdate:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 4
+          errors: 0
+  TestCloudInit:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestCloudInitCli:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestComponentRestart:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 9
+          errors: 0
+  TestDatabaseMigrationsPostgresql:
+    nodes:
+      migration-node:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 1
+  TestDatabaseMigrationsSqlite:
+    nodes:
+      migration-node:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 2
+          errors: 1
+  TestDisk:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestDiskCopyMove:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestDiskImport:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 1
+          errors: 0
+        corvus.log:
+          warnings: 16
+          errors: 0
+  TestDiskUpload:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestGuestAgentSubscriptionLifecycle:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestGuestExecCli:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestGuestExecRejections:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestHmpMonitor:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestImageConcurrency:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestManagedNetworking:
+    nodes:
+      net:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 8
+          errors: 0
+  TestMtlsHandshakeFailures:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestMultiNodeDiskPlacement:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestMultiNodeDispatch:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestMultipleConcurrentClientsSameCn:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestNetdDeclarative:
+    nodes:
+      netd:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestNetdReachability:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestNetworkAutostart:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestNetworkModels:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestNodes:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestObservability:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestQuickstart:
+    nodes:
+      quickstart:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestRawTapNic:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestRefusedFromPaused:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestRefusedFromRunning:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestRefusedFromSaved:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestRefusedFromStopped:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestResetUniversal:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestScreenshot:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSerialConsole:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 3
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSerialConsoleWebSocket:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSnapshots:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSnapshotsVmstate:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSpiceConsoleHandshake:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSshKeyInjection:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestSshKeyLifecycle:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestStatusSubscriptionRecovery:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 1
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestTaskCancellation:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestTaskHistory:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestTemplates:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 3
+          errors: 0
+  TestTwoIndependentDaemons:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestUserModeSlirp:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVdeNetworking:
+    nodes:
+      vde:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestVirtiofs:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 1
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestVmAudio:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmAutostart:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestVmBalloon:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmBootBasics:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmEditWhileRunning:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmMigration:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 1
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmMigrationBootableGuest:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmPauseResetPowerOff:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmRebootQuirk:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 1
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmSaveLoadRoundtrip:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmSmokeAndCrud:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVmStartFailures:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 3
+          errors: 0
+        corvus.log:
+          warnings: 1
+          errors: 0
+  TestVmTpm:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestVxlanOverlay:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestWebReconnect:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestWebRestSurface:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
+  TestWindows:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 2
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0

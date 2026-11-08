@@ -71,6 +71,7 @@ from corvus_test_harness import (
     logs,
 )
 from corvus_test_harness.cases import IntegrationTestCase, state_for
+from corvus_test_harness.log_expectations_plugin import LogExpectationsPlugin
 from corvus_test_harness.outer import JsonObject
 from pluggy import Result
 
@@ -87,10 +88,27 @@ _SESSION_TEST_NETWORK_ROOT: Path | None = None
 _SESSION_TEST_NETWORK_FAILED = "corvus_it_session_network.failed"
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    group = parser.getgroup("corvus log expectations")
+    group.addoption(
+        "--log-expectations",
+        default=str(Path(__file__).parent / "log-expectations.yaml"),
+        help="Warning/error and regex baseline YAML file",
+    )
+    group.addoption(
+        "--update-log-expectations",
+        action="store_true",
+        help="Refresh counts for complete, successful integration-test classes",
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     workerinput = getattr(config, "workerinput", {})
     directory = workerinput.get("corvus_log_directory")
     logs.configure_run_directory(Path(directory) if directory is not None else None)
+    config.pluginmanager.register(
+        LogExpectationsPlugin(config), "corvus-log-expectations"
+    )
 
 
 def pytest_configure_node(node: WorkerController) -> None:

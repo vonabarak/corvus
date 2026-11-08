@@ -233,6 +233,72 @@ diagnostics, or `collection-error.txt` if node discovery fails. Other exports
 and normal cleanup continue. A hard crash or interruption that prevents fixture
 finalization can prevent collection; the files are snapshots, not live streams.
 
+#### Expected warnings and errors
+
+`log-expectations.yaml` is the tracked baseline for each test class, stable node
+short name (such as `single` or `alpha`), and service log. At the end of a run,
+pytest prints a **service log expectations** summary when counts differ. Both
+increases and decreases are reported with expected/actual counts and artifact
+paths. These are terminal warnings: they do not change the test result, including
+when pytest is configured to treat Python warnings as errors.
+
+```yaml
+version: 1
+classes:
+  TestDiskImport:
+    nodes:
+      single:
+        corvus.log:
+          warnings: 1
+          errors: 0
+          patterns:
+            - regex: '\[Warn\] Inspect import destination: qemu-img info failed'
+              count: 1
+```
+
+Warning/error totals count application records whose logger prefix is `[Warn]`,
+`[Warn#source]`, `[Error]`, or `[Error#source]`. Severity words in message bodies
+and continuation lines do not count. Untagged systemd messages are not included
+in these totals; add regex rules to monitor them.
+
+Optional `patterns` supplement the totals. Each rule uses Python `re.search` on
+every physical log line without its line ending, including info/debug and
+untagged records. Matching is case-sensitive unless the expression specifies
+inline flags such as `(?i)`. A line counts once per rule even if it matches
+several times; overlapping rules count independently. The expected count must
+match exactly, including zero. Prefer stable message text over timestamps, PIDs,
+generated names, or run IDs.
+
+A missing or empty baseline is initialized automatically. New classes are
+announced and saved only after every test in the class, including teardown,
+passes and all service logs are successfully exported. Review generated entries
+before committing: automatically recorded counts are observations, not proof
+that the messages are expected. Existing counts and regex rules are never
+changed during ordinary runs. New/missing nodes or services in existing classes
+produce warnings and require an explicit update.
+
+After investigating differences, edit the YAML or refresh eligible classes with:
+
+```sh
+PYTHONPATH=python:integration_tests .venv/bin/pytest integration_tests/tests -n 10 \
+  --update-log-expectations
+```
+
+The update refreshes warning/error totals and counts for existing regex rules,
+preserves the regex expressions, and leaves unselected classes unchanged. Use
+`--log-expectations /path/to/baseline.yaml` to select a different baseline.
+Malformed YAML, duplicate keys, invalid counts, and invalid regexes produce a
+warning and disable comparisons and writes for that invocation.
+
+Classes with deselected, skipped, failed, or unfinished tests are reported as
+comparison-skipped; a whole-class selection can still be compared. Explicit
+method selections are conservatively treated as partial classes. Missing or
+partial exports are reported separately and never treated as zero counts.
+Interrupted sessions and worker crashes disable baseline updates. Only the
+pytest controller compares counts and atomically writes the YAML, so xdist
+workers cannot race to update it. Exact totals may vary with retries or timing;
+the harness deliberately reports that variation without adding tolerances.
+
 For a class-fixture failure in the outer `crv vm start --wait`, collect the
 **outer host's nodeagent journal**, including the period before the timeout.
 The test-node service units do not change the outer host's nodeagent log level. Configure that nodeagent with

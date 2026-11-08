@@ -484,6 +484,7 @@ class Topology:
         node_name = f"{RESOURCE_PREFIX}-{self.class_name}-{self.run_id}-{short_name}"
         overlay_name = f"{node_name}-rootfs"
         self._log_nodes[node_name] = None
+        logs.register_node(self.class_name, node_name, short_name)
 
         shared_dirs: list[dict[str, object]] = [
             {
