@@ -24,9 +24,10 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 
 import pytest
-from corvus_client import Client, ServerError
+from corvus_client import Client, DiskNotFound, ServerError, VmNotFound
 from corvus_client._sync.vm import SyncVm
 from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
+from corvus_test_harness.cleanup import ResourceCleanup
 
 
 def _uniq(stem: str) -> str:
@@ -138,10 +139,10 @@ def _wait_until_node_stats(
     )
 
 
-class _MigrationCase(OneDaemonTwoNodesCase):
+class _MigrationCase(ResourceCleanup, OneDaemonTwoNodesCase):
     """Shared scaffolding for every class in this file: register beta
     with alpha's daemon at class scope, plus the small set of
-    per-test helpers (silent deletion, placement queries, bootable
+    per-test helpers (owned-resource cleanup, placement queries, bootable
     Gentoo VM construction) that two or more classes here reuse.
 
     Not a test class itself — pytest skips classes whose name doesn't
@@ -165,35 +166,27 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            beta_node = client.nodes.create(
+            client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
                 net_agent_port=9877,
                 description="alpha→beta vm-migration tests",
             )
-        else:
-            beta_node = client.nodes.get(beta_name)
         _wait_until_node_ready(client, beta_name)
         yield
-        try:
-            beta_node.delete()
-        except Exception:
-            pass
 
     # ---- common per-test plumbing ------------------------------------------
 
-    def _delete_silent_disk(self, name: str) -> None:
-        try:
-            self.client_alpha.disks.get(name).delete()
-        except Exception:
-            pass
+    def _delete_disk(self, name: str) -> None:
+        self.cleanup_resource(
+            lambda: self.client_alpha.disks.get(name).delete(), DiskNotFound
+        )
 
-    def _delete_silent_vm(self, name: str) -> None:
-        try:
-            self.client_alpha.vms.get(name).delete()
-        except Exception:
-            pass
+    def _delete_vm(self, name: str) -> None:
+        self.cleanup_resource(
+            lambda: self.client_alpha.vms.get(name).delete(force=True), VmNotFound
+        )
 
     def _placement_nodes(self, disk_name: str) -> set[str]:
         info = self.client_alpha.disks.get(disk_name).show()
@@ -215,8 +208,8 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         ``vm.start(wait=True)`` return.
 
         Returns the ``Vm`` capability. Cleanup is the caller's
-        job (``self._delete_silent_vm(vm_name)`` +
-        ``self._delete_silent_disk(overlay_name)``).
+        job (``self._delete_vm(vm_name)`` +
+        ``self._delete_disk(overlay_name)``).
         """
         images = self.register_base_images()
         base_disk = images.get("corvus-test-vm")
@@ -372,9 +365,9 @@ class TestVmMigration(_MigrationCase):
                 msg=f"qemu for {vm_name!r} did not exit on beta after reset",
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(cloned_disk)
-            self._delete_silent_disk(base_disk)
+            self._delete_vm(vm_name)
+            self._delete_disk(cloned_disk)
+            self._delete_disk(base_disk)
 
     def test_migrate_with_user_netif(self) -> None:
         """A VM with a `user`-type NIC migrates successfully and the
@@ -391,8 +384,8 @@ class TestVmMigration(_MigrationCase):
             assert len(details.net_ifs) == 1
             assert details.net_ifs[0].type == "user"
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(disk_name)
 
     def test_migrate_enabled_tpm_preserves_state(self) -> None:
         """A TPM VM boots on beta with its persistent key intact."""
@@ -469,8 +462,8 @@ class TestVmMigration(_MigrationCase):
             assert key_after.exit_code == 0, key_after
             assert key_after.stdout.strip() == key_fingerprint
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(overlay_name)
 
     def test_migrate_ro_drive_copied_rw_drive_moved(self) -> None:
         """A VM with one r/w boot disk + one r/o data disk migrates:
@@ -481,22 +474,21 @@ class TestVmMigration(_MigrationCase):
         vm = self._make_stopped_vm_with_disk(vm_name, rw_disk)
         try:
             self.client_alpha.disks.create(ro_disk, size=8388608, format="qcow2")
-            try:
-                vm.attach_disk(ro_disk, interface="virtio", read_only=True)
-                tid = vm.migrate(self.beta_name)
-                self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
-                # r/w → moved.
-                assert self._placement_nodes(rw_disk) == {self.beta_name}
-                # r/o → copied. Both placements stay.
-                assert self._placement_nodes(ro_disk) == {
-                    self.alpha_name,
-                    self.beta_name,
-                }
-            finally:
-                self._delete_silent_disk(ro_disk)
+            vm.attach_disk(ro_disk, interface="virtio", read_only=True)
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            # r/w → moved.
+            assert self._placement_nodes(rw_disk) == {self.beta_name}
+            # r/o → copied. Both placements stay.
+            assert self._placement_nodes(ro_disk) == {
+                self.alpha_name,
+                self.beta_name,
+            }
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(rw_disk)
+            # Both disks remain attached after migration. Remove their VM first.
+            self._delete_vm(vm_name)
+            self._delete_disk(ro_disk)
+            self._delete_disk(rw_disk)
 
     # ---- refusals ----------------------------------------------------------
 
@@ -543,13 +535,9 @@ class TestVmMigration(_MigrationCase):
             # QEMU on beta must be alive — auto-restore respawned it.
             assert _qemu_count(self.node_beta, vm_name) == 1
         finally:
-            # Stop the auto-restored VM cleanly before delete.
-            try:
-                vm.reset()
-            except Exception:
-                pass
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            # Force deletion also stops the auto-restored VM.
+            self._delete_vm(vm_name)
+            self._delete_disk(disk_name)
 
     def test_migrate_refuses_shared_dir(self) -> None:
         """A VM with a shared directory can't be migrated."""
@@ -564,8 +552,8 @@ class TestVmMigration(_MigrationCase):
                 message_must_match=["shared director"],
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(disk_name)
 
     def test_migrate_refuses_managed_nic(self) -> None:
         """A VM with a tap/bridge/macvtap NIC can't be migrated.
@@ -582,8 +570,8 @@ class TestVmMigration(_MigrationCase):
                 message_must_match=["non-user", "network interface"],
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(disk_name)
 
     def test_migrate_refuses_target_equals_source(self) -> None:
         vm_name = _uniq("mig-self")
@@ -596,8 +584,8 @@ class TestVmMigration(_MigrationCase):
                 message_must_match=["current node"],
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(disk_name)
 
     def test_migrate_refuses_undersized_ram(self) -> None:
         """A VM whose RAM requirement exceeds beta's free RAM is
@@ -631,12 +619,9 @@ class TestVmMigration(_MigrationCase):
                     message_must_match=["insufficient", "ram"],
                 )
             finally:
-                try:
-                    vm.delete()
-                except Exception:
-                    pass
+                self.cleanup_resource(lambda: vm.delete(force=True), VmNotFound)
         finally:
-            self._delete_silent_disk(disk_name)
+            self._delete_disk(disk_name)
 
     def test_migrated_vm_with_cloud_init_boots_on_destination(self) -> None:
         """A VM created with `cloud_init=True` carries its cloud-init
@@ -705,13 +690,13 @@ class TestVmMigration(_MigrationCase):
                 msg=f"qemu for {vm_name!r} did not exit on beta after reset",
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(disk_name)
             # The cloud-init disk is ephemeral and normally reaped by
             # vm.delete; this is a best-effort cleanup for the case
             # where vm.delete didn't run (e.g. the test failed before
             # we got that far).
-            self._delete_silent_disk(ci_disk_name)
+            self._delete_disk(ci_disk_name)
 
     def test_migrate_copies_missing_backing_image(self) -> None:
         """An overlay-backed VM migrates correctly even when the
@@ -775,10 +760,10 @@ class TestVmMigration(_MigrationCase):
                     msg=f"qemu for {vm_name!r} did not exit on beta after reset",
                 )
             finally:
-                self._delete_silent_vm(vm_name)
-                self._delete_silent_disk(overlay)
+                self._delete_vm(vm_name)
+                self._delete_disk(overlay)
         finally:
-            self._delete_silent_disk(base)
+            self._delete_disk(base)
 
 
 @pytest.mark.slow
@@ -862,8 +847,8 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 msg=f"qemu for {vm_name!r} did not exit on beta after reset",
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(overlay_name)
 
     def test_migrate_clears_vsock_and_spice(self) -> None:
         """A VM that was started once on alpha (allocating its
@@ -943,8 +928,8 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             # rather than incidentally returning the same value.
             assert details_before.vsock_cid != details_after.vsock_cid
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(overlay_name)
 
     def test_migrate_already_saved_vm_round_trip(self) -> None:
         """Pre-save the VM on alpha, write a sentinel into RAM before
@@ -1031,12 +1016,8 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 f"guest stdout={r.stdout!r}"
             )
         finally:
-            try:
-                vm.reset()
-            except Exception:
-                pass
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(overlay_name)
 
     def test_migrate_running_gentoo_vm_auto_saves(self) -> None:
         """Migrate a *running* VM — the daemon auto-saves first as
@@ -1096,12 +1077,8 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 f"guest stdout={r.stdout!r}"
             )
         finally:
-            try:
-                vm.reset()
-            except Exception:
-                pass
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(overlay_name)
 
     def test_migrate_paused_vm_auto_saves(self) -> None:
         """Same as the running case but the VM is paused (QMP stop)
@@ -1154,9 +1131,5 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             assert r.exit_code == 0, r
             assert sentinel in r.stdout
         finally:
-            try:
-                vm.reset()
-            except Exception:
-                pass
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
+            self._delete_vm(vm_name)
+            self._delete_disk(overlay_name)

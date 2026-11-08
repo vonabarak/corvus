@@ -25,9 +25,10 @@ import time
 from collections.abc import Iterator
 
 import pytest
-from corvus_client import Client, ServerError
+from corvus_client import Client, DiskNotFound, NetworkNotFound, ServerError, VmNotFound
 from corvus_client._sync.vm import SyncVm
 from corvus_test_harness import OneDaemonTwoNodesCase, TestNode, VmShell
+from corvus_test_harness.cleanup import ResourceCleanup
 from corvus_test_harness.guest_network import renew_dhcp
 
 
@@ -95,7 +96,7 @@ def _fdb_dsts(node: TestNode, dev: str) -> set[str]:
     return dsts
 
 
-class TestVxlanOverlay(OneDaemonTwoNodesCase):
+class TestVxlanOverlay(ResourceCleanup, OneDaemonTwoNodesCase):
     """attach-node / detach-node + the netd-side VXLAN reconciliation."""
 
     # ---- class-scoped setup ------------------------------------------------
@@ -115,40 +116,31 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            beta_node = client.nodes.create(
+            client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
                 net_agent_port=9877,
                 description="alpha→beta vxlan tests",
             )
-        else:
-            beta_node = client.nodes.get(beta_name)
         _wait_until_node_ready(client, beta_name)
         yield
-        try:
-            beta_node.delete()
-        except Exception:
-            pass
 
     # ---- common cleanup helpers --------------------------------------------
 
-    def _delete_silent_network(self, name: str) -> None:
-        try:
+    def _delete_network(self, name: str) -> None:
+        def remove() -> None:
             nw = self.client_alpha.networks.get(name)
-            try:
+            if nw.show().running:
                 nw.stop(force=True)
-            except Exception:
-                pass
             nw.delete()
-        except Exception:
-            pass
 
-    def _delete_silent_vm(self, name: str) -> None:
-        try:
-            self.client_alpha.vms.get(name).delete()
-        except Exception:
-            pass
+        self.cleanup_resource(remove, NetworkNotFound)
+
+    def _delete_vm(self, name: str) -> None:
+        self.cleanup_resource(
+            lambda: self.client_alpha.vms.get(name).delete(force=True), VmNotFound
+        )
 
     # ---- state-only tests --------------------------------------------------
 
@@ -172,7 +164,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             beta_id = self.client_alpha.nodes.get(self.beta_name).show().id
             assert info.peer_node_ids == (beta_id,)
         finally:
-            self._delete_silent_network(nw_name)
+            self._delete_network(nw_name)
 
     def test_attach_node_refuses_owner_node(self) -> None:
         nw_name = _uniq("vx-owner")
@@ -184,7 +176,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
                 nw.attach_node(self.alpha_name)
             assert "owner" in str(ei.value).lower()
         finally:
-            self._delete_silent_network(nw_name)
+            self._delete_network(nw_name)
 
     def test_detach_node_refuses_owner_node(self) -> None:
         nw_name = _uniq("vx-detach-owner")
@@ -200,7 +192,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             msg = str(ei.value).lower()
             assert "owner" in msg or "not a peer" in msg
         finally:
-            self._delete_silent_network(nw_name)
+            self._delete_network(nw_name)
 
     def test_detach_node_removes_peer(self) -> None:
         nw_name = _uniq("vx-detach")
@@ -213,7 +205,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             nw.detach_node(self.beta_name)
             assert nw.show().peer_node_ids == ()
         finally:
-            self._delete_silent_network(nw_name)
+            self._delete_network(nw_name)
 
     # ---- netd-side kernel checks (requires the network running) ------------
 
@@ -253,7 +245,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             assert _link_exists(self.node_alpha, vx)
             assert _link_exists(self.node_beta, vx)
         finally:
-            self._delete_silent_network(nw_name)
+            self._delete_network(nw_name)
 
     def test_detach_node_drops_remote_vxlan(self) -> None:
         nw_name = _uniq("vx-drop")
@@ -283,7 +275,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             # but its flood FDB no longer points at beta.
             assert self.node_beta.outer_ip not in _fdb_dsts(self.node_alpha, vx)
         finally:
-            self._delete_silent_network(nw_name)
+            self._delete_network(nw_name)
 
     # ---- NIC IPAM ----------------------------------------------------------
 
@@ -322,8 +314,8 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             # Allocator should pick .2 (skip .0 net, .1 gw).
             assert ip == "10.99.6.2"
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_network(nw_name)
+            self._delete_vm(vm_name)
+            self._delete_network(nw_name)
 
     def test_overlay_forwards_guest_packets_between_nodes(self) -> None:
         """Two DHCP guests on different nodes can ping across the VXLAN.
@@ -403,14 +395,11 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             beta_shell.run(f"ping -c 2 -W 3 {alpha_ip}")
         finally:
             for shell in shells:
-                try:
-                    shell.close()
-                except Exception:
-                    pass
+                self.cleanup_resource(shell.close, ())
             # Guests must be gone before tearing their managed bridge down.
-            self._delete_silent_vm(alpha_vm_name)
-            self._delete_silent_vm(beta_vm_name)
-            self._delete_silent_network(nw_name)
+            self._delete_vm(alpha_vm_name)
+            self._delete_vm(beta_vm_name)
+            self._delete_network(nw_name)
 
     def test_managed_nic_cross_node_refused_without_attach(self) -> None:
         """A managed NIC's network must include the VM's node — the
@@ -435,8 +424,8 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
                 vm.add_net_if(network_ref=nw_name)
             assert "owner nor a peer" in str(ei.value).lower()
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_network(nw_name)
+            self._delete_vm(vm_name)
+            self._delete_network(nw_name)
 
     # ---- migration acceptance -----------------------------------------------
 
@@ -477,12 +466,11 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
             # travelled with the VM and kept its IPAM allocation.
             assert vm.list_net_ifs()[0].ip_address == ip_before
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_network(nw_name)
-            try:
-                self.client_alpha.disks.get(disk_name).delete()
-            except Exception:
-                pass
+            self._delete_vm(vm_name)
+            self._delete_network(nw_name)
+            self.cleanup_resource(
+                lambda: self.client_alpha.disks.get(disk_name).delete(), DiskNotFound
+            )
 
     def test_migrate_refused_when_overlay_excludes_destination(self) -> None:
         """A managed NIC on a single-node network cannot migrate; the
@@ -513,9 +501,8 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
                 "attach-node" in str(ei.value).lower()
             )
         finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_network(nw_name)
-            try:
-                self.client_alpha.disks.get(disk_name).delete()
-            except Exception:
-                pass
+            self._delete_vm(vm_name)
+            self._delete_network(nw_name)
+            self.cleanup_resource(
+                lambda: self.client_alpha.disks.get(disk_name).delete(), DiskNotFound
+            )

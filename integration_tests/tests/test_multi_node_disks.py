@@ -32,11 +32,19 @@ import secrets
 import textwrap
 import time
 from collections.abc import Iterator
+from functools import partial
 from pathlib import Path
 
 import pytest
-from corvus_client import Client, GuestAgentError, ServerError
+from corvus_client import (
+    Client,
+    DiskNotFound,
+    GuestAgentError,
+    ServerError,
+    VmNotFound,
+)
 from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
+from corvus_test_harness.cleanup import ResourceCleanup
 
 
 def _uniq(stem: str) -> str:
@@ -66,7 +74,7 @@ def _wait_until_node_ready(
         time.sleep(0.5)
 
 
-class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
+class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
     """`--node` on disk verbs, placement-aware operations, apply YAML."""
 
     # ---- class-scoped setup ------------------------------------------------
@@ -91,35 +99,27 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         except ServerError:
             existing = None
         if existing is None:
-            beta_node = client.nodes.create(
+            client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
                 net_agent_port=9877,
                 description="alpha→beta multi-node disk tests",
             )
-        else:
-            beta_node = client.nodes.get(beta_name)
         _wait_until_node_ready(client, beta_name)
         yield
-        try:
-            beta_node.delete()
-        except Exception:
-            pass
 
     # ---- helpers -----------------------------------------------------------
 
-    def _delete_disk_silent(self, name: str) -> None:
-        try:
-            self.client_alpha.disks.get(name).delete()
-        except Exception:
-            pass
+    def _delete_disk(self, name: str) -> None:
+        self.cleanup_resource(
+            lambda: self.client_alpha.disks.get(name).delete(), DiskNotFound
+        )
 
-    def _delete_vm_silent(self, name: str) -> None:
-        try:
-            self.client_alpha.vms.get(name).delete()
-        except Exception:
-            pass
+    def _delete_vm(self, name: str) -> None:
+        self.cleanup_resource(
+            lambda: self.client_alpha.vms.get(name).delete(force=True), VmNotFound
+        )
 
     def _placement_nodes(self, disk_name: str) -> set[str]:
         info = self.client_alpha.disks.get(disk_name).show()
@@ -159,7 +159,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             assert self._file_exists_on(self.beta_name, beta_path)
             assert not self._file_exists_on(self.alpha_name, beta_path)
         finally:
-            self._delete_disk_silent(name)
+            self._delete_disk(name)
 
     def test_create_without_node_uses_scheduler(self) -> None:
         """`disks.create` without `node=` defers to the scheduler.
@@ -174,7 +174,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             chosen = placements[0].node.name
             assert self._file_exists_on(chosen, placements[0].file_path)
         finally:
-            self._delete_disk_silent(name)
+            self._delete_disk(name)
 
     def test_register_with_node_records_placement(self) -> None:
         """`disks.register(..., node='beta')` against a pre-existing
@@ -196,7 +196,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 assert self._placement_nodes(name) == {self.beta_name}
                 assert self._placement_path_on(name, self.beta_name) == beta_path
             finally:
-                self._delete_disk_silent(name)
+                self._delete_disk(name)
         finally:
             self.node_beta.run(f"rm -f {beta_path!r}", check=False, timeout_sec=5.0)
 
@@ -220,12 +220,9 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 # Placement must still be beta-only.
                 assert self._placement_nodes(name) == {self.beta_name}
             finally:
-                try:
-                    snap.delete()
-                except Exception:
-                    pass
+                self.cleanup_resource(snap.delete)
         finally:
-            self._delete_disk_silent(name)
+            self._delete_disk(name)
 
     def test_overlay_inherits_base_node(self) -> None:
         """An overlay of a disk on beta lands on beta — the
@@ -240,9 +237,9 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             try:
                 assert self._placement_nodes(overlay) == {self.beta_name}
             finally:
-                self._delete_disk_silent(overlay)
+                self._delete_disk(overlay)
         finally:
-            self._delete_disk_silent(base)
+            self._delete_disk(base)
 
     def test_clone_inherits_source_node(self) -> None:
         """Clone of a disk on beta lands on beta."""
@@ -256,9 +253,9 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             try:
                 assert self._placement_nodes(dst) == {self.beta_name}
             finally:
-                self._delete_disk_silent(dst)
+                self._delete_disk(dst)
         finally:
-            self._delete_disk_silent(src)
+            self._delete_disk(src)
 
     def test_refresh_works_on_beta_only_disk(self) -> None:
         """`disk.refresh()` on a beta-only disk must succeed — the
@@ -272,7 +269,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             info = self.client_alpha.disks.get(name).refresh()
             assert info.size is not None
         finally:
-            self._delete_disk_silent(name)
+            self._delete_disk(name)
 
     def test_resize_works_on_beta_only_disk(self) -> None:
         """Same property as ``test_refresh_works_on_beta_only_disk``
@@ -287,7 +284,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             info = disk.refresh()
             assert info.size == 33554432
         finally:
-            self._delete_disk_silent(name)
+            self._delete_disk(name)
 
     # ---- apply YAML with per-resource `node:` ----------------------------
 
@@ -315,8 +312,8 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             assert self._placement_nodes(alpha_disk) == {self.alpha_name}
             assert self._placement_nodes(beta_disk) == {self.beta_name}
         finally:
-            self._delete_disk_silent(alpha_disk)
-            self._delete_disk_silent(beta_disk)
+            self._delete_disk(alpha_disk)
+            self._delete_disk(beta_disk)
 
     def test_apply_update_disambiguates_same_name_across_nodes(self) -> None:
         """Two VMs named the same on different nodes round-trip
@@ -369,10 +366,10 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 self.client_alpha.vms.get(vid).show()
         finally:
             for vid in created_ids:
-                try:
-                    self.client_alpha.vms.get(vid).delete()
-                except Exception:
-                    pass
+                self.cleanup_resource(
+                    partial(self.client_alpha.vms.get(vid).delete, force=True),
+                    VmNotFound,
+                )
 
     # ---- VM details exposes per-node file path ---------------------------
 
@@ -417,9 +414,9 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 # And the absolute path actually exists on beta.
                 assert self._file_exists_on(self.beta_name, paths[0])
             finally:
-                self._delete_vm_silent(vm_name)
+                self._delete_vm(vm_name)
         finally:
-            self._delete_disk_silent(disk_name)
+            self._delete_disk(disk_name)
 
     def test_guest_files_on_remote_node(self, tmp_path: Path) -> None:
         """CLI on alpha and Python on host transfer bytes to a guest on beta."""
@@ -475,8 +472,8 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
                 vm.download_to_file("/missing/guest-file", destination)
             assert destination.read_bytes() == b"original"
         finally:
-            self._delete_vm_silent(name)
-            self._delete_disk_silent(name)
+            self._delete_vm(name)
+            self._delete_disk(name)
             self.node_alpha.run(
                 "rm -f /tmp/guest-file-source /tmp/guest-file-copy", check=False
             )
