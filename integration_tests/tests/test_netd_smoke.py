@@ -28,7 +28,8 @@ import shutil
 import socket
 import subprocess
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import capnp
 import pytest
@@ -50,7 +51,9 @@ def _pick_free_port() -> int:
         return int(s.getsockname()[1])
 
 
-def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen[bytes]:
+def _open_port_forward(
+    cid: int, host_port: int, ready: Callable[[float], None]
+) -> subprocess.Popen[bytes]:
     socat = shutil.which("socat")
     ssh = shutil.which("ssh")
     if not socat or not ssh:
@@ -76,25 +79,26 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen[bytes]:
     ]
     proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     deadline = time.monotonic() + 10.0
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            err = b""
-            if proc.stderr is not None:
-                err = proc.stderr.read()
-                proc.stderr.close()
-            raise RuntimeError(
-                f"ssh port forward exited early: {err.decode(errors='replace')}"
-            )
-        try:
-            with socket.create_connection(("127.0.0.1", host_port), timeout=0.2):
+    last_error: Exception | None = None
+    try:
+        while (remaining := deadline - time.monotonic()) > 0:
+            if proc.poll() is not None:
+                err = proc.stderr.read() if proc.stderr is not None else b""
+                raise RuntimeError(
+                    f"ssh port forward exited early: {err.decode(errors='replace')}"
+                )
+            try:
+                ready(min(0.5, remaining))
                 return proc
-        except OSError:
-            time.sleep(0.1)
-    proc.terminate()
-    proc.wait(timeout=2.0)
-    if proc.stderr is not None:
-        proc.stderr.close()
-    raise RuntimeError(f"ssh port forward never ready on 127.0.0.1:{host_port}")
+            except Exception as exc:
+                last_error = exc
+                time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+        raise RuntimeError(
+            f"ssh port forward never ready on 127.0.0.1:{host_port}"
+        ) from last_error
+    except BaseException:
+        _close_port_forward(proc)
+        raise
 
 
 def _close_port_forward(proc: subprocess.Popen[bytes]) -> None:
@@ -194,42 +198,42 @@ class TestNetdDeclarative(SingleNodeCase):
 
     @pytest.fixture(scope="class")
     @classmethod
-    def netd_endpoint(cls, request: pytest.FixtureRequest) -> Iterator[tuple[str, int]]:
+    def netd_endpoint(
+        cls, request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+    ) -> Iterator[tuple[str, int, Path]]:
         assert request.cls is not None
         state = state_for(request.cls)
         if state.topology is None:
             pytest.skip("class topology not initialised; upstream fixture failed")
         node = state.topology.nodes[0]
         host_port = _pick_free_port()
-        forward = _open_port_forward(node.cid, host_port)
+        cert_dir = state.topology.ca.mint_host_cert_dir(
+            role="corvus-daemon",
+            name=f"netd-test-{host_port}",
+            root=tmp_path_factory.mktemp("netd-smoke-cert"),
+        )
+        rl = node.client()._rl
+
+        def ready(budget: float) -> None:
+            deadline = time.monotonic() + budget
+            with NetdClient.connect(
+                "127.0.0.1", host_port, rl, cert_dir=cert_dir, timeout_sec=budget
+            ) as agent:
+                agent.ping(timeout_sec=max(0.001, deadline - time.monotonic()))
+
+        forward = _open_port_forward(node.cid, host_port, ready)
         try:
-            yield ("127.0.0.1", host_port)
+            yield ("127.0.0.1", host_port, cert_dir)
         finally:
             _close_port_forward(forward)
 
     @pytest.fixture
-    def agent(
-        self,
-        netd_endpoint: tuple[str, int],
-        tmp_path_factory: pytest.TempPathFactory,
-    ) -> Iterator[NetdClient]:
-        """One fresh agent connection + session per test method.
-
-        netd's CN-prefix check requires the peer to present a
-        ``corvus-daemon:…`` cert (the daemon is its only
-        legitimate caller in production), so the harness mints a
-        host-side corvus-daemon trio off the class's CA for this
-        dial.
-        """
-
-        host, port = netd_endpoint
-        rl = self.node.client()._rl
-        cert_dir = self.topology.ca.mint_host_cert_dir(
-            role="corvus-daemon",
-            name=f"netd-test-{port}",
-            root=tmp_path_factory.mktemp("netd-smoke-cert"),
-        )
-        with NetdClient.connect(host, port, rl, cert_dir=cert_dir) as nc:
+    def agent(self, netd_endpoint: tuple[str, int, Path]) -> Iterator[NetdClient]:
+        """One fresh authenticated connection and session per test."""
+        host, port, cert_dir = netd_endpoint
+        with NetdClient.connect(
+            host, port, self.node.client()._rl, cert_dir=cert_dir
+        ) as nc:
             yield nc
 
     # -- Liveness / version --------------------------------------------------

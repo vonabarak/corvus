@@ -126,6 +126,7 @@ class NetdClient:
         *,
         owner: str = "test",
         cert_dir: Path | None = None,
+        timeout_sec: float = 10.0,
     ) -> NetdClient:
         """Open a TCP connection to the agent, bootstrap, open a
         Session.
@@ -173,7 +174,14 @@ class NetdClient:
                 await asyncio.sleep(0.2)
                 raise
 
-        stream, agent_cap, sess_cap = rl.run(_open())
+        async def open_with_deadline() -> tuple[
+            object,
+            capnp.lib.capnp._DynamicCapabilityClient,
+            capnp.lib.capnp._DynamicCapabilityClient,
+        ]:
+            return await asyncio.wait_for(_open(), timeout_sec)
+
+        stream, agent_cap, sess_cap = rl.run(open_with_deadline())
         return cls(rl, stream, agent_cap, sess_cap)
 
     # Context manager: hand the pycapnp caps off to the runloop
@@ -238,9 +246,9 @@ class NetdClient:
 
     # ---- NetAgent (top-level) --------------------------------------------
 
-    def ping(self) -> None:
+    def ping(self, *, timeout_sec: float = 10.0) -> None:
         async def go() -> None:
-            await self._agent.ping()
+            await asyncio.wait_for(self._agent.ping(), timeout_sec)
 
         self._call(go)
 
