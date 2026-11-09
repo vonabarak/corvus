@@ -7,6 +7,7 @@ module Corvus.Node.Qmp
   , isGuestRebootEvent
   , qmpScreenshot
   , qmpShutdown
+  , qmpSystemReset
   , qmpContinue
   , qmpStop
   , qmpQuit

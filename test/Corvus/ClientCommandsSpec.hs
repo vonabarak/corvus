@@ -229,6 +229,7 @@ cases =
   , (VmShow "fixture", vm "show", "fixture")
   , (VmCreate "new" "node" 2 1073741824 (Just "description") False True True True True False "host" GraphicsVirtioVga True True True 120, created "vms" "Vm" "create", "42")
   , (VmStop "fixture" (WaitOptions False Nothing), vm "stop", "stop")
+  , (VmReboot "fixture", vm "reboot", "reboot")
   , (VmSave "fixture" (WaitOptions True Nothing), vm "save", "save")
   , (VmDelete "fixture" True True, vm "delete", "deleted")
   , (VmStart "fixture" (WaitOptions True Nothing), vm "start", "start")

@@ -138,6 +138,7 @@ commands =
   , (["vm", "start", "web", "--wait"], VmStart "web" (WaitOptions True Nothing))
   , (["vm", "stop", "web"], VmStop "web" (WaitOptions False Nothing))
   , (["vm", "stop", "web", "-w", "-t", "0"], VmStop "web" (WaitOptions True (Just 0)))
+  , (["vm", "reboot", "web"], VmReboot "web")
   , (["vm", "pause", "web"], VmPause "web")
   , (["vm", "balloon", "web", "768M"], VmSetBalloon "web" 805306368)
   , (["vm", "balloon", "web", "18446744073709551615B"], VmSetBalloon "web" 18446744073709551615)

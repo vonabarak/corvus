@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot) where
+module Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot, handleVmReboot) where
 
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
@@ -13,7 +13,9 @@ import Corvus.Node.Caps.Session.Utils (SessionCap, agentQemuConfig, scQgaConns, 
 import qualified Corvus.Node.GuestAgent as NGA
 import Corvus.Node.GuestAgent.Connection (invalidateConn)
 import qualified Corvus.Node.Ledger as L
+import qualified Corvus.Node.Qmp as NQ
 import Corvus.Node.Qmp.Reboot (withRebootObserver)
+import Corvus.Node.Qmp.Types (QmpResult (..))
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Word (Word32)
@@ -23,6 +25,27 @@ handleVmGuestPing :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmGuest
 handleVmGuestPing sc vmId = do
   alive <- NGA.guestPing (scQgaConns sc) agentQemuConfig vmId
   pure CGNA.Session'vmGuestPing'results {CGNA.alive = alive}
+
+-- | Dispatch the configured reboot signal without waiting for guest readiness.
+handleVmReboot :: SessionCap -> Int64 -> Bool -> IO (CGNA.Parsed CGNA.Session'vmReboot'results)
+handleVmReboot sc vmId guestAgent = do
+  live <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case live of
+    Nothing -> ioError (userError "VM is not running")
+    Just _ -> do
+      outcome <-
+        if guestAgent
+          then NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId "reboot"
+          else do
+            result <- NQ.qmpSystemReset agentQemuConfig vmId
+            pure $ case result of
+              QmpSuccess -> Right ()
+              QmpError err -> Left err
+              QmpConnectionFailed err -> Left err
+      case outcome of
+        Left err -> ioError (userError (T.unpack err))
+        Right () -> when guestAgent $ invalidateConn (scQgaConns sc) vmId
+  pure CGNA.Session'vmReboot'results
 
 -- | One deadline covers observer negotiation, dispatch, reset and readiness.
 -- Never retry a possibly dispatched shutdown: doing so can reboot twice.

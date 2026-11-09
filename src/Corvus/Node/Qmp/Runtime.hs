@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Runtime QMP operations.
-module Corvus.Node.Qmp.Runtime (qmpScreenshot, qmpShutdown, qmpContinue, qmpSetBalloon, qmpStop, qmpQuit, qmpMigrate, qmpQueryMigrate, qmpSetSpicePassword, qmpExpireSpicePassword, qmpSendCtrlAltDel, qmpSendKey, qmpQueryBlockstats, qmpQueryBalloon, qmpQueryCommands, pollQmpJob, waitForQmpReady, BlockstatsRow (..)) where
+module Corvus.Node.Qmp.Runtime (qmpScreenshot, qmpShutdown, qmpSystemReset, qmpContinue, qmpSetBalloon, qmpStop, qmpQuit, qmpMigrate, qmpQueryMigrate, qmpSetSpicePassword, qmpExpireSpicePassword, qmpSendCtrlAltDel, qmpSendKey, qmpQueryBlockstats, qmpQueryBalloon, qmpQueryCommands, pollQmpJob, waitForQmpReady, BlockstatsRow (..)) where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Node.Qmp.Transport (extractReplyLine, sendQmpCommand, sendQmpRaw)
@@ -33,6 +33,11 @@ qmpScreenshot config vmId path =
 qmpShutdown :: QemuConfig -> Int64 -> IO QmpResult
 qmpShutdown config vmId =
   sendQmpCommand config vmId [qmpQQ| { "execute": "system_powerdown" } |]
+
+-- | Request a virtual machine reset via QMP.
+qmpSystemReset :: QemuConfig -> Int64 -> IO QmpResult
+qmpSystemReset config vmId =
+  sendQmpCommand config vmId [qmpQQ| { "execute": "system_reset" } |]
 
 -- | Send continue command via QMP (resume paused VM)
 qmpContinue :: QemuConfig -> Int64 -> IO QmpResult

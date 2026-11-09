@@ -71,7 +71,7 @@ import Corvus.Node.Caps.Session.Utils (SessionCap (..), cleanupDetachedDrive, de
 import Corvus.Node.Caps.Session.Vm
 import Corvus.Node.Caps.Session.Vm.Balloon (handleVmSetBalloon)
 import Corvus.Node.Caps.Session.Vm.Lifecycle (sanitiseVmName)
-import Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot)
+import Corvus.Node.Caps.Session.Vm.Reboot (handleVmGuestPing, handleVmGuestReboot, handleVmReboot)
 import Corvus.Node.Caps.Session.Vm.Screenshot (handleVmScreenshot)
 import qualified Corvus.Node.Runtime as NR
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -561,6 +561,10 @@ instance CGNA.Session'server_ SessionServer where
   session'vmGuestReboot (SessionServer sc) =
     handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmGuestReboot" $ \CGNA.Session'vmGuestReboot'params {CGNA.vmId = vid, CGNA.timeoutSec = seconds} ->
       withVmOpLock sc vid (handleVmGuestReboot sc vid seconds)
+
+  session'vmReboot (SessionServer sc) =
+    handleParsedAsync $ traceNodeRequest (scQgaConns sc) "vmReboot" $ \CGNA.Session'vmReboot'params {CGNA.vmId = vid, CGNA.guestAgent = guestAgent} ->
+      withVmOpLock sc vid (handleVmReboot sc vid guestAgent)
 
   session'vmGuestExec (SessionServer sc) =
     -- Async dispatch: a single guest-exec can run for many

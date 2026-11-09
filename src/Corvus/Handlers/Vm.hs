@@ -4,6 +4,7 @@ module Corvus.Handlers.Vm
   , VmDelete (..)
   , VmEdit (..)
   , VmPause (..)
+  , VmReboot (..)
   , VmReset (..)
   , VmSave (..)
   , VmStart (..)
@@ -60,7 +61,7 @@ import Corvus.Handlers.Vm.Db
   , setVmVsockCidIfCurrent
   )
 import Corvus.Handlers.Vm.Delete (VmDelete (..))
-import Corvus.Handlers.Vm.Lifecycle (VmPause (..), VmReset (..), VmSave (..), VmStop (..))
+import Corvus.Handlers.Vm.Lifecycle (VmPause (..), VmReboot (..), VmReset (..), VmSave (..), VmStop (..))
 import Corvus.Handlers.Vm.Monitor (attachVmMonitor, reattachVmMonitors)
 import Corvus.Handlers.Vm.Query (getVmDetails, handleVmList, handleVmShow)
 import Corvus.Handlers.Vm.Start (VmStart (..))

@@ -45,6 +45,7 @@ import Corvus.Handlers.Vm
   , VmDelete (..)
   , VmEdit (..)
   , VmPause (..)
+  , VmReboot (..)
   , VmReset (..)
   , VmSave (..)
   , VmStart (..)
@@ -247,6 +248,11 @@ instance CGVm.Vm'server_ VmCap where
         else runActionAsync st cn action (RespVmStateChanged M.VmStopping)
     status <- statusOrThrow resp
     pure CGVm.Vm'stop'results {CGVm.status = status}
+
+  vm'reboot (VmCap st _ eid cn) = handleParsedAsync $ \_ -> do
+    resp <- runAction st cn (VmReboot eid)
+    status <- statusOrThrow resp
+    pure CGVm.Vm'reboot'results {CGVm.status = status}
 
   vm'pause (VmCap st _ eid cn) = handleParsedAsync $ \_ -> do
     resp <- runAction st cn (VmPause eid)

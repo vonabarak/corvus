@@ -16,6 +16,7 @@ module Corvus.Client.Capnp.Rpc.Vm
   , rpcVmCreate
   , rpcVmStart
   , rpcVmStop
+  , rpcVmReboot
   , rpcVmPause
   , rpcVmSetBalloon
   , rpcVmReset
@@ -241,6 +242,12 @@ rpcVmStop conn ref wait timeoutSec = do
       #stop
       CGVm.Vm'stop'params {CGVm.wait = wait, CGVm.timeoutSec = timeoutSec}
       vmClient
+  pure ()
+
+rpcVmReboot :: CapnpConnection -> EntityRef -> IO ()
+rpcVmReboot conn ref = do
+  vmClient <- getVmClient conn ref
+  _ <- callOn #reboot CGVm.Vm'reboot'params vmClient
   pure ()
 
 rpcVmPause :: CapnpConnection -> EntityRef -> IO ()

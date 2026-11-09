@@ -114,6 +114,7 @@ data Command
     VmDelete !Text !Bool !Bool
   | VmStart !Text !WaitOptions
   | VmStop !Text !WaitOptions
+  | VmReboot !Text
   | VmPause !Text
   | VmSetBalloon !Text !Word64
   | VmReset !Text

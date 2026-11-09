@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Corvus.Handlers.Vm.Lifecycle
-  ( VmStop (..)
+  ( VmReboot (..)
+  , VmStop (..)
   , VmPause (..)
   , VmSave (..)
   , VmReset (..)
@@ -302,6 +303,34 @@ instance Action VmReset where
   actionExecute ctx a = handleVmReset (acState ctx) (vrstVmId a)
 
 -- Complex handlers with validate/execute split
+
+newtype VmReboot = VmReboot {vrbVmId :: Int64}
+
+instance Action VmReboot where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "reboot"
+  actionEntityId = Just . fromIntegral . vrbVmId
+  actionValidate state action = do
+    result <- runSqlPool (getVmWithStatus (vrbVmId action)) (ssDbPool state)
+    pure $ case result of
+      Nothing -> Just RespVmNotFound
+      Just (_, VmRunning) -> Nothing
+      Just (_, status) -> Just $ RespInvalidTransition status "VM must be running to reboot"
+  actionExecute ctx action = runServerLogging (acState ctx) $ do
+    let state = acState ctx
+        vmId = vrbVmId action
+    current <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+    case current of
+      Nothing -> pure RespVmNotFound
+      Just (_, status)
+        | status /= VmRunning ->
+            pure $ RespInvalidTransition status "VM must be running to reboot"
+      Just (vm, _) -> do
+        result <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmReboot nac vmId (vmGuestAgent vm)
+        pure $ case result of
+          Left err -> RespError err
+          Right (Left err) -> RespError (T.pack (show err))
+          Right (Right ()) -> RespVmStateChanged VmRunning
 
 data VmStop = VmStop
   { vstpVmId :: Int64

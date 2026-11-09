@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 
 import pytest
 from corvus_client._sync.vm import SyncByteStream
-from corvus_client.exceptions import GuestAgentError, VmHeadless, VmNotRunning
+from corvus_client.exceptions import VmHeadless, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 LOGIN_PROMPT = b"login:"
@@ -260,20 +260,8 @@ class TestSerialConsole(SingleNodeCase):
                 assert marker.encode() not in early, early
 
             # ── Phase E: in-guest reboot survives.
-            # `vm.cap.reset()` is misleadingly named — it hard-kills
-            # QEMU (see `Handlers/Vm.hs::handleVmReset:509-535`), so
-            # it can't prove the buffer survives a real reboot.
-            # Issue `reboot -f` inside the guest: kernel restarts,
-            # QEMU stays alive, the daemon's buffer thread keeps
-            # reading from the same serial chardev.
-            try:
-                vm.cap.guest_exec("/sbin/reboot -f")
-            except GuestAgentError:
-                # `reboot -f` kills init while QGA is mid-exec; the
-                # QGA→daemon path may timeout (daemon answers with
-                # the `guest_agent_error` wire code). We only care
-                # about the side-effect.
-                pass
+            vm.cap.reboot()
+            time.sleep(5)  # wait for reboot
             with vm.cap.serial_console() as stream3:
                 data = _drain_until(stream3, LOGIN_PROMPT, timeout=120.0)
                 assert LOGIN_PROMPT in data

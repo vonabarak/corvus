@@ -26,6 +26,7 @@ module Corvus.NodeAgentClient.Vm
   , vmGuestPing
   , vmGuestSshAddAuthorizedKeys
   , vmGuestReboot
+  , vmReboot
   , vmGuestExecStream
   , vmStatus
   , vmSetSpiceTicket
@@ -645,6 +646,11 @@ vmGuestReboot nac vmId timeoutSec = remote $ do
   CGNA.Session'vmGuestReboot'results result <-
     callOn #vmGuestReboot CGNA.Session'vmGuestReboot'params {CGNA.vmId = vmId, CGNA.timeoutSec = timeoutSec} (nacSession nac)
   pure result
+
+vmReboot :: NodeAgentClient -> Int64 -> Bool -> IO (Either NodeAgentError ())
+vmReboot nac vmId guestAgent = remote $ do
+  _ <- callOn #vmReboot CGNA.Session'vmReboot'params {CGNA.vmId = vmId, CGNA.guestAgent = guestAgent} (nacSession nac)
+  pure ()
 
 vmGuestWriteFile :: NodeAgentClient -> Int64 -> T.Text -> C.Client CGS.ByteSource -> IO (Either NodeAgentError Word64)
 vmGuestWriteFile nac vmId path source = remote $ do

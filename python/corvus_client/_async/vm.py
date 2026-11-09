@@ -165,6 +165,11 @@ class AsyncVm:
         resp = await self._cap.stop(wait=wait, timeoutSec=timeout_sec)
         return str(resp.status)
 
+    async def reboot(self) -> str:
+        """Request a reboot of the running VM and return after dispatch."""
+        resp = await self._cap.reboot()
+        return str(resp.status)
+
     async def pause(self) -> str:
         resp = await self._cap.pause()
         return str(resp.status)

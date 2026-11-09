@@ -163,6 +163,7 @@ runCommand opts = do
       VmDelete vmRef keepDisks force -> handleVmDelete fmt conn vmRef keepDisks force
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
+      VmReboot vmRef -> handleVmAction fmt "reboot" vmRef (CR.rpcVmReboot conn (entityRefFromText vmRef))
       VmPause vmRef ->
         handleVmAction fmt "pause" vmRef (CR.rpcVmPause conn (entityRefFromText vmRef))
       VmSetBalloon vmRef target ->

@@ -1590,9 +1590,10 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'uploadFile) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'downloadFile) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'injectSshKeys) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'screenshot) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'screenshot) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'reboot) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile,vm'injectSshKeys,vm'screenshot #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete,vm'addAudioDevice,vm'editAudioDevice,vm'removeAudioDevice,vm'listAudioDevices,vm'editNetIf,vm'setBalloon,vm'uploadFile,vm'downloadFile,vm'injectSshKeys,vm'screenshot,vm'reboot #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1683,6 +1684,8 @@ class (Vm'server_ s_) where
     vm'injectSshKeys _ = GH.methodUnimplemented
     vm'screenshot :: s_ -> (GH.MethodHandler Vm'screenshot'params Vm'screenshot'results)
     vm'screenshot _ = GH.methodUnimplemented
+    vm'reboot :: s_ -> (GH.MethodHandler Vm'reboot'params Vm'reboot'results)
+    vm'reboot _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1773,6 +1776,8 @@ instance (GH.HasMethod "injectSshKeys" Vm Vm'injectSshKeys'params Vm'injectSshKe
     methodByLabel  = (GH.Method 17269745093196220462 43)
 instance (GH.HasMethod "screenshot" Vm Vm'screenshot'params Vm'screenshot'results) where
     methodByLabel  = (GH.Method 17269745093196220462 44)
+instance (GH.HasMethod "reboot" Vm Vm'reboot'params Vm'reboot'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 45)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -4358,6 +4363,61 @@ instance (C.Marshal Vm'screenshot'results (C.Parsed Vm'screenshot'results)) wher
         )
 instance (GH.HasField "bytesTransferred" GH.Slot Vm'screenshot'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
+data Vm'reboot'params 
+type instance (R.ReprFor Vm'reboot'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'reboot'params) where
+    typeId  = 10532302295945642629
+instance (C.TypedStruct Vm'reboot'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'reboot'params) where
+    type AllocHint Vm'reboot'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'reboot'params (C.Parsed Vm'reboot'params))
+instance (C.AllocateList Vm'reboot'params) where
+    type ListAllocHint Vm'reboot'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'reboot'params (C.Parsed Vm'reboot'params))
+data instance C.Parsed Vm'reboot'params
+    = Vm'reboot'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'reboot'params))
+deriving instance (Std_.Eq (C.Parsed Vm'reboot'params))
+instance (C.Parse Vm'reboot'params (C.Parsed Vm'reboot'params)) where
+    parse raw_ = (Std_.pure Vm'reboot'params)
+instance (C.Marshal Vm'reboot'params (C.Parsed Vm'reboot'params)) where
+    marshalInto _raw (Vm'reboot'params) = (Std_.pure ())
+data Vm'reboot'results 
+type instance (R.ReprFor Vm'reboot'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'reboot'results) where
+    typeId  = 15184406520542140191
+instance (C.TypedStruct Vm'reboot'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'reboot'results) where
+    type AllocHint Vm'reboot'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'reboot'results (C.Parsed Vm'reboot'results))
+instance (C.AllocateList Vm'reboot'results) where
+    type ListAllocHint Vm'reboot'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'reboot'results (C.Parsed Vm'reboot'results))
+data instance C.Parsed Vm'reboot'results
+    = Vm'reboot'results 
+        {status :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.VmStatus)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'reboot'results))
+deriving instance (Std_.Eq (C.Parsed Vm'reboot'results))
+instance (C.Parse Vm'reboot'results (C.Parsed Vm'reboot'results)) where
+    parse raw_ = (Vm'reboot'results <$> (GH.parseField #status raw_))
+instance (C.Marshal Vm'reboot'results (C.Parsed Vm'reboot'results)) where
+    marshalInto raw_ Vm'reboot'results{..} = (do
+        (GH.encodeField #status status raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "status" GH.Slot Vm'reboot'results Capnp.Gen.ById.Xbf9b09f64c0dd40d.VmStatus) where
+    fieldByLabel  = (GH.dataField 0 0 16 0)
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

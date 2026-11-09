@@ -319,6 +319,7 @@ interface Session {
 
   vmGuestPing @51 (vmId :Int64) -> (alive :Bool);
   vmGuestReboot @52 (vmId :Int64, timeoutSec :UInt32) -> (result :DiskOpResult);
+  vmReboot @60 (vmId :Int64, guestAgent :Bool) -> ();
 
   vmGuestExec @20 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
 

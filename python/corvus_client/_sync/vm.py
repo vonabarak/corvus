@@ -163,6 +163,10 @@ class SyncVm(LoopBoundResource):
     def stop(self, *, wait: bool = False, timeout_sec: int = 300) -> str:
         return self._rl.run(self._a.stop(wait=wait, timeout_sec=timeout_sec))
 
+    def reboot(self) -> str:
+        """Request a reboot of the running VM and return after dispatch."""
+        return self._rl.run(self._a.reboot())
+
     def pause(self) -> str:
         return self._rl.run(self._a.pause())
 

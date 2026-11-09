@@ -338,6 +338,9 @@ interface Vm {
   # exit before escalating to a hard kill. `timeoutSec = 0` skips the
   # graceful phase entirely and hard-kills immediately ("kill it now").
   stop           @2  (wait :Bool = false, timeoutSec :UInt32 = 300) -> (status :Enums.VmStatus);
+  # Request a reboot and return once QEMU accepts the signal. The daemon
+  # selects QGA guest-shutdown when guestAgent is enabled, otherwise QMP reset.
+  reboot         @45 () -> (status :Enums.VmStatus);
   pause          @3  () -> (status :Enums.VmStatus);
   reset          @4  () -> (status :Enums.VmStatus);
   # Set the running guest's RAM target in bytes. Lower targets inflate the

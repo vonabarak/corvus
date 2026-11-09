@@ -215,6 +215,16 @@ vmStopCommand =
               )
         )
 
+vmRebootCommand :: Parser Command
+vmRebootCommand =
+  VmReboot
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the running VM to reboot"
+          <> completer vmCompleter
+      )
+
 -- | Parser for vm pause
 vmPauseCommand :: Parser Command
 vmPauseCommand =
@@ -596,6 +606,9 @@ vmCommandParser =
         <> command
           "stop"
           (info vmStopCommand (progDesc "Stop a VM (running -> stopped). Use --wait to block until stopped."))
+        <> command
+          "reboot"
+          (info vmRebootCommand (progDesc "Reboot a running VM; returns once the reboot signal is sent."))
         <> command
           "pause"
           (info vmPauseCommand (progDesc "Pause a VM (running -> paused)"))
