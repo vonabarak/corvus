@@ -53,12 +53,15 @@ import Corvus.Client.Types
 import Corvus.Client.Viewer (ViewerLaunch, prepareViewer, runViewer)
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..))
+import Corvus.Protocol.NamedRef (NamedRef (nrId))
+import qualified Corvus.Protocol.Node as PNode
 import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
-import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
+import Corvus.Wire.Common (EntityRef (RefById), ViewGrant (..), entityRefFromText)
 import Data.Aeson (Value, object, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
+import Data.Int (Int64)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -177,7 +180,7 @@ runCommand opts = do
       VmScreenshot vmRef path -> handleVmScreenshot fmt conn vmRef path
       VmDownload vmRef guest local -> handleVmDownload fmt conn vmRef guest local
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
-      VmView vmRef viewOpts -> handleVmView opts fmt conn vmRef viewOpts
+      VmView vmRef viewOpts -> handleVmView fmt conn vmRef viewOpts
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
       VmMigrate vmRef toNodeRef -> handleVmMigrate fmt conn vmRef toNodeRef
       -- Disk commands
@@ -344,8 +347,8 @@ handleCompletion shell = do
 -- 'handleGraphicalViewGrant' asks the daemon for a short-lived
 -- password grant via 'CR.rpcVmViewGrant' and either emits it as
 -- structured output or hands it to the selected native viewer.
-handleVmView :: Options -> OutputFormat -> CapnpConnection -> Text -> ViewOptions -> IO Bool
-handleVmView opts fmt conn vmRef viewOpts = do
+handleVmView :: OutputFormat -> CapnpConnection -> Text -> ViewOptions -> IO Bool
+handleVmView fmt conn vmRef viewOpts = do
   r <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
   case r of
     Left e -> do
@@ -367,7 +370,7 @@ handleVmView opts fmt conn vmRef viewOpts = do
               prepared <- if isStructured fmt then pure (Right Nothing) else fmap Just <$> prepareViewer defaultClientConfig viewOpts
               case prepared of
                 Left message -> emitError fmt "viewer_error" message (TIO.putStrLn message) >> pure False
-                Right launch -> handleGraphicalViewGrant opts fmt conn vmRef (vdName details) launch
+                Right launch -> handleGraphicalViewGrant fmt conn vmRef (vdName details) (nrId (vdNode details)) launch
 
 -- | Open the serial console for a headless VM. Wires the
 -- bidirectional 'ByteSink' pair returned by 'CR.rpcVmSerialConsole'
@@ -436,45 +439,49 @@ runHmpMonitorSession fmt conn vmRef = do
 
 -- | Request a SPICE grant after local viewer validation. Structured output
 -- returns credentials without discovering or launching a local viewer.
-handleGraphicalViewGrant :: Options -> OutputFormat -> CapnpConnection -> Text -> Text -> Maybe ViewerLaunch -> IO Bool
-handleGraphicalViewGrant opts fmt conn vmRef vmName launch = do
-  result <- try (CR.rpcVmViewGrant conn (entityRefFromText vmRef)) :: IO (Either SomeException ViewGrant)
-  case result of
+handleGraphicalViewGrant :: OutputFormat -> CapnpConnection -> Text -> Text -> Int64 -> Maybe ViewerLaunch -> IO Bool
+handleGraphicalViewGrant fmt conn vmRef vmName nodeId launch = do
+  nodeResult <- try (CR.rpcNodeShow conn (RefById nodeId)) :: IO (Either SomeException PNode.NodeDetails)
+  case nodeResult of
     Left e -> do
       emitRpcError fmt e $
-        putStrLn ("Failed to obtain SPICE grant: " ++ show e)
+        putStrLn ("Failed to look up VM node address: " ++ show e)
       pure False
-    Right grant0 -> do
-      let grant = resolveGrantHost opts grant0
-      case launch of
-        Nothing -> do
-          outputValue fmt (grantToJson grant)
-          pure True
-        Just selected -> do
-          putStrLn $
-            "VM '"
-              ++ T.unpack vmName
-              ++ "' is reachable via SPICE at "
-              ++ T.unpack (vgHost grant)
-              ++ ":"
-              ++ show (vgPort grant)
-              ++ " (ttl "
-              ++ show (vgTtlSeconds grant)
-              ++ "s)"
-          runViewer selected vmName grant
+    Right node -> do
+      result <- try (CR.rpcVmViewGrant conn (entityRefFromText vmRef)) :: IO (Either SomeException ViewGrant)
+      case result of
+        Left e -> do
+          emitRpcError fmt e $
+            putStrLn ("Failed to obtain SPICE grant: " ++ show e)
+          pure False
+        Right grant0 -> do
+          let grant = resolveGrantHost (PNode.nodHost node) grant0
+          case launch of
+            Nothing -> do
+              outputValue fmt (grantToJson grant)
+              pure True
+            Just selected -> do
+              putStrLn $
+                "VM '"
+                  ++ T.unpack vmName
+                  ++ "' is reachable via SPICE at "
+                  ++ T.unpack (vgHost grant)
+                  ++ ":"
+                  ++ show (vgPort grant)
+                  ++ " (ttl "
+                  ++ show (vgTtlSeconds grant)
+                  ++ "s)"
+              runViewer selected vmName grant
 
--- | Replace wildcard SPICE hosts with the client's @--host@ when
--- the client is connected via TCP. Unix-socket connections
--- always leave the grant host untouched (the daemon and the
--- viewer share a host, so a literal wildcard is harmless).
-resolveGrantHost :: Options -> ViewGrant -> ViewGrant
-resolveGrantHost opts grant
-  | isWildcard (vgHost grant) && not (isUnixConnection opts) =
-      grant {vgHost = T.pack (optHost opts)}
+-- | Replace wildcard SPICE bind addresses with the address of the
+-- node hosting this VM. The daemon connection host may identify a
+-- different machine in a multi-node deployment.
+resolveGrantHost :: Text -> ViewGrant -> ViewGrant
+resolveGrantHost nodeHost grant
+  | isWildcard (vgHost grant) = grant {vgHost = nodeHost}
   | otherwise = grant
   where
     isWildcard h = h `elem` ["0.0.0.0", "::", ""]
-    isUnixConnection o = optUnix o || isJust (optSocket o)
 
 -- | JSON projection of a grant for @--output json|yaml@.
 grantToJson :: ViewGrant -> Value

@@ -10,6 +10,7 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Common as GCommon
 import qualified Capnp.Gen.Disk as GDisk
 import qualified Capnp.Gen.Enums as GEnums
+import qualified Capnp.Gen.Node as GNode
 import qualified Capnp.Gen.Streams as GStreams
 import qualified Capnp.Gen.Task as GTask
 import qualified Capnp.Gen.Vm as GVm
@@ -126,12 +127,14 @@ spec = sequential $ describe "CLI runtime and transport" $ do
       out `shouldSatisfy` isInfixOf "connection_error"
     forM_ [JsonOutput, YamlOutput] $ \fmt ->
       it ("renders a SPICE grant as " ++ show fmt) $ withMock $ \f -> do
-        expectCalls f (vm "show" ++ vm "viewGrant")
+        expectCalls f (vm "show" ++ nodeShow ++ vm "viewGrant")
         setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
+        setReply f "Node.show" (\(_ :: C.Parsed GNode.Node'show'params) -> pure (GNode.Node'show'results {GNode.details = case sampleNodeDetails of GNode.NodeDetails {..} -> GNode.NodeDetails {GNode.host = "node.example.test", ..}}))
+        setReply f "Vm.viewGrant" (\(_ :: C.Parsed GVm.Vm'viewGrant'params) -> pure (GVm.Vm'viewGrant'results {GVm.grant = sampleViewGrant {GCommon.host = "0.0.0.0"}}))
         out <- checkCli f fmt (VmView "fixture" (ViewOptions (Just Remmina) (Just "/nonexistent-corvus-folder") ["--kiosk"])) ExitSuccess
-        out `shouldSatisfy` isInfixOf "password"
+        out `shouldSatisfy` isInfixOf "node.example.test"
     it "requests a SPICE grant for an errored VM" $ withMock $ \f -> do
-      expectCalls f (vm "show" ++ vm "viewGrant")
+      expectCalls f (vm "show" ++ nodeShow ++ vm "viewGrant")
       setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, GVm.status = GEnums.VmStatus'error, ..})))
       out <- checkCli f JsonOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) ExitSuccess
       out `shouldSatisfy` isInfixOf "password"
@@ -142,7 +145,7 @@ spec = sequential $ describe "CLI runtime and transport" $ do
       out `shouldSatisfy` isInfixOf "vm_not_running"
     forM_ ["Vm.show", "Vm.viewGrant"] $ \method ->
       it ("reports view failure at " ++ method) $ withMock $ \f -> do
-        expectCalls f (vm "show" ++ if method == "Vm.viewGrant" then vm "viewGrant" else [])
+        expectCalls f (vm "show" ++ if method == "Vm.viewGrant" then nodeShow ++ vm "viewGrant" else [])
         setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
         setFailure f (Just method)
         _ <- checkCli f JsonOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) (ExitFailure 1)
@@ -155,7 +158,7 @@ spec = sequential $ describe "CLI runtime and transport" $ do
               setFileMode (dir </> name) 0o700
         when remmina $ writeViewer "remmina"
         when virtViewer $ writeViewer "remote-viewer"
-        expectCalls f (vm "show" ++ vm "viewGrant")
+        expectCalls f (vm "show" ++ nodeShow ++ vm "viewGrant")
         setReply f "Vm.show" (\(_ :: C.Parsed GVm.Vm'show'params) -> pure (GVm.Vm'show'results (case sampleVmDetails of GVm.VmDetails {..} -> GVm.VmDetails {GVm.headless = False, ..})))
         _ <- checkCli f TextOutput (VmView "fixture" (ViewOptions Nothing Nothing [])) ExitSuccess
         readFile (dir </> "selected") `shouldReturn` (if virtViewer then "remote-viewer" else "remmina")
@@ -255,6 +258,9 @@ taskShow = ["Daemon.tasks", "TaskManager.get", "Task.show"]
 
 vm :: String -> [String]
 vm method = ["Daemon.vms", "VmManager.get", "Vm." ++ method]
+
+nodeShow :: [String]
+nodeShow = ["Daemon.nodes", "NodeManager.get", "Node.show"]
 
 withEnv :: String -> Maybe String -> IO a -> IO a
 withEnv name value action = bracket (lookupEnv name) restore $ \_ -> restore value >> action

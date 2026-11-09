@@ -6,13 +6,6 @@
 module Corvus.ViewGrantSpec (spec) where
 
 import Corvus.Client.Commands (grantToJson, resolveGrantHost)
-import Corvus.Client.Types
-  ( BorderStyleOpt (..)
-  , ColumnSelection (..)
-  , Command (..)
-  , Options (..)
-  , OutputFormat (..)
-  )
 import Corvus.Handlers.Vm (generateSpicePassword)
 import Corvus.Wire.Common (ViewGrant (..))
 import Data.Aeson (encode)
@@ -36,36 +29,32 @@ spec = do
       pw1 `shouldNotBe` pw2
 
   describe "resolveGrantHost" $ do
-    it "leaves a non-wildcard host untouched even when the client is on TCP" $ do
+    it "leaves a non-wildcard host untouched" $ do
       let grant = baseGrant {vgHost = "10.0.0.5"}
-          opts = baseOpts {optUnix = False, optHost = "10.1.1.1"}
-      vgHost (resolveGrantHost opts grant) `shouldBe` "10.0.0.5"
+      vgHost (resolveGrantHost "10.1.1.1" grant) `shouldBe` "10.0.0.5"
 
-    it "substitutes a wildcard host with optHost when the client is on TCP" $ do
+    it "substitutes a wildcard host with the VM node address instead of the daemon host" $ do
       let grant = baseGrant {vgHost = "0.0.0.0"}
-          opts = baseOpts {optUnix = False, optHost = "daemon.example.com"}
-      vgHost (resolveGrantHost opts grant) `shouldBe` "daemon.example.com"
+      vgHost (resolveGrantHost "node.example.com" grant) `shouldBe` "node.example.com"
 
     it "treats an empty host as wildcard and substitutes it" $ do
       let grant = baseGrant {vgHost = ""}
-          opts = baseOpts {optUnix = False, optHost = "10.0.0.9"}
-      vgHost (resolveGrantHost opts grant) `shouldBe` "10.0.0.9"
+      vgHost (resolveGrantHost "10.0.0.9" grant) `shouldBe` "10.0.0.9"
 
-    it "substitutes an IPv6 wildcard (::) with optHost when on TCP" $ do
+    it "substitutes an IPv6 wildcard (::) with the VM node address" $ do
       let grant = baseGrant {vgHost = "::"}
-          opts = baseOpts {optUnix = False, optHost = "2001:db8::1"}
-      vgHost (resolveGrantHost opts grant) `shouldBe` "2001:db8::1"
+      vgHost (resolveGrantHost "2001:db8::1" grant) `shouldBe` "2001:db8::1"
 
-    it "leaves the wildcard intact when the client is on a Unix socket" $ do
+    it "substitutes wildcard hosts for Unix-socket clients too" $ do
       let grant = baseGrant {vgHost = "0.0.0.0"}
-          opts = baseOpts {optUnix = True, optHost = "ignored"}
-      vgHost (resolveGrantHost opts grant) `shouldBe` "0.0.0.0"
+      vgHost (resolveGrantHost "node.example.com" grant) `shouldBe` "node.example.com"
 
   describe "grantToJson" $ do
     it "encodes all four fields with snake_case TTL key" $ do
-      let grant = ViewGrant "10.0.0.5" 5904 "hunter2" 120
-          json = BL.unpack (encode (grantToJson grant))
-      json `shouldSatisfy` ("\"host\":\"10.0.0.5\"" `isInfixOf`)
+      let grant = ViewGrant "0.0.0.0" 5904 "hunter2" 120
+          resolvedGrant = resolveGrantHost "node.example.com" grant
+          json = BL.unpack (encode (grantToJson resolvedGrant))
+      json `shouldSatisfy` ("\"host\":\"node.example.com\"" `isInfixOf`)
       json `shouldSatisfy` ("\"port\":5904" `isInfixOf`)
       json `shouldSatisfy` ("\"password\":\"hunter2\"" `isInfixOf`)
       json `shouldSatisfy` ("\"ttl_seconds\":120" `isInfixOf`)
@@ -83,23 +72,3 @@ isUrlSafeBase64 c =
 
 baseGrant :: ViewGrant
 baseGrant = ViewGrant "127.0.0.1" 5900 "pw" 60
-
--- | A minimally-populated 'Options' suitable for exercising the host
--- resolver. The 'optCommand' field is required but not inspected, so
--- 'Ping' is used as a stand-in.
-baseOpts :: Options
-baseOpts =
-  Options
-    { optSocket = Nothing
-    , optUnix = True
-    , optHost = "127.0.0.1"
-    , optPort = 9876
-    , optOutput = TextOutput
-    , optBorders = BordersUnicodeOpt
-    , optTruncate = True
-    , optColumns = DefaultColumns
-    , optNoTls = True
-    , optTlsCertDir = Nothing
-    , optFitWidth = False
-    , optCommand = Ping
-    }
