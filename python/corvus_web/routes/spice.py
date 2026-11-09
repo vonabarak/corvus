@@ -127,6 +127,9 @@ async def create_spice_session(vm_id: int, client: ClientDep) -> dict[str, objec
         vm = await client.vms.get(vm_id)
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    vm_details = await vm.show()
+    node = await client.nodes.get(vm_details.node.id)
+    node_details = await node.show()
     try:
         grant = await vm.view_grant()
     except ConnectError:
@@ -142,9 +145,13 @@ async def create_spice_session(vm_id: int, client: ClientDep) -> dict[str, objec
     # we only need the token valid long enough for the operator's tab
     # to stay open. 1 hour is generous and still lets stale entries
     # get reaped before the dict balloons.
+    host = grant.host
+    if host in {"0.0.0.0", "::", ""}:
+        host = node_details.host
+
     expires_at = time.monotonic() + 3600
     session_id = await _put_session(
-        _Session(vm_id=vm_id, host=grant.host, port=grant.port, expires_at=expires_at)
+        _Session(vm_id=vm_id, host=host, port=grant.port, expires_at=expires_at)
     )
     return {
         "session_id": session_id,
