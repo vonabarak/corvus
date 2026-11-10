@@ -22,7 +22,7 @@ runnable Python example.
 | `schema/template.capnp` | `TemplateManager` + `Template` cap. |
 | `schema/task.capnp` | `TaskManager` + `Task` cap; async-op history + progress sub. |
 | `schema/cloudinit.capnp` | `CloudInitManager` + custom user-data CRUD. |
-| `schema/streams.capnp` | Streaming callbacks: `ByteSource`, `ByteSink`, `BuildEventSink`, `ApplyEventSink`, `DiskDownloadSink`, `GuestAgentStatusSink`, `TaskProgressSink`, plus `Handle` token. |
+| `schema/streams.capnp` | Streaming callbacks: `ByteSource`, `ByteSink`, `BuildEventSink`, `ApplyEventSink`, `DiskProgressSink`, `GuestAgentStatusSink`, `TaskProgressSink`, plus `Handle` token. |
 
 ## Capability tree
 
@@ -153,11 +153,13 @@ either consumes or produces:
   `downloadStart` / `downloadProgress` / `downloadEnd` between the
   disk's `entityStart` and `entityEnd`. Closed with a single
   `applyEnd` followed by `end()`.
-- **`DiskDownloadSink`** -- one-way `progress(downloaded, total)`
+- **`DiskProgressSink`** -- one-way `progress(phase, completed, total)`
   pushes from a node agent back to the daemon during a
-  `Session.diskDownload` URL transfer. `total == 0` until
+  `Session.diskDownload` URL transfer or `Session.diskImportFromPeer` copy. `total == 0` until
   Content-Length is probed (or stays 0 if the server didn't return
-  one). Internal to the daemon/node-agent path; not exposed to CLI
+  one). Progress callbacks time out after five seconds; a failed observer
+  is disabled for the rest of the transfer. Protocol version 10 adds this
+  shared sink to peer copies. Internal to the daemon/node-agent path; not exposed to CLI
   clients.
 - **`GuestAgentStatusSink`** -- one-way push from
   `Vm.subscribeGuestAgent`. Each poll cycle the daemon pushes a
@@ -165,9 +167,9 @@ either consumes or produces:
   every subscriber.
 - **`TaskProgressSink`** -- one-way push from
   `TaskManager.subscribe`. The schema defines `started`,
-  `progress`, and `finished` variants; the daemon currently emits
-  only the terminal `finished` event when the watched task
-  completes.
+  `progress`, and `finished` variants. Running progress labels are also
+  persisted as the task message for list/show/wait polling. Terminal
+  completion replaces the message, and late progress is ignored.
 
 > **Flow control.** The Haskell `capnp` library doesn't yet
 > implement the `stream` keyword's automatic flow control, so the
@@ -493,3 +495,7 @@ Protocol version 9 makes nodeagent `diskInspect` return a `DiskInspectResult`
 union: `present` carries image information, `missing` denotes ENOENT, and
 `failed` carries an inspection error. Imports only download on `missing`;
 permission, corrupt-image, and transport failures abort the import.
+
+Protocol version 10 replaces the internal download-only observer with
+`DiskProgressSink` (`phase`, `completed`, `total`) and adds it to
+`diskImportFromPeer`. Daemon and nodeagent must be upgraded together.

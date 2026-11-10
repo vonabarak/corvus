@@ -143,17 +143,16 @@ interface ApplyEventSink {
 }
 
 # ---------------------------------------------------------------------
-# Disk download progress (node-agent → daemon)
+# Disk operation progress (node-agent → daemon)
 # ---------------------------------------------------------------------
 #
-# Used inside `Session.diskDownload`. The daemon exports a server
-# implementation, passes the cap in the call, and the agent pushes
-# byte-counted progress to it during the curl/wget transfer.
-# `total == 0` until Content-Length is probed (or stays 0 if the
-# server didn't return one).
+# Used by downloads and peer copies. The daemon exports a server
+# implementation and the agent pushes phase and byte-counted progress.
+# `total == 0` means unknown; completed == total == 0 is phase-only.
+# Observers are best-effort and are disabled after failure or timeout.
 
-interface DiskDownloadSink {
-  progress @0 (downloaded :Int64, total :Int64) -> ();
+interface DiskProgressSink {
+  progress @0 (phase :Text, completed :Int64, total :Int64) -> ();
 }
 
 # ---------------------------------------------------------------------

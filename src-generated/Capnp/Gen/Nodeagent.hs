@@ -1400,7 +1400,7 @@ data instance C.Parsed Session'diskDownload'params
     = Session'diskDownload'params 
         {destPath :: (RP.Parsed Basics.Text)
         ,url :: (RP.Parsed Basics.Text)
-        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.DiskDownloadSink)}
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDownload'params))
 deriving instance (Std_.Eq (C.Parsed Session'diskDownload'params))
@@ -1419,7 +1419,7 @@ instance (GH.HasField "destPath" GH.Slot Session'diskDownload'params Basics.Text
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "url" GH.Slot Session'diskDownload'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "sink" GH.Slot Session'diskDownload'params Capnp.Gen.ById.X9bd452a518ed3917.DiskDownloadSink) where
+instance (GH.HasField "sink" GH.Slot Session'diskDownload'params Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink) where
     fieldByLabel  = (GH.ptrField 2)
 data Session'diskDownload'results 
 type instance (R.ReprFor Session'diskDownload'results) = (R.Ptr (Std_.Just R.Struct))
@@ -2762,7 +2762,7 @@ instance (C.HasTypeId Session'diskImportFromPeer'params) where
     typeId  = 14396209859029846008
 instance (C.TypedStruct Session'diskImportFromPeer'params) where
     numStructWords  = 2
-    numStructPtrs  = 4
+    numStructPtrs  = 5
 instance (C.Allocate Session'diskImportFromPeer'params) where
     type AllocHint Session'diskImportFromPeer'params = ()
     new _ = C.newTypedStruct
@@ -2778,7 +2778,8 @@ data instance C.Parsed Session'diskImportFromPeer'params
         ,peerPort :: (RP.Parsed Std_.Int32)
         ,token :: (RP.Parsed Basics.Text)
         ,expectedBytes :: (RP.Parsed Std_.Int64)
-        ,expectedMd5 :: (RP.Parsed Basics.Text)}
+        ,expectedMd5 :: (RP.Parsed Basics.Text)
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskImportFromPeer'params))
 deriving instance (Std_.Eq (C.Parsed Session'diskImportFromPeer'params))
@@ -2788,7 +2789,8 @@ instance (C.Parse Session'diskImportFromPeer'params (C.Parsed Session'diskImport
                                                     <*> (GH.parseField #peerPort raw_)
                                                     <*> (GH.parseField #token raw_)
                                                     <*> (GH.parseField #expectedBytes raw_)
-                                                    <*> (GH.parseField #expectedMd5 raw_))
+                                                    <*> (GH.parseField #expectedMd5 raw_)
+                                                    <*> (GH.parseField #sink raw_))
 instance (C.Marshal Session'diskImportFromPeer'params (C.Parsed Session'diskImportFromPeer'params)) where
     marshalInto raw_ Session'diskImportFromPeer'params{..} = (do
         (GH.encodeField #destPath destPath raw_)
@@ -2797,6 +2799,7 @@ instance (C.Marshal Session'diskImportFromPeer'params (C.Parsed Session'diskImpo
         (GH.encodeField #token token raw_)
         (GH.encodeField #expectedBytes expectedBytes raw_)
         (GH.encodeField #expectedMd5 expectedMd5 raw_)
+        (GH.encodeField #sink sink raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "destPath" GH.Slot Session'diskImportFromPeer'params Basics.Text) where
@@ -2811,6 +2814,8 @@ instance (GH.HasField "expectedBytes" GH.Slot Session'diskImportFromPeer'params 
     fieldByLabel  = (GH.dataField 0 1 64 0)
 instance (GH.HasField "expectedMd5" GH.Slot Session'diskImportFromPeer'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "sink" GH.Slot Session'diskImportFromPeer'params Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink) where
+    fieldByLabel  = (GH.ptrField 4)
 data Session'diskImportFromPeer'results 
 type instance (R.ReprFor Session'diskImportFromPeer'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskImportFromPeer'results) where

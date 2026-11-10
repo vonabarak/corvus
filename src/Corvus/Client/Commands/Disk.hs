@@ -510,8 +510,9 @@ handleDiskCopy
   -> Text
   -> Maybe Text
   -> Bool
+  -> WaitOptions
   -> IO Bool
-handleDiskCopy fmt conn diskRef toNodeRef mToPath withBackingChain = do
+handleDiskCopy fmt conn diskRef toNodeRef mToPath withBackingChain waitOpts = do
   r <-
     try @SomeException $
       CR.rpcDiskCopy
@@ -521,6 +522,7 @@ handleDiskCopy fmt conn diskRef toNodeRef mToPath withBackingChain = do
         mToPath
         withBackingChain
   case r of
+    Right tid | woWait waitOpts -> handleTaskWait fmt conn tid (woTimeout waitOpts)
     Right tid -> do
       emitOkWith fmt [("taskId", toJSON tid)] $
         putStrLn $

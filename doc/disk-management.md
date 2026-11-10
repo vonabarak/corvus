@@ -23,7 +23,7 @@ crv disk attach <vm> <disk> [--interface <iface>] [--media <media>] [--read-only
 crv disk detach <vm> <disk>
 crv disk media eject <drive>
 crv disk media change <drive> <new_disk>
-crv disk copy <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
+crv disk copy <disk> --to-node <node> [--to-path <path>] [--with-backing-chain] [--wait]
 crv disk move <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
 ```
 
@@ -358,12 +358,14 @@ the drive with no disk image.
 ## Moving / Copying Disks Between Nodes
 
 ```bash
-crv disk copy <disk> --to-node <node> [--to-path <path>]   # add a placement, source intact
+crv disk copy <disk> --to-node <node> [--to-path <path>] [--wait]   # add a placement, source intact
 crv disk move <disk> --to-node <node> [--to-path <path>]   # add destination, drop source
 ```
 
-Both commands run asynchronously and return a task id; bytes
-flow agent-to-agent (the daemon orchestrates but never relays
+Copy defaults to returning a task id immediately. Add `--wait` (`-w`) to
+block until completion; a failed or cancelled task gives a nonzero exit status.
+Move returns a task id immediately. Both commands transfer bytes
+agent-to-agent (the daemon orchestrates but never relays
 data). They refuse for any disk attached read-write to a VM
 (use `crv vm migrate` instead). `move` additionally refuses for
 disks that are attached read-only anywhere — read-only
@@ -445,3 +447,13 @@ Directories are created automatically if they don't exist.
 | `vhdx` | `.vhdx` | Hyper-V format. |
 
 Format is auto-detected from file extension or via `qemu-img info` when possible.
+
+Disk import and copy tasks expose their current phase in the message shown by
+`crv task list`, `crv task show <id>`, and `crv task wait <id>`. Network
+transfers show bytes and, when the source supplies a total, a percentage.
+Copy reports source hashing, transfer, destination verification, and registration
+separately: 100% means the bytes arrived, while verification may still be running.
+Imports report download, decompression, checksum verification, conversion, and
+registration as applicable. Local conversions show a phase without a percentage.
+Progress messages are refreshed about once per second and replaced by the final
+result when the task finishes.

@@ -26,6 +26,7 @@ from collections.abc import Callable, Iterable, Iterator
 
 import pytest
 from corvus_client import Client, ServerError
+from corvus_client.types import TaskProgressEvent, TaskProgressProgress
 from corvus_test_harness import OneDaemonTwoNodesCase, TestNode
 
 
@@ -143,6 +144,33 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             # Byte-equivalent (fresh qcow2: identical on both sides).
             assert self._md5_on(self.node_alpha, alpha_path) == self._md5_on(
                 self.node_beta, beta_path
+            )
+        finally:
+            self._delete_silent(name)
+
+    def test_copy_reports_transfer_and_verification(self) -> None:
+        name = _uniq("copy-progress")
+        client = self.client_alpha
+        # A full raw file keeps source hashing active long enough to attach
+        # the observer before transfer, even when its contents are sparse.
+        size = 268435456
+        client.disks.create(name, size=size, format="raw", node=self.alpha_name)
+        try:
+            task_id = client.disks.copy(name, self.beta_name)
+            events: list[TaskProgressEvent] = []
+            with client.tasks.subscribe(task_id, events.append):
+                self.wait_for_task(client, task_id, timeout_sec=120)
+            progress = [e for e in events if isinstance(e, TaskProgressProgress)]
+            assert any(e.completed == size and e.total == size for e in progress), (
+                events
+            )
+            assert any("Verifying" in (e.label or "") for e in progress), events
+            assert any("Registering" in (e.label or "") for e in progress), events
+            assert client.tasks.get(task_id).show().result == "success"
+            assert self._md5_on(
+                self.node_alpha, self._placement_path_on(name, self.alpha_name)
+            ) == self._md5_on(
+                self.node_beta, self._placement_path_on(name, self.beta_name)
             )
         finally:
             self._delete_silent(name)

@@ -411,6 +411,7 @@ diskCopyCommand =
       )
     <*> toPathOption
     <*> withBackingChainSwitch
+    <*> waitOptionsParser
 
 -- | Parser for disk move (cross-node placement swap).
 diskMoveCommand :: Parser Command

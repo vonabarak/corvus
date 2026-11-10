@@ -26,6 +26,7 @@ no ``client_beta``; every RPC goes through ``client_alpha``.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import secrets
@@ -184,7 +185,7 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
         template_name = _uniq("template-copy")
         vm_name = _uniq("template-copy-vm")
         self.client_alpha.disks.create(
-            disk_name, size=16777216, format="qcow2", node=self.alpha_name
+            disk_name, size=268435456, format="raw", node=self.alpha_name
         )
         template = None
         vm = None
@@ -203,7 +204,44 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
                 """).strip()
             )
 
-            vm = template.instantiate(vm_name, node=self.beta_name)
+            async def instantiate_with_progress() -> None:
+                assert template is not None
+                operation = asyncio.create_task(
+                    template._a.instantiate(vm_name, node=self.beta_name)
+                )
+                try:
+                    deadline = time.monotonic() + 60
+                    while not operation.done():
+                        tasks = await self.client_alpha._a.tasks.list(
+                            include_subtasks=True
+                        )
+                        copies = [
+                            task
+                            for task in tasks
+                            if task.command == "copy"
+                            and task.parent_id is not None
+                            and task.result == "running"
+                        ]
+                        if any(
+                            task.message
+                            and (
+                                "Hashing source" in task.message
+                                or "Copying" in task.message
+                            )
+                            for task in copies
+                        ):
+                            break
+                        assert time.monotonic() < deadline, tasks
+                        await asyncio.sleep(0.02)
+                    else:
+                        raise AssertionError(
+                            "No running template image-copy subtask observed"
+                        )
+                finally:
+                    await operation
+
+            self.client_alpha._rl.run(instantiate_with_progress())
+            vm = self.client_alpha.vms.get(vm_name)
 
             assert vm.show().node.name == self.beta_name
             assert self._placement_nodes(disk_name) == {

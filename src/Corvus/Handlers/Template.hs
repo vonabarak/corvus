@@ -672,6 +672,7 @@ instantiateDriveIO ctx vmId guestName td = do
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = imagePrefix <> "-" <> nameSuffix
+        pushTaskProgress state (fromSqlKey (acTaskId ctx)) ("Cloning " <> newName) (0, 0)
         resp <- runActionAsSubtask ctx (DiskClone Nothing newName diskIdLong (tvdiSize td) vmDir ephem (vmNodeId <$> mVm))
         case resp of
           RespDiskCreated newDiskId -> do

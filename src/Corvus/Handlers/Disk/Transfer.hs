@@ -33,6 +33,7 @@ import Control.Monad.Logger (logInfoN, logWarnN)
 import qualified Corvus.Handlers.Disk.Agent as DA
 import qualified Corvus.Handlers.Disk.Db as DDb
 import qualified Corvus.Handlers.Disk.Path as DP
+import Corvus.Handlers.Disk.Progress (DiskProgress)
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -60,8 +61,11 @@ transferImageBetweenNodes
   -> FilePath
   -- ^ destination path (absolute, as the destination agent sees
   -- it)
+  -> DiskProgress
   -> IO (Either Text ())
-transferImageBetweenNodes state srcNode destNode srcPath destPath = do
+transferImageBetweenNodes state srcNode destNode srcPath destPath progress = do
+  let report phase = progress (phase <> " " <> T.pack (takeFileName srcPath) <> " → node " <> T.pack (show (M.fromSqlKey destNode)))
+  report "Hashing source" 0 0
   -- Resolve the source node row to its @(host, port)@ — the
   -- destination agent dials it directly to claim the reader.
   mSrcNode <- runSqlPool (get srcNode) (ssDbPool state)
@@ -111,6 +115,7 @@ transferImageBetweenNodes state srcNode destNode srcPath destPath = do
                 token
                 sz
                 md5
+                report
           case eImp of
             Left err -> do
               logWarnN $ "transfer aborted (diskImportFromPeer): " <> err
@@ -147,8 +152,9 @@ stageBackingChain
   -- ^ source node (where the ancestors are read from)
   -> M.NodeId
   -- ^ destination node (where placements get added)
+  -> DiskProgress
   -> IO (Either Text [(M.DiskImageId, Text)])
-stageBackingChain state primaryDisk srcNode destNode = do
+stageBackingChain state primaryDisk srcNode destNode progress = do
   chainNearestFirst <-
     runSqlPool (DDb.getBackingChainIds (M.fromSqlKey primaryDisk)) pool
   -- Root-first ordering: the immediate-parent first ordering from
@@ -190,7 +196,7 @@ stageBackingChain state primaryDisk srcNode destNode = do
                       let bn = takeFileName srcAbs
                        in (destBase </> bn, T.pack bn)
               tResult <-
-                transferImageBetweenNodes state srcNode destNode srcAbs destAbs
+                transferImageBetweenNodes state srcNode destNode srcAbs destAbs progress
               case tResult of
                 Left err ->
                   pure $
@@ -200,5 +206,6 @@ stageBackingChain state primaryDisk srcNode destNode = do
                         <> ": "
                         <> err
                 Right () -> do
+                  progress ("Registering " <> T.pack (takeFileName srcAbs)) 0 0
                   runSqlPool (DDb.recordDiskImageNode dkey destNode destRel) pool
                   go destBase ((dkey, destRel) : acc) rest

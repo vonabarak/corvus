@@ -373,7 +373,7 @@ downloadImageViaAgent
   -> Text
   -> Maybe (Int64 -> Int64 -> IO ())
   -- ^ Progress callback: when 'Just', the daemon exports a
-  -- 'CGS.DiskDownloadSink' translator and forwards each byte-count
+  -- 'CGS.DiskProgressSink' translator and forwards each byte-count
   -- update received from the agent. Passing 'Nothing' suppresses
   -- progress reporting (a no-op sink is still exported on the wire
   -- because the schema requires the param).
@@ -431,8 +431,9 @@ importFromPeerViaAgent
   -- ^ expected size in bytes
   -> Text
   -- ^ expected md5 hex hash
+  -> (Text -> Int64 -> Int64 -> IO ())
   -> IO (Either Text ())
-importFromPeerViaAgent state nid destPath peerHost peerPort token sz md5 =
+importFromPeerViaAgent state nid destPath peerHost peerPort token sz md5 progress =
   withEitherText state nid $ \nac ->
     NOA.diskImportFromPeer
       nac
@@ -442,6 +443,7 @@ importFromPeerViaAgent state nid destPath peerHost peerPort token sz md5 =
       token
       sz
       md5
+      progress
 
 sourceIdentityViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text Text)
 sourceIdentityViaAgent state nid path = withEitherText state nid $ \nac -> NOA.diskSourceIdentity nac (T.pack path)

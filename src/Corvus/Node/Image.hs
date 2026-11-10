@@ -58,7 +58,8 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
-import Control.Exception (SomeException, bracket, try)
+import Control.Exception (SomeException, bracket, try, tryJust)
+import Corvus.Logging (synchronousException)
 import Corvus.Model (DriveFormat (..), EnumText (..))
 import qualified Crypto.Hash as Hash
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
@@ -506,7 +507,7 @@ downloadImageRaw destPath url onProgress = do
   where
     safeProgress :: Int64 -> Int64 -> IO ()
     safeProgress d t = do
-      _ <- try (onProgress d t) :: IO (Either SomeException ())
+      _ <- tryJust synchronousException (onProgress d t) :: IO (Either SomeException ())
       pure ()
 
     -- Poll the destination file's size every 250 ms while the

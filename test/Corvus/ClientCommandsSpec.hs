@@ -9,6 +9,7 @@ module Corvus.ClientCommandsSpec (spec) where
 import qualified Capnp as C
 import qualified Capnp.Gen.Common as GCommon
 import qualified Capnp.Gen.Disk as GDisk
+import qualified Capnp.Gen.Enums as GEnums
 import qualified Capnp.Gen.Network as GNetwork
 import qualified Capnp.Gen.Node as GNode
 import qualified Capnp.Gen.Sshkey as GSshkey
@@ -50,6 +51,14 @@ spec = sequential $ describe "CLI commands over typed fake RPC" $ do
         case fmt of
           TextOutput -> pure ()
           _ -> decoded fmt out `shouldBe` Right (object ["status" .= ("error" :: String), "error" .= ("rpc_error" :: String), "message" .= ("scripted RPC failure" :: String)])
+  forM_ [(GEnums.TaskResult'error, "error"), (GEnums.TaskResult'cancelled, "cancelled")] $ \(taskResult, label) ->
+    it ("disk copy --wait propagates " ++ label) $ withMock $ \f -> do
+      expectCalls f ["Daemon.disks", "DiskManager.copy", "Daemon.tasks", "TaskManager.get", "Task.show"]
+      setReply f "Task.show" $ \(_ :: C.Parsed GTask.Task'show'params) ->
+        case sampleTaskInfo of
+          GTask.TaskInfo {GTask.id = taskId, ..} -> pure (GTask.Task'show'results (GTask.TaskInfo {GTask.id = taskId, GTask.result = taskResult, ..}))
+      out <- checkCli f TextOutput (DiskCopy "fixture" "node" Nothing False (WaitOptions True Nothing)) (ExitFailure 1)
+      out `shouldSatisfy` isInfixOf label
   describe "compact text sizes and loads" $ do
     forM_ [TextOutput, JsonOutput, YamlOutput] $ \fmt -> do
       it ("formats disk sizes only in text: " ++ show fmt) $ withMock $ \f -> do
@@ -263,7 +272,8 @@ cases =
   , (DiskDetach "fixture" "fixture", vm "show" ++ vm "detachDisk", "detached")
   , (DiskMediaEject 42, ["Daemon.disks", "DiskManager.mediaEject"], "ejected")
   , (DiskMediaChange 42 "disk", ["Daemon.disks", "DiskManager.mediaChange"], "changed")
-  , (DiskCopy "fixture" "node" (Just "/copy") True, ["Daemon.disks", "DiskManager.copy"], "42")
+  , (DiskCopy "fixture" "node" (Just "/copy") True (WaitOptions False Nothing), ["Daemon.disks", "DiskManager.copy"], "42")
+  , (DiskCopy "fixture" "node" Nothing False (WaitOptions True Nothing), ["Daemon.disks", "DiskManager.copy", "Daemon.tasks", "TaskManager.get", "Task.show"], "success")
   , (DiskMove "fixture" "node" (Just "/move") False, ["Daemon.disks", "DiskManager.move"], "42")
   , (SharedDirAdd "fixture" "/shared" "tag" "auto" True, vm "addSharedDir", "42")
   , (SharedDirRemove "fixture" "42", vm "removeSharedDir", "removed")

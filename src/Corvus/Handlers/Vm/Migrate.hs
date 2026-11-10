@@ -314,7 +314,7 @@ stageTpmState state plan = do
           mDest <- runSqlPool (get (mpDestNode plan)) (ssDbPool state)
           let destBase = maybe daemonBase (T.unpack . M.nodeBasePath) mDest
               destArchive = destBase </> T.unpack vmName </> ".tpm2.migration.tar"
-          copied <- DT.transferImageBetweenNodes state (mpSrcNode plan) (mpDestNode plan) (T.unpack srcArchive) destArchive
+          copied <- DT.transferImageBetweenNodes state (mpSrcNode plan) (mpDestNode plan) (T.unpack srcArchive) destArchive (\_ _ _ -> pure ())
           case copied of
             Left err -> pure (Left ("TPM state transfer: " <> err))
             Right () -> do
@@ -378,6 +378,7 @@ transferStateFile state plan daemonBase = do
           destNode
           srcPath
           destPath
+          (\_ _ _ -> pure ())
       pure $ case tResult of
         Left err -> Left ("state-file transfer: " <> err)
         Right () -> Right ()
@@ -437,6 +438,7 @@ runOp state srcNode destNode basePath (Right created) op = do
           destNode
           srcAbs
           destAbs
+          (\_ _ _ -> pure ())
       case tResult of
         Left err -> pure (Left (err, created))
         Right () -> do

@@ -28,6 +28,7 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, sanitizeDiskName)
+import Corvus.Handlers.Disk.Progress (DiskProgress, newDiskProgress)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Images
 import Corvus.Images.ApplyIdentity (recordApplyIdentity)
@@ -92,11 +93,12 @@ nodeBasePathFor state nid = do
 -- checksum matches, the download is skipped; on mismatch the import
 -- fails without overwriting. Fresh downloads are retried up to
 -- 'maxImportAttempts' times on hash mismatch.
-handleDiskImportCopy :: Maybe Text -> ActionContext -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
-handleDiskImportCopy identity ctx sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
+handleDiskImportCopy :: Maybe Text -> ActionContext -> DiskProgress -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
+handleDiskImportCopy identity ctx progress sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
+      liftIO $ progress "Preparing import" 0 0
       logInfoN $ "Importing disk image: " <> name <> " from " <> source
 
       case sanitizeDiskName name of
@@ -131,6 +133,7 @@ handleDiskImportCopy identity ctx sink name source mDestPath mFormatStr mChecksu
                             fetchAndVerify
                               state
                               nid
+                              progress
                               sink
                               name
                               FetchSpec
@@ -145,7 +148,9 @@ handleDiskImportCopy identity ctx sink name source mDestPath mFormatStr mChecksu
                           Left err -> do
                             logWarnN err
                             pure $ RespError err
-                          Right diskPath -> registerImportedFile state reservedId nid basePath safeName format diskPath ephemeral
+                          Right diskPath -> do
+                            liftIO $ progress "Registering imported image" 0 0
+                            registerImportedFile state reservedId nid basePath safeName format diskPath ephemeral
                       else do
                         -- Node-local file copy. Source validation and directory
                         -- creation belong to the target nodeagent, never the
@@ -156,10 +161,13 @@ handleDiskImportCopy identity ctx sink name source mDestPath mFormatStr mChecksu
                           then pure $ RespError "Source and destination paths are the same"
                           else do
                             logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
+                            liftIO $ progress "Converting local image" 0 0
                             copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format Nothing False
                             liftIO $ throwIfCancelled ctx
                             case copyResult of
-                              ImageSuccess -> registerImportedFile state reservedId nid basePath safeName format destPath ephemeral
+                              ImageSuccess -> do
+                                liftIO $ progress "Registering imported image" 0 0
+                                registerImportedFile state reservedId nid basePath safeName format destPath ephemeral
                               ImageError err -> do
                                 logWarnN $ "Copy failed: " <> err
                                 pure $ RespError $ "Copy failed: " <> err
@@ -273,17 +281,18 @@ maxImportAttempts = 3
 -- The @sink@ + @diskName@ pair, when non-silent, brackets each
 -- download attempt with 'DownloadStart' / 'DownloadEnd' and pumps
 -- byte-counted 'DownloadProgress' events fed from the node agent's
--- 'DiskDownloadSink'. Pass 'silentApplySink' for legacy callers
+-- 'DiskProgressSink'. Pass 'silentApplySink' for legacy callers
 -- that don't stream.
 fetchAndVerify
   :: ServerState
   -> M.NodeId
+  -> DiskProgress
   -> ApplySink
   -> Text
   -- ^ Disk name (used as the @name@ field on download events).
   -> FetchSpec
   -> IO (Either Text FilePath)
-fetchAndVerify state nid sink diskName FetchSpec {..} = do
+fetchAndVerify state nid progress sink diskName FetchSpec {..} = do
   -- The final path belongs to the target node. Inspection through the
   -- nodeagent keeps remote-node imports from accidentally probing the
   -- daemon host's filesystem.
@@ -295,9 +304,12 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
     (Right (Just _), _) -> pure $ Left "Destination file already exists"
     (Right Nothing, _) -> downloadLoop 1
   where
-    onProgress d t = sink (DownloadProgress diskName d t)
+    onProgress d t = do
+      progress "Downloading" d t
+      sink (DownloadProgress diskName d t)
 
     verifyExistingFinal cs = do
+      progress "Verifying existing image checksum" 0 0
       hashResult <- hashFileViaAgent state nid (icAlgorithm cs) fsFinalPath
       case hashResult of
         Left err -> pure $ Left $ "verify existing " <> T.pack fsFinalPath <> ": " <> err
@@ -316,6 +328,7 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
                     <> "); refusing to overwrite"
 
     downloadLoop n = do
+      progress "Downloading" 0 0
       sink (DownloadStart diskName fsUrl)
       dlResult <- downloadImageViaAgent state nid fsDownloadPath fsUrl (Just onProgress)
       case dlResult of
@@ -348,10 +361,13 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
 
     decompressIfNeeded =
       if fsIsXz
-        then decompressXzViaAgent state nid fsDownloadPath
+        then do
+          progress "Decompressing" 0 0
+          decompressXzViaAgent state nid fsDownloadPath
         else pure $ Right fsFinalPath
 
     verifyDownloadedArtifact n cs = do
+      progress "Verifying download checksum" 0 0
       hashResult <- hashFileViaAgent state nid (icAlgorithm cs) fsDownloadPath
       case hashResult of
         Left err -> pure $ Left $ "verify download: " <> err
@@ -366,6 +382,7 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
               pure $ Right False
 
     verifyFinalArtifact n cs diskPath = do
+      progress "Verifying image checksum" 0 0
       hashResult <- hashFileViaAgent state nid (icAlgorithm cs) diskPath
       case hashResult of
         Left err -> pure $ Left $ "verify download: " <> err
@@ -410,10 +427,13 @@ instance Action DiskImportAction where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import"
   actionEntityName = Just . diaName
-  actionExecute ctx a =
+  actionExecute ctx a = do
+    report <- newDiskProgress ctx
+    let progress phase = report (phase <> " " <> diaName a)
     handleDiskImportCopy
       (diaApplyIdentity a)
       ctx
+      progress
       (acApplySink ctx)
       (diaName a)
       (diaSource a)

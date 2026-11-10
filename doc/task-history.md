@@ -113,3 +113,8 @@ crv task show 42               # Parent task shows overall result
 ```
 
 If any subtask fails, remaining sibling subtasks are cancelled and the parent task is marked as failed.
+
+Running disk import and copy tasks use their message for phase and transfer
+progress. Byte totals appear only when known. Inspect template copy subtasks
+with `crv task show <parent-id>` or `crv task list --all`. These messages are
+transient: finishing the task replaces them with its terminal result message.

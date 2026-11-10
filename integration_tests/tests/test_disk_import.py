@@ -7,6 +7,7 @@ import hashlib
 import lzma
 import secrets
 import shlex
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -42,7 +43,12 @@ class _ImportServer:
     """Host-side HTTP source specific to these disk-import scenarios."""
 
     def __init__(
-        self, node: TestNode, *, suffix: str = ".qcow2", hold_download: bool = False
+        self,
+        node: TestNode,
+        *,
+        suffix: str = ".qcow2",
+        hold_download: bool = False,
+        known_length: bool = True,
     ) -> None:
         self.host = node.host_ip
         self.suffix = suffix
@@ -51,6 +57,7 @@ class _ImportServer:
         self._requests: list[str] = []
         self._lock = Lock()
         self._hold_download = hold_download
+        self._known_length = known_length
         self._download_blocked = Event()
         self._download_release = Event()
         self._server: HTTPServer | None = None
@@ -64,6 +71,14 @@ class _ImportServer:
                 super().setup()
                 self.connection.settimeout(5)
 
+            def do_HEAD(self) -> None:
+                with source._lock:
+                    size = len(source._body)
+                self.send_response(200)
+                if source._known_length:
+                    self.send_header("Content-Length", str(size))
+                self.end_headers()
+
             def do_GET(self) -> None:
                 with source._lock:
                     source._requests.append(self.path)
@@ -75,15 +90,19 @@ class _ImportServer:
                     self.end_headers()
                     return
                 self.send_response(200)
-                self.send_header("Content-Length", str(len(body)))
+                if source._known_length:
+                    self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 if source._hold_download:
-                    self.wfile.write(body[:4096])
+                    # Exceed curl's output buffering before pausing so the
+                    # agent's filesystem sampler sees a partial download.
+                    prefix = body[:65536]
+                    self.wfile.write(prefix)
                     self.wfile.flush()
                     source._download_blocked.set()
                     if not source._download_release.wait(timeout=120):
                         return
-                    body = body[4096:]
+                    body = body[len(prefix) :]
                 self.wfile.write(body)
 
             def log_message(self, format: str, *args: object) -> None:
@@ -309,6 +328,49 @@ class TestDiskImport(SingleNodeCase):
                 )
         finally:
             self._delete_versions_silent(url_name, src_name)
+
+    @pytest.mark.parametrize("known_length", [True, False])
+    def test_download_progress_in_task_details(self, known_length: bool) -> None:
+        name = _uniq("import-progress")
+        payload = b"progress\n" * 32768
+        try:
+            with _ImportServer(
+                self.node, suffix=".raw", hold_download=True, known_length=known_length
+            ) as server:
+                server.set_payload(payload)
+                task_id = self.client.disks.import_url(
+                    name, f"{server.url}/payload.raw", format="raw"
+                )
+                try:
+                    assert server.wait_for_download(timeout=30)
+                    deadline = time.monotonic() + 15
+                    while True:
+                        info = self.client.tasks.get(task_id).show()
+                        message = info.message or ""
+                        if (
+                            "Downloading" in message
+                            and ": " in message
+                            and ": 0B" not in message
+                        ):
+                            break
+                        assert time.monotonic() < deadline, info
+                        time.sleep(0.1)
+                    assert info.result == "running"
+                    assert name in message
+                    assert ("%" in message) == known_length
+                    listed = next(
+                        task for task in self.client.tasks.list() if task.id == task_id
+                    )
+                    assert listed.message == message
+                finally:
+                    server.release_download()
+                    self.wait_for_task(self.client, task_id, timeout_sec=60)
+                assert all(
+                    _node_bytes(self.node, p.file_path) == payload
+                    for p in self.client.disks.get(name).show().placements
+                )
+        finally:
+            self._delete_versions_silent(name)
 
     def test_vm_force_delete_during_download(self) -> None:
         """An unrelated download must not occupy the nodeagent RPC dispatcher."""

@@ -30,7 +30,10 @@ When `crv template create` is called without a file argument, the client writes 
 
 `crv template instantiate <TEMPLATE> <VM> [--node NODE]` creates a new VM with the template's settings. When `--node` is omitted, the scheduler selects an online node. Each drive is handled according to its strategy (see [Drive Strategies](#drive-strategies)). Network interfaces get fresh MAC addresses. SSH keys and cloud-init configuration are copied to the new VM.
 
-Before creating the VM, instantiation checks that each referenced base image is present on the destination node. Missing images are copied there as tracked instantiation subtasks, including their backing chains. The existing `disk copy` path rules apply: relative paths are retained, while images with absolute source paths need an explicit destination path and will fail early during instantiation.
+Before creating the VM, instantiation checks that each referenced base image is present on the destination node. Missing images are copied there as tracked instantiation subtasks, including their backing chains. Use `crv task show <instantiation-task-id>` or `crv task list --all` to inspect
+the copy subtasks and their phase/byte progress. Local clone drives report a
+cloning phase on their drive-instantiation subtask. Progress belongs to each
+subtask; the parent does not aggregate percentages. The existing `disk copy` path rules apply: relative paths are retained, while images with absolute source paths need an explicit destination path and will fail early during instantiation.
 
 **File layout**: all disk files created during instantiation are placed in a subdirectory named after the new VM, under the base images directory (`$HOME/VMs` by default). For example, `crv template instantiate webserver my-vm` produces:
 

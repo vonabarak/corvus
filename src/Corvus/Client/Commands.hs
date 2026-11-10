@@ -226,8 +226,8 @@ runCommand opts = do
       DiskDetach vmRef diskRef -> handleDiskDetach fmt conn vmRef diskRef
       DiskMediaEject driveId -> handleDiskMediaEject fmt conn driveId
       DiskMediaChange driveId newDiskRef -> handleDiskMediaChange fmt conn driveId newDiskRef
-      DiskCopy diskRef toNodeRef mToPath withChain ->
-        handleDiskCopy fmt conn diskRef toNodeRef mToPath withChain
+      DiskCopy diskRef toNodeRef mToPath withChain waitOpts ->
+        handleDiskCopy fmt conn diskRef toNodeRef mToPath withChain waitOpts
       DiskMove diskRef toNodeRef mToPath withChain ->
         handleDiskMove fmt conn diskRef toNodeRef mToPath withChain
       -- Shared directory commands

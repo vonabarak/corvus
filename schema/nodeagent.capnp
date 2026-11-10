@@ -200,7 +200,7 @@ interface Session {
   # its caller's `ApplyEventSink`.
   diskDownload       @11 (destPath :Text,
                           url      :Text,
-                          sink     :Streams.DiskDownloadSink)
+                          sink     :Streams.DiskProgressSink)
                         -> (result :DiskOpResult);
   diskDecompressXz   @12 (xzPath :Text) -> (finalPath :Text);
   diskHash           @13 (path :Text, algorithm :Text) -> (hex :Text);
@@ -476,13 +476,15 @@ interface Session {
   # then stream the bytes through a local ByteSink that writes to
   # `destPath`. Verifies the size + md5 against the daemon-supplied
   # expectations and throws on any mismatch. Cleans up any partial
-  # file on error.
+  # file on error. Reports destination byte counts and verification
+  # through the best-effort progress sink.
   diskImportFromPeer @33
     (destPath :Text,
      peerHost :Text, peerPort :Int32,
      token :Text,
      expectedBytes :Int64,
-     expectedMd5 :Text)
+     expectedMd5 :Text,
+     sink :Streams.DiskProgressSink)
     -> ();
 
   # Open a node-local, atomic file writer for a daemon-mediated client upload.

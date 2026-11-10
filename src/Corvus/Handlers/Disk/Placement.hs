@@ -20,6 +20,7 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Db (deleteDiskImageNodeRow, getAttachedVms, getBackingChainIds, getReadWriteAttachedVms, hasPlacementOnNode, listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure)
+import Corvus.Handlers.Disk.Progress (DiskProgress, newDiskProgress)
 import Corvus.Handlers.Disk.Transfer (stageBackingChain, transferImageBetweenNodes)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode)
 import Corvus.Handlers.Scheduler (pickNodeForDisk)
@@ -310,41 +311,49 @@ filterM p (x : xs) = do
 -- behaviour of 'planTransfer' (its check at the "backing image …
 -- is not present on the destination" line) then passes naturally
 -- because the chain is now in place.
-handleDiskCopy :: ServerState -> Int64 -> Int64 -> Maybe Text -> Bool -> IO Response
-handleDiskCopy state diskId destNodeRaw mToPath withBackingChain = runServerLogging state $ do
-  let destNode = toSqlKey destNodeRaw :: M.NodeId
-      diskKey = toSqlKey diskId :: DiskImageId
-  logInfoN $
-    "disk copy: image "
-      <> T.pack (show diskId)
-      <> " → node "
-      <> T.pack (show destNodeRaw)
-      <> if withBackingChain then " (with backing chain)" else ""
-  eStaged <- liftIO $ stageChainIfRequested state diskKey destNode withBackingChain
-  case eStaged of
-    Left err -> pure (RespError err)
-    Right () -> do
-      ePlan <- liftIO $ planTransfer state diskId destNode True mToPath
-      case ePlan of
+handleDiskCopy :: ActionContext -> Int64 -> Int64 -> Maybe Text -> Bool -> IO Response
+handleDiskCopy ctx diskId destNodeRaw mToPath withBackingChain = do
+  progress <- newDiskProgress ctx
+  progress "Preparing disk copy" 0 0
+  handleCopy progress
+  where
+    state = acState ctx
+    handleCopy progress = runServerLogging state $ do
+      let destNode = toSqlKey destNodeRaw :: M.NodeId
+          diskKey = toSqlKey diskId :: DiskImageId
+      logInfoN $
+        "disk copy: image "
+          <> T.pack (show diskId)
+          <> " → node "
+          <> T.pack (show destNodeRaw)
+          <> if withBackingChain then " (with backing chain)" else ""
+      eStaged <- liftIO $ stageChainIfRequested state diskKey destNode withBackingChain progress
+      case eStaged of
         Left err -> pure (RespError err)
-        Right plan -> do
-          tResult <-
-            liftIO $
-              transferImageBetweenNodes
-                state
-                (tpSrcNode plan)
-                destNode
-                (tpSrcAbsPath plan)
-                (tpDestAbsPath plan)
-          case tResult of
+        Right () -> do
+          ePlan <- liftIO $ planTransfer state diskId destNode True mToPath
+          case ePlan of
             Left err -> pure (RespError err)
-            Right () -> do
-              liftIO $
-                runSqlPool
-                  (recordDiskImageNode diskKey destNode (tpDestRelPath plan))
-                  (ssDbPool state)
-              logInfoN "disk copy complete"
-              pure RespDiskOk
+            Right plan -> do
+              tResult <-
+                liftIO $
+                  transferImageBetweenNodes
+                    state
+                    (tpSrcNode plan)
+                    destNode
+                    (tpSrcAbsPath plan)
+                    (tpDestAbsPath plan)
+                    progress
+              case tResult of
+                Left err -> pure (RespError err)
+                Right () -> do
+                  liftIO $ progress "Registering disk placement" 0 0
+                  liftIO $
+                    runSqlPool
+                      (recordDiskImageNode diskKey destNode (tpDestRelPath plan))
+                      (ssDbPool state)
+                  logInfoN "disk copy complete"
+                  pure RespDiskOk
 
 -- | Resolve the source node for the chain walk (any existing
 -- placement that isn't the destination), then call
@@ -357,16 +366,17 @@ stageChainIfRequested
   -> DiskImageId
   -> M.NodeId
   -> Bool
+  -> DiskProgress
   -> IO (Either Text ())
-stageChainIfRequested _ _ _ False = pure (Right ())
-stageChainIfRequested state diskKey destNode True = do
+stageChainIfRequested _ _ _ False _ = pure (Right ())
+stageChainIfRequested state diskKey destNode True progress = do
   placements <- runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
   case [M.diskImageNodeNodeId row | Entity _ row <- placements, M.diskImageNodeNodeId row /= destNode] of
     [] ->
       pure $
         Left "no source placement available (target is the only node hosting this disk)"
     srcNode : _ -> do
-      r <- stageBackingChain state diskKey srcNode destNode
+      r <- stageBackingChain state diskKey srcNode destNode progress
       pure $ case r of
         Left err -> Left err
         Right _ -> Right ()
@@ -390,7 +400,7 @@ handleDiskMove state diskId destNodeRaw mToPath withBackingChain = runServerLogg
       <> " → node "
       <> T.pack (show destNodeRaw)
       <> if withBackingChain then " (with backing chain)" else ""
-  eStaged <- liftIO $ stageChainIfRequested state diskKey destNode withBackingChain
+  eStaged <- liftIO $ stageChainIfRequested state diskKey destNode withBackingChain (\_ _ _ -> pure ())
   case eStaged of
     Left err -> pure (RespError err)
     Right () -> do
@@ -406,6 +416,7 @@ handleDiskMove state diskId destNodeRaw mToPath withBackingChain = runServerLogg
                 destNode
                 (tpSrcAbsPath plan)
                 (tpDestAbsPath plan)
+                (\_ _ _ -> pure ())
           case tResult of
             Left err -> pure (RespError err)
             Right () -> do
@@ -454,7 +465,7 @@ instance Action DiskCopy where
   actionEntityId = Just . fromIntegral . dcpDiskId
   actionExecute ctx a =
     handleDiskCopy
-      (acState ctx)
+      ctx
       (dcpDiskId a)
       (dcpDestNodeId a)
       (dcpToPath a)

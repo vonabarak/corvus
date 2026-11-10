@@ -266,21 +266,21 @@ diskInspect nac path = remote $ do
 -- ---------------------------------------------------------------------------
 -- Download / decompress / hash
 
--- | Daemon-side 'CGS.DiskDownloadSink' implementation. The agent
+-- | Daemon-side 'CGS.DiskProgressSink' implementation. The agent
 -- calls 'progress' once per byte-count update; the callback we
 -- close over forwards each event to whatever in-process consumer
 -- the caller of 'diskDownload' supplied. A no-op callback (used
 -- when no progress reporting is wanted) makes the exported server
 -- a cheap one-shot — cancelled when the supervisor exits.
-newtype DaemonDiskDownloadSink = DaemonDiskDownloadSink (Int64 -> Int64 -> IO ())
+newtype DaemonDiskProgressSink = DaemonDiskProgressSink (T.Text -> Int64 -> Int64 -> IO ())
 
-instance SomeServer DaemonDiskDownloadSink
+instance SomeServer DaemonDiskProgressSink
 
-instance CGS.DiskDownloadSink'server_ DaemonDiskDownloadSink where
-  diskDownloadSink'progress (DaemonDiskDownloadSink cb) =
-    handleParsed $ \CGS.DiskDownloadSink'progress'params {CGS.downloaded = d, CGS.total = t} -> do
-      _ <- E.tryJust synchronousException (cb d t) :: IO (Either E.SomeException ())
-      pure CGS.DiskDownloadSink'progress'results
+instance CGS.DiskProgressSink'server_ DaemonDiskProgressSink where
+  diskProgressSink'progress (DaemonDiskProgressSink cb) =
+    handleParsed $ \CGS.DiskProgressSink'progress'params {CGS.phase = phase, CGS.completed = d, CGS.total = t} -> do
+      _ <- E.tryJust synchronousException (cb phase d t) :: IO (Either E.SomeException ())
+      pure CGS.DiskProgressSink'progress'results
 
 -- | Download an image to the node. The optional @onProgress@
 -- callback receives @(downloaded, total)@ updates every ~250 ms
@@ -295,7 +295,7 @@ diskDownload
   -> IO (Either NodeAgentError DiskOpResult)
 diskDownload nac destPath url mProgress = remote $ do
   let cb = fromMaybe (\_ _ -> pure ()) mProgress
-  sinkClient <- export @CGS.DiskDownloadSink (nacSupervisor nac) (DaemonDiskDownloadSink cb)
+  sinkClient <- export @CGS.DiskProgressSink (nacSupervisor nac) (DaemonDiskProgressSink (const cb))
   CGNA.Session'diskDownload'results {CGNA.result = r} <-
     callOn
       #diskDownload
@@ -424,8 +424,10 @@ diskImportFromPeer
   -- ^ expected size in bytes
   -> T.Text
   -- ^ expected md5 hex hash
+  -> (T.Text -> Int64 -> Int64 -> IO ())
   -> IO (Either NodeAgentError ())
-diskImportFromPeer nac destPath peerHost peerPort token expectedBytes expectedMd5 = remote $ do
+diskImportFromPeer nac destPath peerHost peerPort token expectedBytes expectedMd5 progress = remote $ do
+  sinkClient <- export @CGS.DiskProgressSink (nacSupervisor nac) (DaemonDiskProgressSink progress)
   _ :: C.Parsed CGNA.Session'diskImportFromPeer'results <-
     callOn
       #diskImportFromPeer
@@ -436,6 +438,7 @@ diskImportFromPeer nac destPath peerHost peerPort token expectedBytes expectedMd
         , CGNA.token = token
         , CGNA.expectedBytes = expectedBytes
         , CGNA.expectedMd5 = expectedMd5
+        , CGNA.sink = sinkClient
         }
       (nacSession nac)
   pure ()

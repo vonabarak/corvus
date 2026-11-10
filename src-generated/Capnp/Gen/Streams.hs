@@ -1253,82 +1253,87 @@ instance (C.Parse ApplyEventSink'end'results (C.Parsed ApplyEventSink'end'result
     parse raw_ = (Std_.pure ApplyEventSink'end'results)
 instance (C.Marshal ApplyEventSink'end'results (C.Parsed ApplyEventSink'end'results)) where
     marshalInto _raw (ApplyEventSink'end'results) = (Std_.pure ())
-data DiskDownloadSink 
-type instance (R.ReprFor DiskDownloadSink) = (R.Ptr (Std_.Just R.Cap))
-instance (C.HasTypeId DiskDownloadSink) where
-    typeId  = 14995802701917229896
-instance (C.Parse DiskDownloadSink (GH.Client DiskDownloadSink)) where
+data DiskProgressSink
+type instance (R.ReprFor DiskProgressSink) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId DiskProgressSink) where
+    typeId  = 16711374846346830589
+instance (C.Parse DiskProgressSink (GH.Client DiskProgressSink)) where
     parse  = GH.parseCap
     encode  = GH.encodeCap
-instance (GH.Export DiskDownloadSink) where
-    type Server DiskDownloadSink = DiskDownloadSink'server_
-    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(DiskDownloadSink)) [(GH.toUntypedMethodHandler ((diskDownloadSink'progress) s_))] [])
-class (DiskDownloadSink'server_ s_) where
-    {-# MINIMAL diskDownloadSink'progress #-}
-    diskDownloadSink'progress :: s_ -> (GH.MethodHandler DiskDownloadSink'progress'params DiskDownloadSink'progress'results)
-    diskDownloadSink'progress _ = GH.methodUnimplemented
-instance (GH.HasMethod "progress" DiskDownloadSink DiskDownloadSink'progress'params DiskDownloadSink'progress'results) where
-    methodByLabel  = (GH.Method 14995802701917229896 0)
-data DiskDownloadSink'progress'params 
-type instance (R.ReprFor DiskDownloadSink'progress'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId DiskDownloadSink'progress'params) where
-    typeId  = 15710332323190142957
-instance (C.TypedStruct DiskDownloadSink'progress'params) where
+instance (GH.Export DiskProgressSink) where
+    type Server DiskProgressSink = DiskProgressSink'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(DiskProgressSink)) [(GH.toUntypedMethodHandler ((diskProgressSink'progress) s_))] [])
+class (DiskProgressSink'server_ s_) where
+    {-# MINIMAL diskProgressSink'progress #-}
+    diskProgressSink'progress :: s_ -> (GH.MethodHandler DiskProgressSink'progress'params DiskProgressSink'progress'results)
+    diskProgressSink'progress _ = GH.methodUnimplemented
+instance (GH.HasMethod "progress" DiskProgressSink DiskProgressSink'progress'params DiskProgressSink'progress'results) where
+    methodByLabel  = (GH.Method 16711374846346830589 0)
+data DiskProgressSink'progress'params
+type instance (R.ReprFor DiskProgressSink'progress'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskProgressSink'progress'params) where
+    typeId  = 17207835670535053962
+instance (C.TypedStruct DiskProgressSink'progress'params) where
     numStructWords  = 2
-    numStructPtrs  = 0
-instance (C.Allocate DiskDownloadSink'progress'params) where
-    type AllocHint DiskDownloadSink'progress'params = ()
+    numStructPtrs  = 1
+instance (C.Allocate DiskProgressSink'progress'params) where
+    type AllocHint DiskProgressSink'progress'params = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params))
-instance (C.AllocateList DiskDownloadSink'progress'params) where
-    type ListAllocHint DiskDownloadSink'progress'params = Std_.Int
+instance (C.EstimateAlloc DiskProgressSink'progress'params (C.Parsed DiskProgressSink'progress'params))
+instance (C.AllocateList DiskProgressSink'progress'params) where
+    type ListAllocHint DiskProgressSink'progress'params = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params))
-data instance C.Parsed DiskDownloadSink'progress'params
-    = DiskDownloadSink'progress'params 
-        {downloaded :: (RP.Parsed Std_.Int64)
+instance (C.EstimateListAlloc DiskProgressSink'progress'params (C.Parsed DiskProgressSink'progress'params))
+data instance C.Parsed DiskProgressSink'progress'params
+    = DiskProgressSink'progress'params
+        {phase :: (RP.Parsed Basics.Text)
+        ,completed :: (RP.Parsed Std_.Int64)
         ,total :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed DiskDownloadSink'progress'params))
-deriving instance (Std_.Eq (C.Parsed DiskDownloadSink'progress'params))
-instance (C.Parse DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params)) where
-    parse raw_ = (DiskDownloadSink'progress'params <$> (GH.parseField #downloaded raw_)
+deriving instance (Std_.Show (C.Parsed DiskProgressSink'progress'params))
+deriving instance (Std_.Eq (C.Parsed DiskProgressSink'progress'params))
+instance (C.Parse DiskProgressSink'progress'params (C.Parsed DiskProgressSink'progress'params)) where
+    parse raw_ = (DiskProgressSink'progress'params <$> (GH.parseField #phase raw_)
+                                                   <*> (GH.parseField #completed raw_)
                                                    <*> (GH.parseField #total raw_))
-instance (C.Marshal DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params)) where
-    marshalInto raw_ DiskDownloadSink'progress'params{..} = (do
-        (GH.encodeField #downloaded downloaded raw_)
+instance (C.Marshal DiskProgressSink'progress'params (C.Parsed DiskProgressSink'progress'params)) where
+    marshalInto raw_ DiskProgressSink'progress'params{..} = (do
+        (GH.encodeField #phase phase raw_)
+        (GH.encodeField #completed completed raw_)
         (GH.encodeField #total total raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "downloaded" GH.Slot DiskDownloadSink'progress'params Std_.Int64) where
+instance (GH.HasField "phase" GH.Slot DiskProgressSink'progress'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "completed" GH.Slot DiskProgressSink'progress'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "total" GH.Slot DiskDownloadSink'progress'params Std_.Int64) where
+instance (GH.HasField "total" GH.Slot DiskProgressSink'progress'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-data DiskDownloadSink'progress'results 
-type instance (R.ReprFor DiskDownloadSink'progress'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId DiskDownloadSink'progress'results) where
-    typeId  = 18367537985363879624
-instance (C.TypedStruct DiskDownloadSink'progress'results) where
+data DiskProgressSink'progress'results
+type instance (R.ReprFor DiskProgressSink'progress'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskProgressSink'progress'results) where
+    typeId  = 15082428217170481473
+instance (C.TypedStruct DiskProgressSink'progress'results) where
     numStructWords  = 0
     numStructPtrs  = 0
-instance (C.Allocate DiskDownloadSink'progress'results) where
-    type AllocHint DiskDownloadSink'progress'results = ()
+instance (C.Allocate DiskProgressSink'progress'results) where
+    type AllocHint DiskProgressSink'progress'results = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results))
-instance (C.AllocateList DiskDownloadSink'progress'results) where
-    type ListAllocHint DiskDownloadSink'progress'results = Std_.Int
+instance (C.EstimateAlloc DiskProgressSink'progress'results (C.Parsed DiskProgressSink'progress'results))
+instance (C.AllocateList DiskProgressSink'progress'results) where
+    type ListAllocHint DiskProgressSink'progress'results = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results))
-data instance C.Parsed DiskDownloadSink'progress'results
-    = DiskDownloadSink'progress'results 
+instance (C.EstimateListAlloc DiskProgressSink'progress'results (C.Parsed DiskProgressSink'progress'results))
+data instance C.Parsed DiskProgressSink'progress'results
+    = DiskProgressSink'progress'results
         {}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed DiskDownloadSink'progress'results))
-deriving instance (Std_.Eq (C.Parsed DiskDownloadSink'progress'results))
-instance (C.Parse DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results)) where
-    parse raw_ = (Std_.pure DiskDownloadSink'progress'results)
-instance (C.Marshal DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results)) where
-    marshalInto _raw (DiskDownloadSink'progress'results) = (Std_.pure ())
+deriving instance (Std_.Show (C.Parsed DiskProgressSink'progress'results))
+deriving instance (Std_.Eq (C.Parsed DiskProgressSink'progress'results))
+instance (C.Parse DiskProgressSink'progress'results (C.Parsed DiskProgressSink'progress'results)) where
+    parse raw_ = (Std_.pure DiskProgressSink'progress'results)
+instance (C.Marshal DiskProgressSink'progress'results (C.Parsed DiskProgressSink'progress'results)) where
+    marshalInto _raw (DiskProgressSink'progress'results) = (Std_.pure ())
 data GuestAgentStatus 
 type instance (R.ReprFor GuestAgentStatus) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestAgentStatus) where

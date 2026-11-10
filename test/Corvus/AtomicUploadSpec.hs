@@ -6,8 +6,9 @@ module Corvus.AtomicUploadSpec (spec) where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as S
+import Control.Concurrent.STM (readTVarIO)
 import qualified Control.Exception as E
-import Corvus.Node.Transfer (newAtomicFileWriterSink)
+import Corvus.Node.Transfer (FileWriterSink (..), newAtomicFileWriterSink)
 import Corvus.Rpc.Streams (callSink)
 import Data.List (isInfixOf)
 import Supervisors (withSupervisor)
@@ -38,5 +39,6 @@ spec = describe "atomic upload publication" $ do
       sink <- C.export @S.ByteSink sup writer
       callSink #write (S.ByteSink'write'params "payload") sink
       callSink #end S.ByteSink'end'params sink
+      readTVarIO (fwsBytesWritten writer) `shouldReturn` 7
       readFile destination `shouldReturn` "payload"
       listDirectory dir `shouldReturn` ["image.raw"]

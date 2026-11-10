@@ -72,12 +72,13 @@ import Control.Concurrent.MVar
   , readMVar
   , withMVar
   )
-import Control.Concurrent.STM (TVar, atomically, check, newTVarIO, readTVar, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, check, modifyTVar', newTVarIO, readTVar, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (unless, void)
 import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import Corvus.Rpc.Streams (callSink)
 import qualified Data.ByteString as BS
+import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -253,7 +254,8 @@ boundedTransfer action = timeout 60000000 action >>= maybe (ioError (userError "
 -- | A 'ByteSink' server impl that writes bytes received over
 -- 'write' into a local file handle and flushes and closes on 'end'.
 data FileWriterSink = FileWriterSink
-  { fwsFinished :: TVar Bool
+  { fwsBytesWritten :: TVar Int64
+  , fwsFinished :: TVar Bool
   , fwsHandle :: !(MVar (Maybe Handle))
   , fwsOnClose :: !(IO ())
   , fwsOnAbort :: !(IO ())
@@ -308,9 +310,11 @@ newFileWriterSinkWithHandle h onClose onAbort = do
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   hv <- newMVar (Just h)
   finished <- newTVarIO False
+  bytes <- newTVarIO 0
   let fws =
         FileWriterSink
-          { fwsFinished = finished
+          { fwsBytesWritten = bytes
+          , fwsFinished = finished
           , fwsHandle = hv
           , fwsOnClose = onClose
           , fwsOnAbort = onAbort
@@ -323,6 +327,7 @@ writeChunk fws chunk =
     Nothing -> E.throwIO (userError "Upload stream is closed")
     Just h -> do
       BS.hPut h chunk
+      atomically $ modifyTVar' (fwsBytesWritten fws) (+ fromIntegral (BS.length chunk))
 
 closeWriter :: FileWriterSink -> IO ()
 closeWriter fws = flip E.finally (atomically $ writeTVar (fwsFinished fws) True) $ do

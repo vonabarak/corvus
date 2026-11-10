@@ -173,7 +173,7 @@ data Command
   | -- | Change the media of a CD-ROM drive (driveId, newDiskRef)
     DiskMediaChange !Int64 !Text
   | -- | Copy a disk image to another node (diskRef, toNodeRef, optional toPath, withBackingChain)
-    DiskCopy !Text !Text !(Maybe Text) !Bool
+    DiskCopy !Text !Text !(Maybe Text) !Bool !WaitOptions
   | -- | Move a disk image to another node (diskRef, toNodeRef, optional toPath, withBackingChain)
     DiskMove !Text !Text !(Maybe Text) !Bool
   | -- Shared directory commands

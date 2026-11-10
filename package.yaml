@@ -110,6 +110,7 @@ library:
   exposed-modules:
     - Corvus.DiskSelector
     - Corvus.Node.Transfer
+    - Corvus.Node.DiskProgress
     - Corvus.Node.DirectoryCleanup
     - Corvus.OperationGuard
     - Corvus.Images
@@ -163,6 +164,7 @@ library:
     - Corvus.Handlers.Disk.Maintenance
     - Corvus.Handlers.Disk.Placement
     - Corvus.Handlers.Disk.Path
+    - Corvus.Handlers.Disk.Progress
     - Corvus.Handlers.Disk.Db
     - Corvus.Handlers.Disk.Agent
     - Corvus.Handlers.Disk.Snapshot

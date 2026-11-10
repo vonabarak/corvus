@@ -33,6 +33,7 @@ library
   exposed-modules:
       Corvus.DiskSelector
       Corvus.Node.Transfer
+      Corvus.Node.DiskProgress
       Corvus.Node.DirectoryCleanup
       Corvus.OperationGuard
       Corvus.Images
@@ -86,6 +87,7 @@ library
       Corvus.Handlers.Disk.Maintenance
       Corvus.Handlers.Disk.Placement
       Corvus.Handlers.Disk.Path
+      Corvus.Handlers.Disk.Progress
       Corvus.Handlers.Disk.Db
       Corvus.Handlers.Disk.Agent
       Corvus.Handlers.Disk.Snapshot
@@ -591,6 +593,7 @@ test-suite corvus-test
       Corvus.DatabaseSpec
       Corvus.DirectoryCleanupSpec
       Corvus.DiskCleanupSpec
+      Corvus.DiskProgressSpec
       Corvus.DiskSpec
       Corvus.DnsmasqArgsSpec
       Corvus.EmitSpec
@@ -607,6 +610,7 @@ test-suite corvus-test
       Corvus.NetIfSpec
       Corvus.NetworkSpec
       Corvus.NodeCommandSpec
+      Corvus.NodeDiskProgressSpec
       Corvus.NodeNetdDisabledSpec
       Corvus.NodeRequestSpec
       Corvus.NodeRoutingSpec

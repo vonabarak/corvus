@@ -42,6 +42,7 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.DirectoryCleanup as DC
+import Corvus.Node.DiskProgress (newDiskProgressSink, withByteProgress)
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
@@ -58,7 +59,6 @@ import Corvus.Rpc.Streams (callSink, runByteSinkRelay)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
 import Corvus.Wire.Errors (showWireError)
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -396,20 +396,8 @@ instance CGNA.Session'server_ SessionServer where
           , CGNA.url = u
           , CGNA.sink = progressSink
           } -> do
-            progressActive <- newIORef True
-            let onProgress downloaded total = do
-                  active <- readIORef progressActive
-                  let params =
-                        CGS.DiskDownloadSink'progress'params
-                          { CGS.downloaded = downloaded
-                          , CGS.total = total
-                          }
-                  when active $ do
-                    result <- timeout 5000000 (E.try (callSink #progress params progressSink) :: IO (Either E.SomeException ()))
-                    case result of
-                      Just (Right ()) -> pure ()
-                      _ -> writeIORef progressActive False
-            result <- NI.downloadImage (T.unpack d) u onProgress
+            progress <- newDiskProgressSink progressSink
+            result <- NI.downloadImage (T.unpack d) u (progress "Downloading")
             pure
               CGNA.Session'diskDownload'results
                 { CGNA.result = encodeDiskOpResult result
@@ -852,7 +840,10 @@ instance CGNA.Session'server_ SessionServer where
           , CGNA.token = token
           , CGNA.expectedBytes = expectedBytes
           , CGNA.expectedMd5 = expectedMd5
+          , CGNA.sink = progressSink
           } -> do
+            progress <- newDiskProgressSink progressSink
+            progress "Copying" 0 expectedBytes
             let destPath = T.unpack destPathTxt
                 peerHost = T.unpack peerHostTxt
                 partPath = destPath <> ".part"
@@ -871,12 +862,14 @@ instance CGNA.Session'server_ SessionServer where
                       (fromIntegral peerPort)
                       token
                       mTls
+                      (\n -> progress "Copying" n expectedBytes)
                 case r of
                   Left e -> do
                     -- Best-effort cleanup of the partial file.
                     _ <- E.try @E.SomeException (NI.deleteImage partPath)
                     throwFailed (T.pack (show e))
                   Right () -> do
+                    progress "Verifying" 0 0
                     -- Verify size + md5 against expectations before
                     -- renaming into place.
                     actualSize <-
@@ -948,8 +941,9 @@ importFromPeer
   -> Maybe Tls.TlsConfig
   -- ^ TLS material for the outbound dial. 'Nothing' falls back
   -- to plaintext (the agent was started with @--no-tls@).
+  -> (Int64 -> IO ())
   -> IO ()
-importFromPeer sc partPath host port token mTls = do
+importFromPeer sc partPath host port token mTls progress = do
   -- Ensure the parent directory exists before the writer tries
   -- to open the file. The daemon's @disk copy --to-path
   -- subdir/x.qcow2@ flow expects the destination agent to create
@@ -959,21 +953,22 @@ importFromPeer sc partPath host port token mTls = do
   sinkImpl <- NTr.newFileWriterSink partPath
   NTr.superviseWriter (scSup sc) sinkImpl
   sinkClient <- C.export @CGS.ByteSink (scSup sc) sinkImpl
-  NOA.withNodeAgentClient host port (scOwner sc) mTls $ \case
-    Left err ->
-      E.throwIO . userError $ "peer dial failed: " <> show err
-    Right nac -> do
-      readerResult <- NOA.attachReader nac token
-      case readerResult of
-        Left err ->
-          E.throwIO . userError $ "attachReader on peer failed: " <> show err
-        Right readerClient -> do
-          pipeResult <- NOA.diskReaderPipeInto readerClient sinkClient
-          case pipeResult of
-            Left err -> do
-              _ <- timeout 1000000 (callSink #abort CGS.ByteSink'abort'params sinkClient)
-              E.throwIO . userError $ "pipeInto failed: " <> show err
-            Right () -> pure ()
+  withByteProgress (readTVarIO (NTr.fwsBytesWritten sinkImpl)) progress $
+    NOA.withNodeAgentClient host port (scOwner sc) mTls $ \case
+      Left err ->
+        E.throwIO . userError $ "peer dial failed: " <> show err
+      Right nac -> do
+        readerResult <- NOA.attachReader nac token
+        case readerResult of
+          Left err ->
+            E.throwIO . userError $ "attachReader on peer failed: " <> show err
+          Right readerClient -> do
+            pipeResult <- NOA.diskReaderPipeInto readerClient sinkClient
+            case pipeResult of
+              Left err -> do
+                _ <- timeout 1000000 (callSink #abort CGS.ByteSink'abort'params sinkClient)
+                E.throwIO . userError $ "pipeInto failed: " <> show err
+              Right () -> pure ()
 
 -- | Common body of 'openSerialConsole' / 'openHmpMonitor':
 -- look up the buffer handle for @vmId@, wire it up via

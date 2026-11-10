@@ -63,14 +63,14 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent (forkIO, myThreadId)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Exception (Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException, fromException, throwIO, try)
+import Control.Exception (Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException, fromException, throwIO, try, tryJust)
 import Control.Monad (when)
-import qualified Control.Monad.Catch as MC
 import Control.Monad.Logger (logInfoN)
 import Corvus.DiskSelector (publicationSelector)
 import Corvus.Handlers.Disk.Db (getBackingChainIds)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase)
 import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode)
+import Corvus.Logging (synchronousException)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.OperationGuard
@@ -86,9 +86,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (SqlBackend, runSqlPool)
+import Database.Persist.Sql (SqlBackend, runSqlPool, updateWhereCount)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.FilePath (isRelative, normalise, (</>))
+import System.Timeout (timeout)
 
 --------------------------------------------------------------------------------
 -- Action Context
@@ -633,10 +634,10 @@ fanoutTaskEvent state tid ev = do
           Map.insert tid (map fst (filter snd (zip sinks alive)))
   where
     tryPush params sink = do
-      r <- MC.try (callSink #push params sink) :: IO (Either SomeException ())
+      r <- timeout 5000000 (tryJust synchronousException (callSink #push params sink) :: IO (Either SomeException ()))
       pure $ case r of
-        Right () -> True
-        Left _ -> False
+        Just (Right ()) -> True
+        _ -> False
 
 -- | Push a @finished@ 'TaskProgressEvent' to this task's subscribers.
 pushTaskFinished :: ServerState -> Int64 -> M.TaskResult -> Maybe Text -> IO ()
@@ -660,20 +661,22 @@ pushTaskFinished state tid result mMsg =
 -- The finalizer overwrites the message with the terminal result.
 pushTaskProgress :: ServerState -> Int64 -> Text -> (Int64, Int64) -> IO ()
 pushTaskProgress state tid label (completed, total) = do
-  runSqlPool
-    (update (toSqlKey tid :: TaskId) [TaskMessage =. Just label])
-    (ssDbPool state)
-  fanoutTaskEvent state tid $
-    CGS.TaskProgressEvent
-      { CGS.taskId = tid
-      , CGS.union' =
-          CGS.TaskProgressEvent'progress
-            CGS.TaskProgressEvent'progress'
-              { CGS.completed = completed
-              , CGS.total = total
-              , CGS.label = label
-              }
-      }
+  updated <-
+    runSqlPool
+      (updateWhereCount [TaskId ==. toSqlKey tid, TaskResult ==. TaskRunning] [TaskMessage =. Just label])
+      (ssDbPool state)
+  when (updated > 0) $
+    fanoutTaskEvent state tid $
+      CGS.TaskProgressEvent
+        { CGS.taskId = tid
+        , CGS.union' =
+            CGS.TaskProgressEvent'progress
+              CGS.TaskProgressEvent'progress'
+                { CGS.completed = completed
+                , CGS.total = total
+                , CGS.label = label
+                }
+        }
 
 -- | Include ancestors so deleting or rewriting a backing file cannot race reads.
 imageResources :: ServerState -> ResourceAccess -> Int64 -> IO [(OperationResource, ResourceAccess)]
