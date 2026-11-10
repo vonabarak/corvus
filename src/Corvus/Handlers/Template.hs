@@ -60,6 +60,7 @@ import Data.Time (UTCTime, getCurrentTime)
 import Data.Yaml (decodeEither')
 import Database.Persist
 import Database.Persist.Sql (SqlPersistT, runSqlPool, transactionUndo)
+import Text.Read (readMaybe)
 
 --------------------------------------------------------------------------------
 -- Handlers
@@ -732,7 +733,7 @@ instance Action TemplateInstantiate where
     details <- runSqlPool (getTemplateDetails (toSqlKey (tiTemplateId a))) (ssDbPool state)
     case details of
       Nothing -> pure $ Left RespTemplateNotFound
-      Just info -> fmap (fmap (\node -> a {tiNodeRef = node})) (pinNode state (tiNodeRef a) (pickNodeForVm state (tvdRam info)))
+      Just info -> fmap (fmap (\node -> a {tiNodeRef = node})) (pinOnlineNode state (tiNodeRef a) (pickNodeForVm state (tvdRam info)))
   actionResources state a = do
     details <- runSqlPool (getTemplateDetails (toSqlKey (tiTemplateId a))) (ssDbPool state)
     maybe (pure []) (instantiateResources state (tiName a) (tiNodeRef a)) details
@@ -766,13 +767,30 @@ data TemplateInstantiateResolved = TemplateInstantiateResolved TemplateDetails T
 
 instance Action TemplateInstantiateResolved where
   actionPrepare state (TemplateInstantiateResolved details name ref) =
-    fmap (fmap (TemplateInstantiateResolved details name)) (pinNode state ref (pickNodeForVm state (tvdRam details)))
+    fmap (fmap (TemplateInstantiateResolved details name)) (pinOnlineNode state ref (pickNodeForVm state (tvdRam details)))
   actionResources state (TemplateInstantiateResolved details name node) = instantiateResources state name node details
   actionSubsystem _ = SubTemplate
   actionCommand _ = "instantiate"
   actionEntityId (TemplateInstantiateResolved details _ _) = Just (fromIntegral (tvdId details))
   actionExecute ctx (TemplateInstantiateResolved details name node) =
     handleTemplateInstantiateWith ctx (tvdId details) name node (Just details)
+
+-- | Pin the selected node and reject destinations that no longer accept new
+-- VMs before template resource preparation or VM creation begins.
+pinOnlineNode :: ServerState -> Text -> IO (Either Text NodeId) -> IO (Either Response Text)
+pinOnlineNode state ref automatic = do
+  pinned <- pinNode state ref automatic
+  case pinned of
+    Left err -> pure (Left err)
+    Right nodeRef -> case readMaybe (T.unpack nodeRef) of
+      Nothing -> pure (Left RespNodeNotFound)
+      Just nodeId -> do
+        node <- runSqlPool (get (toSqlKey nodeId :: NodeId)) (ssDbPool state)
+        pure $ case node of
+          Nothing -> Left RespNodeNotFound
+          Just row
+            | nodeAdminState row == NodeOnline -> Right nodeRef
+            | otherwise -> Left (RespError ("node " <> nodeName row <> " is not online"))
 
 templateOperationResources :: ServerState -> TemplateYaml -> IO [(OperationResource, ResourceAccess)]
 templateOperationResources state ty = do

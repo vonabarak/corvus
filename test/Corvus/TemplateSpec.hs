@@ -12,10 +12,14 @@
 -- `RespError`, not a panic.
 module Corvus.TemplateSpec (spec) where
 
+import Corvus.Action (runAction)
+import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..), getTemplateDetails)
 import qualified Corvus.Model as M
 import Corvus.Protocol (CloudInitInfo (..), SshKeyInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), VmDetails (..))
 import qualified Data.Text as T
 import Database.Persist (Filter, count)
+import qualified Database.Persist as P
+import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (runDb)
 import Test.Prelude
 
@@ -33,6 +37,33 @@ minimalYaml name =
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
+  describe "template instantiation node state" $ do
+    testCase "rejects a draining explicit target before creating the VM" $ do
+      _ <- whenTemplateCreate (minimalYaml "draining-template")
+      nodeId <- seedTestNode
+      runDb $ P.update nodeId [M.NodeAdminState P.=. M.NodeDraining]
+      _ <- withState $ \state -> runAction state "alice" (TemplateInstantiate 1 "draining-vm" "test-node")
+      responseIs $ \case
+        RespError message -> message == "node test-node is not online"
+        _ -> False
+      vmCount 0
+      diskImageCount 0
+
+    testCase "rejects a maintenance target through the resolved action" $ do
+      _ <- whenTemplateCreate (minimalYaml "maintenance-template")
+      details <- runDb $ getTemplateDetails (toSqlKey 1 :: M.TemplateVmId)
+      nodeId <- seedTestNode
+      runDb $ P.update nodeId [M.NodeAdminState P.=. M.NodeMaintenance]
+      case details of
+        Nothing -> liftIO $ fail "Template details not found"
+        Just template -> do
+          _ <- withState $ \state -> runAction state "alice" (TemplateInstantiateResolved template "maintenance-vm" "test-node")
+          responseIs $ \case
+            RespError message -> message == "node test-node is not online"
+            _ -> False
+          vmCount 0
+          diskImageCount 0
+
   describe "startup timeout inheritance" $ do
     testCase "persists a custom template budget and copies it to an instantiated VM" $ do
       _ <- whenTemplateCreate (minimalYaml "timeout-template" <> "startupTimeoutSec: 1200\n")
