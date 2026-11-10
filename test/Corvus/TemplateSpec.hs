@@ -64,6 +64,26 @@ spec = sequential $ withTestDb $ do
           vmCount 0
           diskImageCount 0
 
+  describe "template base image placement" $ do
+    testCase "fails before VM creation when the referenced image has no target placement" $ do
+      _ <- insertDiskImage "unplaced-base" FormatQcow2
+      _ <- whenTemplateCreate "name: copy-template\ncpuCount: 2\nram: 1024M\ndrives: [{interface: virtio, strategy: direct, diskImage: unplaced-base}]\n"
+      _ <- seedTestNode
+      _ <- withState $ \state -> runAction state "alice" (TemplateInstantiate 1 "copy-failed-vm" "test-node")
+      responseIs $ \case
+        RespError _ -> True
+        _ -> False
+      vmCount 0
+      details <- runDb $ getTemplateDetails (toSqlKey 1 :: M.TemplateVmId)
+      case details of
+        Nothing -> liftIO $ fail "Template details not found"
+        Just template -> do
+          _ <- withState $ \state -> runAction state "alice" (TemplateInstantiateResolved template "resolved-copy-failed-vm" "test-node")
+          responseIs $ \case
+            RespError _ -> True
+            _ -> False
+          vmCount 0
+
   describe "startup timeout inheritance" $ do
     testCase "persists a custom template budget and copies it to an instantiated VM" $ do
       _ <- whenTemplateCreate (minimalYaml "timeout-template" <> "startupTimeoutSec: 1200\n")

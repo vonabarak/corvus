@@ -25,14 +25,16 @@ import Corvus.DiskSelector
 import Corvus.Handlers.Vm (VmCreate (..))
 import Corvus.Images
 
-import Control.Monad (forM, forM_, when)
+import Control.Monad (filterM, forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.AudioDevice (validateAudioOptions)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk.Attach (DiskAttach (..))
 import Corvus.Handlers.Disk.Create (DiskCreate (..))
+import Corvus.Handlers.Disk.Db (hasPlacementOnNode)
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
+import Corvus.Handlers.Disk.Placement (DiskCopy (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForVm)
 import Corvus.Model
@@ -194,6 +196,14 @@ handleTemplateInstantiateWith ctx tidLong newVmName nodeRef snapshot = runServer
     Just details -> do
       -- Cooperative cancellation checkpoint before any work starts.
       liftIO $ throwIfCancelled ctx
+      -- Stage every referenced image (and its backing chain) before creating
+      -- the VM. This keeps a missing image from leaving a partial VM behind.
+      copyResults <- liftIO $ copyTemplateImages ctx details nodeRef
+      case [err | RespError err <- copyResults] of
+        (err : _) -> pure $ RespError err
+        [] -> instantiateVm details
+  where
+    instantiateVm details = do
       -- Subtask 1: Create VM record (delegates to VmCreate action).
       -- Templates don't yet carry their own cpuModel — pass "" so
       -- @handleVmCreate@ falls back to the daemon default ("host").
@@ -245,6 +255,23 @@ handleTemplateInstantiateWith ctx tidLong newVmName nodeRef snapshot = runServer
               pure $ RespTemplateInstantiated (fromSqlKey vmId)
         RespError err -> pure $ RespError err
         _ -> pure $ RespError "Unexpected response from VM creation"
+
+copyTemplateImages :: ActionContext -> TemplateDetails -> Text -> IO [Response]
+copyTemplateImages ctx details nodeRef = case readMaybe (T.unpack nodeRef) of
+  Nothing -> pure [RespError "destination node not found"]
+  Just nodeLong -> do
+    let state = acState ctx
+        nodeId = toSqlKey nodeLong
+        imageIds =
+          L.nub
+            [ nrId ref
+            | drive <- tvdDrives details
+            , tvdiCloneStrategy drive /= StrategyCreate
+            , Just ref <- [tvdiDiskImage drive]
+            , nrId ref /= 0
+            ]
+    missing <- runSqlPool (filterM (fmap not . (`hasPlacementOnNode` nodeId) . toSqlKey) imageIds) (ssDbPool state)
+    forM missing $ \imageId -> runActionAsSubtask ctx (DiskCopy imageId nodeLong Nothing True)
 
 --------------------------------------------------------------------------------
 -- Internal Functions (SQL)
@@ -811,10 +838,24 @@ instantiateResources :: ServerState -> Text -> Text -> TemplateDetails -> IO [(O
 instantiateResources state name node details = do
   destination <- nodeNameResources state VmObject node name
   images <- concat <$> mapM (actionResources state . InstantiateDrive (toSqlKey 0) name) (tvdDrives details)
+  copies <- case readMaybe (T.unpack node) of
+    Nothing -> pure []
+    Just nodeLong -> do
+      let nodeId = toSqlKey nodeLong
+          imageIds =
+            L.nub
+              [ nrId ref
+              | drive <- tvdDrives details
+              , tvdiCloneStrategy drive /= StrategyCreate
+              , Just ref <- [tvdiDiskImage drive]
+              , nrId ref /= 0
+              ]
+      missing <- runSqlPool (filterM (fmap not . (`hasPlacementOnNode` nodeId) . toSqlKey) imageIds) (ssDbPool state)
+      concat <$> mapM (actionResources state . (\imageId -> DiskCopy imageId nodeLong Nothing True)) missing
   keys <- concat <$> mapM (objectResources state SharedAccess SshKeyObject . tvskiId) (tvdSshKeys details)
   networks <- runSqlPool (selectList [NetworkName <-. [network | ni <- tvdNetIfs details, Just network <- [tvniNetwork ni]]] []) (ssDbPool state)
   refs <- concat <$> mapM (objectResources state SharedAccess NetworkObject . fromSqlKey . entityKey) networks
   let prefix = if T.null name || not (isDigit (T.head name)) then name else "vm-" <> name
       derived drive = prefix <> "-" <> fromMaybe (maybe "disk" nrName (tvdiDiskImage drive)) (tvdiDiskName drive) <> if tvdiCloneStrategy drive == StrategyOverlay then "-overlay" else ""
       outputs = concatMap (familyResource . derived) [drive | drive <- tvdDrives details, tvdiCloneStrategy drive /= StrategyDirect]
-  pure $ destination ++ images ++ keys ++ refs ++ outputs
+  pure $ destination ++ images ++ copies ++ keys ++ refs ++ outputs

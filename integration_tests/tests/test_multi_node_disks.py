@@ -176,6 +176,49 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
         finally:
             self._delete_disk(name)
 
+    def test_template_instantiation_copies_base_image_to_target_node(self) -> None:
+        """A template's base image is copied before its VM is created
+        when the image only has a placement on alpha.
+        """
+        disk_name = _uniq("template-base-alpha")
+        template_name = _uniq("template-copy")
+        vm_name = _uniq("template-copy-vm")
+        self.client_alpha.disks.create(
+            disk_name, size=16777216, format="qcow2", node=self.alpha_name
+        )
+        template = None
+        vm = None
+        try:
+            assert self._placement_nodes(disk_name) == {self.alpha_name}
+            template = self.client_alpha.templates.create(
+                textwrap.dedent(f"""
+                    name: {template_name}
+                    cpuCount: 1
+                    ram: 128M
+                    headless: true
+                    drives:
+                      - diskImage: {disk_name}
+                        interface: virtio
+                        strategy: direct
+                """).strip()
+            )
+
+            vm = template.instantiate(vm_name, node=self.beta_name)
+
+            assert vm.show().node.name == self.beta_name
+            assert self._placement_nodes(disk_name) == {
+                self.alpha_name,
+                self.beta_name,
+            }
+            beta_path = self._placement_path_on(disk_name, self.beta_name)
+            assert self._file_exists_on(self.beta_name, beta_path)
+        finally:
+            if vm is not None:
+                self.cleanup_resource(partial(vm.delete, force=True))
+            if template is not None:
+                self.cleanup_resource(template.delete)
+            self._delete_disk(disk_name)
+
     def test_register_with_node_records_placement(self) -> None:
         """`disks.register(..., node='beta')` against a pre-existing
         file on beta records the placement on beta."""
