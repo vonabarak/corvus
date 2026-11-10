@@ -84,6 +84,7 @@ templateInstantiateCommand =
                   <> metavar "NODE"
                   <> value ""
                   <> help "Name or ID of the node to place the instantiated VM on (optional; daemon picks via the scheduler when omitted)"
+                  <> completer nodeCompleter
               )
         )
 
