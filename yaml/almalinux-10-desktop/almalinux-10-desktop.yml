@@ -7,9 +7,10 @@ vars:
 pipeline:
   - upload:
       name: almalinux-10-kickstart
+      path: almalinux-10-desktop-installer/
       from: ./build/kickstart.iso
       format: raw
-      ephemeral: false
+      ephemeral: true
       ifExists: "{{ image_if_exists }}"
 
   - apply:

@@ -55,9 +55,10 @@ pipeline:
   # otherwise ordinary template media.
   - upload:
       name: windows-11-autounattend
+      path: windows-11-installer/
       from: ./build/autounattend.iso
       format: raw
-      ephemeral: false
+      ephemeral: true
       ifExists: "{{ image_if_exists }}"
 
   - apply:
