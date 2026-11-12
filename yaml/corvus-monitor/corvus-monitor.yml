@@ -30,6 +30,7 @@ pipeline:
       template: debian12
 
       target:
+        path: corvus-monitor/
         ifExists: "{{ image_if_exists }}"
         compact: true
         ephemeral: true
@@ -176,6 +177,7 @@ pipeline:
       disks:
         # Preserve writable boot variables when the firmware source is updated.
         - name: corvus-monitor-ovmf-vars
+          path: corvus-monitor/
           ifExists: skip
           clone: ovmf-vars
           ephemeral: true

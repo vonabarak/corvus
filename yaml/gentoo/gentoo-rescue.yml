@@ -1,0 +1,101 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+vars:
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: 'true'
+  GETBINPKG: 'true'
+  portage_keyserver: hkps://keys.gentoo.org
+pipeline:
+- build:
+    name: gentoo-rescue
+    description: 'Gentoo rescue USB disk: stable packages, generic hardware kernel, volatile root'
+    template: gentoo-glibc-systemd-builder-cloudinit-bake
+    strategy: from-scratch
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: raw
+      size: 12G
+      path: BaseImages/Gentoo/
+      compact: false
+    vm:
+      cpuCount: 8
+      ram: 8G
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
+        IMAGE_LIBC: glibc
+        IMAGE_INIT: systemd
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+    provisioners:
+    - file:
+        from: ./scripts/images/gentoo-rescue/build.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/build.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/lib.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/lib.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/images/gentoo-rescue/kernel.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/kernel.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/home.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/home.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/lib/disk.sh
+        to: /usr/local/lib/corvus-build/lib/disk.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/environment.sh
+        to: /usr/local/lib/corvus-build/lib/environment.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/image.sh
+        to: /usr/local/lib/corvus-build/lib/image.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/mounts.sh
+        to: /usr/local/lib/corvus-build/lib/mounts.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/lib/portage.sh
+        to: /usr/local/lib/corvus-build/lib/portage.sh
+        mode: '0644'
+    - file:
+        from: ./scripts/stages/glibc/install-root.sh
+        to: /usr/local/lib/corvus-build/stages/glibc/install-root.sh
+        mode: '0755'
+    - shell:
+        inline: /bin/bash /usr/local/lib/corvus-build/images/gentoo-rescue/build.sh
+        timeoutSec: 28800
+    cleanup: onSuccess
+- apply:
+    templates:
+    - name: gentoo-rescue
+      cpuCount: 2
+      ram: 4G
+      cloudInit: false
+      guestAgent: false
+      headless: false
+      description: Gentoo rescue
+      drives:
+      - diskImage: gentoo-rescue
+        interface: scsi
+        strategy: overlay
+        size: 12G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus

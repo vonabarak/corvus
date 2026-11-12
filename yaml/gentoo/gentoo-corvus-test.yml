@@ -17,6 +17,7 @@ pipeline:
         cpuCount: 8
         ram: 16G
       target:
+        path: gentoo-corvus-test/
         ifExists: '{{ image_if_exists }}'
         compact: true
         ephemeral: true

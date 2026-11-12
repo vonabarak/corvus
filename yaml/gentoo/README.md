@@ -9,7 +9,7 @@ is installed. Headless describes the guest; builder describes a reusable
 compilation host. Use the primary output's full name for the YAML filename.
 Keep a runtime and its cloud-init variant in the same recipe.
 
-The purpose-specific names `gentoo-corvus-test`, `corvus-test-node`, and
+The purpose-specific names `gentoo-rescue`, `gentoo-corvus-test`, `corvus-test-node`, and
 `corvus-test-vm` are exceptions. Their recipe filenames match their names.
 Templates use the image name, adding `-bootstrap`, `-bake`, or `-uefi` for
 that template's purpose. Do not add compatibility aliases for renamed images.
@@ -35,6 +35,7 @@ point, such as `scripts/images/corvus-test-node/systemd/`.
 | gentoo-glibc-systemd-headless-cloudinit | gentoo-glibc-systemd-headless-cloudinit/build.sh | build-cloud-init.sh |
 | gentoo-musl-openrc-headless | gentoo-musl-openrc-headless/build.sh | build-runtime.sh |
 | gentoo-musl-openrc-headless-cloudinit | gentoo-musl-openrc-headless-cloudinit/build.sh | build-cloud-init.sh |
+| gentoo-rescue | gentoo-rescue/build.sh | none |
 | gentoo-corvus-test | gentoo-corvus-test/build.sh | none |
 | corvus-test-node | corvus-test-node/build.sh | none |
 | corvus-test-vm | corvus-test-vm/build.sh | none |

@@ -1,7 +1,7 @@
 # Select a complete recipe, including its cloud-init variants and templates.
 .DEFAULT_GOAL := all
 IMAGE ?= gentoo-corvus-test
-IMAGES := gentoo-glibc-systemd-upstream-cloudinit gentoo-glibc-systemd-builder-cloudinit gentoo-musl-openrc-builder gentoo-glibc-systemd-headless gentoo-musl-openrc-headless gentoo-corvus-test corvus-test-node corvus-test-vm
+IMAGES := gentoo-rescue gentoo-glibc-systemd-upstream-cloudinit gentoo-glibc-systemd-builder-cloudinit gentoo-musl-openrc-builder gentoo-glibc-systemd-headless gentoo-musl-openrc-headless gentoo-corvus-test corvus-test-node corvus-test-vm
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
@@ -12,6 +12,7 @@ endif
 PIPELINE_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-cloudinit.yml
 PIPELINE_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless.yml
 PIPELINE_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless.yml
+PIPELINE_gentoo-rescue := gentoo-rescue.yml
 PIPELINE_gentoo-corvus-test := gentoo-corvus-test.yml
 PIPELINE_corvus-test-vm := corvus-test-vm.yml
 PIPELINE_corvus-test-node := corvus-test-node.yml
@@ -21,6 +22,7 @@ DISKS_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-clo
 DISKS_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit
 DISKS_gentoo-musl-openrc-builder := gentoo-musl-openrc-builder
 DISKS_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless gentoo-musl-openrc-headless-cloudinit
+DISKS_gentoo-rescue := gentoo-rescue
 DISKS_gentoo-corvus-test := gentoo-corvus-test
 DISKS_corvus-test-vm := corvus-test-vm
 DISKS_corvus-test-node := corvus-test-node
@@ -29,12 +31,14 @@ TEMPLATES_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder
 TEMPLATES_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit gentoo-glibc-systemd-headless-uefi gentoo-glibc-systemd-headless-cloudinit-uefi
 TEMPLATES_gentoo-musl-openrc-builder := gentoo-musl-openrc-builder-bake
 TEMPLATES_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless gentoo-musl-openrc-headless-cloudinit gentoo-musl-openrc-headless-uefi gentoo-musl-openrc-headless-cloudinit-uefi
+TEMPLATES_gentoo-rescue := gentoo-rescue gentoo-rescue-uefi
 TEMPLATES_corvus-test-node := corvus-test-node
 
 PARENT_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-upstream-cloudinit
 PARENT_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-builder-cloudinit
 PARENT_gentoo-musl-openrc-builder := gentoo-glibc-systemd-builder-cloudinit
 PARENT_gentoo-musl-openrc-headless := gentoo-musl-openrc-builder
+PARENT_gentoo-rescue := gentoo-glibc-systemd-builder-cloudinit
 PARENT_gentoo-corvus-test := gentoo-glibc-systemd-headless
 PARENT_corvus-test-vm := gentoo-musl-openrc-builder
 PARENT_corvus-test-node := gentoo-glibc-systemd-headless
@@ -49,6 +53,10 @@ USEPKG ?= true
 GETBINPKG ?= true
 export USEPKG GETBINPKG
 BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)" --var USEPKG="$(USEPKG)" --var GETBINPKG="$(GETBINPKG)"
+ifeq ($(IMAGE),gentoo-rescue)
+GENTOO_KEYSERVER ?= hkps://keys.gentoo.org
+BUILD_ARGS += --var portage_keyserver="$(GENTOO_KEYSERVER)"
+endif
 BUILD_DEPENDENCIES := build-dependencies
 
 # The key is a local input, not an image dependency; generate it before publication.
@@ -136,3 +144,8 @@ latest-sha256:
 	@file=$$( $(LATEST_FILE_SH) ); \
 	if [ -z "$$file" ]; then exit 1; fi; \
 	$(LATEST_SHA256_SH)
+
+.PHONY: test
+test:
+	bash tests/rescue-home.sh
+	find scripts -name '*.sh' -exec bash -n {} \;
