@@ -1,6 +1,27 @@
 #!/bin/bash
 # Rescue-only build functions; sourcing does not change state.
 
+# emerge-webrsync invokes gemato directly and does not honor repos.conf's WKD
+# policy. Keep signature verification and refresh, using the selected HKPS host.
+rescue_sync_repository() (
+    set -eu
+    local tools
+    tools=$(mktemp -d /run/rescue-sync.XXXXXX)
+    trap 'rm -rf "$tools"' EXIT
+    RESCUE_GEMATO=$(command -v gemato)
+    export RESCUE_GEMATO
+    export PORTAGE_KEYSERVER=${PORTAGE_KEYSERVER:-hkps://keys.gentoo.org}
+    cat > "$tools/gemato" <<'SCRIPT'
+#!/bin/sh
+operation=$1
+shift
+exec "$RESCUE_GEMATO" "$operation" --no-wkd --keyserver "$PORTAGE_KEYSERVER" "$@"
+SCRIPT
+    chmod 0755 "$tools/gemato"
+    export PATH="$tools:$PATH"
+    portage_sync_repository
+)
+
 rescue_configure_portage() {
     # ROOT installations resolve against the build host's configuration.
     # This is a disposable bake VM, so remove inherited local keyword exceptions.
@@ -22,6 +43,7 @@ sys-kernel/gentoo-kernel-bin -initramfs
 sys-kernel/linux-firmware -savedconfig
 sys-kernel/installkernel -dracut -grub -systemd
 sys-kernel/dracut systemd
+sys-fs/squashfs-tools zstd xattr
 sys-fs/lvm2 lvm -systemd -udev
 CONF
 }
@@ -38,14 +60,12 @@ rescue_partition() {
     sgdisk --zap-all "$TARGET_DISK"
     sgdisk -n 1:0:+1M -t 1:ef02 -c 1:bios "$TARGET_DISK"
     sgdisk -n 2:0:+64M -t 2:ef00 -c 2:efi "$TARGET_DISK"
-    sgdisk -n 3:0:+8G -t 3:8300 -c 3:rescue-system "$TARGET_DISK"
-    sgdisk -n 4:0:0 -t 4:8300 -c 4:rescue-home "$TARGET_DISK"
+    sgdisk -n 3:0:0 -t 3:8300 -c 3:rescue-data "$TARGET_DISK"
     partprobe "$TARGET_DISK"
     udevadm settle --timeout=30
-    test -b "${TARGET_DISK}4"
+    test -b "${TARGET_DISK}3"
     mkfs.vfat -F32 -n RESCUE-EFI "${TARGET_DISK}2"
-    mkfs.ext4 -F -L rescue-system "${TARGET_DISK}3"
-    mkfs.ext4 -F -m 0 -L rescue-home "${TARGET_DISK}4"
+    mkfs.ext4 -F -m 0 -L rescue-data "${TARGET_DISK}3"
 }
 
 rescue_install_packages() {
@@ -56,6 +76,8 @@ rescue_install_packages() {
         sys-kernel/gentoo-kernel-bin \
         sys-kernel/linux-firmware \
         sys-kernel/dracut \
+        sys-fs/squashfs-tools \
+        sys-fs/growpart \
         sys-fs/e2fsprogs \
         sys-fs/btrfs-progs \
         sys-fs/xfsprogs \
@@ -106,8 +128,8 @@ rescue_configure_system_defaults() {
     install -d "$IMAGE_ROOT/root" "$IMAGE_ROOT/usr/local/sbin" "$IMAGE_ROOT/etc/systemd/system" \
         "$IMAGE_ROOT/etc/systemd/network" "$IMAGE_ROOT/etc/dracut.conf.d"
     chmod 0700 "$IMAGE_ROOT/root"
-    # The root overlay is already established by the initramfs. Never remount
-    # the ext4 lower layer, check it, or automatically mount the ESP/home.
+    # The initramfs establishes the squashfs lower layer and volatile overlay.
+    # Storage and home are managed explicitly; never mount unrelated disks.
     : > "$IMAGE_ROOT/etc/fstab"
     : > "$IMAGE_ROOT/etc/crypttab"
     echo gentoo-rescue > "$IMAGE_ROOT/etc/hostname"
@@ -133,12 +155,28 @@ rescue_configure_home() {
     local units="$IMAGE_ROOT/etc/systemd/system"
     install -m 0755 "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/images/gentoo-rescue/home.sh" \
         "$IMAGE_ROOT/usr/local/sbin/rescue-home"
-    blkid -s UUID -o value "${TARGET_DISK}4" > "$IMAGE_ROOT/etc/rescue-home-uuid"
+    install -m 0755 "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/images/gentoo-rescue/grow.sh" \
+        "$IMAGE_ROOT/usr/local/sbin/rescue-grow"
+    cat > "$units/rescue-grow.service" <<'CONF'
+[Unit]
+Description=Expand the rescue storage partition when space is available
+DefaultDependencies=no
+Before=rescue-home.service
+After=systemd-udev-trigger.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rescue-grow
+TimeoutStartSec=120
+CONF
     cat > "$units/rescue-home.service" <<'CONF'
 [Unit]
 Description=Persistent rescue home with empty RAM fallback
 DefaultDependencies=no
-After=systemd-udev-trigger.service systemd-remount-fs.service
+Wants=rescue-grow.service
+After=systemd-udev-trigger.service systemd-remount-fs.service rescue-grow.service
 Before=local-fs.target systemd-user-sessions.service getty.target
 Conflicts=shutdown.target
 Before=shutdown.target
@@ -213,7 +251,8 @@ rescue_configure_storage_activation() {
 rescue_write_motd() {
     cat > "$IMAGE_ROOT/etc/motd" <<'CONF'
 Gentoo rescue: local root console, volatile system, persistent /root when usable.
-No disks, swap, RAID or LVM are activated automatically. Back up /root before reflashing.
+Only rescue storage is mounted and expanded automatically. Other disks, swap, RAID and LVM require manual activation.
+Update kernel, initramfs and squashfs offline to preserve /root. Back up /root before reflashing.
 Wired DHCP is enabled. Wi-Fi: iw, wpa_supplicant. SSH: ssh-keygen -A; systemctl unmask sshd; systemctl start sshd
 For SSH login, install an authorized key in /root/.ssh/authorized_keys first.
 CONF
@@ -232,15 +271,14 @@ rescue_configure_runtime() {
 }
 
 rescue_write_grub() {
-    local uuid kernel
+    local uuid kernel_root_args kernel_autodetect_args kernel_console_args kernel_args
     uuid=$(blkid -s UUID -o value "${TARGET_DISK}3")
-    kernel=$(cat "$IMAGE_ROOT/etc/rescue-kernel-version")
-    kernel_root_args="root=UUID=$uuid rootfstype=ext4 rootflags=ro,noload ro systemd.volatile=overlay fsck.mode=skip"
+    kernel_root_args="root=rescue:UUID=$uuid ro fsck.mode=skip"
     kernel_autodetect_args="rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0"
     kernel_console_args="vt.color=0x02 console=tty0 console=ttyS0,115200n8"
     kernel_args="$kernel_root_args $kernel_autodetect_args $kernel_console_args"
-    install -d "$IMAGE_ROOT/boot/grub"
-    cat > "$IMAGE_ROOT/boot/grub/grub.cfg" <<CONF
+    install -d "$RESCUE_ESP/grub"
+    cat > "$RESCUE_ESP/grub/grub.cfg" <<CONF
 set timeout=300
 set default=0
 insmod part_gpt
@@ -251,10 +289,41 @@ terminal_input console serial
 terminal_output console serial
 menuentry 'Gentoo rescue' {
     search --no-floppy --fs-uuid --set=root $uuid
-    echo 'Loading kernel $kernel...'
-    linux /boot/vmlinuz-$kernel $kernel_args
+    echo 'Loading kernel...'
+    linux /boot/vmlinuz $kernel_args
     echo 'loading initramfs...'
-    initrd /boot/initramfs-$kernel.img
+    initrd /boot/initramfs.img
 }
 CONF
+}
+
+# Store only the finalized payload on disk; the installed system stays in RAM.
+rescue_pack_system() (
+    set -eu
+    local kernel view
+    kernel=$(cat "$IMAGE_ROOT/etc/rescue-kernel-version")
+    install -d "$RESCUE_MEDIA/boot" "$RESCUE_MEDIA/rescue" "$RESCUE_MEDIA/home/root"
+    chmod 0700 "$RESCUE_MEDIA/home/root"
+    install -m 0644 "$IMAGE_ROOT/boot/vmlinuz-$kernel" "$RESCUE_MEDIA/boot/vmlinuz"
+    install -m 0644 "$IMAGE_ROOT/boot/initramfs-$kernel.img" "$RESCUE_MEDIA/boot/initramfs.img"
+    view=$(mktemp -d /run/rescue-pack.XXXXXX)
+    mounts_initialize
+    trap 'status=$?; set +e; mounts_unmount || status=1; rmdir "$view" || status=1; exit "$status"' EXIT
+    mounts_bind "$IMAGE_ROOT" "$view"
+    # Use the target's stable squashfs tools, with the source mounted into it.
+    mkdir -p "$IMAGE_ROOT/run/rescue-source" "$IMAGE_ROOT/run/rescue-output"
+    mounts_bind "$view" "$IMAGE_ROOT/run/rescue-source"
+    mounts_bind "$RESCUE_MEDIA/rescue" "$IMAGE_ROOT/run/rescue-output"
+    chroot "$IMAGE_ROOT" mksquashfs /run/rescue-source /run/rescue-output/root.squashfs \
+        -noappend -comp zstd -Xcompression-level 15 -b 1M -mem 2G \
+        -wildcards -e 'boot/*' 'dev/*' 'proc/*' 'sys/*' 'run/*' 'tmp/*' 'var/tmp/*'
+    chroot "$IMAGE_ROOT" unsquashfs -s /run/rescue-output/root.squashfs
+    (cd "$RESCUE_MEDIA" && sha256sum boot/vmlinuz boot/initramfs.img rescue/root.squashfs > rescue/SHA256SUMS)
+)
+
+rescue_install_grub() {
+    grub-install --target=i386-pc --boot-directory="$RESCUE_ESP" "$TARGET_DISK"
+    grub-install --target=x86_64-efi --boot-directory="$RESCUE_ESP" \
+        --efi-directory="$RESCUE_ESP" --removable --no-nvram
+    test -f "$RESCUE_ESP/EFI/BOOT/BOOTX64.EFI"
 }

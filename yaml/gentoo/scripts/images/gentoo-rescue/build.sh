@@ -21,20 +21,23 @@ main() {
     printf '[gentoo]\nsync-openpgp-key-refresh = keyserver\nsync-openpgp-keyserver = %s\n' \
         "${PORTAGE_KEYSERVER:-hkps://keys.gentoo.org}" \
         > /etc/portage/repos.conf/rescue-sync.conf
-    portage_sync_repository
+    rescue_sync_repository
     rescue_configure_portage
     rescue_partition
-    mounts_target_disk "$IMAGE_ROOT" "$TARGET_DISK"
+    mounts_mount "$IMAGE_ROOT" -t tmpfs -o size=16G,mode=0755 tmpfs
+    mounts_mount "${RESCUE_MEDIA:?}" "${TARGET_DISK}3"
+    mounts_mount "${RESCUE_ESP:?}" "${TARGET_DISK}2"
+    mounts_target_interfaces "$IMAGE_ROOT"
     # Reuse the native @system bootstrap, never the VM kernel/runtime stages.
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/stages/glibc/install-root.sh"
     rescue_install_packages
     rescue_configure_runtime
     /bin/bash "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/images/gentoo-rescue/kernel.sh"
-    disk_install_grub "$IMAGE_ROOT" "$TARGET_DISK"
-    rescue_write_grub
     image_reset_identity "$IMAGE_ROOT"
     image_finalize "$IMAGE_ROOT" gentoo-rescue
-    # The home filesystem is intentionally empty, including hidden seed files.
+    rescue_pack_system
+    rescue_install_grub
+    rescue_write_grub
     sync
 }
 

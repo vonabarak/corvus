@@ -31,7 +31,7 @@ TEMPLATES_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder
 TEMPLATES_gentoo-glibc-systemd-headless := gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit gentoo-glibc-systemd-headless-uefi gentoo-glibc-systemd-headless-cloudinit-uefi
 TEMPLATES_gentoo-musl-openrc-builder := gentoo-musl-openrc-builder-bake
 TEMPLATES_gentoo-musl-openrc-headless := gentoo-musl-openrc-headless gentoo-musl-openrc-headless-cloudinit gentoo-musl-openrc-headless-uefi gentoo-musl-openrc-headless-cloudinit-uefi
-TEMPLATES_gentoo-rescue := gentoo-rescue gentoo-rescue-uefi
+TEMPLATES_gentoo-rescue := gentoo-rescue-bake gentoo-rescue
 TEMPLATES_corvus-test-node := corvus-test-node
 
 PARENT_gentoo-glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-upstream-cloudinit
@@ -147,5 +147,13 @@ latest-sha256:
 
 .PHONY: test
 test:
-	bash tests/rescue-home.sh
+	bash tests/rescue.sh
 	find scripts -name '*.sh' -exec bash -n {} \;
+
+ifeq ($(IMAGE),gentoo-rescue)
+SOURCE_IMAGE ?=
+OUTPUT_DIR ?= build/gentoo-rescue
+.PHONY: export
+export:
+	bash scripts/images/gentoo-rescue/export.sh "$(SOURCE_IMAGE)" "$(OUTPUT_DIR)"
+endif

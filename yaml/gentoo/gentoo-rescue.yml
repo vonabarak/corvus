@@ -6,20 +6,48 @@ vars:
   GETBINPKG: 'true'
   portage_keyserver: hkps://keys.gentoo.org
 pipeline:
+- apply:
+    templates:
+    - name: gentoo-rescue-bake
+      cpuCount: 8
+      ram: 32G
+      cloudInit: true
+      guestAgent: true
+      startupTimeoutSec: 1200
+      description: Gentoo rescue builder with RAM for the tmpfs staging tree
+      sharedDirs:
+      - path: '{{ cache_dir }}'
+        tag: corvus-cache
+      drives:
+      - diskImage: gentoo-glibc-systemd-builder-cloudinit:latest
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
 - build:
     name: gentoo-rescue
     description: 'Gentoo rescue USB disk: stable packages, generic hardware kernel, volatile root'
-    template: gentoo-glibc-systemd-builder-cloudinit-bake
+    template: gentoo-rescue-bake
     strategy: from-scratch
     target:
       ifExists: '{{ image_if_exists }}'
       format: raw
-      size: 12G
+      size: 2G
       path: BaseImages/Gentoo/
       compact: false
     vm:
       cpuCount: 8
-      ram: 8G
+      ram: 32G
     shellDefaults:
       preamble: set -eux
       env:
@@ -30,6 +58,8 @@ pipeline:
         IMAGE_INIT: systemd
         IMAGE_ROOT: /mnt/sysroot
         TARGET_DISK: /dev/vdb
+        RESCUE_MEDIA: /mnt/rescue-media
+        RESCUE_ESP: /mnt/rescue-esp
         FEATURES: -userfetch -userpriv
     provisioners:
     - file:
@@ -47,6 +77,30 @@ pipeline:
     - file:
         from: ./scripts/images/gentoo-rescue/home.sh
         to: /usr/local/lib/corvus-build/images/gentoo-rescue/home.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/grow.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/grow.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/dracut/module-setup.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/dracut/module-setup.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/dracut/parse-rescue.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/dracut/parse-rescue.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/dracut/generator.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/dracut/generator.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/dracut/prepare-root.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/dracut/prepare-root.sh
+        mode: '0755'
+    - file:
+        from: ./scripts/images/gentoo-rescue/dracut/shutdown.sh
+        to: /usr/local/lib/corvus-build/images/gentoo-rescue/dracut/shutdown.sh
         mode: '0755'
     - file:
         from: ./scripts/lib/disk.sh
@@ -89,7 +143,7 @@ pipeline:
       - diskImage: gentoo-rescue
         interface: scsi
         strategy: overlay
-        size: 12G
+        size: 2G
       - diskImage: ovmf-code
         interface: pflash
         readOnly: true
