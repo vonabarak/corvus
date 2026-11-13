@@ -57,7 +57,7 @@ def test_repository_recipes(validator: Draft7Validator) -> None:
         "vars: {url: null, enabled: true, count: 3, ratio: 1.5}\npipeline: []",
         "_defaults: &defaults {format: qcow2}\npipeline: [{build: {name: x, template: t, target: {<<: *defaults}}}]",
         "pipeline: [{upload: {name: x, from: x.raw, format: RAW, ephemeral: null}}]",
-        "pipeline: [{build: {name: x, template: t, target: {}, vm: {ram: '512M', startupTimeoutSec: 4294967}, cleanup: onSuccess}}]",
+        "pipeline: [{build: {name: x, template: t, target: {}, cleanup: onSuccess}}]",
         "pipeline: [{build: {name: x, template: t, target: {format: '{{ format }}', size: '{{ size }}'}, provisioners: [{shell: 'echo hello'}, {shell: {script: scripts/setup.sh, env: {PORT: '80'}}}, {file: {from: file.txt, to: /tmp/file, mode: '0644'}}, {file: {content: aGk=, to: /tmp/file}}, {wait-for: {ping: true}}, {wait-for: {file: /tmp/ready}}, {wait-for: {port: 80}}, {wait-for: {inline: 'test -f /tmp/ready', interpreter: sh}}, {wait-for: {script: ready.sh}}, {reboot: {}}]}}]",
         "pipeline: [{build: {name: x, template: t, target: {}, provisioners: [{shell: {inline: 'true', script: null}}]}}]",
         "pipeline: [{apply: {ifExists: overwrite, sshKeys: [{name: key, publicKey: 'ssh-ed25519 test'}], disks: [{name: base, size: '1g', checksum: {algorithm: SHA256, value: '{{ checksum }}'}}], networks: [{name: lan, dhcp: true}], vms: [{name: vm, cpuCount: 2, ram: '2G', sshKeys: [key], drives: [{disk: base, interface: virtio}], networkInterfaces: [{network: lan}], sharedDirs: [{path: /tmp, tag: host}], audioDevices: [{backend: pipewire}]}]}}]",

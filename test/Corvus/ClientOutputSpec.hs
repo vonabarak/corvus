@@ -380,7 +380,7 @@ spec = sequential $ do
 
     describe "TemplateVmInfo" $ do
       it "serializes with optional description" $ do
-        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template") False False False False False GraphicsVirtioVga True True True 120
+        let t = TemplateVmInfo 1 "my-template" False 2 1024 (Just "A test template") False False False False False GraphicsVirtioVga True True True 120
             val = toJSON t
         case val of
           Object obj -> do
@@ -389,7 +389,7 @@ spec = sequential $ do
           _ -> fail "Expected JSON object"
 
       it "omits null description under omitNothingFields" $ do
-        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False False False False False GraphicsVirtioVga True True True 120
+        let t = TemplateVmInfo 1 "minimal" False 1 512 Nothing False False False False False GraphicsVirtioVga True True True 120
             val = toJSON t
         case val of
           Object obj ->

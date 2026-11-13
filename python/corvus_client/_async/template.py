@@ -26,9 +26,9 @@ class AsyncTemplateManager:
             self._mgr = (await self._daemon.templates()).mgr
         return self._mgr
 
-    async def list(self) -> list[t.TemplateVmInfo]:
+    async def list(self, *, with_hidden: bool = False) -> list[t.TemplateVmInfo]:
         mgr = await self._ensure()
-        resp = await mgr.list()
+        resp = await mgr.list(withHidden=with_hidden)
         return [conv.template_vm_info(t) for t in resp.templates]
 
     async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncTemplate:

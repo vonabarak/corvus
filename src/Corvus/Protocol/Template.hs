@@ -31,6 +31,7 @@ import GHC.Generics (Generic)
 data TemplateVmInfo = TemplateVmInfo
   { tviId :: !Int64
   , tviName :: !Text
+  , tviHidden :: !Bool
   , tviCpuCount :: !Int
   , tviRam :: !Int64
   , tviDescription :: !(Maybe Text)
@@ -108,6 +109,7 @@ data TemplateAudioDeviceInfo = TemplateAudioDeviceInfo
 data TemplateDetails = TemplateDetails
   { tvdId :: !Int64
   , tvdName :: !Text
+  , tvdHidden :: !Bool
   , tvdCpuCount :: !Int
   , tvdRam :: !Int64
   , tvdDescription :: !(Maybe Text)

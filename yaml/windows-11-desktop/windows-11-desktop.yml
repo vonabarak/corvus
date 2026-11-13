@@ -48,10 +48,6 @@ pipeline:
       compact: true
       path: BaseImages/Windows11/
     strategy: overlay
-    vm:
-      cpuCount: 4
-      ram: 8G
-      startupTimeoutSec: 900
     shellDefaults:
       preamble: '$ErrorActionPreference = ''Stop''
 

@@ -6,7 +6,6 @@
 -- and instantiates the template into a bake VM with cleanup tracking.
 module Corvus.Handlers.Build.Template
   ( resolveTemplateAndValidate
-  , configureBakeTemplate
   , instantiateBakeVm
   , setupTargetDisk
   , sanitizeNameFragment
@@ -27,7 +26,7 @@ import Corvus.Handlers.Disk.Path (resolveDiskPath)
 import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Schema.Build (Build (..), BuildStrategy (..), BuildTarget (..), BuildVm (..), btFormat, btSize)
+import Corvus.Schema.Build (Build (..), BuildStrategy (..), BuildTarget (..), btFormat, btSize)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -45,16 +44,6 @@ resolveTemplateAndValidate b = pure $ case buildResolvedTemplate b of
     | buildStrategy b /= BuildStrategyInstaller && not (tvdGuestAgent details) ->
         Left ("template '" <> buildTemplate b <> "' must have guestAgent: true")
     | otherwise -> Right (tvdId details)
-
--- | Apply build resources before placement and instantiation, preserving the
--- template's startup timeout unless the recipe explicitly overrides it.
-configureBakeTemplate :: BuildVm -> TemplateDetails -> TemplateDetails
-configureBakeTemplate vm details =
-  details
-    { tvdCpuCount = bvmCpuCount vm
-    , tvdRam = bvmRam vm
-    , tvdStartupTimeoutSec = fromMaybe (tvdStartupTimeoutSec details) (bvmStartupTimeoutSec vm)
-    }
 
 -- | Instantiate the template into a bake VM and register
 -- its cleanup destructor immediately so a later failure tears it down.

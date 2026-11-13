@@ -44,7 +44,9 @@ import System.Timeout (timeout)
 import Test.Hspec
 
 spec :: Spec
-spec = describe "QEMU startup failures" $ do
+-- stderr capture changes the process-wide handle, so these examples must not
+-- overlap other specs that capture CLI output.
+spec = sequential $ describe "QEMU startup failures" $ do
   it "waits for an invalidated unpublished start to finish cleanup" $ do
     ledger <- L.newVmLedger
     _ <- atomically $ L.admitVmStart ledger 7 1 1

@@ -112,3 +112,28 @@ def test_floating_tags_and_pinned_ids(daemon_socket: Path) -> None:
             await old.delete()
 
     run(go)
+
+
+def test_hidden_templates(daemon_socket: Path) -> None:
+    run = with_client(daemon_socket)
+
+    async def go(c: AsyncClient) -> None:
+        tpl = await c.templates.create(TEMPLATE_YAML + "hidden: true\n")
+        details = await tpl.show()
+        assert details.hidden is True
+        assert all(t.id != details.id for t in await c.templates.list())
+        included = await c.templates.list(with_hidden=True)
+        assert any(t.id == details.id and t.hidden for t in included)
+        direct = await c.templates.get("py-tpl")
+        assert (await direct.show()).hidden
+        vm = await direct.instantiate("hidden-template-vm")
+        assert (await vm.show()).cpu_count == details.cpu_count
+        await vm.delete()
+        await tpl.update(TEMPLATE_YAML)
+        tpl = await c.templates.get("py-tpl")
+        updated = await tpl.show()
+        assert not updated.hidden
+        assert any(t.id == updated.id for t in await c.templates.list())
+        await tpl.delete()
+
+    run(go)

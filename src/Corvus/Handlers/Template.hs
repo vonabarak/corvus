@@ -138,9 +138,9 @@ handleTemplateUpdate state oldTidLong yamlContent = runServerLogging state $ do
               logInfoN $ "Updated template with ID: " <> T.pack (show $ fromSqlKey newTid)
               pure $ RespTemplateUpdated (fromSqlKey newTid)
 
-handleTemplateList :: ServerState -> IO Response
-handleTemplateList state = do
-  templates <- runSqlPool (selectList [] [Asc TemplateVmName]) (ssDbPool state)
+handleTemplateList :: ServerState -> Bool -> IO Response
+handleTemplateList state withHidden = do
+  templates <- runSqlPool (selectList [TemplateVmHidden ==. False | not withHidden] [Asc TemplateVmName]) (ssDbPool state)
   let infoList = map toTemplateInfo templates
   pure $ RespTemplateList infoList
   where
@@ -148,6 +148,7 @@ handleTemplateList state = do
       TemplateVmInfo
         { tviId = fromSqlKey tid
         , tviName = templateVmName t
+        , tviHidden = templateVmHidden t
         , tviCpuCount = templateVmCpuCount t
         , tviRam = templateVmRam t
         , tviDescription = templateVmDescription t
@@ -318,7 +319,7 @@ insertTemplateYaml ty now = do
 
       case (sequence mDiskIds, sequence mKeyIds) of
         (Right diskIds, Right keyIds) -> do
-          mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty) (tyStartupTimeoutSec ty)
+          mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRam ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyTpm ty) (tyAutostart ty) (tyRebootQuirk ty) now (tyGraphicsAdapter ty) (tyVsock ty) (tyBalloon ty) (tyRng ty) (tyStartupTimeoutSec ty) (tyHidden ty)
           case mTid of
             Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
             Just tid -> do
@@ -509,6 +510,7 @@ getTemplateDetails tid = do
           TemplateDetails
             { tvdId = fromSqlKey tid
             , tvdName = templateVmName t
+            , tvdHidden = templateVmHidden t
             , tvdCpuCount = templateVmCpuCount t
             , tvdRam = templateVmRam t
             , tvdDescription = templateVmDescription t

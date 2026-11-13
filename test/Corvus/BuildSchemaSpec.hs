@@ -183,8 +183,6 @@ spec = describe "Schema.Build" $ do
           btIfExists (buildTarget b) `shouldBe` IfExistsUpdate
           buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
-          bvmCpuCount (buildVm b) `shouldBe` 4
-          bvmRam (buildVm b) `shouldBe` 4294967296
           buildBootKeys b `shouldBe` []
           buildWaitForShutdownSec b `shouldBe` 3600
         Left e -> expectationFailure e

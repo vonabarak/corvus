@@ -110,6 +110,7 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
     web UI behave identically to ``crv template show -o yaml``."""
     doc: JsonObject = {
         "name": t.name,
+        "hidden": t.hidden,
         "cpuCount": t.cpu_count,
         "ram": format_size(t.ram),
         "headless": t.headless,
@@ -144,8 +145,10 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
 
 
 @router.get("")
-async def list_templates(client: ClientDep) -> list[JsonObject]:
-    return [to_dict(t) for t in await client.templates.list()]
+async def list_templates(
+    client: ClientDep, with_hidden: bool = False
+) -> list[JsonObject]:
+    return [to_dict(t) for t in await client.templates.list(with_hidden=with_hidden)]
 
 
 @router.get("/{template_id}")

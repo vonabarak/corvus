@@ -478,6 +478,7 @@ class TemplateVmInfo:
     vsock: bool = True
     balloon: bool = True
     rng: bool = True
+    hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -549,6 +550,8 @@ class TemplateDetails:
     vsock: bool = True
     balloon: bool = True
     rng: bool = True
+
+    hidden: bool = False
 
 
 # ---------------------------------------------------------------------------

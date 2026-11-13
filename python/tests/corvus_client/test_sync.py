@@ -137,3 +137,20 @@ def test_sync_balloon_validation(daemon_socket: Path) -> None:
         assert (vm.show()).ram == 268435456
         c.ping()
         vm.delete()
+
+
+def test_sync_hidden_templates(daemon_socket: Path) -> None:
+    with Client(unix_socket=str(daemon_socket)) as c:
+        tpl = c.templates.create(
+            "name: sync-hidden\ncpuCount: 1\nram: 256M\nhidden: true\ndrives: []\n"
+        )
+        try:
+            details = tpl.show()
+            assert details.hidden
+            assert all(t.id != details.id for t in c.templates.list())
+            assert any(
+                t.id == details.id and t.hidden
+                for t in c.templates.list(with_hidden=True)
+            )
+        finally:
+            tpl.delete()

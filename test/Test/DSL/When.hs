@@ -471,7 +471,7 @@ whenTemplateDelete :: Int64 -> TestM Response
 whenTemplateDelete tplId = withState (\st -> runAction st "alice" (TemplateDelete tplId))
 
 whenTemplateList :: TestM Response
-whenTemplateList = withState handleTemplateList
+whenTemplateList = withState (`handleTemplateList` False)
 
 whenTemplateShow :: Int64 -> TestM Response
 whenTemplateShow tplId = withState (`handleTemplateShow` tplId)

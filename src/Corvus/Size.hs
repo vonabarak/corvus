@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Exact binary sizes. Stored and machine-readable values are always bytes.
-module Corvus.Size (parseBytes, parseRam, formatSize, sizeField, optionalSizeField, defaultSizeField, rejectLegacySizes, validateRam) where
+module Corvus.Size (parseBytes, parseRam, formatSize, sizeField, optionalSizeField, rejectLegacySizes, validateRam) where
 
 import Control.Monad (when)
 import Data.Aeson (Object, Value, withText, (.:), (.:?))
@@ -10,7 +10,6 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Parser)
 import Data.Char (isDigit, toUpper)
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -62,6 +61,3 @@ optionalSizeField o key = do
   rejectLegacySizes o
   value <- o .:? K.fromText key
   traverse (parseSizeValue key) value
-
-defaultSizeField :: Object -> Text -> Int64 -> Parser Int64
-defaultSizeField o key fallback = fromMaybe fallback <$> optionalSizeField o key

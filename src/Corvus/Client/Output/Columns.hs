@@ -175,6 +175,7 @@ templateVmColumns =
   , Column "CPUS" RightAlign (show . tviCpuCount)
   , Column "RAM" RightAlign (formatHumanSize . tviRam)
   , Column "TPM" LeftAlign (formatBool . tviTpm)
+  , ExtraColumn "HIDDEN" LeftAlign (formatBool . tviHidden)
   , ExtraColumn "DESCRIPTION" LeftAlign (maybe "-" textOrDash . tviDescription)
   , ExtraColumn "HEADLESS" LeftAlign (formatBool . tviHeadless)
   , ExtraColumn "GUEST_AGENT" LeftAlign (formatBool . tviGuestAgent)

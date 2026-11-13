@@ -18,9 +18,6 @@ pipeline:
       size: 1G
       path: BaseImages/Gentoo/
       compact: true
-    vm:
-      cpuCount: 8
-      ram: 8G
     shellDefaults:
       preamble: set -eux
       env:

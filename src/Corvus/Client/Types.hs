@@ -258,7 +258,7 @@ data Command
   | -- | Delete template (templateRef)
     TemplateDelete !Text
   | -- | List all templates
-    TemplateList
+    TemplateList Bool
   | -- | Show template details (templateRef)
     TemplateShow !Text
   | -- | Instantiate a template (templateRef, new vm name)

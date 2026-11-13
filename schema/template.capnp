@@ -25,6 +25,7 @@ struct TemplateVmInfo {
   balloon         @12 :Bool = true;
   rng             @13 :Bool = true;
   startupTimeoutSec @14 :UInt32 = 120;
+  hidden @15 :Bool = false;
 }
 
 struct TemplateDriveInfo {
@@ -104,6 +105,7 @@ struct TemplateDetails {
   balloon         @20 :Bool = true;
   rng             @21 :Bool = true;
   startupTimeoutSec @22 :UInt32 = 120;
+  hidden @23 :Bool = false;
 }
 
 # ---------------------------------------------------------------------
@@ -111,7 +113,7 @@ struct TemplateDetails {
 # ---------------------------------------------------------------------
 
 interface TemplateManager {
-  list   @0 () -> (templates :List(TemplateVmInfo));
+  list   @0 (withHidden :Bool = false) -> (templates :List(TemplateVmInfo));
   get    @1 (ref :Common.EntityRef) -> (template :Template);
   create @2 (yaml :Text) -> (template :Template);
 }

@@ -13,9 +13,9 @@
 module Corvus.TemplateSpec (spec) where
 
 import Corvus.Action (runAction)
-import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..), getTemplateDetails)
+import Corvus.Handlers.Template (TemplateInstantiate (..), TemplateInstantiateResolved (..), getTemplateDetails, handleTemplateList)
 import qualified Corvus.Model as M
-import Corvus.Protocol (CloudInitInfo (..), SshKeyInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), VmDetails (..))
+import Corvus.Protocol (CloudInitInfo (..), SshKeyInfo (..), TemplateAudioDeviceInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..), VmDetails (..))
 import qualified Data.Text as T
 import Database.Persist (Filter, count)
 import qualified Database.Persist as P
@@ -101,6 +101,28 @@ spec = sequential $ withTestDb $ do
       _ <- when_ whenTemplateList
       then_ $ responseIs $ \case
         RespTemplateList [] -> True
+        _ -> False
+
+  describe "hidden templates" $ do
+    testCase "filters lists while allowing direct access and instantiation" $ do
+      _ <- whenTemplateCreate (minimalYaml "visible")
+      _ <- whenTemplateCreate (minimalYaml "hidden" <> "hidden: true\n")
+      _ <- whenTemplateList
+      responseIs $ \case
+        RespTemplateList [t] -> tviName t == "visible" && not (tviHidden t)
+        _ -> False
+      _ <- withState (`handleTemplateList` True)
+      responseIs $ \case
+        RespTemplateList [hidden, visible] -> tviHidden hidden && not (tviHidden visible)
+        _ -> False
+      _ <- whenTemplateShow 2
+      responseIs $ \case
+        RespTemplateInfo t -> tvdHidden t
+        _ -> False
+      _ <- whenTemplateInstantiate 2 "from-hidden"
+      _ <- vmShow 1
+      responseIs $ \case
+        RespVmDetails v -> vdCpuCount v == 2 && vdRam v == 1073741824
         _ -> False
 
   describe "SSH keys without cloud-init" $ do

@@ -120,9 +120,9 @@ handleTemplateDelete fmt conn tid = do
       pure False
 
 -- | Handle template list command
-handleTemplateList :: OutputFormat -> TableOpts -> CapnpConnection -> IO Bool
-handleTemplateList fmt tableOpts conn = do
-  r <- try @SomeException (CR.rpcTemplateList conn)
+handleTemplateList :: OutputFormat -> TableOpts -> Bool -> CapnpConnection -> IO Bool
+handleTemplateList fmt tableOpts withHidden conn = do
+  r <- try @SomeException (CR.rpcTemplateList withHidden conn)
   case r of
     Right templates -> do
       emitListResult fmt tableOpts templateVmColumns "No templates found." templates
@@ -177,6 +177,7 @@ printTemplateDetails :: TemplateDetails -> IO ()
 printTemplateDetails t = do
   printField "Template ID" (show (tvdId t))
   printField "Name" (T.unpack (tvdName t))
+  printField "Hidden" (formatBool (tvdHidden t))
   printField "CPUs" (show (tvdCpuCount t))
   printField "RAM" (formatHumanSize (tvdRam t))
   printField "Created At" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (tvdCreatedAt t))

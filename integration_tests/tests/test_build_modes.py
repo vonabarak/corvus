@@ -38,6 +38,7 @@ pytestmark = pytest.mark.timeout(1800)
 
 _BAKE_TEMPLATE = textwrap.dedent("""
     name: {tpl_name}
+    hidden: true
     cpuCount: 2
     ram: 1024M
     headless: true
@@ -109,9 +110,6 @@ class TestBuildModes(SingleNodeCase):
                     ifExists: error
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 1
-                    ram: 512M
                   provisioners:
                     - shell: "true"
                   cleanup: always
@@ -175,9 +173,6 @@ class TestBuildModes(SingleNodeCase):
                         ifExists: overwrite
                         format: qcow2
                         size: 1G
-                      vm:
-                        cpuCount: 1
-                        ram: 512M
                       provisioners:
                         - shell: "true"
                       cleanup: always
@@ -238,9 +233,6 @@ class TestBuildModes(SingleNodeCase):
                     ifExists: overwrite
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 2
-                    ram: 1024M
                   provisioners:
                     - shell: "true"
                   cleanup: always
@@ -292,9 +284,6 @@ class TestBuildModes(SingleNodeCase):
                   target:
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 2
-                    ram: 1024M
                   provisioners:
                     - shell: "exit 7"
                   cleanup: onSuccess
@@ -343,9 +332,6 @@ class TestBuildModes(SingleNodeCase):
                   target:
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 2
-                    ram: 1024M
                   provisioners:
                     - shell: "exit 7"
                   cleanup: never
@@ -357,6 +343,11 @@ class TestBuildModes(SingleNodeCase):
             assert bo.error_message, bo
             vm_names = [v.name for v in self.client.vms.list()]
             assert any(n.startswith("__build_") for n in vm_names), vm_names
+            assert all(t.name != tpl_name for t in self.client.templates.list())
+            bake_name = next(n for n in vm_names if n.startswith("__build_"))
+            bake = self.client.vms.get(bake_name).show()
+            assert bake.cpu_count == 2
+            assert bake.ram == 1073741824
         finally:
             _drop_build_orphans(self.client)
             tpl.delete()
@@ -410,9 +401,6 @@ class TestBuildModes(SingleNodeCase):
                     ifExists: skip
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 1
-                    ram: 512M
                   provisioners:
                     - shell: "echo SHOULD NOT RUN; exit 1"
                   cleanup: always

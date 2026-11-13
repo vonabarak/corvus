@@ -18,8 +18,8 @@ class SyncTemplateManager:
         self._a = async_mgr
         self._rl = runloop
 
-    def list(self) -> list[t.TemplateVmInfo]:
-        return self._rl.run(self._a.list())
+    def list(self, *, with_hidden: bool = False) -> list[t.TemplateVmInfo]:
+        return self._rl.run(self._a.list(with_hidden=with_hidden))
 
     def get(self, ref: int | str, *, by_name: bool = False) -> SyncTemplate:
         return SyncTemplate(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)

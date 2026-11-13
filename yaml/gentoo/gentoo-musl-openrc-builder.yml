@@ -20,9 +20,6 @@ pipeline:
       size: 40G
       path: BaseImages/Gentoo/
       compact: true
-    vm:
-      cpuCount: 8
-      ram: 8G
     shellDefaults:
       preamble: set -eux
       env:
@@ -80,6 +77,7 @@ pipeline:
 - apply:
     templates:
     - name: gentoo-musl-openrc-builder-bake
+      hidden: true
       description: Native musl/OpenRC host with Portage, compiler and disk tools
       cpuCount: 8
       ram: 16G

@@ -39,7 +39,7 @@ buildInputIdentity b publicKeys =
           Object $
             KM.insert "ssh_keys" (toJSON (L.sort publicKeys)) $
               KM.mapWithKey normalizeChild $
-                foldr KM.delete fields ["id", "name", "description", "created_at"]
+                foldr KM.delete fields ["id", "name", "description", "created_at", "hidden"]
         value -> value
       normalizeChild "drives" (Array drives) = Array (V.map normalizeDrive drives)
       normalizeChild "shared_dirs" (Array dirs) = Array (V.map (without ["id"]) dirs)
@@ -81,7 +81,6 @@ envelopeValue b =
          , ("resolvedTemplate", toJSON (buildResolvedTemplate b))
          , ("target", targetValue (buildStrategy b) (buildTarget b))
          , ("strategy", String (strategyText (buildStrategy b)))
-         , ("vm", buildVmValue (buildVm b))
          , ("shellDefaults", shellDefaultsValue (buildShellDefaults b))
          , ("bootKeys", Array (V.fromList (map bootKeyValue (buildBootKeys b))))
          ]
@@ -109,14 +108,6 @@ targetValue strategy t =
            , ("size", if strategy == BuildStrategyOfflineOverlay then maybe Null intValue (btSize t) else intValue (fromMaybe 10737418240 (btSize t)))
            ]
     )
-
-buildVmValue :: BuildVm -> Value
-buildVmValue v =
-  obj
-    [ ("cpuCount", intValue (bvmCpuCount v))
-    , ("ram", intValue (bvmRam v))
-    , ("startupTimeoutSec", maybe Null intValue (bvmStartupTimeoutSec v))
-    ]
 
 shellDefaultsValue :: ShellDefaults -> Value
 shellDefaultsValue sd =

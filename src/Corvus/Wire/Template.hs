@@ -87,6 +87,7 @@ toCapnpTemplateVmInfo P.TemplateVmInfo {..} =
   CGT.TemplateVmInfo
     { CGT.id = tviId
     , CGT.name = tviName
+    , CGT.hidden = tviHidden
     , CGT.cpuCount = fromIntegral tviCpuCount
     , CGT.ram = fromIntegral tviRam
     , CGT.description = fromMaybe mempty tviDescription
@@ -109,6 +110,7 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} = do
     P.TemplateVmInfo
       { P.tviId = id
       , P.tviName = name
+      , P.tviHidden = hidden
       , P.tviCpuCount = fromIntegral cpuCount
       , P.tviRam = fromIntegral ram
       , P.tviDescription = if description == mempty then Nothing else Just description
@@ -256,6 +258,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
   CGT.TemplateDetails
     { CGT.id = tvdId
     , CGT.name = tvdName
+    , CGT.hidden = tvdHidden
     , CGT.cpuCount = fromIntegral tvdCpuCount
     , CGT.ram = fromIntegral tvdRam
     , CGT.description = fromMaybe mempty tvdDescription
@@ -295,6 +298,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
     P.TemplateDetails
       { P.tvdId = id
       , P.tvdName = name
+      , P.tvdHidden = hidden
       , P.tvdCpuCount = fromIntegral cpuCount
       , P.tvdRam = fromIntegral ram
       , P.tvdDescription = if description == mempty then Nothing else Just description

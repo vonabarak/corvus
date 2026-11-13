@@ -269,9 +269,6 @@ else:
                     format: qcow2
                     size: 2G
                     compact: true
-                  vm:
-                    cpuCount: 2
-                    ram: 1024M
                   provisioners:
                     - shell: |
                         set -eux
@@ -368,9 +365,6 @@ else:
                   target:
                     format: qcow2
                     size: 2G
-                  vm:
-                    cpuCount: 2
-                    ram: 1024M
                   provisioners:
                     - shell: "exit 7"
                   cleanup: always
@@ -483,8 +477,8 @@ else:
             templates:
               - name: debian12
                 description: "Debian 12 (bake template for corvus-test-vm)"
-                cpuCount: 2
-                ram: 4096M
+                cpuCount: 4
+                ram: 2048M
                 cloudInit: true
                 guestAgent: true
                 cloudInitConfig:
@@ -594,9 +588,6 @@ else:
                   target:
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 1
-                    ram: 512M
                   provisioners:
                     - shell: |
                         set +x
@@ -742,9 +733,6 @@ else:
                   target:
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 1
-                    ram: 512M
                   shellDefaults:
                     preamble: |
                       set -eu
@@ -885,9 +873,6 @@ else:
                     ifExists: skip
                     format: qcow2
                     size: 1G
-                  vm:
-                    cpuCount: 1
-                    ram: 512M
                   provisioners:
                     - shell: "echo SHOULD NOT RUN; exit 1"
                   cleanup: always

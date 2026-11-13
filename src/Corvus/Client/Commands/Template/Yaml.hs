@@ -38,6 +38,7 @@ templateDetailsToValue :: TemplateDetails -> Value
 templateDetailsToValue t =
   object $
     [ "name" .= tvdName t
+    , "hidden" .= tvdHidden t
     , "cpuCount" .= tvdCpuCount t
     , "ram" .= formatSize (tvdRam t)
     , "headless" .= tvdHeadless t

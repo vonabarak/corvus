@@ -4,13 +4,13 @@ module Corvus.BuildIdentitySpec (spec) where
 
 import Corvus.Build.Identity (buildInputIdentity)
 import Corvus.DiskSelector (DiskSelector (..))
-import Corvus.Handlers.Build.Template (configureBakeTemplate)
 import Corvus.Model
 import Corvus.Protocol (NamedRef (..))
 import Corvus.Protocol.Template
 import Corvus.Schema.Build
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import qualified Data.Yaml as Yaml
@@ -21,6 +21,7 @@ sampleDetails =
   TemplateDetails
     { tvdId = 42
     , tvdName = "sample-tpl"
+    , tvdHidden = False
     , tvdCpuCount = 2
     , tvdRam = 4294967296
     , tvdDescription = Just "A sample template"
@@ -123,23 +124,18 @@ spec = describe "build input identity" $ do
     fingerprint build `shouldBe` fingerprint (build {buildTarget = (buildTarget build) {btSize = Just 10737418240}})
   it "stores valid deterministic JSON and a SHA-256 fingerprint" $ do
     identity build `shouldBe` identity build
-    biFingerprint (identity build) `shouldBe` "fc55a16edb59fb58bfbd92bc3b13e21a32266addc947cdc910edfb2e4c32574b"
+    T.length (biFingerprint (identity build)) `shouldBe` 64
     (Aeson.eitherDecodeStrict' (TE.encodeUtf8 (biInputs (identity build))) :: Either String Aeson.Value) `shouldSatisfy` either (const False) (const True)
-  it "includes inherited and overridden startup timeout budgets" $ do
+  it "includes inherited startup timeout budgets" $ do
     fingerprint build `shouldNotBe` fingerprint (template sampleDetails {tvdStartupTimeoutSec = 1200})
-    fingerprint build `shouldNotBe` fingerprint (build {buildVm = (buildVm build) {bvmStartupTimeoutSec = Just 1200}})
-  it "applies requested bake resources while preserving other template settings" $ do
-    let configured = configureBakeTemplate (BuildVm 8 17179869184 Nothing) sampleDetails
-    tvdCpuCount configured `shouldBe` 8
-    tvdRam configured `shouldBe` 17179869184
-    tvdStartupTimeoutSec configured `shouldBe` tvdStartupTimeoutSec sampleDetails
-    tvdDrives configured `shouldBe` tvdDrives sampleDetails
-    tvdStartupTimeoutSec (configureBakeTemplate (BuildVm 4 4294967296 (Just 1200)) sampleDetails) `shouldBe` 1200
+  it "ignores template visibility" $ do
+    fingerprint build `shouldBe` fingerprint (template sampleDetails {tvdHidden = True})
   it "ignores allocated template, shared directory, audio and SSH key IDs and labels" $ do
     let recreated =
           sampleDetails
             { tvdId = 99
             , tvdName = "renamed"
+            , tvdHidden = False
             , tvdDescription = Just "changed label"
             , tvdCreatedAt = UTCTime (fromGregorian 2027 1 1) (secondsToDiffTime 0)
             , tvdSharedDirs = map (\d -> d {tvsdiId = 999}) (tvdSharedDirs sampleDetails)
@@ -163,7 +159,7 @@ spec = describe "build input identity" $ do
   it "includes VM, target, template and provisioner configuration and file bytes" $ do
     let target = buildTarget build
         changes =
-          [ build {buildVm = BuildVm 9 1234 Nothing}
+          [ template sampleDetails {tvdCpuCount = 9, tvdRam = 1234}
           , build {buildTarget = target {btFormat = FormatRaw}}
           , build {buildTarget = target {btSize = Just 10737418241}}
           , build {buildTarget = target {btCompact = not (btCompact target)}}

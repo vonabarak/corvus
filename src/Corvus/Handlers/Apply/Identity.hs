@@ -93,7 +93,7 @@ matchesTemplate s t i =
             expectedDirs = L.sortOn templateSharedDirTag [TemplateSharedDir tid (tsdyPath d) (tsdyTag d) (tsdyCache d) (tsdyReadOnly d) | d <- tySharedDirs t]
             expectedAudio = [TemplateAudioDevice tid (tadyBackend a) (tadyModel a) (tadyOptions a) | a <- tyAudioDevices t]
             expectedCi = (\c -> TemplateCloudInit tid (cicyUserData c) (cicyNetworkConfig c) (cicyInjectSshKeys c)) <$> tyCloudInitConfig t
-            scalar o = o == TemplateVm (tyName t) (tyCpuCount t) (tyRam t) (tyDescription t) (tyHeadless t) (tyCloudInit t) (tyGuestAgent t) (tyTpm t) (tyAutostart t) (tyRebootQuirk t) (templateVmCreatedAt o) (tyGraphicsAdapter t) (tyVsock t) (tyBalloon t) (tyRng t) (tyStartupTimeoutSec t)
+            scalar o = o == TemplateVm (tyName t) (tyCpuCount t) (tyRam t) (tyDescription t) (tyHeadless t) (tyCloudInit t) (tyGuestAgent t) (tyTpm t) (tyAutostart t) (tyRebootQuirk t) (templateVmCreatedAt o) (tyGraphicsAdapter t) (tyVsock t) (tyBalloon t) (tyRng t) (tyStartupTimeoutSec t) (tyHidden t)
         pure $ if elem (Just Nothing) sources || elem Nothing keys then Left "Template dependency not found" else Right $ maybe False scalar old && drives == map expectedDrive (tyDrives t) && nics == expectedNics && dirs == expectedDirs && audio == expectedAudio && ci == expectedCi && L.sort actualKeys == L.sort [fromSqlKey (entityKey k) | Just k <- keys]
     )
     (ssDbPool s)

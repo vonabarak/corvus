@@ -45,7 +45,7 @@ listColumnNames command = case command of
   VmSnapshotList _ -> Just (map colName vmSnapshotColumns)
   NetworkList -> Just (map colName networkColumns)
   NodeList -> Just (map colName nodeColumns)
-  TemplateList -> Just (map colName templateVmColumns)
+  TemplateList _ -> Just (map colName templateVmColumns)
   TaskList {} -> Just (map colName (taskColumns epoch))
   SshKeyList -> Just (map colName sshKeyColumns)
   SshKeyListForVm _ -> Just (map colName sshKeyVmColumns)
@@ -152,7 +152,7 @@ completeColumns wordsInCommand token
     unionNames = nub (concatMap (fromMaybe [] . listColumnNames) allListCommands)
 
 allListCommands :: [Command]
-allListCommands = [VmList, DiskList, SnapshotList T.empty, VmSnapshotList T.empty, NetworkList, NodeList, TemplateList, TaskList 0 Nothing Nothing False, SshKeyList, SshKeyListForVm T.empty, NetIfList T.empty, SharedDirList T.empty, AudioDeviceList T.empty]
+allListCommands = [VmList, DiskList, SnapshotList T.empty, VmSnapshotList T.empty, NetworkList, NodeList, TemplateList False, TaskList 0 Nothing Nothing False, SshKeyList, SshKeyListForVm T.empty, NetIfList T.empty, SharedDirList T.empty, AudioDeviceList T.empty]
 
 -- Global options can precede or follow the command. Ignore their values so an
 -- address or column name cannot be mistaken for a command word.
@@ -179,7 +179,7 @@ commandContext (resource : operation : _) = Just $ case (resource, operation) of
   ("disk", "list") -> Just DiskList
   ("network", "list") -> Just NetworkList
   ("node", "list") -> Just NodeList
-  ("template", "list") -> Just TemplateList
+  ("template", "list") -> Just (TemplateList False)
   ("task", "list") -> Just (TaskList 0 Nothing Nothing False)
   ("ssh-key", "list") -> Just SshKeyList
   ("ssh-key", "list-vm") -> Just (SshKeyListForVm T.empty)

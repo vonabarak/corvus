@@ -404,3 +404,18 @@ drives:
     strategy: direct
     readOnly: true
 ```
+
+## Hidden templates
+
+Set `hidden: true` in template YAML (including `apply.templates`) for bake or
+other internal templates. It defaults to `false`. Hidden templates are omitted
+from lists, including web and desktop lists, but remain usable by name or ID
+for show, edit, deletion, instantiation, and image builds.
+
+Use `crv template list --with-hidden` to include them. Both Python clients
+support `templates.list(with_hidden=True)` (await it on the async client).
+The REST endpoint accepts `GET /api/templates?with_hidden=true`. Template
+summary and detail responses include the `hidden` boolean.
+
+Template updates replace the full declaration: omitting `hidden` makes the
+template visible again. Visibility changes do not invalidate build artifacts.

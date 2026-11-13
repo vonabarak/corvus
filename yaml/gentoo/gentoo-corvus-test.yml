@@ -14,9 +14,6 @@ pipeline:
       template: gentoo-glibc-systemd-builder-cloudinit-bake
       strategy: offline-overlay
       sourceImage: gentoo-glibc-systemd-headless-cloudinit
-      vm:
-        cpuCount: 8
-        ram: 16G
       target:
         path: gentoo-corvus-test/
         ifExists: '{{ image_if_exists }}'

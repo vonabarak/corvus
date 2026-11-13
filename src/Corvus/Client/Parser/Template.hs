@@ -49,7 +49,7 @@ templateDeleteCommand =
 
 -- | Parser for template list
 templateListCommand :: Parser Command
-templateListCommand = pure TemplateList
+templateListCommand = TemplateList <$> switch (long "with-hidden" <> help "Include hidden templates")
 
 -- | Parser for template show
 templateShowCommand :: Parser Command

@@ -38,7 +38,7 @@ import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, withCleanup
 import Corvus.Handlers.Build.Placement (placeBuild)
 import Corvus.Handlers.Build.Provisioner (buildShellCommand, powerShellBootstrap)
 import Corvus.Handlers.Build.Run (runBakeAndPublish)
-import Corvus.Handlers.Build.Template (configureBakeTemplate, instantiateBakeVm, resolveTemplateAndValidate, sanitizeNameFragment, setupTargetDisk)
+import Corvus.Handlers.Build.Template (instantiateBakeVm, resolveTemplateAndValidate, sanitizeNameFragment, setupTargetDisk)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (getTemplateDetails)
 import Corvus.Images (resolveImage)
@@ -409,7 +409,7 @@ runPlacedBake ctx sink stack b = do
   case tplR of
     Left err -> pure $ Left err
     Right templateId -> do
-      vmR <- instantiateBakeVm ctx stack (fmap (configureBakeTemplate (buildVm b)) (buildResolvedTemplate b)) templateId bakeVmName (buildNode b)
+      vmR <- instantiateBakeVm ctx stack (buildResolvedTemplate b) templateId bakeVmName (buildNode b)
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do

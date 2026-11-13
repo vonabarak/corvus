@@ -130,7 +130,7 @@ spec = withTestDb $ sequential $ do
         _ <- CR.rpcDiskList conn
         _ <- CR.rpcNetworkList conn
         _ <- CR.rpcSshKeyList conn
-        _ <- CR.rpcTemplateList conn
+        _ <- CR.rpcTemplateList False conn
         pure ()
 
   describe "Cap'n Proto mutation wrappers (Phase 4f)" $ do

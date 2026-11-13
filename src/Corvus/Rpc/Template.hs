@@ -51,8 +51,8 @@ newTemplateManagerCap st sup cn = pure (TemplateManagerCap st sup cn)
 instance SomeServer TemplateManagerCap
 
 instance CGT.TemplateManager'server_ TemplateManagerCap where
-  templateManager'list (TemplateManagerCap st _ _) = handleParsedAsync $ \_ -> do
-    resp <- handleTemplateList st
+  templateManager'list (TemplateManagerCap st _ _) = handleParsedAsync $ \CGT.TemplateManager'list'params {..} -> do
+    resp <- handleTemplateList st withHidden
     case resp of
       RespTemplateList templates ->
         pure

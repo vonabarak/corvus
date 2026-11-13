@@ -21,7 +21,6 @@ module Corvus.Schema.Build
   , BuildTarget (..)
   , BuildIdentity (..)
   , BuildStrategy (..)
-  , BuildVm (..)
   , ShellDefaults (..)
   , emptyShellDefaults
   , Provisioner (..)
@@ -43,8 +42,7 @@ import Corvus.Model (DriveFormat (..))
 import Corvus.Protocol.Disk (UploadIfExists (..), parseUploadIfExists)
 import Corvus.Protocol.Template (TemplateDetails)
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
-import Corvus.Size (defaultSizeField, optionalSizeField)
-import Corvus.StartupTimeout (startupTimeoutField)
+import Corvus.Size (optionalSizeField)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
@@ -122,7 +120,6 @@ data Build = Build
   , buildSourceImage :: Maybe DiskSelector
   , buildResolvedSourceImage :: Maybe Int64
   , buildStrategy :: BuildStrategy
-  , buildVm :: BuildVm
   , buildShellDefaults :: ShellDefaults
   , buildProvisioners :: [Provisioner]
   , buildCleanup :: CleanupMode
@@ -138,6 +135,7 @@ instance FromJSON Build where
   parseJSON = withObject "Build" $ \o -> do
     when (KM.member "floppy" o) $
       fail "build.floppy was removed; upload prepared media with a leading pipeline upload step and attach it in the template"
+    when (KM.member "vm" o) $ fail "build.vm is not supported; configure resources in the template"
     strategy <- o .:? "strategy" .!= BuildStrategyOverlay
     source <- o .:? "sourceImage"
     when ((strategy == BuildStrategyOfflineOverlay && isNothing source) || (strategy /= BuildStrategyOfflineOverlay && KM.member "sourceImage" o)) $
@@ -159,7 +157,6 @@ instance FromJSON Build where
       <*> pure source
       <*> pure Nothing
       <*> pure strategy
-      <*> o .:? "vm" .!= defaultBuildVm
       <*> o .:? "shellDefaults" .!= emptyShellDefaults
       <*> o .:? "provisioners" .!= []
       <*> o .:? "cleanup" .!= CleanupAlways
@@ -268,23 +265,6 @@ instance FromJSON BuildStrategy where
     "installer" -> pure BuildStrategyInstaller
     "offline-overlay" -> pure BuildStrategyOfflineOverlay
     other -> fail $ "unknown strategy '" <> T.unpack other <> "' (expected: overlay, from-scratch, installer, offline-overlay)"
-
-data BuildVm = BuildVm
-  { bvmCpuCount :: Int
-  , bvmRam :: Int64
-  , bvmStartupTimeoutSec :: Maybe Int
-  }
-  deriving stock (Show)
-
-defaultBuildVm :: BuildVm
-defaultBuildVm = BuildVm 4 4294967296 Nothing
-
-instance FromJSON BuildVm where
-  parseJSON = withObject "BuildVm" $ \o ->
-    BuildVm
-      <$> o .:? "cpuCount" .!= 4
-      <*> defaultSizeField o "ram" 4294967296
-      <*> startupTimeoutField o
 
 -- | A single step inside a build.
 data Provisioner

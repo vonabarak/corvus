@@ -1805,6 +1805,10 @@
               "type": "null"
             }
           ]
+        },
+        "hidden": {
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false,
@@ -2118,50 +2122,6 @@
           }
         }
       ]
-    },
-    "buildVm": {
-      "type": "object",
-      "properties": {
-        "cpuCount": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "default": 4
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Number of virtual CPUs in the temporary build VM."
-        },
-        "ram": {
-          "anyOf": [
-            {
-              "allOf": [
-                {
-                  "$ref": "#/definitions/size"
-                }
-              ],
-              "default": "4G"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Build VM RAM, using binary units; must resolve to whole MiB."
-        },
-        "startupTimeoutSec": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/startupTimeout"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
     },
     "shellDefaults": {
       "type": "object",
@@ -3217,16 +3177,6 @@
             }
           ],
           "description": "Build strategy: overlay captures a template disk; from-scratch populates an empty disk; installer boots installation media; offline-overlay modifies a separate source image using a helper VM."
-        },
-        "vm": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/buildVm"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "shellDefaults": {
           "anyOf": [

@@ -49,7 +49,6 @@ def _build(
         "template": template,
         "strategy": "overlay",
         "target": {"ifExists": policy, "format": "qcow2", "size": "2G"},
-        "vm": {"cpuCount": 2, "ram": "1024M"},
         "provisioners": [{"shell": shell}],
         "cleanup": "always",
     }

@@ -3,6 +3,7 @@ import type { NamedRef } from "./refs";
 import type { GraphicsAdapter } from "./vms";
 
 export interface TemplateVmInfo {
+  hidden: boolean;
   id: number;
   name: string;
   cpu_count: number;
@@ -66,6 +67,7 @@ export interface CloudInitInfo {
 }
 
 export interface TemplateDetails {
+  hidden: boolean;
   id: number;
   name: string;
   cpu_count: number;

@@ -16,6 +16,7 @@ pipeline:
   - apply:
       templates:
         - name: almalinux-10-desktop-installer
+          hidden: true
           description: AlmaLinux 10 unattended GNOME installer (bake-only)
           cpuCount: 4
           ram: 4G

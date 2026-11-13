@@ -277,7 +277,7 @@ runCommand opts = do
       TemplateCreate mPath -> handleTemplateCreate fmt conn mPath
       TemplateEdit tRef -> handleTemplateEdit fmt conn tRef
       TemplateDelete tRef -> handleTemplateDelete fmt conn tRef
-      TemplateList -> handleTemplateList fmt tableOpts conn
+      TemplateList withHidden -> handleTemplateList fmt tableOpts withHidden conn
       TemplateShow tRef -> handleTemplateShow fmt conn tRef
       TemplateInstantiate tRef name nodeRef -> handleTemplateInstantiate fmt conn tRef name nodeRef
       -- Network commands

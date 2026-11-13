@@ -19,9 +19,6 @@ pipeline:
       format: qcow2
       compact: true
       path: BaseImages/Gentoo/
-    vm:
-      cpuCount: 8
-      ram: 8G
     shellDefaults:
       preamble: set -eux
       env:

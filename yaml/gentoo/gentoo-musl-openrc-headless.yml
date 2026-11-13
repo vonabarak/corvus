@@ -10,7 +10,7 @@ pipeline:
 - build:
     name: gentoo-musl-openrc-headless
     description: Gentoo musl/OpenRC system
-    template: gentoo-musl-openrc-builder-bake
+    template: gentoo-musl-openrc-builder-bake-8cpu-8192m
     strategy: from-scratch
     target:
       ifExists: '{{ image_if_exists }}'
@@ -18,9 +18,6 @@ pipeline:
       size: 4G
       path: BaseImages/Gentoo/
       compact: true
-    vm:
-      cpuCount: 8
-      ram: 8G
     shellDefaults:
       preamble: set -eux
       env:
@@ -84,7 +81,7 @@ pipeline:
 - build:
     name: gentoo-musl-openrc-headless-cloudinit
     description: Gentoo musl/OpenRC system with NoCloud cloud-init
-    template: gentoo-musl-openrc-builder-bake
+    template: gentoo-musl-openrc-builder-bake-8cpu-8192m
     strategy: offline-overlay
     sourceImage: gentoo-musl-openrc-headless
     target:
@@ -93,9 +90,6 @@ pipeline:
       size: 4G
       path: BaseImages/Gentoo/
       compact: true
-    vm:
-      cpuCount: 8
-      ram: 8G
     shellDefaults:
       preamble: set -eux
       env:

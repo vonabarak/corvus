@@ -28,6 +28,7 @@ import GHC.Generics (Generic)
 
 data TemplateYaml = TemplateYaml
   { tyName :: Text
+  , tyHidden :: Bool
   , tyCpuCount :: Int
   , tyRam :: Int64
   , tyDescription :: Maybe Text
@@ -55,6 +56,7 @@ instance FromJSON TemplateYaml where
   parseJSON = withObject "TemplateYaml" $ \o ->
     TemplateYaml
       <$> o .: "name"
+      <*> o .:? "hidden" .!= False
       <*> o .: "cpuCount"
       <*> sizeField o "ram"
       <*> o .:? "description"

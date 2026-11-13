@@ -697,7 +697,6 @@ class TestDiskImport(SingleNodeCase):
                                 "size": "2G",
                                 "format": "qcow2",
                             },
-                            "vm": {"cpuCount": 2, "ram": "1024M"},
                             "provisioners": [
                                 {"shell": "echo verified-release > /tmp/release"}
                             ],

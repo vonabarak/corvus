@@ -85,7 +85,7 @@ sshKeyCompleter =
 templateCompleter :: Completer
 templateCompleter =
   listIOCompleter $
-    fetchNames CR.rpcTemplateList (T.unpack . tviName)
+    fetchNames (CR.rpcTemplateList False) (T.unpack . tviName)
 
 nodeCompleter :: Completer
 nodeCompleter =

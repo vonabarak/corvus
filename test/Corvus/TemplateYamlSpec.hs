@@ -36,6 +36,7 @@ sampleDetails =
   TemplateDetails
     { tvdId = 42
     , tvdName = "sample-tpl"
+    , tvdHidden = True
     , tvdCpuCount = 2
     , tvdRam = 4294967296
     , tvdDescription = Just "A sample template"
@@ -118,6 +119,7 @@ spec = do
           tyCloudInit ty `shouldBe` True
           tyGuestAgent ty `shouldBe` True
           tyStartupTimeoutSec ty `shouldBe` 1200
+          tyHidden ty `shouldBe` True
           tyTpm ty `shouldBe` True
           tyVsock ty `shouldBe` True
           tyBalloon ty `shouldBe` True

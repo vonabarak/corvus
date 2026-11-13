@@ -66,6 +66,7 @@ pipeline:
   - apply:
       templates:
         - name: windows-server-2025-installer
+          hidden: true
           description: "Windows Server 2025 unattended installer (bake-only)"
           cpuCount: 4
           ram: 4G
@@ -136,10 +137,6 @@ pipeline:
       #   * waits for the guest to power itself off, then captures the
       #     first drive as the artifact.
       strategy: installer
-
-      vm:
-        cpuCount: 4
-        ram: 4G
 
       # Dismiss UEFI's "Press any key to boot from CD or DVD..." prompt.
       # OVMF prints this once on first boot of the Windows installer

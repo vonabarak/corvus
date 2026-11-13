@@ -10,6 +10,7 @@ pipeline:
 - apply:
     templates:
     - name: gentoo-glibc-systemd-builder-cloudinit-bootstrap
+      hidden: true
       cpuCount: 8
       ram: 8G
       cloudInit: true
@@ -135,6 +136,7 @@ pipeline:
       - network: corvus
       sshKeys:
       - name: corvus
+
 - build:
     name: gentoo-glibc-systemd-builder-cloudinit
     description: Gentoo bake host with builder tools pre-installed
@@ -146,9 +148,6 @@ pipeline:
       path: BaseImages/Gentoo/
       compact: true
     strategy: overlay
-    vm:
-      cpuCount: 8
-      ram: 8G
     shellDefaults:
       preamble: set -eux
       env:
@@ -188,6 +187,7 @@ pipeline:
 - apply:
     templates:
     - name: gentoo-glibc-systemd-builder-cloudinit-bake
+      hidden: true
       cpuCount: 8
       ram: 16G
       cloudInit: true

@@ -877,6 +877,7 @@ TemplateVm
     balloon Bool default=true
     rng Bool default=true
     startupTimeoutSec Int default=120
+    hidden Bool default=false
     UniqueTemplateVmName name
     deriving Show Eq Generic
 

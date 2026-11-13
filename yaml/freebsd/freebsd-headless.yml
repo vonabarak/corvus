@@ -19,6 +19,7 @@ pipeline:
   - apply:
       templates:
         - name: freebsd-headless-bake
+          hidden: true
           description: FreeBSD headless image builder (no injected accounts or keys)
           cpuCount: 4
           ram: 4G

@@ -141,3 +141,6 @@ PostgreSQL unit tests use `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`,
 PostgreSQL server or SQLite file inside their isolated test nodes, regardless
 of the host test-backend setting. See the integration-test README for nested
 QEMU/KVM and image prerequisites.
+
+Version 15 adds `template_vm.hidden`, defaulting to false on both backends.
+Existing templates remain visible after upgrade.

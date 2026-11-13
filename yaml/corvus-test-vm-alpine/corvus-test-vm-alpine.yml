@@ -58,9 +58,6 @@ pipeline:
 
       strategy: from-scratch
 
-      vm:
-        cpuCount: 4
-        ram: 2G
 
       cleanup: onSuccess
 

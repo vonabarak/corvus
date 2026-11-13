@@ -308,6 +308,7 @@ library
       Corvus.Database.Migrations.V012
       Corvus.Database.Migrations.V013
       Corvus.Database.Migrations.V014
+      Corvus.Database.Migrations.V015
       Corvus.Handlers.AudioDevice
       Corvus.Handlers.Disk.RegisterPlacement
       Corvus.Handlers.Disk.Tags

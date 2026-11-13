@@ -407,6 +407,7 @@ def ssh_key_info(r: capnp.lib.capnp._DynamicStructReader) -> t.SshKeyInfo:
 
 def template_vm_info(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateVmInfo:
     return t.TemplateVmInfo(
+        hidden=r.hidden,
         id=r.id,
         name=r.name,
         cpu_count=r.cpuCount,
@@ -484,6 +485,7 @@ def template_audio_device_info(
 
 def template_details(r: capnp.lib.capnp._DynamicStructReader) -> t.TemplateDetails:
     return t.TemplateDetails(
+        hidden=r.hidden,
         id=r.id,
         name=r.name,
         cpu_count=r.cpuCount,

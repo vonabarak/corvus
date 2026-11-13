@@ -38,9 +38,6 @@ pipeline:
 
       strategy: overlay
 
-      vm:
-        cpuCount: 4
-        ram: 4G
 
       shellDefaults:
         preamble: "set -eux"

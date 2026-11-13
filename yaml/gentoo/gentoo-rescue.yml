@@ -9,6 +9,7 @@ pipeline:
 - apply:
     templates:
     - name: gentoo-rescue-bake
+      hidden: true
       cpuCount: 8
       ram: 32G
       cloudInit: true
@@ -45,9 +46,6 @@ pipeline:
       size: 2G
       path: BaseImages/Gentoo/
       compact: false
-    vm:
-      cpuCount: 8
-      ram: 32G
     shellDefaults:
       preamble: set -eux
       env:

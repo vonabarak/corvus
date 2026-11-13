@@ -171,12 +171,12 @@ rpcTemplateInstantiate conn ref vmName nodeRef = do
     callOn #show CGVm.Vm'show'params vmClient
   case det of CGVm.VmDetails {CGVm.id = vid} -> pure vid
 
-rpcTemplateList :: CapnpConnection -> IO [PTm.TemplateVmInfo]
-rpcTemplateList conn = do
+rpcTemplateList :: Bool -> CapnpConnection -> IO [PTm.TemplateVmInfo]
+rpcTemplateList withHidden conn = do
   CGCorvus.Daemon'templates'results {CGCorvus.mgr = mgr} <-
     callOn #templates CGCorvus.Daemon'templates'params (ccDaemon conn)
   CGTmpl.TemplateManager'list'results {CGTmpl.templates = ts} <-
-    callOn #list CGTmpl.TemplateManager'list'params mgr
+    callOn #list (CGTmpl.TemplateManager'list'params withHidden) mgr
   failOnWire (traverse WTmpl.fromCapnpTemplateVmInfo ts)
 
 rpcTemplateShow :: CapnpConnection -> EntityRef -> IO PTm.TemplateDetails

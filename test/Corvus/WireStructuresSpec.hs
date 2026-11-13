@@ -85,7 +85,7 @@ spec = do
       [K.SshKeyInfo 3 "key" "ssh-ed25519 AAA" timestamp [vm], K.SshKeyInfo 4 "empty" "" timestamp []]
   describe "Wire malformed nested records" $ do
     it "propagates unknown graphics adapters from template summaries" $
-      case toCapnpTemplateVmInfo (TP.TemplateVmInfo 1 "template" 1 1024 Nothing False False False False False GraphicsVga False False False 120) of
+      case toCapnpTemplateVmInfo (TP.TemplateVmInfo 1 "template" True 1 1024 Nothing False False False False False GraphicsVga False False False 120) of
         T.TemplateVmInfo {T.id = wireId, ..} -> fromCapnpTemplateVmInfo T.TemplateVmInfo {T.id = wireId, T.graphicsAdapter = E.GraphicsAdapter'unknown' 99, ..} `shouldBe` Left (WireUnknownEnum "GraphicsAdapter" 99)
     it "propagates unknown audio backends" $
       case toCapnpAudioDeviceInfo vmAudio of
@@ -105,7 +105,7 @@ spec = do
   describe "Wire templates" $ do
     mapM_
       (\summary -> it (show summary) $ fromCapnpTemplateVmInfo (toCapnpTemplateVmInfo summary) `shouldBe` Right summary)
-      [TP.TemplateVmInfo 1 "template" 4 2048 (Just "description") True False True False True GraphicsQxlVga True False True 120, TP.TemplateVmInfo 2 "empty" 1 1024 Nothing False True False True False GraphicsVga False True False 120]
+      [TP.TemplateVmInfo 1 "template" True 4 2048 (Just "description") True False True False True GraphicsQxlVga True False True 120, TP.TemplateVmInfo 2 "empty" False 1 1024 Nothing False True False True False GraphicsVga False True False 120]
     mapM_
       (\drive -> it (show drive) $ fromCapnpTemplateDriveInfo (toCapnpTemplateDriveInfo drive) `shouldBe` Right drive)
       [templateDrive, templateDrive {TP.tvdiDiskImage = Nothing, TP.tvdiDiskSelector = Nothing, TP.tvdiDiskName = Nothing, TP.tvdiMedia = Nothing, TP.tvdiSize = Nothing, TP.tvdiFormat = Nothing, TP.tvdiEphemeral = Nothing}, templateDrive {TP.tvdiEphemeral = Just False}]
@@ -170,7 +170,7 @@ templateDir = TP.TemplateSharedDirInfo 8 "/shared" "shared" minBound True
 templateAudio :: TP.TemplateAudioDeviceInfo
 templateAudio = TP.TemplateAudioDeviceInfo 9 AudioSpice AudioIntelHda "options"
 template :: TP.TemplateDetails
-template = TP.TemplateDetails 1 "template" 4 4096 (Just "description") True True False True False True (Just cloudInit) timestamp [templateDrive] [templateNic] [TP.TemplateSshKeyInfo 7 "key"] [templateDir] [templateAudio] GraphicsQxlVga True False True 120
+template = TP.TemplateDetails 1 "template" True 4 4096 (Just "description") True True False True False True (Just cloudInit) timestamp [templateDrive] [templateNic] [TP.TemplateSshKeyInfo 7 "key"] [templateDir] [templateAudio] GraphicsQxlVga True False True 120
 vmDrive :: V.DriveInfo
 vmDrive = V.DriveInfo 2 (Just (NamedRef 4 "disk")) minBound "/disk" FormatQcow2 (Just minBound) True minBound True
 vmNic :: V.NetIfInfo

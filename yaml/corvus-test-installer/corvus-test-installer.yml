@@ -32,6 +32,7 @@ pipeline:
   - apply:
       templates:
         - name: corvus-test-installer
+          hidden: true
           description: "Synthetic installer-strategy bake (integration-test fixture)"
           cpuCount: 1
           ram: 256M
@@ -83,9 +84,6 @@ pipeline:
 
       strategy: installer
 
-      vm:
-        cpuCount: 1
-        ram: 256M
 
       # No firmware prompt to dismiss — seabios boots isolinux
       # straight through. Leaving this empty is the explicit
