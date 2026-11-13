@@ -42,8 +42,6 @@ DISTDIR="/var/cache/distfiles"
 PKGDIR="/var/cache/binpkgs"
 ACCEPT_LICENSE="*"
 USE="bash-completion"
-GPG_VERIFY_USER_DROP=""
-GPG_VERIFY_GROUP_DROP=""
 CONF
     printf 'MAKEOPTS="-j%s"\n' "$(nproc)" >> "$IMAGE_ROOT/etc/portage/make.conf"
     cat > "$IMAGE_ROOT/etc/portage/repos.conf/gentoo.conf" <<'CONF'

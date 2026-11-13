@@ -163,8 +163,8 @@ pipeline:
       strategy: overlay                    # overlay (default) | from-scratch | installer | offline-overlay
 
       vm:
-        cpuCount: 4                        # default: 4
-        ram: 4G                            # default: 4G
+        cpuCount: 4                        # bake VM CPUs; overrides template (default: 4)
+        ram: 4G                            # bake VM RAM; overrides template (default: 4G)
 
       shellDefaults:
         preamble: "set -eux"

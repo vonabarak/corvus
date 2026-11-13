@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
 # Native runtime and offline cloud-init builds; keep package and sizing policies flavor-specific.
 vars:
+  portage_keyserver: hkps://keys.gentoo.org
   image_if_exists: update
   cache_dir: /data/corvus-cache
   USEPKG: "true"
@@ -25,6 +26,7 @@ pipeline:
       env:
         USEPKG: '{{ USEPKG }}'
         GETBINPKG: '{{ GETBINPKG }}'
+        PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
         IMAGE_LIBC: musl
         IMAGE_INIT: openrc
         IMAGE_ROOT: /mnt/sysroot
@@ -99,6 +101,7 @@ pipeline:
       env:
         USEPKG: '{{ USEPKG }}'
         GETBINPKG: '{{ GETBINPKG }}'
+        PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
         IMAGE_LIBC: musl
         IMAGE_INIT: openrc
         IMAGE_ROOT: /mnt/sysroot

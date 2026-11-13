@@ -4,6 +4,7 @@ module Corvus.BuildIdentitySpec (spec) where
 
 import Corvus.Build.Identity (buildInputIdentity)
 import Corvus.DiskSelector (DiskSelector (..))
+import Corvus.Handlers.Build.Template (configureBakeTemplate)
 import Corvus.Model
 import Corvus.Protocol (NamedRef (..))
 import Corvus.Protocol.Template
@@ -127,6 +128,13 @@ spec = describe "build input identity" $ do
   it "includes inherited and overridden startup timeout budgets" $ do
     fingerprint build `shouldNotBe` fingerprint (template sampleDetails {tvdStartupTimeoutSec = 1200})
     fingerprint build `shouldNotBe` fingerprint (build {buildVm = (buildVm build) {bvmStartupTimeoutSec = Just 1200}})
+  it "applies requested bake resources while preserving other template settings" $ do
+    let configured = configureBakeTemplate (BuildVm 8 17179869184 Nothing) sampleDetails
+    tvdCpuCount configured `shouldBe` 8
+    tvdRam configured `shouldBe` 17179869184
+    tvdStartupTimeoutSec configured `shouldBe` tvdStartupTimeoutSec sampleDetails
+    tvdDrives configured `shouldBe` tvdDrives sampleDetails
+    tvdStartupTimeoutSec (configureBakeTemplate (BuildVm 4 4294967296 (Just 1200)) sampleDetails) `shouldBe` 1200
   it "ignores allocated template, shared directory, audio and SSH key IDs and labels" $ do
     let recreated =
           sampleDetails

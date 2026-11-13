@@ -296,18 +296,37 @@ ebuild phases run as guest root, including live-package Git fetches during
 the guest `portage` UID. These features are applied to each package installation, including native build
 dependencies. Portage discards environment `FEATURES` overrides for native build
 dependencies when `ROOT` points at another root, so the build host's `make.conf`
-also disables `userfetch`, `userpriv`, and implicit `getbinpkg`, and sets
-`-binpkg-request-signature binpkg-ignore-signature` so signature failures do not
-reject native dependencies. The installation wrapper applies the same flags to
-target packages; `verify-signature = false` in binhost configuration alone does
-not cover every package in the local cache. Portage still invokes GnuPG to decode
-clear-signed Manifests and can print unknown-key errors even though these failures
-are ignored and installation succeeds. Both builders install `app-portage/getuto`
-when needed and run `getuto` during their build to initialize the Gentoo keyring.
-The keyring persists in `/etc/portage/gnupg` for derivative builds, avoiding these
-messages without enabling signature enforcement. Existing musl builders must be
-rebuilt to acquire the keyring. This policy is
-not written into the resulting guest's configuration. Managed configurations remove
+also disables `userfetch`, `userpriv`, and implicit `getbinpkg`. The shared
+Portage library enables signature verification and requires signatures on the
+official Gentoo binhosts. Downloaded packages remain in a separate binhost cache,
+so this requirement applies to cached downloads as well. Unsigned locally built
+packages in the trusted shared package cache remain usable; signatures on signed
+packages are checked. Both persisted build-host policy and installation wrappers
+explicitly disable `binpkg-ignore-signature`, including for native dependencies.
+
+Before syncing, `portage_sync_repository` initializes verification through
+`portage_prepare_verification`: it checks for gemato, GnuPG, getuto, and the
+packaged Gentoo release keys, configures signed snapshots and rsync metadata,
+and runs getuto to initialize the package keyring. These prerequisites must ship
+in the official cloud/stage3 input; a missing prerequisite stops the build with
+an error rather than downloading tools without verification. The musl bootstrap
+also initializes verification inside its chroot before installing packages.
+The initial cloud-init stage that installs the first QEMU guest agent is the
+only exception: snapshot and binary package signature verification are disabled
+before external scripts can be uploaded. This avoids a WKD refresh failure
+preventing the guest agent from starting. Every later bake stage enforces
+verification.
+
+Key refresh for repository verification uses HKPS instead of WKD. All Gentoo
+build recipes accept `portage_keyserver`, defaulting to `hkps://keys.gentoo.org`.
+Set `GENTOO_KEYSERVER=hkps://keyserver.ubuntu.com` when using Make; the setting
+propagates through dependency builds. Changing the server does not change the
+trusted keys or relax verification. Package key trust is managed by getuto using
+Gentoo's packaged release keys. Rebuild both reusable builders after this policy
+change, then rebuild their derivatives. Existing caches are retained; invalid or
+untrusted signed packages must be replaced or rebuilt, not accepted unchecked.
+
+Managed configurations remove
 inherited `FEATURES` and `EMERGE_DEFAULT_OPTS` assignments before applying the
 build host policy. Build environments explicitly set `DISTDIR` and `PKGDIR` to
 `/mnt/corvus-cache/distfiles` and `/mnt/corvus-cache/packages/x86-64`, so selecting another

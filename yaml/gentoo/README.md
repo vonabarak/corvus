@@ -107,3 +107,25 @@ Only the two builders pass `--keep-repositories` to finalization. See
    the daemon, cache, and VM capacity are available.
 
 See [image build workflows](../../doc/test-images.md) for operational details.
+
+## Portage verification
+
+`portage.sh` owns verification policy. `portage_sync_repository` initializes
+native verification before the snapshot download and subsequent repository sync.
+The musl bootstrap calls `portage_prepare_verification` inside the chroot before
+its first package installation. Configuration helpers accept an unbooted root;
+initialization commands must run in the native host or the appropriate chroot.
+Official cloud and stage3 inputs must contain gemato, GnuPG, getuto, and Gentoo's
+packaged release keys; missing prerequisites fail before synchronization.
+
+Require signatures for official binhost packages, including cached downloads.
+Keep unsigned locally built packages usable in the trusted, separate package
+cache. Never enable `binpkg-ignore-signature` in a bake stage. Only the initial
+inline cloud-init stage installing the first guest agent is exempt.
+
+All recipes accept `portage_keyserver`; Make exposes it as `GENTOO_KEYSERVER`
+and propagates it through dependencies. The default is `hkps://keys.gentoo.org`.
+The shared library owns repository key refresh and the temporary gemato adapter
+used to avoid WKD. Image-specific scripts must not duplicate this setup.
+
+Run `make -C yaml/gentoo test` for isolated helper tests and shell syntax checks.

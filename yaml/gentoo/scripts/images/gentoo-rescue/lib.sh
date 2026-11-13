@@ -1,27 +1,6 @@
 #!/bin/bash
 # Rescue-only build functions; sourcing does not change state.
 
-# emerge-webrsync invokes gemato directly and does not honor repos.conf's WKD
-# policy. Keep signature verification and refresh, using the selected HKPS host.
-rescue_sync_repository() (
-    set -eu
-    local tools
-    tools=$(mktemp -d /run/rescue-sync.XXXXXX)
-    trap 'rm -rf "$tools"' EXIT
-    RESCUE_GEMATO=$(command -v gemato)
-    export RESCUE_GEMATO
-    export PORTAGE_KEYSERVER=${PORTAGE_KEYSERVER:-hkps://keys.gentoo.org}
-    cat > "$tools/gemato" <<'SCRIPT'
-#!/bin/sh
-operation=$1
-shift
-exec "$RESCUE_GEMATO" "$operation" --no-wkd --keyserver "$PORTAGE_KEYSERVER" "$@"
-SCRIPT
-    chmod 0755 "$tools/gemato"
-    export PATH="$tools:$PATH"
-    portage_sync_repository
-)
-
 rescue_configure_portage() {
     # ROOT installations resolve against the build host's configuration.
     # This is a disposable bake VM, so remove inherited local keyword exceptions.

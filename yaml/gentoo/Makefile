@@ -53,10 +53,8 @@ USEPKG ?= true
 GETBINPKG ?= true
 export USEPKG GETBINPKG
 BUILD_ARGS := --var cache_dir="$(GENTOO_CACHE_DIR)" --var USEPKG="$(USEPKG)" --var GETBINPKG="$(GETBINPKG)"
-ifeq ($(IMAGE),gentoo-rescue)
 GENTOO_KEYSERVER ?= hkps://keys.gentoo.org
 BUILD_ARGS += --var portage_keyserver="$(GENTOO_KEYSERVER)"
-endif
 BUILD_DEPENDENCIES := build-dependencies
 
 # The key is a local input, not an image dependency; generate it before publication.
@@ -147,6 +145,7 @@ latest-sha256:
 
 .PHONY: test
 test:
+	bash tests/portage.sh
 	bash tests/rescue.sh
 	find scripts -name '*.sh' -exec bash -n {} \;
 

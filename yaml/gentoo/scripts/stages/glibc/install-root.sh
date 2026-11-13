@@ -52,18 +52,6 @@ DISTDIR="/var/cache/distfiles"
 PKGDIR="/var/cache/binpkgs"
 ACCEPT_LICENSE="*"
 USE="bash-completion"
-
-# Portage's gpkg verifier (gpkg.py:checksum_helper) drops
-# privileges to nobody:nogroup whenever a gpkg contains a
-# .sig — and that happens BEFORE any FEATURES check, so
-# binpkg-ignore-signature alone can't avoid the lookup.
-# Gentoo's baselayout doesn't ship a 'nogroup' group, so
-# the lookup crashes with KeyError: "getgrnam(): name not
-# found: 'nogroup'" the first time a partially-signed
-# binpkg (e.g. acct-group/postgres) lands. Empty value
-# tells portage to skip the privilege drop entirely.
-GPG_VERIFY_USER_DROP=""
-GPG_VERIFY_GROUP_DROP=""
 EOF
 
     # Append MAKEOPTS with the bake-time nproc baked in;
@@ -86,12 +74,7 @@ sync-uri = rsync://rsync.gentoo.org/gentoo-portage
 auto-sync = yes
 EOF
 
-    cat > "$IMAGE_ROOT/etc/portage/binrepos.conf/gentoo.conf" <<'EOF'
-[binhost]
-priority = 9999
-sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
-verify-signature = false
-EOF
+    portage_configure_binhost glibc "$IMAGE_ROOT" /var/cache/binhost
 
     # Relative make.profile so the symlink resolves on the
     # booted image the first time the user runs

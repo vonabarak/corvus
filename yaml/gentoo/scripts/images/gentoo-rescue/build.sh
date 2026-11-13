@@ -15,13 +15,7 @@ main() {
     trap 'exit 143' TERM
     trap 'exit 129' HUP
     environment_prepare_workspace
-    # Refresh trusted release keys through Gentoo's configured HKPS keyserver.
-    # WKD availability must not prevent using that signed-repository path.
-    install -d /etc/portage/repos.conf
-    printf '[gentoo]\nsync-openpgp-key-refresh = keyserver\nsync-openpgp-keyserver = %s\n' \
-        "${PORTAGE_KEYSERVER:-hkps://keys.gentoo.org}" \
-        > /etc/portage/repos.conf/rescue-sync.conf
-    rescue_sync_repository
+    portage_sync_repository
     rescue_configure_portage
     rescue_partition
     mounts_mount "$IMAGE_ROOT" -t tmpfs -o size=16G,mode=0755 tmpfs

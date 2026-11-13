@@ -41,8 +41,6 @@ MAKEOPTS="-j8"
 USE="-systemd -X -nls -doc -test"
 DISTDIR="/mnt/corvus-cache/distfiles"
 PKGDIR="/mnt/corvus-cache/packages/x86-64_musl"
-GPG_VERIFY_USER_DROP=""
-GPG_VERIFY_GROUP_DROP=""
 ACCEPT_LICENSE="*"
 CONF
     portage_configure_binhost musl "$work"
@@ -70,7 +68,7 @@ populate_builder() {
     mounts_bind /mnt/corvus-cache "$work/mnt/corvus-cache"
     install -d "$work/usr/local/lib/corvus-build"
     cp -a "${CORVUS_BUILD_SCRIPTS:-/usr/local/lib/corvus-build}/." "$work/usr/local/lib/corvus-build/"
-    chroot "$work" /usr/bin/env -u CORVUS_BUILD_SCRIPTS DISTDIR=/mnt/corvus-cache/distfiles PKGDIR=/mnt/corvus-cache/packages/x86-64_musl \
+    chroot "$work" /usr/bin/env -u CORVUS_BUILD_SCRIPTS PORTAGE_KEYSERVER="${PORTAGE_KEYSERVER:-hkps://keys.gentoo.org}" DISTDIR=/mnt/corvus-cache/distfiles PKGDIR=/mnt/corvus-cache/packages/x86-64_musl \
         /bin/bash /usr/local/lib/corvus-build/images/gentoo-musl-openrc-builder/prepare-root.sh
     # Detach shared caches before image cleanup removes target cache contents.
     umount "$work/mnt/corvus-cache"

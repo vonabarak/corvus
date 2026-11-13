@@ -44,14 +44,10 @@ configure_builder() {
 sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes
 EOF
 
-    # Local and official caches can contain unsigned or partially signed gpkgs.
-    # The empty GPG drops also avoid Gentoo's missing nobody:nogroup lookup.
     cat >> /etc/portage/make.conf <<'EOF'
 
 ACCEPT_LICENSE="*"
 USE="bash-completion"
-GPG_VERIFY_USER_DROP=""
-GPG_VERIFY_GROUP_DROP=""
 EOF
 
     portage_configure_glibc_caches
@@ -59,9 +55,6 @@ EOF
 
 # Install native tools once; the musl builder is bootstrapped separately.
 install_builder_tools() {
-    command -v getuto >/dev/null || portage_emerge --buildpkg -1q app-portage/getuto
-    getuto
-
     portage_emerge --buildpkg --noreplace --quiet-build \
       sys-apps/gptfdisk \
       dev-vcs/git \

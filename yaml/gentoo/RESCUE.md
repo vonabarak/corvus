@@ -21,10 +21,11 @@ refresh an existing image. `make image-rebuild IMAGE=gentoo-rescue` forces the
 whole dependency chain. Compatible package caches speed up installation; packages
 may be compiled from source when the selected version is unavailable as a binary.
 
-Repository sync verifies Gentoo's signed manifests and refreshes the trusted
-release keys through HKPS. If Gentoo's keyserver is unreachable, select another
-public keyserver with `GENTOO_KEYSERVER=hkps://keyserver.ubuntu.com`; this changes
-the refresh endpoint, not the trusted keys or signature checks.
+Rescue uses the shared Gentoo Portage verification library for signed repository
+snapshots, repository metadata, and downloaded binary packages. The common
+`GENTOO_KEYSERVER` option selects the HKPS repository key refresh endpoint;
+see [Portage verification](README.md#portage-verification). Unsigned locally built
+packages remain usable in the trusted shared cache.
 
 The registered glibc/systemd builder provides native tools and caches. Rescue
 uses the Gentoo distribution binary kernel, its complete modules, linux-firmware,

@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
 # Build dependencies through the Gentoo Makefile before running this recipe.
 vars:
+  portage_keyserver: hkps://keys.gentoo.org
   image_if_exists: update
   cache_dir: /data/corvus-cache
   USEPKG: "true"
@@ -26,6 +27,7 @@ pipeline:
         env:
           USEPKG: '{{ USEPKG }}'
           GETBINPKG: '{{ GETBINPKG }}'
+          PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
       provisioners:
       - file:
           from: ./scripts/images/gentoo-corvus-test/build.sh
