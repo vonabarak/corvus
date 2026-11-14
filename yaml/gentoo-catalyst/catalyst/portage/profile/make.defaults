@@ -1,0 +1,4 @@
+# A Portage user profile survives Catalyst's generated make.conf and FEATURES.
+# Remote binrepos require signatures; locally compiled cache entries may be unsigned.
+FEATURES="-userfetch -userpriv -binpkg-request-signature -binpkg-ignore-signature"
+ACCEPT_LICENSE="*"

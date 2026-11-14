@@ -45,8 +45,11 @@ publication. `image-check` checks every declared output without publishing.
 removes reusable download caches where declared. Published resources, runtime
 VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 
-All Gentoo recipes share `yaml/gentoo/` and its Makefile, kernel configuration,
-and `scripts/` provisioners. The Corvus development image builds from
+A standalone [Catalyst alternative](../yaml/gentoo-catalyst/README.md) builds a
+separately named headless image. It is not included in aggregate image targets.
+
+The existing shell-based Gentoo recipes share `yaml/gentoo/`, its Makefile,
+kernel configuration and `scripts/` provisioners. The Corvus development image builds from
 `gentoo-glibc-systemd-headless`. The default `build` target runs the full chain. Manage the stages
 with `IMAGE` (default: `gentoo-corvus-test`):
 

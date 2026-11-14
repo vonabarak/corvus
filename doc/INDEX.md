@@ -59,6 +59,7 @@ The [manual](README.md#documentation) also contains the full catalog as a table.
 - [Monitoring appliance](../yaml/corvus-monitor/README.md) — Prometheus/Grafana image, configuration, and deployment
 - [FreeBSD guest](../yaml/freebsd/README.md) — Headless FreeBSD image with serial console, QGA, and NoCloud
 - [Gentoo guests](../yaml/gentoo/README.md) — Cloud imports, headless guests, and development images
+- [Gentoo with Catalyst](../yaml/gentoo-catalyst/README.md) — Standalone headless image alternative
 - [Windows 11 base](../yaml/windows-11/README.md) — Generalized Windows 11 Pro base, template, and per-VM TPM
 - [Windows 11 desktop](../yaml/windows-11-desktop/README.md) — Desktop applications on the managed Windows 11 base
 
