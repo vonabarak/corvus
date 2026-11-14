@@ -45,6 +45,13 @@ if [[ ${1:-} == --sync ]]; then
     test -z "${ROOT-}${SYSROOT-}"
     test "${SYNC_STATUS:-0}" = 0
 else
+    # Model the native dependency tree: environment overrides are dropped.
+    unset PORTAGE_TRUST_HELPER
+    inherited_features=$FEATURES
+    . "$PORTAGE_TEST_WORK/root/etc/portage/make.conf"
+    FEATURES=$inherited_features
+    [[ $PORTAGE_TRUST_HELPER == /etc/portage/corvus-getuto ]]
+    "$PORTAGE_TEST_WORK/root$PORTAGE_TRUST_HELPER"
     printf '%s\n' "$FEATURES" > "$PORTAGE_TEST_WORK/features"
     printf '%s\n' "$@" > "$PORTAGE_TEST_WORK/args"
     printf '%s\n' "${ROOT-}" "${SYSROOT-}" > "$PORTAGE_TEST_WORK/roots"
@@ -64,6 +71,12 @@ cat > "$work/bin/gemato" <<'SCRIPT'
 #!/bin/sh
 printf '%s\n' "$@" > "$PORTAGE_TEST_WORK/gemato-args"
 SCRIPT
+cat > "$work/bin/getuto" <<'SCRIPT'
+#!/bin/bash
+set -eu
+test -z "${ROOT-}${SYSROOT-}"
+exit "${TRUST_STATUS:-0}"
+SCRIPT
 chmod +x "$work/bin/"*
 export PATH="$work/bin:$PATH"
 
@@ -76,6 +89,14 @@ grep -q -- '--getbinpkg=y' "$work/args"
 grep -q -- '--root-deps' "$work/args"
 [[ $(sed -n 1p "$work/roots") == /target && -z $(sed -n 2p "$work/roots") ]]
 [[ $(cat "$work/features") == *' -binpkg-request-signature -binpkg-ignore-signature -getbinpkg' ]]
+cp -a "$root/etc/portage" "$work/host-first"
+portage_configure_build_host "$root"
+diff -ru "$work/host-first" "$root/etc/portage"
+if ROOT=/target TRUST_STATUS=23 portage_emerge app-misc/example; then
+    exit 1
+else
+    [[ $? == 23 ]]
+fi
 if USEPKG=invalid portage_emerge app-misc/example 2>/dev/null; then exit 1; fi
 
 # Missing prerequisites stop before any keyring/configuration changes.

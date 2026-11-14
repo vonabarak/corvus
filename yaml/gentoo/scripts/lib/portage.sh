@@ -139,6 +139,16 @@ portage_configure_build_host() {
     cat >> "$config_root/etc/portage/make.conf" <<'CONF'
 FEATURES="-userfetch -userpriv -getbinpkg -binpkg-request-signature -binpkg-ignore-signature"
 CONF
+    # Portage drops environment overrides for the native dependency tree when
+    # ROOT differs from /. That tree also fetches binary packages.
+    # Configure it in make.conf, where native and ROOT installs both read it.
+    cat > "$config_root/etc/portage/corvus-getuto" <<'SCRIPT' || return $?
+#!/bin/sh
+exec env -u ROOT -u SYSROOT getuto
+SCRIPT
+    chmod 0755 "$config_root/etc/portage/corvus-getuto" || return $?
+    sed -i -E '/^[[:space:]]*(export[[:space:]]+)?PORTAGE_TRUST_HELPER[[:space:]]*=/d' "$config_root/etc/portage/make.conf" || return $?
+    printf '%s\n' 'PORTAGE_TRUST_HELPER="/etc/portage/corvus-getuto"' >> "$config_root/etc/portage/make.conf"
 }
 
 # Configure native dependencies and interactive recovery to use shared caches.

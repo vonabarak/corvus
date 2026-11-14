@@ -118,6 +118,12 @@ initialization commands must run in the native host or the appropriate chroot.
 Official cloud and stage3 inputs must contain gemato, GnuPG, getuto, and Gentoo's
 packaged release keys; missing prerequisites fail before synchronization.
 
+`portage_configure_build_host` configures a trust helper in the builder’s
+`make.conf` (Portage drops environment overrides for the native dependency
+tree during target installs). The helper removes
+`ROOT` and `SYSROOT` from its environment. Target installs still preserve `ROOT`
+for emerge; empty guests do not need release keys or a trust database to bootstrap.
+
 Require signatures for official binhost packages, including cached downloads.
 Keep unsigned locally built packages usable in the trusted, separate package
 cache. Never enable `binpkg-ignore-signature` in a bake stage. Only the initial
