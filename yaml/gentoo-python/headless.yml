@@ -58,20 +58,19 @@ pipeline:
         IMAGE_INIT: systemd
         IMAGE_ROOT: /mnt/sysroot
         TARGET_DISK: /dev/vdb
+        KERNEL_CONFIG: /run/corvus-kernel-config
         FEATURES: -userfetch -userpriv
     provisioners:
     - file:
-        from: ./image-builder.pyz
-        to: /run/corvus-image-builder.pyz
+        from: ./glibc-systemd-headless.pyz
+        to: /run/glibc-systemd-headless.pyz
         mode: '0644'
     - file:
         from: ../gentoo/scripts/stages/kernel/gentoo-kernel
         to: /run/corvus-kernel-config
         mode: '0644'
     - shell:
-        inline: python3 /run/corvus-image-builder.pyz run corvus_image_builder.gentoo:headless
-          --root /mnt/sysroot --disk /dev/vdb --kernel-config /run/corvus-kernel-config
-          --use-binary "$USEPKG" --fetch-binary "$GETBINPKG"
+        inline: python3 /run/glibc-systemd-headless.pyz
         timeoutSec: 28800
     cleanup: onSuccess
 - apply:

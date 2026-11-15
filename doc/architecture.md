@@ -30,7 +30,7 @@ Python scripts from `pyproject.toml`:
 The React/Vite frontend lives under `frontend/` and is packaged into
 `python/corvus_web/static/` by `make web-build`.
 
-The standalone `image_builder/` Python package runs composable image-building
+The shared `python/corvus_image_builder/` Python package runs composable image-building
 stages inside Gentoo builder VMs. Its parallel pilot recipe lives in
 `yaml/gentoo-python/`; Corvus retains VM orchestration and image publication.
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .core import BuildContext, ImageRecipe, Stage
+from .core import BuildContext, Stage
 from .portage import InstallRequest, PortageBackend
 
 
@@ -37,7 +37,7 @@ class Settings:
     kernel_config: Path
     use_binary: bool = True
     fetch_binary: bool = True
-    name: str = "gentoo-glibc-systemd-headless-python"
+    name: str = "gentoo-image"
 
 
 class GentooStage(Stage):
@@ -237,20 +237,7 @@ class DiskStage(GentooStage):
 class PackageInstallStage(GentooStage):
     requires = frozenset({"disk"})
     produces = frozenset({"system"})
-    atoms = (
-        "app-emulation/qemu-guest-agent",
-        "net-misc/openssh",
-        "sys-boot/grub",
-        "mail-mta/msmtp",
-        "app-admin/sudo",
-        "sys-fs/growpart",
-        "sys-fs/dosfstools",
-        "sys-boot/efibootmgr",
-        "net-fs/nfs-utils",
-        "sys-block/thin-provisioning-tools",
-        "app-editors/vim",
-        "app-shells/bash-completion",
-    )
+    atoms: tuple[str, ...] = ()
 
     def execute(self, context: BuildContext) -> None:
         root = context.root
@@ -556,21 +543,3 @@ class FinalizeStage(GentooStage):
         )
         self.command(context, "sync")
         context.artifacts["image"] = root
-
-
-def headless(settings: Settings) -> ImageRecipe:
-    return ImageRecipe(
-        [
-            stage(settings)
-            for stage in (
-                WorkspaceStage,
-                RepositoryStage,
-                DiskStage,
-                PackageInstallStage,
-                KernelStage,
-                ConfigurationStage,
-                BootloaderStage,
-                FinalizeStage,
-            )
-        ]
-    )

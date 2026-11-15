@@ -48,7 +48,7 @@ VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 A standalone [Catalyst alternative](../yaml/gentoo-catalyst/README.md) builds a
 separately named headless image. It is not included in aggregate image targets.
 
-A standalone [Python stage library](../image_builder/README.md) builds
+A standalone [Python stage library](image-builder.md) builds
 `gentoo-glibc-systemd-headless-python` using the registered Gentoo builder.
 Run `make -C yaml/gentoo-python plan` to inspect its stages and
 `make -C yaml/gentoo-python build` to build the image and register BIOS/UEFI

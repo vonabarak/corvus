@@ -3,6 +3,7 @@
 import os
 import signal
 import subprocess
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -90,6 +91,14 @@ class BuildManager:
     def run(self, recipe: ImageRecipe, context: BuildContext) -> None:
         self.plan(recipe, context)
         failed = True
+        handlers = {}
+
+        def interrupted(signum: int, frame: object) -> None:
+            raise KeyboardInterrupt(f"Interrupted by signal {signum}")
+
+        if threading.current_thread() is threading.main_thread():
+            for sig in (signal.SIGTERM, signal.SIGHUP):
+                handlers[sig] = signal.signal(sig, interrupted)
         try:
             for stage in recipe.stages:
                 stage.validate(context)
@@ -99,4 +108,8 @@ class BuildManager:
                 stage.verify(context)
             failed = False
         finally:
-            context.close(failed=failed)
+            try:
+                context.close(failed=failed)
+            finally:
+                for sig, handler in handlers.items():
+                    signal.signal(sig, handler)

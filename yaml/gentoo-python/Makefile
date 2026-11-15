@@ -6,10 +6,10 @@ USEPKG ?= true
 GETBINPKG ?= true
 .PHONY: bundle plan build ensure-dependencies
 bundle:
-	$(PYTHON) ../../image_builder/bundle.py image-builder.pyz
+	$(PYTHON) bundle.py glibc-systemd-headless.py glibc-systemd-headless.pyz
 ensure-dependencies:
 	$(MAKE) -C ../gentoo IMAGE=gentoo-glibc-systemd-builder-cloudinit IMAGE_POLICY=$(IMAGE_POLICY) GENTOO_CACHE_DIR=$(CACHE_DIR) ensure
 plan: bundle
-	$(PYTHON) image-builder.pyz plan corvus_image_builder.gentoo:headless --root /mnt/sysroot --disk /dev/vdb --kernel-config ../gentoo/scripts/stages/kernel/gentoo-kernel
+	IMAGE_BUILD_PLAN=1 $(PYTHON) glibc-systemd-headless.pyz
 build: bundle ensure-dependencies
 	crv build headless.yml --var cache_dir=$(CACHE_DIR) --var image_if_exists=$(IMAGE_POLICY) --var USEPKG=$(USEPKG) --var GETBINPKG=$(GETBINPKG) --wait

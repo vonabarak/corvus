@@ -1,13 +1,19 @@
 import importlib.util
 import os
+import runpy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 from corvus_image_builder.core import BuildContext, BuildManager, CommandRunner
-from corvus_image_builder.gentoo import Settings, headless
+from corvus_image_builder.gentoo import Settings
 from corvus_image_builder.portage import InstallRequest, PortageBackend
+
+ROOT = Path(__file__).resolve().parents[3]
+headless = runpy.run_path(str(ROOT / "yaml/gentoo-python/glibc-systemd-headless.py"))[
+    "build_recipe"
+]
 
 
 def test_install_isolated_and_invalidates_queries() -> None:
@@ -49,14 +55,14 @@ def test_plan_does_not_require_gentoo_or_touch_disk(tmp_path: Path) -> None:
 
 def test_bundle_deterministic(tmp_path: Path) -> None:
     spec = importlib.util.spec_from_file_location(
-        "bundle", Path(__file__).parents[1] / "bundle.py"
+        "bundle", ROOT / "yaml/gentoo-python/bundle.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     first, second = tmp_path / "first.pyz", tmp_path / "second.pyz"
-    module.bundle(first)
-    module.bundle(second)
+    module.bundle(ROOT / "yaml/gentoo-python/glibc-systemd-headless.py", first)
+    module.bundle(ROOT / "yaml/gentoo-python/glibc-systemd-headless.py", second)
     assert first.read_bytes() == second.read_bytes()
 
 
@@ -120,3 +126,26 @@ def test_target_queries_use_portage_database(tmp_path: Path) -> None:
         }
     assert portage.create_trees.call_args.kwargs["target_root"] == str(root)
     assert portage.create_trees.call_count == 1
+
+
+def test_bundle_runs_without_repository_path(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "bundle", ROOT / "yaml/gentoo-python/bundle.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    archive = tmp_path / "flavor.pyz"
+    module.bundle(ROOT / "yaml/gentoo-python/glibc-systemd-headless.py", archive)
+    result = subprocess.run(
+        [sys.executable, "-I", str(archive)],
+        cwd=tmp_path,
+        env={**os.environ, "IMAGE_BUILD_PLAN": "1"},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "HeadlessPackages" in result.stdout

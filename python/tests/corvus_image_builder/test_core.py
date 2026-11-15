@@ -46,3 +46,23 @@ def test_failure_preserves_mount_but_releases_lock() -> None:
     context.own(lambda: released.append("lock"))
     context.close(failed=True)
     assert released == ["lock"]
+
+
+def test_run_restores_signal_handlers_on_interrupt(tmp_path: Path) -> None:
+    import signal
+
+    import pytest
+    from corvus_image_builder.core import BuildContext, BuildManager, ImageRecipe, Stage
+
+    released: list[bool] = []
+
+    class Interrupted(Stage):
+        def execute(self, context: BuildContext) -> None:
+            context.own(lambda: released.append(True))
+            signal.raise_signal(signal.SIGTERM)
+
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP)}
+    with pytest.raises(KeyboardInterrupt):
+        BuildManager().run(ImageRecipe([Interrupted()]), BuildContext(tmp_path))
+    assert released == [True]
+    assert all(signal.getsignal(sig) == handler for sig, handler in before.items())
