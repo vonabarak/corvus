@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import runpy
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -48,7 +49,7 @@ def test_empty_install_rejected() -> None:
 def test_plan_does_not_require_gentoo_or_touch_disk(tmp_path: Path) -> None:
     recipe = headless(Settings(Path("/nonexistent"), tmp_path, tmp_path / "config"))
     stages = BuildManager().plan(recipe, BuildContext(tmp_path / "root"))
-    assert len(stages) == 8
+    assert len(stages) == 9
     assert stages[0] == "WorkspaceStage" and stages[-1] == "FinalizeStage"
     assert not (tmp_path / "root").exists()
 
@@ -128,7 +129,8 @@ def test_target_queries_use_portage_database(tmp_path: Path) -> None:
     assert portage.create_trees.call_count == 1
 
 
-def test_bundle_runs_without_repository_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize("flavor", ["glibc-systemd-headless", "musl-openrc-headless"])
+def test_bundle_runs_without_repository_path(flavor: str, tmp_path: Path) -> None:
     import subprocess
     import sys
 
@@ -139,7 +141,7 @@ def test_bundle_runs_without_repository_path(tmp_path: Path) -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     archive = tmp_path / "flavor.pyz"
-    module.bundle(ROOT / "yaml/gentoo-python/glibc-systemd-headless.py", archive)
+    module.bundle(ROOT / f"yaml/gentoo-python/{flavor}.py", archive)
     result = subprocess.run(
         [sys.executable, "-I", str(archive)],
         cwd=tmp_path,
@@ -149,3 +151,205 @@ def test_bundle_runs_without_repository_path(tmp_path: Path) -> None:
         check=True,
     )
     assert "HeadlessPackages" in result.stdout
+    assert (
+        "OpenRCConfigurationStage" in result.stdout
+        if flavor.startswith("musl")
+        else "SystemdConfigurationStage" in result.stdout
+    )
+
+
+@pytest.mark.parametrize("flavor", ["glibc-systemd-headless", "musl-openrc-headless"])
+def test_flavor_preview_and_matching_yaml(flavor: str, tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    import yaml
+
+    directory = ROOT / "yaml/gentoo-python"
+    recipe = yaml.safe_load((directory / f"{flavor}.yml").read_text())
+    build = recipe["pipeline"][1]["build"]
+    assert build["name"] == f"gentoo-{flavor}"
+    result = subprocess.run(
+        [sys.executable, str(directory / f"{flavor}.py")],
+        env={**os.environ, "IMAGE_BUILD_PLAN": "1", "PYTHONPATH": str(ROOT / "python")},
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert (
+        "OpenRCConfigurationStage" in result.stdout
+        if flavor.startswith("musl")
+        else "SystemdConfigurationStage" in result.stdout
+    )
+
+
+def test_settings_reject_mixed_variants(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsupported"):
+        Settings(tmp_path, tmp_path, tmp_path, libc="musl", init="systemd")
+    settings = Settings(tmp_path, tmp_path, tmp_path, libc="musl", init="openrc")
+    assert settings.variant == "x86-64_musl"
+    assert "sys-libs/musl" in settings.system_atoms
+
+
+def test_repository_sync_scopes_keyserver_adapter(tmp_path: Path) -> None:
+    import subprocess
+
+    from corvus_image_builder.gentoo import RepositoryStage
+
+    executable = tmp_path / "real-gemato"
+    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    executable.chmod(0o755)
+    commands = []
+    adapters = []
+
+    def run(argv: tuple[str, ...], *, env: dict[str, str]) -> None:
+        commands.append(argv)
+        adapter = Path(env["PATH"].split(os.pathsep)[0]) / "gemato"
+        adapters.append(adapter)
+        assert "ROOT" not in env and "SYSROOT" not in env
+        result = subprocess.check_output(
+            [str(adapter), "verify", "--key", "release.asc", "snapshot.tar.xz"],
+            env=env,
+            text=True,
+        )
+        assert result.splitlines() == [
+            "verify",
+            "--no-wkd",
+            "--keyserver",
+            "hkps://test.invalid",
+            "--key",
+            "release.asc",
+            "snapshot.tar.xz",
+        ]
+
+    runner = Mock(spec=CommandRunner)
+    runner.run.side_effect = run
+    stage = RepositoryStage(Settings(tmp_path, tmp_path, tmp_path))
+    with (
+        patch("shutil.which", return_value=str(executable)),
+        patch.dict(
+            os.environ,
+            PORTAGE_KEYSERVER="hkps://test.invalid",
+            ROOT="/bad",
+            SYSROOT="/bad",
+        ),
+    ):
+        original_path = os.environ["PATH"]
+        stage.sync_repository(BuildContext(tmp_path, runner=runner))
+        assert os.environ["PATH"] == original_path
+    assert commands == [("emerge-webrsync", "-k"), ("emerge", "--sync")]
+    assert all(not adapter.exists() for adapter in adapters)
+
+
+@pytest.mark.parametrize("failing_command", ["emerge-webrsync", "emerge"])
+@pytest.mark.parametrize("persistent", [False, True])
+def test_repository_sync_retries_and_stops_on_failure(
+    tmp_path: Path, failing_command: str, persistent: bool
+) -> None:
+    from corvus_image_builder.gentoo import RepositoryStage
+
+    attempts = 0
+
+    def run(argv: tuple[str, ...], *, env: dict[str, str]) -> None:
+        nonlocal attempts
+        if argv[0] == failing_command:
+            attempts += 1
+            if persistent or attempts == 1:
+                raise subprocess.CalledProcessError(1, argv)
+
+    runner = Mock(spec=CommandRunner)
+    runner.run.side_effect = run
+    stage = RepositoryStage(Settings(tmp_path, tmp_path, tmp_path))
+    with (
+        patch("shutil.which", return_value="/usr/bin/gemato"),
+        patch("corvus_image_builder.gentoo.repository.time.sleep") as sleep,
+    ):
+        context = BuildContext(tmp_path, runner=runner)
+        if persistent:
+            with pytest.raises(subprocess.CalledProcessError) as error:
+                stage.sync_repository(context)
+            assert error.value.cmd[0] == failing_command
+        else:
+            stage.sync_repository(context)
+        assert attempts == (3 if persistent else 2)
+        assert sleep.call_count == (2 if persistent else 1)
+
+    commands = [call.args[0] for call in runner.run.call_args_list]
+    if persistent and failing_command == "emerge-webrsync":
+        assert all(command == ("emerge-webrsync", "-k") for command in commands)
+    else:
+        assert commands[-1] == ("emerge", "--sync")
+
+
+@pytest.mark.parametrize("flavor", ["glibc-systemd-headless", "musl-openrc-headless"])
+def test_make_forwards_keyserver_to_build_and_dependencies(flavor: str) -> None:
+    result = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "-n",
+            "build",
+            "MAKE=echo",
+            f"IMAGE={flavor}",
+            "GENTOO_KEYSERVER=hkps://test.invalid",
+        ],
+        cwd=ROOT / "yaml/gentoo-python",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert 'GENTOO_KEYSERVER="hkps://test.invalid" ensure' in result.stdout
+    assert '--var portage_keyserver="hkps://test.invalid"' in result.stdout
+
+
+def test_openrc_configuration(tmp_path: Path) -> None:
+    from corvus_image_builder.gentoo import OpenRCConfigurationStage
+
+    for relative in (
+        "etc/conf.d/hwclock",
+        "etc/conf.d/sysklogd",
+        "etc/conf.d/qemu-guest-agent",
+        "etc/inittab",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('clock_hctosys="YES"\n' if "hwclock" in relative else "")
+    runner = Mock(spec=CommandRunner)
+    context = BuildContext(tmp_path, runner=runner)
+    stage = OpenRCConfigurationStage(
+        Settings(tmp_path, tmp_path, tmp_path, libc="musl", init="openrc")
+    )
+    stage.execute(context)
+    stage.verify(context)
+    assert (tmp_path / "etc/resolv.conf").is_file()
+    assert not (tmp_path / "etc/resolv.conf").is_symlink()
+    assert 'clock_hctosys="NO"' in (tmp_path / "etc/conf.d/hwclock").read_text()
+    assert "VSOCK-LISTEN:22" in (tmp_path / "etc/init.d/vsock-sshd").read_text()
+    assert "--retry-path" in (tmp_path / "etc/conf.d/qemu-guest-agent").read_text()
+    commands = [call.args[0] for call in runner.run.call_args_list]
+    assert all(
+        "systemctl" not in command and "localedef" not in command
+        for command in commands
+    )
+    assert any(command[-2:] == ("dhcpcd", "default") for command in commands)
+
+
+def test_musl_system_install_avoids_glibc_bootstrap(tmp_path: Path) -> None:
+    from corvus_image_builder.gentoo import MuslPackageInstallStage
+
+    stage = MuslPackageInstallStage(
+        Settings(tmp_path, tmp_path, tmp_path, libc="musl", init="openrc")
+    )
+    with (
+        patch("corvus_image_builder.gentoo.packages.write") as write,
+        patch.object(stage, "packages") as packages,
+    ):
+        stage.install_system(BuildContext(tmp_path))
+    assert write.call_args.args[1] == "sys-apps/net-tools -hostname\n"
+    assert packages.call_args.args[1] == (
+        "@system",
+        "sys-libs/musl",
+        "sys-apps/openrc",
+        "sys-apps/sysvinit",
+    )

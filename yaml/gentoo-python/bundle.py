@@ -11,8 +11,8 @@ def bundle(script: Path, destination: Path) -> None:
     temporary = destination.with_suffix(".tmp")
     with ZipFile(temporary, "w", compression=ZIP_DEFLATED) as archive:
         files = {
-            f"corvus_image_builder/{p.name}": p.read_bytes()
-            for p in sorted(source.glob("*.py"))
+            f"corvus_image_builder/{p.relative_to(source).as_posix()}": p.read_bytes()
+            for p in sorted(source.rglob("*.py"))
         }
         files["__main__.py"] = script.read_bytes()
         for name, content in sorted(files.items()):

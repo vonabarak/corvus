@@ -244,5 +244,5 @@ markers = [
 addopts = "--dist=loadscope --no-loadscope-reorder --import-mode=importlib"
 
 [[tool.mypy.overrides]]
-module = ["corvus_image_builder.portage", "corvus_image_builder.gentoo"]
+module = ["corvus_image_builder.portage", "corvus_image_builder.gentoo.workspace"]
 disallow_any_explicit = false

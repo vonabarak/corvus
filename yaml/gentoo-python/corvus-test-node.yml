@@ -1,0 +1,119 @@
+# yaml-language-server: $schema=../../schema/json/build.schema.json
+# Prepare dependencies and the harness key through this directory's Makefile.
+vars:
+  portage_keyserver: hkps://keys.gentoo.org
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: 'true'
+  GETBINPKG: 'true'
+pipeline:
+- apply:
+    templates:
+    - name: corvus-test-node-bake
+      hidden: true
+      cpuCount: 8
+      ram: 16G
+      cloudInit: true
+      guestAgent: true
+      startupTimeoutSec: 1200
+      description: Native glibc builder for the Python corvus-test-node recipe
+      sharedDirs:
+      - path: '{{ cache_dir }}'
+        tag: corvus-cache
+      drives:
+      - diskImage: gentoo-glibc-systemd-builder-cloudinit:latest
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+      sshKeys:
+      - name: corvus
+- build:
+    name: corvus-test-node
+    description: Python-built Gentoo integration-test node
+    template: corvus-test-node-bake
+    strategy: offline-overlay
+    sourceImage: gentoo-glibc-systemd-headless
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      compact: true
+      path: BaseImages/Gentoo/
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
+        IMAGE_LIBC: glibc
+        IMAGE_INIT: systemd
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+    provisioners:
+    - file:
+        from: ./corvus-test-node.pyz
+        to: /run/corvus-test-node.pyz
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/corvus-netd.service
+        to: /run/corvus-test-node/systemd/corvus-netd.service
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/corvus-nodeagent.service
+        to: /run/corvus-test-node/systemd/corvus-nodeagent.service
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/corvus-tcp-relay.service
+        to: /run/corvus-test-node/systemd/corvus-tcp-relay.service
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/corvus.service
+        to: /run/corvus-test-node/systemd/corvus.service
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/home-corvus-VMs-BaseImagesRO.mount
+        to: /run/corvus-test-node/systemd/home-corvus-VMs-BaseImagesRO.mount
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/mnt-corvus.mount
+        to: /run/corvus-test-node/systemd/mnt-corvus.mount
+        mode: '0644'
+    - file:
+        from: ../gentoo/scripts/images/corvus-test-node/systemd/opt-corvus-bin.mount
+        to: /run/corvus-test-node/systemd/opt-corvus-bin.mount
+        mode: '0644'
+    - file:
+        from: ../../integration_tests/keys/corvus-test-key.pub
+        to: /run/corvus-test-node/authorized_keys
+        mode: '0600'
+    - shell:
+        inline: python3 /run/corvus-test-node.pyz
+        timeoutSec: 18000
+    cleanup: onSuccess
+- apply:
+    templates:
+    - name: corvus-test-node
+      description: Corvus integration-test node; instantiate via make dev-node-vm
+      cpuCount: 4
+      ram: 16G
+      guestAgent: true
+      headless: true
+      drives:
+      - diskImage: corvus-test-node
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+      networkInterfaces:
+      - network: corvus

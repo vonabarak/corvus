@@ -4,18 +4,21 @@ from pathlib import Path
 from corvus_image_builder.core import BuildContext, BuildManager, ImageRecipe
 from corvus_image_builder.gentoo import (
     BootloaderStage,
-    ConfigurationStage,
+    ChrootEnvironmentStage,
     DiskStage,
     FinalizeStage,
+    GlibcPackageInstallStage,
     KernelStage,
-    PackageInstallStage,
     RepositoryStage,
     Settings,
+    SystemdConfigurationStage,
     WorkspaceStage,
 )
 
 
-class HeadlessPackages(PackageInstallStage):
+class HeadlessPackages(GlibcPackageInstallStage):
+    """Select runtime packages for the glibc/systemd headless image."""
+
     atoms = (
         "app-emulation/qemu-guest-agent",
         "net-misc/openssh",
@@ -40,9 +43,10 @@ def build_recipe(settings: Settings) -> ImageRecipe:
                 WorkspaceStage,
                 RepositoryStage,
                 DiskStage,
+                ChrootEnvironmentStage,
                 HeadlessPackages,
                 KernelStage,
-                ConfigurationStage,
+                SystemdConfigurationStage,
                 BootloaderStage,
                 FinalizeStage,
             )
@@ -52,7 +56,7 @@ def build_recipe(settings: Settings) -> ImageRecipe:
 
 if __name__ == "__main__":
     settings = Settings(
-        name="gentoo-glibc-systemd-headless-python",
+        name="gentoo-glibc-systemd-headless",
         disk=Path(os.environ.get("TARGET_DISK", "/dev/vdb")),
         cache=Path(os.environ.get("IMAGE_CACHE", "/mnt/corvus-cache")),
         kernel_config=Path(

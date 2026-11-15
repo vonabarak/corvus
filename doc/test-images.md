@@ -49,12 +49,23 @@ A standalone [Catalyst alternative](../yaml/gentoo-catalyst/README.md) builds a
 separately named headless image. It is not included in aggregate image targets.
 
 A standalone [Python stage library](image-builder.md) builds
-`gentoo-glibc-systemd-headless-python` using the registered Gentoo builder.
+`gentoo-glibc-systemd-headless` and `gentoo-musl-openrc-headless`
+using their registered native builders. Select the latter with
+`IMAGE=musl-openrc-headless`; the default is `IMAGE=glibc-systemd-headless`.
+Each flavor has matching `.yml`, `.py`, and generated `.pyz` basenames.
 Run `make -C yaml/gentoo-python plan` to inspect its stages and
 `make -C yaml/gentoo-python build` to build the image and register BIOS/UEFI
 templates. It uses Portage Python APIs for target package verification and
 `emerge` for installation, and does not call the legacy shell stages. This pilot
 is separate from the top-level image targets.
+
+The same directory also supports `IMAGE=corvus-test-node` and
+`IMAGE=corvus-test-vm`. Build these explicitly with
+`make -C yaml/gentoo-python build IMAGE=<name>`; the node first evaluates its
+Python glibc headless base, while the guest needs only the native musl builder.
+Both prepare the harness SSH key. Python and retained shell recipes publish the
+same canonical names, so existing tests consume the selected implementation
+without harness changes. Top-level image commands still use the shell recipes.
 
 The existing shell-based Gentoo recipes share `yaml/gentoo/`, its Makefile,
 kernel configuration and `scripts/` provisioners. The Corvus development image builds from

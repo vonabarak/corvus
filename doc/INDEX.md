@@ -50,6 +50,7 @@ The [manual](README.md#documentation) also contains the full catalog as a table.
 - [Integration test harness](../integration_tests/README.md) — Nested-VM prerequisites, test authoring, scheduling, and debugging
 - [Developer node](dev-node.md) — Long-lived nested development environment and iteration workflow
 - [Managed image recipes](test-images.md) — Build, check, clean, and rebuild image fixtures; import ownership
+- [Python image builder](image-builder.md) — Stage architecture, Gentoo flavors, and custom image scripts
 - [QEMU command example](../qemu-command-example.md) — Annotated nodeagent-generated command and device topology
 - [SPICE client maintenance](../frontend/src/lib/spice/README.md) — Vendored browser SPICE source and local extension rules
 

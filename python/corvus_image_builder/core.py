@@ -11,18 +11,40 @@ from pathlib import Path
 
 
 class CommandRunner:
+    """Run commands in their own process group with timeout and interruption cleanup."""
+
     def run(
-        self, argv: Sequence[str], *, env: dict[str, str], timeout: float = 28800
+        self,
+        argv: Sequence[str],
+        *,
+        env: dict[str, str],
+        timeout: float = 28800,
+        input: bytes | None = None,
     ) -> None:
-        process = subprocess.Popen(list(argv), env=env, start_new_session=True)
+        process = subprocess.Popen(
+            list(argv),
+            env=env,
+            start_new_session=True,
+            stdin=subprocess.PIPE if input is not None else None,
+        )
         try:
-            result = process.wait(timeout=timeout)
+            if input is None:
+                process.wait(timeout=timeout)
+            else:
+                process.communicate(input=input, timeout=timeout)
+            result = process.returncode
         except BaseException:
-            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 process.wait()
             raise
         if result:
@@ -31,6 +53,12 @@ class CommandRunner:
 
 @dataclass
 class BuildContext:
+    """Share the target root, command runner, artifacts, and cleanup callbacks.
+
+    Resources are released in reverse acquisition order. Callbacks marked
+    preserve_on_failure are skipped after a failed build to aid diagnosis.
+    """
+
     root: Path
     runner: CommandRunner = field(default_factory=CommandRunner)
     artifacts: dict[str, object] = field(default_factory=dict)
@@ -56,6 +84,12 @@ class BuildContext:
 
 
 class Stage(ABC):
+    """Define one build step with prerequisite and output artifact names.
+
+    Subclasses implement execute, optionally adding validation and verification.
+    Execution must publish the declared outputs in context.artifacts.
+    """
+
     requires: frozenset[str] = frozenset()
     produces: frozenset[str] = frozenset()
 
@@ -75,10 +109,18 @@ class Stage(ABC):
 
 @dataclass
 class ImageRecipe:
+    """Hold an explicitly ordered sequence of stages for one image flavor."""
+
     stages: Sequence[Stage]
 
 
 class BuildManager:
+    """Check stage ordering, validate prerequisites, and execute a recipe.
+
+    Each stage is verified immediately after execution. Resource cleanup runs
+    on success, failure, and interruption; stages are never reordered or resumed.
+    """
+
     def plan(self, recipe: ImageRecipe, context: BuildContext) -> list[str]:
         available = set(context.artifacts)
         for stage in recipe.stages:

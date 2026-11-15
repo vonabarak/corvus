@@ -66,3 +66,31 @@ def test_run_restores_signal_handlers_on_interrupt(tmp_path: Path) -> None:
         BuildManager().run(ImageRecipe([Interrupted()]), BuildContext(tmp_path))
     assert released == [True]
     assert all(signal.getsignal(sig) == handler for sig, handler in before.items())
+
+
+def test_command_input_and_timeout_cleanup(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    from corvus_image_builder.core import CommandRunner
+
+    destination = tmp_path / "stdin"
+    CommandRunner().run(
+        [
+            sys.executable,
+            "-c",
+            "import pathlib, sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
+            str(destination),
+        ],
+        env=dict(os.environ),
+        input=b"corvus:corvus\n",
+    )
+    assert destination.read_bytes() == b"corvus:corvus\n"
+    with pytest.raises(subprocess.TimeoutExpired):
+        CommandRunner().run(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            env=dict(os.environ),
+            input=b"data",
+            timeout=0.1,
+        )

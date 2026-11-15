@@ -323,6 +323,7 @@ are excluded. Developer source-code links require a source checkout.
 | Development and internals | [Integration test harness](../integration_tests/README.md) | Nested-VM prerequisites, test authoring, scheduling, and debugging |
 | Development and internals | [Developer node](dev-node.md) | Long-lived nested development environment and iteration workflow |
 | Development and internals | [Managed image recipes](test-images.md) | Build, check, clean, and rebuild image fixtures; import ownership |
+| Development and internals | [Python image builder](image-builder.md) | Stage architecture, Gentoo flavors, and custom image scripts |
 | Development and internals | [QEMU command example](../qemu-command-example.md) | Annotated nodeagent-generated command and device topology |
 | Development and internals | [SPICE client maintenance](../frontend/src/lib/spice/README.md) | Vendored browser SPICE source and local extension rules |
 | Recipe guides | [AlmaLinux desktop](../yaml/almalinux-10-desktop/README.md) | Unattended AlmaLinux 10 GNOME installation with Kickstart |

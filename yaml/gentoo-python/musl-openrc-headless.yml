@@ -8,19 +8,19 @@ vars:
 pipeline:
 - apply:
     templates:
-    - name: gentoo-python-bake
+    - name: gentoo-musl-python-bake
       hidden: true
       cpuCount: 8
       ram: 16G
-      cloudInit: true
+      cloudInit: false
       guestAgent: true
       startupTimeoutSec: 1200
-      description: Glibc build host for runtime builds and musl builder bootstrap
+      description: Native musl/OpenRC Python build host
       sharedDirs:
       - path: '{{ cache_dir }}'
         tag: corvus-cache
       drives:
-      - diskImage: gentoo-glibc-systemd-builder-cloudinit:latest
+      - diskImage: gentoo-musl-openrc-builder:latest
         interface: virtio
         strategy: overlay
         cacheType: writeback
@@ -35,17 +35,16 @@ pipeline:
         strategy: clone
       networkInterfaces:
       - network: corvus
-      sshKeys:
-      - name: corvus
+      headless: true
 - build:
-    name: gentoo-glibc-systemd-headless-python
-    description: 'Python stage library pilot: Gentoo glibc systemd BIOS/UEFI'
-    template: gentoo-python-bake
+    name: gentoo-musl-openrc-headless
+    description: Python Gentoo musl/OpenRC BIOS/UEFI
+    template: gentoo-musl-python-bake
     strategy: from-scratch
     target:
       ifExists: '{{ image_if_exists }}'
       format: qcow2
-      size: 20G
+      size: 4G
       path: BaseImages/Gentoo/
       compact: true
     shellDefaults:
@@ -54,57 +53,57 @@ pipeline:
         USEPKG: '{{ USEPKG }}'
         GETBINPKG: '{{ GETBINPKG }}'
         PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
-        IMAGE_LIBC: glibc
-        IMAGE_INIT: systemd
+        IMAGE_LIBC: musl
+        IMAGE_INIT: openrc
         IMAGE_ROOT: /mnt/sysroot
         TARGET_DISK: /dev/vdb
         KERNEL_CONFIG: /run/corvus-kernel-config
         FEATURES: -userfetch -userpriv
     provisioners:
     - file:
-        from: ./glibc-systemd-headless.pyz
-        to: /run/glibc-systemd-headless.pyz
+        from: ./musl-openrc-headless.pyz
+        to: /run/musl-openrc-headless.pyz
         mode: '0644'
     - file:
         from: ../gentoo/scripts/stages/kernel/gentoo-kernel
         to: /run/corvus-kernel-config
         mode: '0644'
     - shell:
-        inline: python3 /run/glibc-systemd-headless.pyz
+        inline: python3 /run/musl-openrc-headless.pyz
         timeoutSec: 28800
     cleanup: onSuccess
 - apply:
     templates:
-    - name: gentoo-glibc-systemd-headless-python
-      cpuCount: 8
-      ram: 16G
+    - name: gentoo-musl-openrc-headless
+      cpuCount: 1
+      ram: 512M
       cloudInit: false
       guestAgent: true
       headless: true
       description: Gentoo headless (no cloud-init)
       drives:
-      - diskImage: gentoo-glibc-systemd-headless-python
+      - diskImage: gentoo-musl-openrc-headless
         interface: virtio
         strategy: overlay
         cacheType: writeback
         discard: true
-        size: 20G
+        size: 4G
       networkInterfaces:
       - network: corvus
-    - name: gentoo-glibc-systemd-headless-python-uefi
-      cpuCount: 8
-      ram: 16G
+    - name: gentoo-musl-openrc-headless-uefi
+      cpuCount: 1
+      ram: 512M
       cloudInit: false
       guestAgent: true
       headless: true
       description: Gentoo headless UEFI (no cloud-init)
       drives:
-      - diskImage: gentoo-glibc-systemd-headless-python
+      - diskImage: gentoo-musl-openrc-headless
         interface: virtio
         strategy: overlay
         cacheType: writeback
         discard: true
-        size: 20G
+        size: 4G
       - diskImage: ovmf-code
         interface: pflash
         readOnly: true

@@ -11,13 +11,25 @@ from .core import CommandRunner
 
 @dataclass(frozen=True)
 class InstallRequest:
+    """Describe package atoms, destination root, and binary package preferences."""
+
     atoms: tuple[str, ...]
     root: Path
     use_binary: bool = True
     fetch_binary: bool = True
+    noreplace: bool = False
+    usepkg_exclude: tuple[str, ...] = ()
+    reinstall_atoms: tuple[str, ...] = ()
+    tmpdir: Path | None = None
 
 
 class PortageBackend:
+    """Query installed packages through Portage and install through emerge.
+
+    Portage is imported lazily so recipe planning also works outside Gentoo.
+    Installation runs in a subprocess and invalidates cached database trees.
+    """
+
     def __init__(self, runner: CommandRunner, root: Path = Path("/")) -> None:
         self.runner = runner
         self.root = root
@@ -46,7 +58,7 @@ class PortageBackend:
 
     def install(self, request: InstallRequest) -> None:
         portage = importlib.import_module("portage")
-        for atom in request.atoms:
+        for atom in (*request.atoms, *request.usepkg_exclude, *request.reinstall_atoms):
             if atom != "@system":
                 portage.dep.Atom(atom)
         if not request.atoms:
@@ -54,6 +66,8 @@ class PortageBackend:
         environment = dict(os.environ)
         environment.pop("SYSROOT", None)
         environment["ROOT"] = str(request.root)
+        if request.tmpdir is not None:
+            environment["PORTAGE_TMPDIR"] = str(request.tmpdir)
         environment["FEATURES"] = environment.get("FEATURES", "") + (
             " -userfetch -userpriv binpkg-multi-instance parallel-fetch"
             " -binpkg-request-signature -binpkg-ignore-signature -getbinpkg"
@@ -66,9 +80,16 @@ class PortageBackend:
             "--binpkg-changed-deps=n",
             "--usepkg=" + ("y" if request.use_binary else "n"),
             "--getbinpkg=" + ("y" if request.fetch_binary else "n"),
-            "--",
-            *request.atoms,
         ]
+        if request.noreplace:
+            argv.append("--noreplace")
+        for option, atoms in (
+            ("usepkg-exclude", request.usepkg_exclude),
+            ("reinstall-atoms", request.reinstall_atoms),
+        ):
+            if atoms:
+                argv.append(f"--{option}=" + " ".join(atoms))
+        argv.extend(("--", *request.atoms))
         try:
             self.runner.run(argv, env=environment)
         finally:
