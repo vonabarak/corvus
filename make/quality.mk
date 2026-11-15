@@ -21,8 +21,8 @@ haskell-format-tools:
 # prettier formatter — kept gated so the dev workflow for someone
 # touching only the Haskell/Python side doesn't require Node.
 format: haskell-format-tools
-	$(RUFF) format python integration_tests
-	$(RUFF) check --fix python integration_tests
+	$(RUFF) format python integration_tests image_builder
+	$(RUFF) check --fix python integration_tests image_builder
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode inplace $(HASKELL_SOURCES)
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-format ; \
@@ -37,8 +37,8 @@ format: haskell-format-tools
 check: haskell-format-tools
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- hlint --hint=.hlint.yaml $(HASKELL_SOURCES)
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode check $(HASKELL_SOURCES)
-	$(RUFF) check python integration_tests
-	$(RUFF) format --check python integration_tests
+	$(RUFF) check python integration_tests image_builder
+	$(RUFF) format --check python integration_tests image_builder
 	$(MAKE) typecheck-core
 	$(MAKE) yaml-schema-check
 	@if [ -d frontend/node_modules ]; then \
@@ -57,7 +57,7 @@ yaml-schema-check: venv
 # runtime.  It still type-checks every non-desktop Python module and the
 # existing integration harness.  Desktop code has its own reproducible gate.
 typecheck-core:
-	$(MYPY) python integration_tests
+	$(MYPY) python integration_tests image_builder
 
 # Requires `pip install -e '.[harness,desktop]'` so mypy can load PySide6's
 # shipped annotations.  CI runs this in a dedicated job.

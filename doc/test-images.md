@@ -48,6 +48,14 @@ VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 A standalone [Catalyst alternative](../yaml/gentoo-catalyst/README.md) builds a
 separately named headless image. It is not included in aggregate image targets.
 
+A standalone [Python stage library](../image_builder/README.md) builds
+`gentoo-glibc-systemd-headless-python` using the registered Gentoo builder.
+Run `make -C yaml/gentoo-python plan` to inspect its stages and
+`make -C yaml/gentoo-python build` to build the image and register BIOS/UEFI
+templates. It uses Portage Python APIs for target package verification and
+`emerge` for installation, and does not call the legacy shell stages. This pilot
+is separate from the top-level image targets.
+
 The existing shell-based Gentoo recipes share `yaml/gentoo/`, its Makefile,
 kernel configuration and `scripts/` provisioners. The Corvus development image builds from
 `gentoo-glibc-systemd-headless`. The default `build` target runs the full chain. Manage the stages

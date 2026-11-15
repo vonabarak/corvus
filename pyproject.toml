@@ -119,6 +119,7 @@ corvus_web = ["static/**/*"]
 target-version = "py310"
 line-length = 88
 extend-exclude = [
+    "image_builder/build/",
     ".venv*",
     "*.egg-info",
     # The Cap'n Proto schema symlink target inside corvus_client/ —
@@ -177,7 +178,7 @@ python_version = "3.10"
 # `python/tests/<pkg>/conftest.py` as `tests.<pkg>.conftest` rather
 # than the bare `conftest` (which would collide between the two
 # centralised subtrees).
-mypy_path = "python:integration_tests"
+mypy_path = "python:integration_tests:image_builder"
 explicit_package_bases = true
 namespace_packages = true
 warn_unused_configs = true
@@ -191,6 +192,7 @@ strict = true
 # ``Any`` is an escape hatch, not a substitute for an interface.
 disallow_any_explicit = true
 exclude = [
+    "image_builder/build/",
     "(^|/)\\.venv",
     # Reserved for future codegen — see the ruff `extend-exclude`
     # entry for the same path. Nothing currently matches.
@@ -240,3 +242,7 @@ markers = [
 # count and the one-test TestWindows class lands at the tail of the
 # queue, defeating longest-pole-first scheduling.
 addopts = "--dist=loadscope --no-loadscope-reorder --import-mode=importlib"
+
+[[tool.mypy.overrides]]
+module = ["corvus_image_builder.portage", "corvus_image_builder.gentoo"]
+disallow_any_explicit = false

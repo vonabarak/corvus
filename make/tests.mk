@@ -15,7 +15,7 @@ UPDATE_LOG_EXPECTATIONS ?= 0
 # freshly built daemon from `stack path --local-install-root` — no
 # `make install` required.
 python-test: build venv
-	PYTHONPATH=python:integration_tests .venv/bin/pytest python/tests -v
+	PYTHONPATH=python:integration_tests:image_builder .venv/bin/pytest python/tests image_builder/tests -v
 
 # Run the pytest integration test suite (nested VMs; rootful inner
 # Corvus; multi-node). The orchestrator VMs mount the host's
