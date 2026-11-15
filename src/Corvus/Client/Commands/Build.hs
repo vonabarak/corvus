@@ -5,13 +5,15 @@
 --
 -- @crv build FILE@ reads a YAML build pipeline file, preprocesses
 -- it (inlines any referenced @shell.script@ files as
--- @shell.inline@ and @file.from@ files as @file.content@), uploads any
+-- @shell.inline@ and @file.from@ files as @file.content@, expanding
+-- @directory@ into inlined @file@ steps), uploads any
 -- leading @pipeline[].upload@ media declarations, and forwards
 -- it to the daemon via the Cap'n Proto @daemon.build@ method.
 -- With @--wait@ it streams each 'BuildEvent' to stdout via the
 -- @BuildEventSink@ cap until the pipeline finishes.
 module Corvus.Client.Commands.Build
   ( handleBuild
+  , preprocessRoot
   )
 where
 
@@ -35,13 +37,17 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
+import Data.List (sort)
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
-import System.FilePath (takeDirectory, (</>))
+import System.Directory (listDirectory)
+import System.FilePath (dropTrailingPathSeparator, isAbsolute, normalise, takeDirectory, (</>))
+import qualified System.FilePath.Posix as Posix
+import System.Posix.Files (getSymbolicLinkStatus, isDirectory, isRegularFile, isSymbolicLink)
 
 -- | Top-level handler for @crv build FILE@.
 --
@@ -164,7 +170,7 @@ runBuild fmt conn yaml wait = do
 
 -- | Walk the parsed YAML root looking for
 -- @pipeline[].build.provisioners[].shell@ /
--- @pipeline[].build.provisioners[].file@ /
+-- @pipeline[].build.provisioners[].file@ / @directory@ /
 -- file-path reference, read the file and embed it inline. Apply and upload
 -- pipeline steps do not carry provisioners, so they are
 -- skipped untouched.
@@ -187,18 +193,19 @@ preprocessRoot baseDir = walkPipeline
     rewriteBuild (Object bo) = do
       bo1 <- case KM.lookup "provisioners" bo of
         Just (Array ps) -> do
-          ps' <- mapM walkProv (V.toList ps)
+          ps' <- concat <$> mapM walkProv (V.toList ps)
           pure $ KM.insert "provisioners" (Array (V.fromList ps')) bo
         _ -> pure bo
       pure (Object bo1)
     rewriteBuild v = pure v
 
+    walkProv (Object o) | KM.member "directory" o = expandDirectory baseDir o
     walkProv (Object o) = do
       o1 <- adjustField "shell" rewriteShell o
       oWait <- adjustField "wait-for" rewriteShell o1
       o2 <- adjustField "file" rewriteFile oWait
-      pure (Object o2)
-    walkProv v = pure v
+      pure [Object o2]
+    walkProv v = pure [v]
 
     adjustField :: AK.Key -> (Value -> IO Value) -> KM.KeyMap Value -> IO (KM.KeyMap Value)
     adjustField key f km = case KM.lookup key km of
@@ -235,8 +242,54 @@ preprocessRoot baseDir = walkPipeline
     readFromFile rel = do
       let p = if isAbsolute rel then rel else baseDir </> rel
       BS.readFile p
-    isAbsolute ('/' : _) = True
-    isAbsolute _ = False
+
+-- | Expand a client-local directory into ordinary, fully inlined file steps.
+expandDirectory :: FilePath -> KM.KeyMap Value -> IO [Value]
+expandDirectory baseDir prov = do
+  when (any (\key -> maybe False (/= Null) (KM.lookup key prov)) ["shell", "file", "wait-for", "reboot"]) $
+    fail "directory: provisioner must contain exactly one kind"
+  case KM.lookup "directory" prov of
+    Just (Object fields) -> do
+      when (any (`notElem` ["from", "to", "mode"]) (KM.keys fields)) $
+        fail "directory: unknown field (expected from, to, mode)"
+      source <- requiredText fields "from"
+      destination <- requiredText fields "to"
+      mode <- case KM.lookup "mode" fields of
+        Nothing -> pure Nothing
+        Just Null -> pure Nothing
+        Just value@(String _) -> pure (Just value)
+        _ -> fail "directory: mode must be a string"
+      let root = T.unpack source
+          path = dropTrailingPathSeparator (normalise (if isAbsolute root then root else baseDir </> root))
+      status <- getSymbolicLinkStatus path
+      when (isSymbolicLink status || not (isDirectory status)) $
+        fail ("directory: source must be a directory, not a symbolic link: " <> path)
+      walk path destination mode
+    _ -> fail "directory: expected an object"
+  where
+    requiredText fields key = case KM.lookup key fields of
+      Just (String value) | not (T.null value) -> pure value
+      _ -> fail ("directory: " <> AK.toString key <> " must be a nonempty string")
+    walk source destination mode = do
+      entries <- sort <$> listDirectory source
+      concat <$> mapM (entry source destination mode) entries
+    entry source destination mode name = do
+      let path = source </> name
+          target = T.pack (T.unpack destination Posix.</> name)
+      status <- getSymbolicLinkStatus path
+      if isSymbolicLink status
+        then fail ("directory: symbolic links are not supported: " <> path)
+        else
+          if isDirectory status
+            then walk path target mode
+            else
+              if isRegularFile status
+                then do
+                  bytes <- BS.readFile path
+                  let fields = KM.fromList [("content", String (TE.decodeUtf8 (B64.encode bytes))), ("to", String target)]
+                      withMode = maybe fields (\value -> KM.insert "mode" value fields) mode
+                  pure [Object (KM.singleton "file" (Object withMode))]
+                else fail ("directory: unsupported file type: " <> path)
 
 -- | Execute the leading client-local media uploads, then remove them before
 -- the YAML reaches the daemon. Keeping this separate from apply preserves the
@@ -285,6 +338,4 @@ preprocessUploads conn baseDir (Object root) = case KM.lookup "pipeline" root of
       Nothing -> Nothing
       Just (Bool value) -> Just value
       Just _ -> error ("upload." <> T.unpack (AK.toText key) <> " must be a boolean")
-    isAbsolute ('/' : _) = True
-    isAbsolute _ = False
 preprocessUploads _ _ value = pure value

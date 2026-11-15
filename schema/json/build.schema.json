@@ -2857,6 +2857,9 @@
         },
         "reboot": {
           "$ref": "#/definitions/reboot"
+        },
+        "directory": {
+          "$ref": "#/definitions/directory"
         }
       },
       "additionalProperties": false,
@@ -2904,6 +2907,18 @@
                 ],
                 "properties": {
                   "reboot": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "directory"
+                ],
+                "properties": {
+                  "directory": {
                     "not": {
                       "type": "null"
                     }
@@ -2961,6 +2976,18 @@
                     }
                   }
                 }
+              },
+              {
+                "required": [
+                  "directory"
+                ],
+                "properties": {
+                  "directory": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -3013,6 +3040,18 @@
                     }
                   }
                 }
+              },
+              {
+                "required": [
+                  "directory"
+                ],
+                "properties": {
+                  "directory": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -3060,6 +3099,82 @@
                 ],
                 "properties": {
                   "wait-for": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "directory"
+                ],
+                "properties": {
+                  "directory": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "directory"
+          ],
+          "properties": {
+            "directory": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "shell"
+                ],
+                "properties": {
+                  "shell": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "wait-for"
+                ],
+                "properties": {
+                  "wait-for": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "required": [
+                  "reboot"
+                ],
+                "properties": {
+                  "reboot": {
                     "not": {
                       "type": "null"
                     }
@@ -3457,6 +3572,35 @@
           }
         }
       ]
+    },
+    "directory": {
+      "type": "object",
+      "description": "Client-only recursive expansion into inlined file provisioners. Empty directories are omitted; symbolic links are rejected.",
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
     }
   },
   "examples": [

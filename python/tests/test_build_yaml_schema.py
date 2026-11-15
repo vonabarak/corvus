@@ -137,3 +137,61 @@ def test_target_rebase(
         rebase is False and format == "raw"
     )
     assert validator.is_valid({"pipeline": [{"build": build}]}) == valid
+
+
+@pytest.mark.parametrize("mode", [None, "0644", "u+x"])
+def test_directory_provisioner(validator: Draft7Validator, mode: str | None) -> None:
+    fields = {"from": "./files", "to": "/opt/app", "mode": mode}
+    document = {
+        "pipeline": [
+            {
+                "build": {
+                    "name": "x",
+                    "template": "t",
+                    "target": {},
+                    "provisioners": [{"directory": fields}],
+                }
+            }
+        ]
+    }
+    assert validator.is_valid(document)
+
+
+@pytest.mark.parametrize(
+    "provisioner",
+    [
+        {"directory": None},
+        {"directory": {}},
+        {"directory": {"from": "", "to": "/x"}},
+        {"directory": {"from": "files", "to": ""}},
+        {"directory": {"from": "files"}},
+        {"directory": {"from": 1, "to": "/x"}},
+        {"directory": {"from": "files", "to": "/x", "mode": 644}},
+        {"directory": {"from": "files", "to": "/x", "extra": True}},
+        *[
+            {"directory": {"from": "files", "to": "/x"}, kind: fields}
+            for kind, fields in [
+                ("shell", "true"),
+                ("file", {"content": "eA==", "to": "/x"}),
+                ("wait-for", {"ping": True}),
+                ("reboot", {}),
+            ]
+        ],
+    ],
+)
+def test_invalid_directory_provisioner(
+    validator: Draft7Validator, provisioner: object
+) -> None:
+    document = {
+        "pipeline": [
+            {
+                "build": {
+                    "name": "x",
+                    "template": "t",
+                    "target": {},
+                    "provisioners": [provisioner],
+                }
+            }
+        ]
+    }
+    assert not validator.is_valid(document)

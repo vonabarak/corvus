@@ -4,13 +4,16 @@ The daemon rejects un-preprocessed build payloads — it expects:
 
   - `shell.script` / `wait-for.script` rewritten to `inline: <file contents>`
   - `file.from: path`   rewritten to `file.content: <base64 of bytes>`
+  - `directory` expanded recursively into inlined `file` provisioners
 Mirrors `Corvus.Client.Commands.Build.preprocessRoot` in the Haskell client.
 """
 
 from __future__ import annotations
 
 import base64
+import posixpath
 import re
+import stat
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -52,6 +55,56 @@ def _rewrite_file(prov: dict[str, object], base_dir: Path) -> None:
     if isinstance(src, str):
         data = _read_bytes(base_dir, src)
         fl["content"] = base64.b64encode(data).decode("ascii")
+
+
+def _expand_directory(prov: dict[str, object], base_dir: Path) -> list[object]:
+    if any(
+        prov.get(key) is not None for key in ("shell", "file", "wait-for", "reboot")
+    ):
+        raise ValueError("directory: provisioner must contain exactly one kind")
+    fields = prov["directory"]
+    if not isinstance(fields, dict):
+        raise ValueError("directory: expected an object")
+    if fields.keys() - {"from", "to", "mode"}:
+        raise ValueError("directory: unknown field (expected from, to, mode)")
+    source, destination, mode = fields.get("from"), fields.get("to"), fields.get("mode")
+    for key, value in (("from", source), ("to", destination)):
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"directory: {key} must be a nonempty string")
+    if mode is not None and not isinstance(mode, str):
+        raise ValueError("directory: mode must be a string")
+    # Explicit narrowing also keeps filesystem and destination paths distinct.
+    assert isinstance(source, str) and isinstance(destination, str)
+    root = base_dir / source
+    if not stat.S_ISDIR(root.lstat().st_mode):
+        raise ValueError(
+            f"directory: source must be a directory, not a symbolic link: {root}"
+        )
+
+    def walk(path: Path, target: str) -> list[object]:
+        result: list[object] = []
+        for entry in sorted(path.iterdir(), key=lambda entry: entry.name):
+            guest_path = posixpath.join(target, entry.name)
+            kind = entry.lstat().st_mode
+            if stat.S_ISLNK(kind):
+                raise ValueError(
+                    f"directory: symbolic links are not supported: {entry}"
+                )
+            if stat.S_ISDIR(kind):
+                result.extend(walk(entry, guest_path))
+            elif stat.S_ISREG(kind):
+                file = {
+                    "content": base64.b64encode(entry.read_bytes()).decode("ascii"),
+                    "to": guest_path,
+                }
+                if mode is not None:
+                    file["mode"] = mode
+                result.append({"file": file})
+            else:
+                raise ValueError(f"directory: unsupported file type: {entry}")
+        return result
+
+    return walk(root, destination)
 
 
 def resolve_build_defaults(text: str) -> str:
@@ -121,11 +174,17 @@ def preprocess_build_yaml(yaml_path: str) -> str:
                 continue
             provisioners = build.get("provisioners")
             if isinstance(provisioners, list):
+                expanded = []
                 for prov in provisioners:
+                    if isinstance(prov, dict) and "directory" in prov:
+                        expanded.extend(_expand_directory(prov, base_dir))
+                        continue
                     if isinstance(prov, dict):
                         _rewrite_shell(prov, base_dir)
                         _rewrite_shell(prov, base_dir, "wait-for")
                         _rewrite_file(prov, base_dir)
+                    expanded.append(prov)
+                build["provisioners"] = expanded
     return yaml.safe_dump(doc, sort_keys=False)
 
 

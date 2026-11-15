@@ -63,7 +63,8 @@ crv build path/to/build.yml --wait
 The client preprocesses the YAML before sending it to the daemon: any
 `shell.script: <path>` and `wait-for.script: <path>` become `inline: <text>`
 in their respective provisioners, and any
-`file.from: <path>` becomes `file.content: <base64>`. Leading `upload:`
+`file.from: <path>` becomes `file.content: <base64>`. Each `directory:`
+provisioner expands recursively into inlined `file:` provisioners. Leading `upload:`
 steps stream their `from:` file to the selected node and are removed before
 the daemon receives the remaining apply/build pipeline. Paths are relative to
 the YAML file's directory. The daemon never reads the client's filesystem.
@@ -134,7 +135,7 @@ steps). Keys are never substituted. The `vars:` block itself is
 stripped from the document before the RPC is sent.
 
 Variables do **not** reach the contents of files uploaded by a
-`file:` provisioner — those are read and base64-encoded as-is by
+`file:` or `directory:` provisioner — those are read and base64-encoded as-is by
 the client preprocessor. To template a config file's contents, either
 write it inline (`shell: |\n  cat > /etc/foo <<EOF ... {{ var }} ... EOF`)
 or `sed` the placeholder in a post-upload shell step, as
@@ -726,6 +727,37 @@ and hash checks. It does not copy files into a guest.
 For files larger than ~16 MiB use a tarball + a `shell` provisioner
 that extracts it; the file kind is intended for config drops, not bulk
 data.
+
+### `directory`
+
+Client-side shorthand supported by `crv build` and the Python client's
+file-based build API. It recursively copies the **contents** of a local
+directory by expanding into one ordinary `file:` provisioner per file:
+
+```yaml
+- directory:
+    from: ./files
+    to: /opt/app
+    mode: "0644"  # optional; applies to every generated file
+```
+
+Paths in `from` are relative to the build YAML file unless absolute.
+For example, `./files/config/app.ini` becomes `/opt/app/config/app.ini`.
+Expansion happens after variable substitution, at the original step's position,
+with entries sorted lexically within each directory and traversed depth-first.
+Hidden files are included. Contents are copied as raw bytes without substitution.
+
+The optional `mode` has the same meaning as in `file:`; omitted or null uses
+the existing default of `0644`. Source permissions are not preserved.
+Symbolic links (including the source root) and special files such as sockets
+and FIFOs are rejected. Invalid or unreadable sources fail preprocessing
+before build submission. Empty directories generate no steps and are not
+created in the guest; ordinary file uploads create their destination parents.
+
+This shorthand embeds all file contents as base64 in memory, so the entire
+directory contributes to manifest size and memory use. It uses the existing
+file transfer mechanics and does not add streaming or archive extraction.
+The desktop editor's separate preprocessing path does not support `directory:`.
 
 ### `wait-for`
 
