@@ -1,13 +1,14 @@
 .DEFAULT_GOAL := plan
 PYTHON ?= python3
 IMAGE ?= glibc-systemd-headless
-IMAGES := corvus-test glibc-systemd-headless musl-openrc-headless corvus-test-node corvus-test-vm
+IMAGES := rescue corvus-test glibc-systemd-headless musl-openrc-headless corvus-test-node corvus-test-vm
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
 ifneq ($(filter $(IMAGES),$(IMAGE)),$(IMAGE))
 $(error Unknown IMAGE '$(IMAGE)'. Use: $(IMAGES))
 endif
+BUILDER_rescue := gentoo-glibc-systemd-builder-cloudinit
 BUILDER_glibc-systemd-headless := gentoo-glibc-systemd-builder-cloudinit
 BUILDER_musl-openrc-headless := gentoo-musl-openrc-builder
 BUILDER_corvus-test-vm := gentoo-musl-openrc-builder

@@ -100,7 +100,7 @@ class TestVmPackages(PackageInstallStage):
             destination = context.root / "usr/lib" / library
             shutil.copyfile(source, destination)
             destination.chmod(0o755)
-        self.chroot(context, "/usr/sbin/lshw", "-version")
+        self.chroot_string(context, "/usr/sbin/lshw -version")
         applets = subprocess.check_output(
             ["chroot", str(context.root), "/bin/busybox", "--list"], text=True
         ).splitlines()
@@ -126,21 +126,21 @@ class TestVmConfiguration(OpenRCConfigurationStage):
     def execute(self, context: BuildContext) -> None:
         super().execute(context)
         root = context.root
-        self.chroot(context, "useradd", "--create-home", "--shell", "/bin/sh", "corvus")
-        self.chroot(context, "chpasswd", input=b"corvus:corvus\n")
+        self.chroot_string(context, "useradd --create-home --shell /bin/sh corvus")
+        self.chroot_string(context, "chpasswd", input=b"corvus:corvus\n")
         (root / "home/corvus/.ssh").mkdir(parents=True, exist_ok=True)
         (root / "home/corvus/.ssh").chmod(0o700)
         shutil.copyfile(
             "/run/corvus-test-key.pub", root / "home/corvus/.ssh/authorized_keys"
         )
         (root / "home/corvus/.ssh/authorized_keys").chmod(0o600)
-        self.chroot(context, "chown", "-R", "corvus:corvus", "/home/corvus")
+        self.chroot_string(context, "chown -R corvus:corvus /home/corvus")
         write(
             root / "etc/doas.conf",
             "permit nopass setenv { PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin } corvus\n",
         )
         (root / "etc/doas.conf").chmod(0o400)
-        self.chroot(context, "doas", "-C", "/etc/doas.conf")
+        self.chroot_string(context, "doas -C /etc/doas.conf")
         ssh = root / "etc/ssh/sshd_config"
         write(
             ssh,
@@ -175,7 +175,7 @@ option routers, subnet_mask, classless_static_routes
         )
         (root / "etc/acpi/actions/corvus-power-button.sh").chmod(0o755)
         (root / "etc/acpi/events/default").unlink(missing_ok=True)
-        self.chroot(context, "rc-update", "add", "acpid", "default")
+        self.chroot_string(context, "rc-update add acpid default")
 
 
 class TestVmFinalize(FinalizeStage):

@@ -35,10 +35,10 @@ class SystemdConfigurationStage(GentooStage):
                 str(root),
                 "localedef",
                 "-i",
-                source,
+                str(source),
                 "-f",
                 "UTF-8",
-                destination,
+                str(destination),
                 LC_ALL="C",
             )
         write(
@@ -68,7 +68,7 @@ ExecStart=/usr/bin/ssh-keygen -A
         self.command(
             context,
             "systemctl",
-            f"--root={root}",
+            f"--root={root!s}",
             "enable",
             "systemd-networkd.service",
             "systemd-resolved.service",

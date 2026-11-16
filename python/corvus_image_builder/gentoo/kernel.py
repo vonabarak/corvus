@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from ..core import BuildContext
+from ._validation import validate_kernel
 from .base import GentooStage
 
 
@@ -40,6 +41,7 @@ class KernelStage(GentooStage):
             raise RuntimeError("No visible Gentoo kernel sources")
         digest = hashlib.sha256(self.settings.kernel_config.read_bytes()).hexdigest()
         version = package.removeprefix("sys-kernel/gentoo-sources-")
+        validate_kernel(version)
         archive = (
             self.settings.cache
             / "kernels"
@@ -51,6 +53,7 @@ class KernelStage(GentooStage):
             kernels = sorted((context.root / "boot").glob("vmlinuz-*"))
             if len(kernels) != 1:
                 raise RuntimeError("Kernel cache must contain one kernel")
+            validate_kernel(kernels[0].name.removeprefix("vmlinuz-"))
             context.artifacts["kernel"] = kernels[0].name
             return
         self.packages(context, ("=" + package,), native=True)
@@ -60,14 +63,16 @@ class KernelStage(GentooStage):
             f"linux-{base}-gentoo" + (f"-r{revision}" if separator else "")
         )
         shutil.copyfile(self.settings.kernel_config, source / ".config")
-        common = ("make", "-C", str(source), f"-j{os.cpu_count() or 1}", "ARCH=x86_64")
+        jobs = os.cpu_count() or 1
+        common = ("make", "-C", str(source), f"-j{jobs}", "ARCH=x86_64")
         self.command(context, *common, "olddefconfig")
         self.command(context, *common, "bzImage", "modules")
         release = subprocess.check_output(
             ["make", "-s", "-C", str(source), "ARCH=x86_64", "kernelrelease"], text=True
         ).strip()
+        validate_kernel(release)
         self.command(
-            context, *common, f"INSTALL_MOD_PATH={context.root}", "modules_install"
+            context, *common, f"INSTALL_MOD_PATH={context.root!s}", "modules_install"
         )
         for name, path in (
             ("vmlinuz", "arch/x86/boot/bzImage"),
@@ -82,7 +87,7 @@ class KernelStage(GentooStage):
                 context,
                 "tar",
                 "-czpf",
-                temporary,
+                str(temporary),
                 "-C",
                 str(context.root),
                 f"boot/vmlinuz-{release}",

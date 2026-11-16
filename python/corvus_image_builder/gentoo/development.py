@@ -12,24 +12,14 @@ class PostgreSQLInitializationStage(GentooStage):
     produces = frozenset({"database"})
 
     def execute(self, context: BuildContext) -> None:
-        self.chroot(context, "eselect", "postgresql", "set", "18")
-        self.chroot(context, "emerge", "--config", "dev-db/postgresql:18")
+        root = context.root
+        self.chroot_string(context, "eselect postgresql set 18")
+        self.chroot_string(context, "emerge --config dev-db/postgresql:18")
         self.command(
-            context,
-            "systemctl",
-            f"--root={context.root}",
-            "enable",
-            "postgresql-18.service",
+            context, "systemctl", f"--root={root!s}", "enable", "postgresql-18.service"
         )
-        self.chroot(
-            context,
-            "install",
-            "-d",
-            "-o",
-            "postgres",
-            "-g",
-            "postgres",
-            "/run/postgresql",
+        self.chroot_string(
+            context, "install -d -o postgres -g postgres /run/postgresql"
         )
         pg = "/usr/lib64/postgresql-18/bin/"
         control = (
@@ -69,7 +59,7 @@ class PostgreSQLInitializationStage(GentooStage):
                 "-u",
                 "postgres",
                 "--",
-                pg + "psql",
+                str(pg + "psql"),
                 "-h",
                 "/run/postgresql",
                 "-v",
@@ -144,7 +134,7 @@ bogus-priv
         self.command(
             context,
             "systemctl",
-            f"--root={root}",
+            f"--root={root!s}",
             "enable",
             "vde-switch.service",
             "nftables.service",

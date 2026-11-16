@@ -13,6 +13,7 @@ from typing import Any
 
 from ..core import BuildContext
 from ..portage import PortageBackend
+from ._validation import validate_disk
 from .base import GentooStage
 
 
@@ -25,6 +26,7 @@ class WorkspaceStage(GentooStage):
     produces = frozenset({"workspace"})
 
     def validate(self, context: BuildContext) -> None:
+        validate_disk(self.settings.disk)
         if os.geteuid() != 0:
             raise ValueError("Run inside a disposable Gentoo builder VM as root")
         importlib.import_module("portage")
@@ -86,7 +88,14 @@ class WorkspaceStage(GentooStage):
 
         context.own(restore_umask)
         if shutil.which("cloud-init"):
-            self.command(context, "cloud-init", "status", "--wait")
+            try:
+                self.command_string(context, "cloud-init status --wait")
+            except subprocess.CalledProcessError as error:
+                # cloud-init uses 2 for completed initialization with recoverable
+                # warnings. Fatal initialization errors must still stop the build.
+                if error.returncode != 2:
+                    raise
+                print("cloud-init completed with recoverable warnings", flush=True)
         context.root.mkdir(parents=True, exist_ok=True)
         if not self.settings.cache.is_mount():
             self.settings.cache.mkdir(parents=True, exist_ok=True)

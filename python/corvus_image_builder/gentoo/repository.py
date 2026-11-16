@@ -64,7 +64,7 @@ sync-openpgp-keyserver = {os.environ.get("PORTAGE_KEYSERVER", "hkps://keys.gento
         helper.chmod(0o755)
         with config.open("a") as stream:
             stream.write('PORTAGE_TRUST_HELPER="/etc/portage/corvus-python-getuto"\n')
-        self.command(context, "getuto")
+        self.command_string(context, "getuto")
         self.sync_repository(context)
         context.artifacts["repository"] = Path("/var/db/repos/gentoo")
 
@@ -88,16 +88,16 @@ sync-openpgp-keyserver = {os.environ.get("PORTAGE_KEYSERVER", "hkps://keys.gento
                     "PORTAGE_KEYSERVER", "hkps://keys.gentoo.org"
                 ),
             }
-            for command in (("emerge-webrsync", "-k"), ("emerge", "--sync")):
+            for command in ("emerge-webrsync -k", "emerge --sync"):
                 for attempt in range(1, 4):
                     try:
-                        self.command(context, *command, **variables)
+                        self.command_string(context, command, **variables)
                         break
                     except subprocess.CalledProcessError:
                         if attempt == 3:
                             raise
                         print(
-                            f"{command[0]} failed; retrying ({attempt + 1}/3) "
+                            f"{command} failed; retrying ({attempt + 1}/3) "
                             "with key refresh and signature verification enabled.",
                             flush=True,
                         )

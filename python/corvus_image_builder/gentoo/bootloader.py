@@ -2,6 +2,7 @@
 
 from ..core import BuildContext
 from ._files import link, write
+from ._validation import validate_disk
 from .base import GentooStage
 
 
@@ -14,6 +15,9 @@ class BootloaderStage(GentooStage):
 
     requires = frozenset({"configured"})
     produces = frozenset({"bootloader"})
+
+    def validate(self, context: BuildContext) -> None:
+        validate_disk(self.settings.disk)
 
     def execute(self, context: BuildContext) -> None:
         root = context.root
@@ -35,6 +39,7 @@ class BootloaderStage(GentooStage):
         )
         kernel = context.artifacts["kernel"]
         link(root / "boot/vmlinuz", str(kernel))
+        kernel_args = " ".join(self.settings.kernel_args)
         write(
             root / "boot/grub/grub.cfg",
             f"""set timeout=0
@@ -47,7 +52,7 @@ terminal_input serial console
 terminal_output serial console
 menuentry 'Gentoo Linux' {{
     search --set=root --label corvus-root
-    linux /boot/{kernel} root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8 {" ".join(self.settings.kernel_args)}
+    linux /boot/{kernel} root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8 {kernel_args}
 }}
 """,
         )

@@ -71,7 +71,13 @@ class OpenRCConfigurationStage(GentooStage):
         ):
             for service in services:
                 self.command(
-                    context, "chroot", str(root), "rc-update", "add", service, level
+                    context,
+                    "chroot",
+                    str(root),
+                    "rc-update",
+                    "add",
+                    str(service),
+                    str(level),
                 )
         inittab = root / "etc/inittab"
         if not any(line.startswith("s0:") for line in inittab.read_text().splitlines()):

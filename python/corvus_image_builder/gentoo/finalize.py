@@ -24,7 +24,7 @@ class FinalizeStage(GentooStage):
         for key in (context.root / "etc/ssh").glob("ssh_host_*"):
             key.unlink()
         write(context.root / "etc/machine-id", "")
-        self.chroot(context, "passwd", "-l", "root")
+        self.chroot_string(context, "passwd -l root")
         remove(context.root, "var/lib/cloud")
 
     def clean(self, context: BuildContext) -> None:
@@ -67,7 +67,7 @@ class FinalizeStage(GentooStage):
             context.root / "etc/corvus-image-info",
             json.dumps(self.metadata(context)) + "\n",
         )
-        self.command(context, "sync")
+        self.command_string(context, "sync")
         for filesystem in (context.root, context.root / "boot/efi"):
             try:
                 self.command(context, "fstrim", str(filesystem))

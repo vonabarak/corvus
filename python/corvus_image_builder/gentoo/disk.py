@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from ..core import BuildContext
+from ._validation import validate_disk, validate_kernel
 from .base import GentooStage
 from .mounts import Mounts
 
@@ -35,43 +36,32 @@ class DiskStage(GentooStage):
     produces = frozenset({"disk"})
 
     def validate(self, context: BuildContext) -> None:
+        validate_disk(self.settings.disk)
         for tool in ("sgdisk", "wipefs", "partprobe", "mkfs.vfat", "mkfs.ext4"):
             if not shutil.which(tool):
                 raise ValueError(f"Missing prerequisite: {tool}")
 
     def execute(self, context: BuildContext) -> None:
         disk = str(self.settings.disk)
-        self.command(context, "wipefs", "-a", disk)
-        self.command(context, "sgdisk", "--zap-all", disk)
-        for spec in (
+        self.command_string(context, f"wipefs -a {disk}")
+        self.command_string(context, f"sgdisk --zap-all {disk}")
+        for layout, kind in (
             ("1:0:+1M", "1:ef02"),
             (f"2:0:+{self.settings.esp_size_mib}M", "2:ef00"),
             ("3:0:0", "3:8300"),
         ):
-            self.command(context, "sgdisk", "-n", spec[0], "-t", spec[1], disk)
-        self.command(context, "partprobe", disk)
+            self.command_string(context, f"sgdisk -n {layout} -t {kind} {disk}")
+        self.command_string(context, f"partprobe {disk}")
         for _ in range(60):
             if all(partition_device(self.settings.disk, i).exists() for i in (1, 2, 3)):
                 break
             time.sleep(1)
         else:
             raise RuntimeError("Partition devices did not appear")
-        self.command(
-            context,
-            "mkfs.vfat",
-            "-F32",
-            "-n",
-            "CORVUS-EFI",
-            str(partition_device(self.settings.disk, 2)),
-        )
-        self.command(
-            context,
-            "mkfs.ext4",
-            "-F",
-            "-L",
-            "corvus-root",
-            str(partition_device(self.settings.disk, 3)),
-        )
+        esp = partition_device(self.settings.disk, 2)
+        root = partition_device(self.settings.disk, 3)
+        self.command_string(context, f"mkfs.vfat -F32 -n CORVUS-EFI {esp}")
+        self.command_string(context, f"mkfs.ext4 -F -L corvus-root {root}")
         mount_image(self, context, self.settings.disk)
 
 
@@ -86,6 +76,7 @@ class ExistingImageStage(GentooStage):
     produces = frozenset({"disk", "kernel", "bootloader"})
 
     def validate(self, context: BuildContext) -> None:
+        validate_disk(self.settings.disk)
         for number, expected in ((2, "vfat"), (3, "ext4")):
             actual = subprocess.check_output(
                 [
@@ -110,6 +101,7 @@ class ExistingImageStage(GentooStage):
         if kernel.name != str(kernel) or not kernel.name.startswith("vmlinuz-"):
             raise ValueError("Expected a local versioned kernel symlink")
         version = kernel.name.removeprefix("vmlinuz-")
+        validate_kernel(version)
         for path in (
             root / "boot" / kernel,
             root / "boot" / f"config-{version}",

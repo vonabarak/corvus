@@ -275,6 +275,27 @@ earlier stages, since all validation runs before execution. Override `verify()`
 for stronger output checks and call `super().verify(context)` to retain the
 artifact check. Register owned resources as soon as they are acquired.
 
+`command(context, *argv)` and `chroot(context, *argv, input=None)` accept
+separate arguments, preserving spaces without quotation. Prefer these for
+paths, argument sequences and nested option strings. `command_string()` and
+`chroot_string()` accept a single terminal-style string, parsed with
+`shlex.split`, for fixed commands and validated identifiers. Neither invokes a
+shell. For example:
+
+```python
+self.command(context, "fstrim", str(context.root))
+self.command_string(context, f"wipefs -a {disk}")
+```
+
+Disk names must be direct `/dev/<name>` paths containing only ASCII letters,
+digits, dots, underscores, plus signs and hyphens, starting with a letter or
+digit. Nested aliases are not supported. Kernel identifiers are validated
+before constructing artifact paths. Arbitrary filesystem paths may contain
+spaces; pass them as separate arguments instead of restricting their names.
+
+Environment overrides remain keyword arguments to `command()`; `chroot()`
+accepts optional `input=bytes` for stdin.
+
 For example, insert this stage between configuration and bootloader installation:
 
 ```python
@@ -419,3 +440,25 @@ remain available; both workflows publish the same image name.
 `PostgreSQLInitializationStage` owns and stops its socket-only temporary server
 before runtime mounts are released. `VdeNetworkConfigurationStage` provides the
 shared isolated subnet, DHCP, and outbound NAT used by development and node images.
+
+### Removable rescue media
+
+Build with `make -C yaml/gentoo-python build IMAGE=rescue`, or inspect the
+pipeline with `make -C yaml/gentoo-python plan IMAGE=rescue`. The legacy recipe
+is retained; both publish `gentoo-rescue`. The standalone recipe prepares the
+registered glibc builder and does not change top-level build routing.
+
+The rescue stages install stable glibc/systemd packages into a 16 GiB tmpfs on
+a 32 GiB helper. The 2 GiB raw disk contains BIOS and removable UEFI bootloaders,
+a 64 MiB ESP, and an ext4 carrier holding the kernel, initramfs, compressed
+root, checksums, and persistent home. It does not contain an unpacked OS.
+Distribution-kernel and dracut checks replace the VM-specific kernel stage.
+Cleanup precedes SquashFS generation; publication follows bootloader verification.
+All mounts are owned resources. Failed builds retain their workspace for inspection.
+
+The Python bundle performs all build orchestration. Existing home/growth and
+dracut shell assets remain runtime inputs; legacy build scripts are not uploaded.
+The existing rescue export command remains applicable to the published raw image:
+`sudo make -C yaml/gentoo export IMAGE=gentoo-rescue SOURCE_IMAGE=/path/to/image.raw`.
+See [rescue operations and acceptance tests](../yaml/gentoo/RESCUE.md) for BIOS/UEFI,
+read-only media, persistence, growth, and offline update verification.

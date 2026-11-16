@@ -1,6 +1,7 @@
 """Shared command and package operations for Gentoo stages."""
 
 import os
+import shlex
 from pathlib import Path
 
 from ..core import BuildContext, Stage
@@ -24,6 +25,10 @@ class GentooStage(Stage):
         *argv: str,
         **variables: str,
     ) -> None:
+        """Run separate arguments in the builder, without a shell.
+
+        Keyword arguments override the isolated environment. Arguments are literal.
+        """
         environment = dict(os.environ)
         for key in ("ROOT", "SYSROOT", "PORTAGE_CONFIGROOT"):
             environment.pop(key, None)
@@ -33,7 +38,10 @@ class GentooStage(Stage):
     def chroot(
         self, context: BuildContext, *argv: str, input: bytes | None = None
     ) -> None:
-        """Run an individual target command without leaking builder cache paths."""
+        """Run separate arguments inside the target, without a shell.
+
+        Remove builder Portage/cache variables and optionally supply stdin.
+        """
         environment = dict(os.environ)
         for key in (
             "ROOT",
@@ -44,11 +52,23 @@ class GentooStage(Stage):
             "PKGDIR",
         ):
             environment.pop(key, None)
-        command = ("chroot", str(context.root), *argv)
+        argv = ("chroot", str(context.root), *argv)
         if input is None:
-            context.runner.run(command, env=environment)
+            context.runner.run(argv, env=environment)
         else:
-            context.runner.run(command, env=environment, input=input)
+            context.runner.run(argv, env=environment, input=input)
+
+    def command_string(
+        self, context: BuildContext, command: str, **variables: str
+    ) -> None:
+        """Parse a terminal-style command without invoking a shell."""
+        self.command(context, *shlex.split(command), **variables)
+
+    def chroot_string(
+        self, context: BuildContext, command: str, *, input: bytes | None = None
+    ) -> None:
+        """Parse a target command without invoking a shell."""
+        self.chroot(context, *shlex.split(command), input=input)
 
     def packages(
         self,

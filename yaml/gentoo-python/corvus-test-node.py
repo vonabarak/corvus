@@ -5,9 +5,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from corvus_image_builder.gentoo.development import (
-    PostgreSQLInitializationStage, VdeNetworkConfigurationStage,
-)
 from corvus_image_builder.core import BuildContext, BuildManager, ImageRecipe
 from corvus_image_builder.gentoo import (
     ChrootEnvironmentStage,
@@ -20,6 +17,10 @@ from corvus_image_builder.gentoo import (
     WorkspaceStage,
     link,
     write,
+)
+from corvus_image_builder.gentoo.development import (
+    PostgreSQLInitializationStage,
+    VdeNetworkConfigurationStage,
 )
 
 
@@ -127,7 +128,7 @@ class NodePackages(PackageInstallStage):
             usepkg_exclude=("dev-python/pycapnp",),
             reinstall_atoms=("dev-python/pycapnp",),
         )
-        self.chroot(context, "python3", "-c", "import capnp")
+        self.chroot_string(context, "python3 -c 'import capnp'")
 
 
 class NodeConfiguration(GentooStage):
@@ -165,47 +166,21 @@ class NodeConfiguration(GentooStage):
         VdeNetworkConfigurationStage(self.settings).execute(context)
         users = (root / "etc/passwd").read_text().splitlines()
         if any(line.startswith("corvus:") for line in users):
-            self.chroot(context, "usermod", "-aG", "wheel,kvm", "corvus")
+            self.chroot_string(context, "usermod -aG wheel,kvm corvus")
         else:
-            self.chroot(
-                context, "useradd", "-m", "-s", "/bin/bash", "-G", "wheel,kvm", "corvus"
-            )
-        self.chroot(context, "chown", "corvus:corvus", "/home/corvus")
-        self.chroot(
+            self.chroot_string(context, "useradd -m -s /bin/bash -G wheel,kvm corvus")
+        self.chroot_string(context, "chown corvus:corvus /home/corvus")
+        self.chroot_string(context, "install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh")
+        self.chroot_string(
             context,
-            "install",
-            "-d",
-            "-m",
-            "0700",
-            "-o",
-            "corvus",
-            "-g",
-            "corvus",
-            "/home/corvus/.ssh",
-        )
-        self.chroot(
-            context,
-            "install",
-            "-d",
-            "-m",
-            "0755",
-            "-o",
-            "corvus",
-            "-g",
-            "corvus",
-            "/home/corvus/VMs",
-            "/home/corvus/VMs/BaseImages",
-            "/home/corvus/VMs/BaseImagesRO",
-            "/etc/corvus",
+            "install -d -m 0755 -o corvus -g corvus /home/corvus/VMs /home/corvus/VMs/BaseImages /home/corvus/VMs/BaseImagesRO /etc/corvus",
         )
         shutil.copyfile(
             "/run/corvus-test-node/authorized_keys",
             root / "home/corvus/.ssh/authorized_keys",
         )
         (root / "home/corvus/.ssh/authorized_keys").chmod(0o600)
-        self.chroot(
-            context, "chown", "corvus:corvus", "/home/corvus/.ssh/authorized_keys"
-        )
+        self.chroot_string(context, "chown corvus:corvus /home/corvus/.ssh/authorized_keys")
         write(root / "etc/sudoers.d/wheel-nopasswd", "%wheel ALL=(ALL) NOPASSWD: ALL\n")
         (root / "etc/sudoers.d").chmod(0o750)
         (root / "etc/sudoers.d/wheel-nopasswd").chmod(0o440)
@@ -213,29 +188,8 @@ class NodeConfiguration(GentooStage):
             (root / directory).mkdir(parents=True, exist_ok=True)
         for unit in Path("/run/corvus-test-node/systemd").iterdir():
             shutil.copyfile(unit, root / "etc/systemd/system" / unit.name)
-        self.command(
-            context,
-            "systemctl",
-            f"--root={root}",
-            "enable",
-            "vde-switch.service",
-            "nftables.service",
-            "dnsmasq.service",
-            "opt-corvus-bin.mount",
-            "mnt-corvus.mount",
-            "home-corvus-VMs-BaseImagesRO.mount",
-            "corvus-tcp-relay.service",
-            "sshd.service",
-        )
-        self.command(
-            context,
-            "systemctl",
-            f"--root={root}",
-            "disable",
-            "corvus.service",
-            "corvus-netd.service",
-            "corvus-nodeagent.service",
-        )
+        self.command(context, 'systemctl', f'--root={root!s}', 'enable', 'vde-switch.service', 'nftables.service', 'dnsmasq.service', 'opt-corvus-bin.mount', 'mnt-corvus.mount', 'home-corvus-VMs-BaseImagesRO.mount', 'corvus-tcp-relay.service', 'sshd.service')
+        self.command(context, 'systemctl', f'--root={root!s}', 'disable', 'corvus.service', 'corvus-netd.service', 'corvus-nodeagent.service')
         write(root / "etc/profile.d/50-corvus.sh", DEBUG_PROFILE)
         write(
             root / "etc/motd",
