@@ -181,7 +181,10 @@ def load_yaml_into(editor: YamlEditor, parent: QWidget | None = None) -> str | N
         QMessageBox.warning(
             parent,
             "Could not load file",
-            f"Failed to read {path}:\n{e}",
+            (
+                f"Failed to read {path}:\n"
+                f"{e}"
+            ),
         )
         return None
     editor.set_text(body)

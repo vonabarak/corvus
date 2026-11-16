@@ -161,8 +161,8 @@ jobs:
       - name: Build
         run: make build
 
-      # `make check` runs hlint + fourmolu --mode check + ruff
-      # check + ruff format --check + mypy, then a strict Haskell
+      # `make check` runs hlint + fourmolu --mode check + the Python
+      # style wrapper (Ruff + multiline strings) + mypy, then a strict Haskell
       # build, Weeder, unit tests, and the expression coverage gate.
       - name: Check
         run: make check

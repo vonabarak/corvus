@@ -29,40 +29,43 @@ class DevelopmentRepository(RepositoryStage):
     def execute(self, context: BuildContext) -> None:
         write(
             Path("/etc/portage/repos.conf/corvus.conf"),
-            """[vonabarak]
-location = /var/db/repos/vonabarak
-sync-type = git
-sync-uri = https://github.com/vonabarak/gentoo.git
-
-[haskell]
-location = /var/db/repos/haskell
-sync-type = git
-sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git
-""",
+            (
+                "[vonabarak]\n"
+                "location = /var/db/repos/vonabarak\n"
+                "sync-type = git\n"
+                "sync-uri = https://github.com/vonabarak/gentoo.git\n"
+                "\n"
+                "[haskell]\n"
+                "location = /var/db/repos/haskell\n"
+                "sync-type = git\n"
+                "sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git\n"
+            ),
         )
         write(
             Path("/etc/portage/package.use/corvus"),
-            """app-emulation/qemu spice usb usbredir virtfs passt vde
-net-libs/gnutls pkcs11 tools
-dev-db/postgresql python uuid xml
-media-libs/libpulse -X -gtk -glib
-media-video/pipewire -X -zeroconf -v4l -bluetooth pulseaudio sound-server
-""",
+            (
+                "app-emulation/qemu spice usb usbredir virtfs passt vde\n"
+                "net-libs/gnutls pkcs11 tools\n"
+                "dev-db/postgresql python uuid xml\n"
+                "media-libs/libpulse -X -gtk -glib\n"
+                "media-video/pipewire -X -zeroconf -v4l -bluetooth pulseaudio sound-server\n"
+            ),
         )
         write(
             Path("/etc/portage/package.accept_keywords/corvus"),
-            """app-emulation/corvus **
-app-emulation/corvus-bin **
-dev-python/pycapnp **
-dev-python/fastapi **
-dev-haskell/* ~amd64
-dev-lang/ghc ~amd64
-dev-util/ghcup-bin ~amd64
-app-admin/haskell-updater ~amd64
-dev-haskell/data-default-instances-vector **
-dev-haskell/monad-stm **
-dev-haskell/zenhack-prelude **
-""",
+            (
+                "app-emulation/corvus **\n"
+                "app-emulation/corvus-bin **\n"
+                "dev-python/pycapnp **\n"
+                "dev-python/fastapi **\n"
+                "dev-haskell/* ~amd64\n"
+                "dev-lang/ghc ~amd64\n"
+                "dev-util/ghcup-bin ~amd64\n"
+                "app-admin/haskell-updater ~amd64\n"
+                "dev-haskell/data-default-instances-vector **\n"
+                "dev-haskell/monad-stm **\n"
+                "dev-haskell/zenhack-prelude **\n"
+            ),
         )
         super().execute(context)
 
@@ -109,24 +112,36 @@ class DevelopmentConfiguration(GentooStage):
 
     def execute(self, context: BuildContext) -> None:
         root = context.root
-        self.command(context, 'systemctl', f'--root={root!s}', 'enable', 'cloud-init.target', 'cloud-init-main.service', 'cloud-init-local.service', 'cloud-config.service', 'cloud-final.service', 'cloud-init-hotplugd.socket')
+        self.command(
+            context,
+            "systemctl",
+            f"--root={root!s}",
+            "enable",
+            "cloud-init.target",
+            "cloud-init-main.service",
+            "cloud-init-local.service",
+            "cloud-config.service",
+            "cloud-final.service",
+            "cloud-init-hotplugd.socket",
+        )
         write(
             root / "etc/cloud/cloud.cfg.d/90_corvus_nocloud.cfg",
-            """datasource_list: [NoCloud]
-system_info:
-  default_user:
-    name: gentoo
-    primary_group: users
-    groups: [wheel]
-    lock_passwd: true
-    shell: /bin/bash
-    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
-growpart:
-  mode: auto
-  devices: ['/']
-  ignore_growroot_disabled: false
-resize_rootfs: true
-""",
+            (
+                "datasource_list: [NoCloud]\n"
+                "system_info:\n"
+                "  default_user:\n"
+                "    name: gentoo\n"
+                "    primary_group: users\n"
+                "    groups: [wheel]\n"
+                "    lock_passwd: true\n"
+                "    shell: /bin/bash\n"
+                '    sudo: ["ALL=(ALL) NOPASSWD:ALL"]\n'
+                "growpart:\n"
+                "  mode: auto\n"
+                "  devices: ['/']\n"
+                "  ignore_growroot_disabled: false\n"
+                "resize_rootfs: true\n"
+            ),
         )
         write(root / "etc/cloud/cloud.cfg.d/91_corvus_locale.cfg", "locale: false\n")
         cfg = root / "etc/cloud/cloud.cfg"
@@ -140,11 +155,18 @@ resize_rootfs: true
         )
         with (root / "etc/portage/make.conf").open("a") as stream:
             stream.write(
-                'DISTDIR="/mnt/corvus-cache/distfiles"\nPKGDIR="/mnt/corvus-cache/packages/x86-64"\nFEATURES="-userfetch -userpriv"\n'
+                'DISTDIR="/mnt/corvus-cache/distfiles"\n'
+                'PKGDIR="/mnt/corvus-cache/packages/x86-64"\n'
+                'FEATURES="-userfetch -userpriv"\n'
             )
         write(
             root / "etc/portage/binrepos.conf/zz-corvus-python.conf",
-            "[binhost]\nlocation = /mnt/corvus-cache/binhost/x86-64\nsync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64\nverify-signature = true\n",
+            (
+                "[binhost]\n"
+                "location = /mnt/corvus-cache/binhost/x86-64\n"
+                "sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64\n"
+                "verify-signature = true\n"
+            ),
         )
         (root / "mnt/corvus-cache").mkdir(parents=True, exist_ok=True)
         with (root / "etc/fstab").open("a") as stream:
@@ -153,12 +175,18 @@ resize_rootfs: true
             )
         write(
             root / "etc/issue",
-            "Gentoo Linux with Corvus installed\nLog in as corvus; run corvus-admin quickstart to configure a local node.\n",
+            (
+                "Gentoo Linux with Corvus installed\n"
+                "Log in as corvus; run corvus-admin quickstart to configure a local node.\n"
+            ),
         )
         link(root / "etc/motd", "/etc/issue")
         write(
             root / "etc/ssh/sshd_config.d/90-corvus-banner.conf",
-            "Banner none\nPrintMotd no\n",
+            (
+                "Banner none\n"
+                "PrintMotd no\n"
+            ),
         )
         context.artifacts["configured"] = root
 

@@ -59,10 +59,7 @@ class TestStatusSubscriptionRecovery(SingleNodeCase):
                 "sudo journalctl -u corvus-nodeagent.service -n 0 --show-cursor --no-pager"
             ).stdout.decode()
             cursor = cursor_output.split("-- cursor: ", 1)[1].strip()
-            journal = (
-                "sudo journalctl -u corvus-nodeagent.service --no-pager "
-                f"--after-cursor={shlex.quote(cursor)}"
-            )
+            journal = f"sudo journalctl -u corvus-nodeagent.service --no-pager --after-cursor={shlex.quote(cursor)}"
             try:
                 self.node.run(f"sudo kill -STOP {daemon_pid}")
                 self._wait(
@@ -82,8 +79,7 @@ class TestStatusSubscriptionRecovery(SingleNodeCase):
                 lambda: (
                     "subscribed to VM status push"
                     in self.node.run(
-                        "sudo journalctl -u corvus.service --no-pager "
-                        f"--after-cursor={shlex.quote(cursor)}"
+                        f"sudo journalctl -u corvus.service --no-pager --after-cursor={shlex.quote(cursor)}"
                     ).stdout.decode()
                 ),
                 "Daemon did not restore its status subscription",

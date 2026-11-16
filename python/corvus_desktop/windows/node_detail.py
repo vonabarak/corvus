@@ -148,8 +148,7 @@ class NodeDetailWidget(QWidget):
         )
         agents = []
         agents.append(
-            f"nodeagent {info.agent_version or ''} "
-            f"({'connected' if info.last_node_agent_push_at else 'offline'})"
+            f"nodeagent {info.agent_version or ''} ({'connected' if info.last_node_agent_push_at else 'offline'})"
         )
         if info.netd_disabled:
             agents.append("netd disabled")

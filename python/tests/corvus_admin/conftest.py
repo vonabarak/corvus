@@ -73,20 +73,29 @@ def fake_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, P
     bin_dir.mkdir()
     log = bin_dir / "systemctl.log"
     sysctl = bin_dir / "systemctl"
-    sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
+    sysctl.write_text(
+        f'#!/bin/sh\n'
+        f'echo "$@" >> {log!s}\n'
+    )
     sysctl.chmod(0o755)
     # Pass-through sudo: the deploy code asks for privesc on system
     # paths, but tmp_path is writable so we don't need real
     # escalation — exec the rest of the args as-is.
     sudo = bin_dir / "sudo"
-    sudo.write_text('#!/bin/sh\nexec "$@"\n')
+    sudo.write_text(
+        "#!/bin/sh\n"
+        "exec \"$@\"\n"
+    )
     sudo.chmod(0o755)
     # Fake corvus binaries so LocalRunner.which (used by deploy to
     # bake an absolute ExecStart= into the rendered unit) returns
     # a deterministic path regardless of the developer's $PATH.
     for binary in ("corvus", "corvus-nodeagent", "corvus-netd", "corvus-web"):
         stub = bin_dir / binary
-        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.write_text(
+            "#!/bin/sh\n"
+            "exit 0\n"
+        )
         stub.chmod(0o755)
     # Put the fake bin dir FIRST on PATH so shutil.which picks the
     # stubs ahead of any real installs in ~/.local/bin or /usr/bin.

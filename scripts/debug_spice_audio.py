@@ -12,45 +12,47 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 
-INSTALL_EVENT_LOG = """
-window.spiceAudioEvents = [];
-const audio = document.querySelector('#spice-screen-' + arguments[0] + ' audio');
-for (const name of [
-  'play', 'playing', 'pause', 'seeking', 'seeked', 'timeupdate',
-  'waiting', 'stalled', 'durationchange', 'canplay', 'ended', 'error'
-]) {
-  audio.addEventListener(name, () => {
-    window.spiceAudioEvents.push({
-      event: name,
-      ms: Math.round(performance.now()),
-      paused: audio.paused,
-      time: String(audio.currentTime),
-      duration: String(audio.duration),
-      readyState: audio.readyState,
-      bufferedEnd: audio.buffered.length
-        ? audio.buffered.end(audio.buffered.length - 1) : null,
-      error: audio.error?.message ?? null
-    });
-  });
-}
-"""
+INSTALL_EVENT_LOG = (
+    "\n"
+    "window.spiceAudioEvents = [];\n"
+    "const audio = document.querySelector('#spice-screen-' + arguments[0] + ' audio');\n"
+    "for (const name of [\n"
+    "  'play', 'playing', 'pause', 'seeking', 'seeked', 'timeupdate',\n"
+    "  'waiting', 'stalled', 'durationchange', 'canplay', 'ended', 'error'\n"
+    "]) {\n"
+    "  audio.addEventListener(name, () => {\n"
+    "    window.spiceAudioEvents.push({\n"
+    "      event: name,\n"
+    "      ms: Math.round(performance.now()),\n"
+    "      paused: audio.paused,\n"
+    "      time: String(audio.currentTime),\n"
+    "      duration: String(audio.duration),\n"
+    "      readyState: audio.readyState,\n"
+    "      bufferedEnd: audio.buffered.length\n"
+    "        ? audio.buffered.end(audio.buffered.length - 1) : null,\n"
+    "      error: audio.error?.message ?? null\n"
+    "    });\n"
+    "  });\n"
+    "}\n"
+)
 
-SAMPLE = """
-const audio = document.querySelector('#spice-screen-' + arguments[0] + ' audio');
-return {
-  paused: audio.paused,
-  ended: audio.ended,
-  time: String(audio.currentTime),
-  duration: String(audio.duration),
-  readyState: audio.readyState,
-  bufferedEnd: audio.buffered.length
-    ? audio.buffered.end(audio.buffered.length - 1) : null,
-  mediaSourceState: audio.spiceconn?.media_source?.readyState ?? null,
-  sourceBufferUpdating: audio.spiceconn?.source_buffer?.updating ?? null,
-  error: audio.error?.message ?? null,
-  events: window.spiceAudioEvents?.splice(0) ?? []
-};
-"""
+SAMPLE = (
+    "\n"
+    "const audio = document.querySelector('#spice-screen-' + arguments[0] + ' audio');\n"
+    "return {\n"
+    "  paused: audio.paused,\n"
+    "  ended: audio.ended,\n"
+    "  time: String(audio.currentTime),\n"
+    "  duration: String(audio.duration),\n"
+    "  readyState: audio.readyState,\n"
+    "  bufferedEnd: audio.buffered.length\n"
+    "    ? audio.buffered.end(audio.buffered.length - 1) : null,\n"
+    "  mediaSourceState: audio.spiceconn?.media_source?.readyState ?? null,\n"
+    "  sourceBufferUpdating: audio.spiceconn?.source_buffer?.updating ?? null,\n"
+    "  error: audio.error?.message ?? null,\n"
+    "  events: window.spiceAudioEvents?.splice(0) ?? []\n"
+    "};\n"
+)
 
 
 def main() -> None:

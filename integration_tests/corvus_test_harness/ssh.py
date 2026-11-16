@@ -131,13 +131,11 @@ class NodeShell:
                 last_error = f"exit {result.returncode}: {stderr or '<empty stderr>'}"
                 if "permission denied" in stderr.lower():
                     raise RuntimeError(
-                        f"Node SSH authentication failed ({self.user}@vsock-{self.cid}): "
-                        f"{last_error}"
+                        f"Node SSH authentication failed ({self.user}@vsock-{self.cid}): {last_error}"
                     )
             time.sleep(min(poll_sec, max(0.0, deadline - time.monotonic())))
         raise TimeoutError(
-            f"Node SSH ({self.user}@vsock-{self.cid}) not ready after "
-            f"{timeout_sec}s; last error: {last_error}"
+            f"Node SSH ({self.user}@vsock-{self.cid}) not ready after {timeout_sec}s; last error: {last_error}"
         )
 
     def read_file(self, path: str) -> str:
@@ -183,8 +181,7 @@ class NodeShell:
                 return ip
             time.sleep(poll_sec)
         raise RuntimeError(
-            f"could not find an outer-network IP on cid {self.cid} "
-            f"within {timeout_sec:.0f}s; last `ip -4 -o addr show` returned:\n"
+            f"could not find an outer-network IP on cid {self.cid} within {timeout_sec:.0f}s; last `ip -4 -o addr show` returned:\n"
             f"{last_text}"
         )
 
@@ -247,8 +244,7 @@ class VmShell:
             raise RuntimeError("`socat` not on PATH; required for VSOCK SSH")
         if (vm_cid is None) == (vm_tcp_port is None):
             raise ValueError(
-                "VmShell needs exactly one of `vm_cid` (VSOCK transport) "
-                "or `vm_tcp_port` (node-side TCP hostfwd transport)"
+                "VmShell needs exactly one of `vm_cid` (VSOCK transport) or `vm_tcp_port` (node-side TCP hostfwd transport)"
             )
         self.node_cid = node_cid
         self.vm_cid = vm_cid
@@ -345,17 +341,12 @@ class VmShell:
                 err_lower = result.stderr.lower()
                 if "permission denied" in err_lower and "publickey" in err_lower:
                     raise RuntimeError(
-                        f"SSH key {self.host_key_path} rejected by VM "
-                        f"({self._target_label}): {result.stderr.strip()}"
+                        f"SSH key {self.host_key_path} rejected by VM ({self._target_label}): {result.stderr.strip()}"
                     )
-                last_err = (
-                    f"exit {result.exit_code}; "
-                    f"stderr: {result.stderr.strip() or '<empty>'}"
-                )
+                last_err = f"exit {result.exit_code}; stderr: {result.stderr.strip() or '<empty>'}"
             if time.monotonic() >= deadline:
                 raise TimeoutError(
-                    f"VM SSH ({self._target_label}) not ready after "
-                    f"{timeout_sec}s; last error: {last_err}"
+                    f"VM SSH ({self._target_label}) not ready after {timeout_sec}s; last error: {last_err}"
                 )
             time.sleep(poll_sec)
 

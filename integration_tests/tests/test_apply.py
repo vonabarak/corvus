@@ -73,43 +73,45 @@ class TestApply(SingleNodeCase):
         vm2_name = f"corvus-it-apply-vm2-{token}"
         root1 = f"corvus-it-apply-root1-{token}"
         root2 = f"corvus-it-apply-root2-{token}"
-        yaml_body = textwrap.dedent(f"""
-            disks:
-              - name: {root1}
-                overlay: {base_disk}
-                ephemeral: true
-              - name: {root2}
-                overlay: {base_disk}
-                ephemeral: true
-            networks:
-              - name: {net_name}
-                subnet: ""
-            vms:
-              - name: {vm1_name}
-                cpuCount: 2
-                ram: 512M
-                headless: true
-                guestAgent: true
-                drives:
-                  - disk: {root1}
-                    interface: virtio
-                networkInterfaces:
-                  - type: user
-                  - type: managed
-                    network: {net_name}
-              - name: {vm2_name}
-                cpuCount: 2
-                ram: 512M
-                headless: true
-                guestAgent: true
-                drives:
-                  - disk: {root2}
-                    interface: virtio
-                networkInterfaces:
-                  - type: user
-                  - type: managed
-                    network: {net_name}
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            disks:\n"
+            f"              - name: {root1}\n"
+            f"                overlay: {base_disk}\n"
+            f"                ephemeral: true\n"
+            f"              - name: {root2}\n"
+            f"                overlay: {base_disk}\n"
+            f"                ephemeral: true\n"
+            f"            networks:\n"
+            f"              - name: {net_name}\n"
+            f'                subnet: ""\n'
+            f"            vms:\n"
+            f"              - name: {vm1_name}\n"
+            f"                cpuCount: 2\n"
+            f"                ram: 512M\n"
+            f"                headless: true\n"
+            f"                guestAgent: true\n"
+            f"                drives:\n"
+            f"                  - disk: {root1}\n"
+            f"                    interface: virtio\n"
+            f"                networkInterfaces:\n"
+            f"                  - type: user\n"
+            f"                  - type: managed\n"
+            f"                    network: {net_name}\n"
+            f"              - name: {vm2_name}\n"
+            f"                cpuCount: 2\n"
+            f"                ram: 512M\n"
+            f"                headless: true\n"
+            f"                guestAgent: true\n"
+            f"                drives:\n"
+            f"                  - disk: {root2}\n"
+            f"                    interface: virtio\n"
+            f"                networkInterfaces:\n"
+            f"                  - type: user\n"
+            f"                  - type: managed\n"
+            f"                    network: {net_name}\n"
+            f"        "
+        ).strip()
 
         result, _ = self.client.apply(yaml_body, wait=True)
         try:
@@ -176,29 +178,31 @@ class TestApply(SingleNodeCase):
         vm_name = f"corvus-it-apply-vm-{token}"
         root_name = f"corvus-it-apply-root-{token}"
         pubkey = f"ssh-ed25519 {_TEST_PUB_KEY_BLOB} corvus-it-test-{token}"
-        yaml_body = textwrap.dedent(f"""
-            sshKeys:
-              - name: {key_name}
-                publicKey: "{pubkey}"
-            disks:
-              - name: {root_name}
-                overlay: {base_disk}
-                ephemeral: true
-            vms:
-              - name: {vm_name}
-                cpuCount: 1
-                ram: 512M
-                headless: true
-                guestAgent: true
-                cloudInit: true
-                drives:
-                  - disk: {root_name}
-                    interface: virtio
-                networkInterfaces:
-                  - type: user
-                sshKeys:
-                  - {key_name}
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            sshKeys:\n"
+            f"              - name: {key_name}\n"
+            f'                publicKey: "{pubkey}"\n'
+            f"            disks:\n"
+            f"              - name: {root_name}\n"
+            f"                overlay: {base_disk}\n"
+            f"                ephemeral: true\n"
+            f"            vms:\n"
+            f"              - name: {vm_name}\n"
+            f"                cpuCount: 1\n"
+            f"                ram: 512M\n"
+            f"                headless: true\n"
+            f"                guestAgent: true\n"
+            f"                cloudInit: true\n"
+            f"                drives:\n"
+            f"                  - disk: {root_name}\n"
+            f"                    interface: virtio\n"
+            f"                networkInterfaces:\n"
+            f"                  - type: user\n"
+            f"                sshKeys:\n"
+            f"                  - {key_name}\n"
+            f"        "
+        ).strip()
 
         result, _ = self.client.apply(yaml_body, wait=True)
         try:
@@ -248,38 +252,40 @@ class TestApply(SingleNodeCase):
         vm_name = f"corvus-it-apply-vm-{token}"
         root_name = f"corvus-it-apply-root-{token}"
         pubkey = f"ssh-ed25519 {_TEST_PUB_KEY_BLOB} corvus-it-test-{token}"
-        yaml_body = textwrap.dedent(f"""
-            sshKeys:
-              - name: {key_name}
-                publicKey: "{pubkey}"
-            disks:
-              - name: {root_name}
-                overlay: {base_disk}
-                ephemeral: true
-            vms:
-              - name: {vm_name}
-                cpuCount: 1
-                ram: 512M
-                headless: true
-                guestAgent: true
-                cloudInit: true
-                cloudInitConfig:
-                  userData:
-                    users:
-                      - name: deployer
-                        sudo: "ALL=(ALL) NOPASSWD:ALL"
-                        shell: /bin/sh
-                        lock_passwd: false
-                    ssh_pwauth: true
-                  injectSshKeys: true
-                drives:
-                  - disk: {root_name}
-                    interface: virtio
-                networkInterfaces:
-                  - type: user
-                sshKeys:
-                  - {key_name}
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            sshKeys:\n"
+            f"              - name: {key_name}\n"
+            f'                publicKey: "{pubkey}"\n'
+            f"            disks:\n"
+            f"              - name: {root_name}\n"
+            f"                overlay: {base_disk}\n"
+            f"                ephemeral: true\n"
+            f"            vms:\n"
+            f"              - name: {vm_name}\n"
+            f"                cpuCount: 1\n"
+            f"                ram: 512M\n"
+            f"                headless: true\n"
+            f"                guestAgent: true\n"
+            f"                cloudInit: true\n"
+            f"                cloudInitConfig:\n"
+            f"                  userData:\n"
+            f"                    users:\n"
+            f"                      - name: deployer\n"
+            f'                        sudo: "ALL=(ALL) NOPASSWD:ALL"\n'
+            f"                        shell: /bin/sh\n"
+            f"                        lock_passwd: false\n"
+            f"                    ssh_pwauth: true\n"
+            f"                  injectSshKeys: true\n"
+            f"                drives:\n"
+            f"                  - disk: {root_name}\n"
+            f"                    interface: virtio\n"
+            f"                networkInterfaces:\n"
+            f"                  - type: user\n"
+            f"                sshKeys:\n"
+            f"                  - {key_name}\n"
+            f"        "
+        ).strip()
 
         self.client.apply(yaml_body, wait=True)
         try:
@@ -338,27 +344,29 @@ class TestApply(SingleNodeCase):
         root_name = f"corvus-it-apply-root-{token}"
         net_name = f"corvus-it-apply-net-{token}"
         vm_name = f"corvus-it-apply-vm-{token}"
-        yaml_body = textwrap.dedent(f"""
-            disks:
-              - name: {root_name}
-                overlay: {base_disk}
-                size: 1024M
-                ephemeral: true
-            networks:
-              - name: {net_name}
-                subnet: ""
-            vms:
-              - name: {vm_name}
-                cpuCount: 1
-                ram: 256M
-                headless: true
-                guestAgent: false
-                drives:
-                  - disk: {root_name}
-                    interface: virtio
-                networkInterfaces:
-                  - type: user
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            disks:\n"
+            f"              - name: {root_name}\n"
+            f"                overlay: {base_disk}\n"
+            f"                size: 1024M\n"
+            f"                ephemeral: true\n"
+            f"            networks:\n"
+            f"              - name: {net_name}\n"
+            f'                subnet: ""\n'
+            f"            vms:\n"
+            f"              - name: {vm_name}\n"
+            f"                cpuCount: 1\n"
+            f"                ram: 256M\n"
+            f"                headless: true\n"
+            f"                guestAgent: false\n"
+            f"                drives:\n"
+            f"                  - disk: {root_name}\n"
+            f"                    interface: virtio\n"
+            f"                networkInterfaces:\n"
+            f"                  - type: user\n"
+            f"        "
+        ).strip()
 
         r1, _ = self.client.apply(yaml_body, wait=True)
         r2, _ = self.client.apply(yaml_body, wait=True)
@@ -399,18 +407,20 @@ class TestApply(SingleNodeCase):
         token = secrets.token_hex(4)
         ghost = f"corvus-it-does-not-exist-{token}"
         vm_name = f"corvus-it-apply-vm-{token}"
-        yaml_body = textwrap.dedent(f"""
-            vms:
-              - name: {vm_name}
-                cpuCount: 1
-                ram: 256M
-                headless: true
-                drives:
-                  - disk: {ghost}
-                    interface: virtio
-                networkInterfaces:
-                  - type: user
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            vms:\n"
+            f"              - name: {vm_name}\n"
+            f"                cpuCount: 1\n"
+            f"                ram: 256M\n"
+            f"                headless: true\n"
+            f"                drives:\n"
+            f"                  - disk: {ghost}\n"
+            f"                    interface: virtio\n"
+            f"                networkInterfaces:\n"
+            f"                  - type: user\n"
+            f"        "
+        ).strip()
         try:
             with pytest.raises(CorvusError) as excinfo:
                 self.client.apply(yaml_body, wait=True)
@@ -451,15 +461,17 @@ class TestApply(SingleNodeCase):
             )
             try:
                 time.sleep(0.5)
-                yaml_body = textwrap.dedent(f"""
-                    disks:
-                      - name: {target_name}
-                        import: http://127.0.0.1:{port}/payload.qcow2
-                        format: qcow2
-                        checksum:
-                          algorithm: md5
-                          value: deadbeefdeadbeefdeadbeefdeadbeef
-                """).strip()
+                yaml_body = textwrap.dedent(
+                    f"\n"
+                    f"                    disks:\n"
+                    f"                      - name: {target_name}\n"
+                    f"                        import: http://127.0.0.1:{port}/payload.qcow2\n"
+                    f"                        format: qcow2\n"
+                    f"                        checksum:\n"
+                    f"                          algorithm: md5\n"
+                    f"                          value: deadbeefdeadbeefdeadbeefdeadbeef\n"
+                    f"                "
+                ).strip()
                 with pytest.raises(CorvusError) as excinfo:
                     self.client.apply(yaml_body, wait=True)
                 msg = str(excinfo.value).lower()
@@ -535,15 +547,17 @@ class TestApply(SingleNodeCase):
         before any side-effects (``Handlers/Apply.hs`` ``validateConfig``)."""
         token = secrets.token_hex(4)
         dup_name = f"corvus-it-dup-{token}"
-        yaml_body = textwrap.dedent(f"""
-            disks:
-              - name: {dup_name}
-                size: 8M
-                format: qcow2
-              - name: {dup_name}
-                size: 16M
-                format: qcow2
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            disks:\n"
+            f"              - name: {dup_name}\n"
+            f"                size: 8M\n"
+            f"                format: qcow2\n"
+            f"              - name: {dup_name}\n"
+            f"                size: 16M\n"
+            f"                format: qcow2\n"
+            f"        "
+        ).strip()
         try:
             with pytest.raises(CorvusError) as excinfo:
                 self.client.apply(yaml_body, wait=True)
@@ -563,23 +577,27 @@ class TestApply(SingleNodeCase):
         disk_name = f"corvus-it-overwrite-{token}"
 
         try:
-            yaml_first = textwrap.dedent(f"""
-                disks:
-                  - name: {disk_name}
-                    size: 8M
-                    format: qcow2
-            """).strip()
+            yaml_first = textwrap.dedent(
+                f"\n"
+                f"                disks:\n"
+                f"                  - name: {disk_name}\n"
+                f"                    size: 8M\n"
+                f"                    format: qcow2\n"
+                f"            "
+            ).strip()
             self.client.apply(yaml_first, wait=True)
             first = self.client.disks.get(disk_name, by_name=True).show()
             assert first.size == 8388608
 
-            yaml_second = textwrap.dedent(f"""
-                ifExists: overwrite
-                disks:
-                  - name: {disk_name}
-                    size: 32M
-                    format: qcow2
-            """).strip()
+            yaml_second = textwrap.dedent(
+                f"\n"
+                f"                ifExists: overwrite\n"
+                f"                disks:\n"
+                f"                  - name: {disk_name}\n"
+                f"                    size: 32M\n"
+                f"                    format: qcow2\n"
+                f"            "
+            ).strip()
             self.client.apply(yaml_second, wait=True)
             second = self.client.disks.get(disk_name, by_name=True).show()
             assert second.id != first.id
@@ -615,11 +633,13 @@ class TestApply(SingleNodeCase):
         existing_disk_name = images["corvus-test-vm"]
         del existing_disk_name  # only the SSH key is created here
         key_name = f"corvus-it-stream-key-{token}"
-        yaml_body = textwrap.dedent(f"""
-            sshKeys:
-              - name: {key_name}
-                publicKey: ssh-ed25519 {_TEST_PUB_KEY_BLOB} {key_name}
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            sshKeys:\n"
+            f"              - name: {key_name}\n"
+            f"                publicKey: ssh-ed25519 {_TEST_PUB_KEY_BLOB} {key_name}\n"
+            f"        "
+        ).strip()
 
         try:
             events: list[ApplyEvent] = []

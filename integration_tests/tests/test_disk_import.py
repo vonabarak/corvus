@@ -277,8 +277,7 @@ class TestDiskImport(SingleNodeCase):
             # New disk lives at a different path than the source.
             copy_paths = [p.file_path for p in info.placements]
             assert src_path not in copy_paths, (
-                f"import landed at the source path {src_path!r}; "
-                f"copy placements: {copy_paths!r}"
+                f"import landed at the source path {src_path!r}; copy placements: {copy_paths!r}"
             )
         finally:
             self._delete_versions_silent(copy_name, src_name)
@@ -452,8 +451,7 @@ class TestDiskImport(SingleNodeCase):
                     _node_bytes(self.node, path) == source_bytes for path in paths
                 )
                 assert all(not p.endswith(".xz") for p in paths), (
-                    f"imported file path retains .xz suffix; decompress "
-                    f"didn't run: {paths!r}"
+                    f"imported file path retains .xz suffix; decompress didn't run: {paths!r}"
                 )
         finally:
             self._delete_versions_silent(xz_name, src_name)

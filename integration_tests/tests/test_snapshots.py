@@ -125,12 +125,10 @@ class TestSnapshots(SingleNodeCase):
                 info = snap.show()
                 assert info.name == "while-running"
                 assert info.live, (
-                    "snapshot taken against a running VM must be flagged "
-                    f"live=True, got info={info!r}"
+                    f"snapshot taken against a running VM must be flagged live=True, got info={info!r}"
                 )
                 assert info.quiesced, (
-                    "test VM has QGA, so auto-quiesce must have run; "
-                    f"got quiesced=False on info={info!r}"
+                    f"test VM has QGA, so auto-quiesce must have run; got quiesced=False on info={info!r}"
                 )
             finally:
                 snap.delete()
@@ -303,9 +301,7 @@ class TestSnapshots(SingleNodeCase):
                     data_snaps = [s.name for s in data_disk.snapshot_list()]
                     assert snap_name in boot_snaps, boot_snaps
                     assert snap_name not in data_snaps, (
-                        f"data disk picked up the snapshot {snap_name!r} "
-                        f"even though we only asked the boot disk; "
-                        f"data disk snapshots: {data_snaps!r}"
+                        f"data disk picked up the snapshot {snap_name!r} even though we only asked the boot disk; data disk snapshots: {data_snaps!r}"
                     )
                 finally:
                     snap.delete()
@@ -369,8 +365,7 @@ class TestSnapshots(SingleNodeCase):
             snap.merge()
             count_after = len(disk.snapshot_list())
             assert count_after == count_before - 1, (
-                f"snapshot count should drop by exactly 1, got "
-                f"{count_before} → {count_after}"
+                f"snapshot count should drop by exactly 1, got {count_before} → {count_after}"
             )
             # The merged snapshot is gone from the list.
             assert not any(s.name == "to-merge" for s in disk.snapshot_list())
@@ -428,8 +423,7 @@ class TestSnapshots(SingleNodeCase):
                     shell.wait_ready(timeout_sec=90)
                     got = shell.run(f"cat {path}").stdout.strip()
                     assert got == token, (
-                        f"vm snapshot rollback should restore the marker; "
-                        f"got {got!r}, expected {token!r}"
+                        f"vm snapshot rollback should restore the marker; got {got!r}, expected {token!r}"
                     )
             finally:
                 # Cleanup needs the VM running (QMP snapshot-delete).
@@ -464,8 +458,7 @@ class TestSnapshots(SingleNodeCase):
                 # state. Confirm via QGA + the marker.
                 status = vm.cap.show().status
                 assert str(status) == "running", (
-                    f"stopped-VM rollback should leave the VM running; "
-                    f"got status={status!r}"
+                    f"stopped-VM rollback should leave the VM running; got status={status!r}"
                 )
                 with self.vm_shell(vm.cap) as shell:
                     shell.wait_ready(timeout_sec=90)

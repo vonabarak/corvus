@@ -241,8 +241,7 @@ class TestGuestAgentSubscriptionLifecycle(SingleNodeCase):
                 with lock:
                     count = len(target)
                 raise AssertionError(
-                    f"only received {count}/{target_count} stats samples "
-                    f"within {timeout_sec}s"
+                    f"only received {count}/{target_count} stats samples within {timeout_sec}s"
                 )
 
             sub_a = vm.cap.subscribe_stats(make_handler(a_events))

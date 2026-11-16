@@ -177,9 +177,8 @@ class WebGateway:
                 last_err = str(e)
             time.sleep(0.5)
         raise AssertionError(
-            f"corvus-web {path} never returned 200 within {timeout_sec}s; "
-            f"last error: {last_err}; "
-            f"corvus-web log tail:\n{self.log_tail()}"
+            f"corvus-web {path} never returned 200 within {timeout_sec}s; last error: {last_err}; corvus-web log tail:\n"
+            f"{self.log_tail()}"
         )
 
     def log_tail(self, *, max_bytes: int = 4096) -> str:
@@ -208,8 +207,7 @@ class WebGateway:
         cert_dir = self.node._client_cert_dir
         if cert_dir is None:
             raise RuntimeError(
-                f"node {self.node.short_name!r}: cert dir not set — "
-                "Topology.deploy_certs() hasn't run"
+                f"node {self.node.short_name!r}: cert dir not set — Topology.deploy_certs() hasn't run"
             )
         relay_host, relay_port = self.node.relay.endpoint
         # Use sys.executable so we get the venv Python that's
@@ -294,14 +292,13 @@ class WebGateway:
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 raise RuntimeError(
-                    f"corvus-web exited during startup "
-                    f"(rc={proc.returncode}); log tail:\n{self.log_tail()}"
+                    f"corvus-web exited during startup (rc={proc.returncode}); log tail:\n"
+                    f"{self.log_tail()}"
                 )
             if _tcp_listen_ready(self._bind_host, self._bind_port):
                 return
             time.sleep(0.1)
         raise RuntimeError(
-            f"corvus-web did not start listening on "
-            f"{self._bind_host}:{self._bind_port} within {timeout_sec}s; "
-            f"log tail:\n{self.log_tail()}"
+            f"corvus-web did not start listening on {self._bind_host}:{self._bind_port} within {timeout_sec}s; log tail:\n"
+            f"{self.log_tail()}"
         )

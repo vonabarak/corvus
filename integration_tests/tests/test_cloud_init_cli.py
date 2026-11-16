@@ -118,12 +118,14 @@ class TestCloudInitCli(SingleNodeCase):
         vm = self._make_ci_vm(name)
         yaml_path = f"/tmp/{name}.yml"
         try:
-            yaml_body = textwrap.dedent(f"""
-                injectSshKeys: false
-                userData: |
-                  #cloud-config
-                  hostname: {_USER_DATA_MARKER}
-            """).strip()
+            yaml_body = textwrap.dedent(
+                f"\n"
+                f"                injectSshKeys: false\n"
+                f"                userData: |\n"
+                f"                  #cloud-config\n"
+                f"                  hostname: {_USER_DATA_MARKER}\n"
+                f"            "
+            ).strip()
             _write_file(self.node, yaml_path, yaml_body)
             _assert_ok(_crv(self.node, f"cloud-init set {name} {yaml_path}"))
 
@@ -156,7 +158,10 @@ class TestCloudInitCli(SingleNodeCase):
             vm_id = vm.show().id
             self.client.cloud_init.set(
                 vm_id,
-                user_data="#cloud-config\nhostname: to-be-deleted\n",
+                user_data=(
+                    "#cloud-config\n"
+                    "hostname: to-be-deleted\n"
+                ),
                 inject_ssh_keys=True,
             )
             assert self.client.cloud_init.get(vm_id).user_data is not None
@@ -211,16 +216,21 @@ class TestCloudInitCli(SingleNodeCase):
         vm = self._make_ci_vm(name)
         try:
             vm_id = vm.show().id
-            network_config = textwrap.dedent(f"""
-                version: 2
-                ethernets:
-                  eth0:
-                    addresses:
-                      - {_NET_MARKER_IP}/24
-            """).strip()
+            network_config = textwrap.dedent(
+                f"\n"
+                f"                version: 2\n"
+                f"                ethernets:\n"
+                f"                  eth0:\n"
+                f"                    addresses:\n"
+                f"                      - {_NET_MARKER_IP}/24\n"
+                f"            "
+            ).strip()
             self.client.cloud_init.set(
                 vm_id,
-                user_data=(f"#cloud-config\nhostname: {_USER_DATA_MARKER}\n"),
+                user_data=(
+                    f"#cloud-config\n"
+                    f"hostname: {_USER_DATA_MARKER}\n"
+                ),
                 network_config=network_config,
                 inject_ssh_keys=False,
             )
@@ -242,10 +252,7 @@ class TestCloudInitCli(SingleNodeCase):
             # Read the ISO file on the test-node and grep for the
             # two markers. iso9660 doesn't compress, so literal
             # ASCII payloads survive in the raw bytes.
-            grep_cmd = (
-                f"grep -ao -e {shlex.quote(_USER_DATA_MARKER)} "
-                f"-e {shlex.quote(_NET_MARKER_IP)} {shlex.quote(iso_path)}"
-            )
+            grep_cmd = f"grep -ao -e {shlex.quote(_USER_DATA_MARKER)} -e {shlex.quote(_NET_MARKER_IP)} {shlex.quote(iso_path)}"
             cp = self.node.run(grep_cmd, check=False)
             out = cp.stdout.decode()
             assert _USER_DATA_MARKER in out, (cp.returncode, out, cp.stderr.decode())
@@ -320,9 +327,7 @@ class TestCloudInitCli(SingleNodeCase):
                     .strip()
                 )
                 assert int(mtime_after) > int(mtime_before), (
-                    f"ISO mtime did not advance across attach_ssh_key "
-                    f"({mtime_before} → {mtime_after}); the daemon "
-                    f"didn't regenerate the NoCloud ISO"
+                    f"ISO mtime did not advance across attach_ssh_key ({mtime_before} → {mtime_after}); the daemon didn't regenerate the NoCloud ISO"
                 )
 
                 # ASCII fragment of the public key survives in the
@@ -333,8 +338,7 @@ class TestCloudInitCli(SingleNodeCase):
                     check=False,
                 )
                 assert key_fragment in cp.stdout.decode(), (
-                    f"public key not found in regenerated ISO; "
-                    f"grep stdout={cp.stdout!r}, stderr={cp.stderr!r}"
+                    f"public key not found in regenerated ISO; grep stdout={cp.stdout!r}, stderr={cp.stderr!r}"
                 )
             finally:
                 try:
@@ -387,8 +391,7 @@ class TestCloudInitCli(SingleNodeCase):
                     check=False,
                 )
                 assert marker not in cp.stdout.decode(), (
-                    f"key fragment {marker!r} present in ISO despite "
-                    f"injectSshKeys=false: grep={cp.stdout!r}"
+                    f"key fragment {marker!r} present in ISO despite injectSshKeys=false: grep={cp.stdout!r}"
                 )
             finally:
                 try:
@@ -423,7 +426,10 @@ class TestCloudInitCli(SingleNodeCase):
             # ``#!`` line is the canonical raw-script marker.
             self.client.cloud_init.set(
                 vm_id,
-                user_data="#!/bin/sh\necho hello\n",
+                user_data=(
+                    "#!/bin/sh\n"
+                    "echo hello\n"
+                ),
                 inject_ssh_keys=True,  # injection allowed in config…
             )
             self.client.ssh_keys.create(key_name, public_key)
@@ -440,8 +446,7 @@ class TestCloudInitCli(SingleNodeCase):
                 )
                 # …but the raw-script form blocks the injection.
                 assert marker not in cp.stdout.decode(), (
-                    f"key fragment {marker!r} present in ISO despite "
-                    f"raw-script user-data; grep={cp.stdout!r}"
+                    f"key fragment {marker!r} present in ISO despite raw-script user-data; grep={cp.stdout!r}"
                 )
             finally:
                 try:
@@ -491,13 +496,10 @@ class TestCloudInitCli(SingleNodeCase):
                 f"vm-{vm.show().id}-{name}-cloud-init", by_name=True
             ).show()
             assert iso2.id == iso_id_a, (
-                f"second generate spawned a new disk row "
-                f"({iso_id_a} → {iso2.id}); the daemon should reuse "
-                f"the existing ``vm-<id>-<vm>-cloud-init`` record"
+                f"second generate spawned a new disk row ({iso_id_a} → {iso2.id}); the daemon should reuse the existing ``vm-<id>-<vm>-cloud-init`` record"
             )
             assert iso2.placements[0].file_path == iso_path_a, (
-                f"second generate moved the on-disk file "
-                f"({iso_path_a} → {iso2.placements[0].file_path})"
+                f"second generate moved the on-disk file ({iso_path_a} → {iso2.placements[0].file_path})"
             )
             # Exactly one cloud-init disk per VM — no ghost rows.
             cloud_init_disks = [
@@ -531,7 +533,10 @@ class TestCloudInitCli(SingleNodeCase):
             with pytest.raises(CorvusError) as excinfo:
                 self.client.cloud_init.set(
                     vm.show().id,
-                    user_data="#cloud-config\nhostname: nope\n",
+                    user_data=(
+                        "#cloud-config\n"
+                        "hostname: nope\n"
+                    ),
                     inject_ssh_keys=False,
                 )
             msg = str(excinfo.value).lower()

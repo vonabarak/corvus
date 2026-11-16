@@ -142,7 +142,13 @@ def test_sync_balloon_validation(daemon_socket: Path) -> None:
 def test_sync_hidden_templates(daemon_socket: Path) -> None:
     with Client(unix_socket=str(daemon_socket)) as c:
         tpl = c.templates.create(
-            "name: sync-hidden\ncpuCount: 1\nram: 256M\nhidden: true\ndrives: []\n"
+
+                "name: sync-hidden\n"
+                "cpuCount: 1\n"
+                "ram: 256M\n"
+                "hidden: true\n"
+                "drives: []\n"
+
         )
         try:
             details = tpl.show()

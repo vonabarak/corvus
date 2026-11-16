@@ -98,8 +98,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             if p.node.name == node_name:
                 return p.file_path
         raise AssertionError(
-            f"disk {disk_name!r} has no placement on node {node_name!r}; "
-            f"placements: {[p.node.name for p in info.placements]!r}"
+            f"disk {disk_name!r} has no placement on node {node_name!r}; placements: {[p.node.name for p in info.placements]!r}"
         )
 
     def _file_exists(self, node: TestNode, path: str) -> bool:
@@ -302,8 +301,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
         lowered = str(ei.value).lower()
         assert any(p.lower() in lowered for p in message_must_match), (
-            f"unexpected task error message: {ei.value!r} "
-            f"(expected one of: {message_must_match!r})"
+            f"unexpected task error message: {ei.value!r} (expected one of: {message_must_match!r})"
         )
 
     def test_copy_refuses_rw_attached(self) -> None:
@@ -582,8 +580,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self.wait_for_task(self.client_alpha, task_id, timeout_sec=timeout_sec)
         lowered = str(ei.value).lower()
         assert any(p.lower() in lowered for p in message_must_match), (
-            f"unexpected task error message: {ei.value!r} "
-            f"(expected one of: {message_must_match!r})"
+            f"unexpected task error message: {ei.value!r} (expected one of: {message_must_match!r})"
         )
 
     # ---- Issue 1: --to-path accepted for copy + move ---------------------

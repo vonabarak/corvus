@@ -87,8 +87,7 @@ def _assert_refused(
         action()
     exc = exc_info.value
     assert exc.status == from_status, (
-        f"expected refusal from {from_status!r}; daemon reported "
-        f"from-status {exc.status!r}, reason={exc.reason!r}"
+        f"expected refusal from {from_status!r}; daemon reported from-status {exc.status!r}, reason={exc.reason!r}"
     )
     assert keyword.lower() in exc.reason.lower(), (
         f"refusal reason {exc.reason!r} missing expected keyword {keyword!r}"

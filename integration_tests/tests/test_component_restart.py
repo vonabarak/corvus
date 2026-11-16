@@ -93,8 +93,7 @@ class TestComponentRestart(SingleNodeCase):
                 return
             time.sleep(0.5)
         raise AssertionError(
-            f"{unit} did not return to 'active' within 15s of "
-            f"'systemctl restart {unit}'"
+            f"{unit} did not return to 'active' within 15s of 'systemctl restart {unit}'"
         )
 
     def _start(self, unit: str) -> None:
@@ -178,15 +177,13 @@ class TestComponentRestart(SingleNodeCase):
                 # Connection refused = listener not bound;
                 # FileNotFoundError = Unix-socket path missing.
                 raise AssertionError(
-                    f"{label}: daemon listener gone after restart "
-                    f"(daemon process likely died): {e!r}"
+                    f"{label}: daemon listener gone after restart (daemon process likely died): {e!r}"
                 ) from e
             except Exception as e:
                 last_err = e
                 time.sleep(0.5)
         raise AssertionError(
-            f"{label}: client never recovered within "
-            f"{RECONNECT_BUDGET_SEC}s. Last error: {last_err!r}"
+            f"{label}: client never recovered within {RECONNECT_BUDGET_SEC}s. Last error: {last_err!r}"
         )
 
     # ----------------------------------------------------------------
@@ -219,8 +216,7 @@ class TestComponentRestart(SingleNodeCase):
         self._fresh_status_must_work("after nodeagent restart")
         daemon_pid_after = self._main_pid(DAEMON_UNIT)
         assert daemon_pid_before == daemon_pid_after, (
-            f"daemon process was bounced as a side effect of nodeagent "
-            f"restart (PID {daemon_pid_before} → {daemon_pid_after})"
+            f"daemon process was bounced as a side effect of nodeagent restart (PID {daemon_pid_before} → {daemon_pid_after})"
         )
 
     def test_restart_nodeagent_recovers_running_vm(self) -> None:
@@ -240,9 +236,7 @@ class TestComponentRestart(SingleNodeCase):
                 vm_id = vm.cap.show().id
                 vm.cap.attach_disk(data_disk, interface="virtio")
                 written = vm.cap.guest_exec(
-                    f"/bin/sh -c 'until test -b /dev/vdb; do sleep 1; done; "
-                    f"printf %s {marker} | dd of=/dev/vdb bs=1 conv=notrunc "
-                    "status=none; sync'"
+                    f"/bin/sh -c 'until test -b /dev/vdb; do sleep 1; done; printf %s {marker} | dd of=/dev/vdb bs=1 conv=notrunc status=none; sync'"
                 )
                 assert written.exit_code == 0, written
 
@@ -268,8 +262,7 @@ class TestComponentRestart(SingleNodeCase):
                     time.sleep(0.5)
                 else:
                     raise AssertionError(
-                        "VM did not recover after nodeagent restart; "
-                        f"last guest command result: {last_result!r}"
+                        f"VM did not recover after nodeagent restart; last guest command result: {last_result!r}"
                     )
         finally:
             try:
@@ -288,8 +281,7 @@ class TestComponentRestart(SingleNodeCase):
         self._fresh_status_must_work("after netd restart")
         daemon_pid_after = self._main_pid(DAEMON_UNIT)
         assert daemon_pid_before == daemon_pid_after, (
-            f"daemon process was bounced as a side effect of netd "
-            f"restart (PID {daemon_pid_before} → {daemon_pid_after})"
+            f"daemon process was bounced as a side effect of netd restart (PID {daemon_pid_before} → {daemon_pid_after})"
         )
 
     def test_restart_daemon_agents_survive(self) -> None:
@@ -312,14 +304,10 @@ class TestComponentRestart(SingleNodeCase):
         pid_after_netd = self._main_pid(NETD_UNIT)
 
         assert pid_before_node == pid_after_node, (
-            f"nodeagent was restarted as a side effect of daemon "
-            f"restart (PID changed from {pid_before_node} to "
-            f"{pid_after_node})"
+            f"nodeagent was restarted as a side effect of daemon restart (PID changed from {pid_before_node} to {pid_after_node})"
         )
         assert pid_before_netd == pid_after_netd, (
-            f"netd was restarted as a side effect of daemon "
-            f"restart (PID changed from {pid_before_netd} to "
-            f"{pid_after_netd})"
+            f"netd was restarted as a side effect of daemon restart (PID changed from {pid_before_netd} to {pid_after_netd})"
         )
 
         self._fresh_status_must_work("after daemon restart")
@@ -436,14 +424,12 @@ class TestComponentRestart(SingleNodeCase):
             self._restart(NODE_AGENT_UNIT)
             self._fresh_status_must_work(f"round {round_index} after nodeagent restart")
             assert self._main_pid(DAEMON_UNIT) == daemon_pid, (
-                f"round {round_index}: daemon PID changed after "
-                f"nodeagent restart (expected {daemon_pid})"
+                f"round {round_index}: daemon PID changed after nodeagent restart (expected {daemon_pid})"
             )
             self._restart(NETD_UNIT)
             self._fresh_status_must_work(f"round {round_index} after netd restart")
             assert self._main_pid(DAEMON_UNIT) == daemon_pid, (
-                f"round {round_index}: daemon PID changed after "
-                f"netd restart (expected {daemon_pid})"
+                f"round {round_index}: daemon PID changed after netd restart (expected {daemon_pid})"
             )
 
         self._restart(DAEMON_UNIT)

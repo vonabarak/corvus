@@ -89,8 +89,7 @@ def parse_link_reply_header(buf: bytes) -> SpiceLinkInfo:
     @RuntimeError@ if the magic doesn't match @SPICE_MAGIC@."""
     if len(buf) < _LINK_HEADER.size:
         raise RuntimeError(
-            f"SPICE reply truncated: expected ≥{_LINK_HEADER.size} bytes, "
-            f"got {len(buf)}: {buf.hex()!r}"
+            f"SPICE reply truncated: expected ≥{_LINK_HEADER.size} bytes, got {len(buf)}: {buf.hex()!r}"
         )
     magic, major, minor, size = _LINK_HEADER.unpack(buf[: _LINK_HEADER.size])
     if magic != SPICE_MAGIC:
@@ -128,8 +127,7 @@ def probe_spice_link(
         raise RuntimeError("`socat` not on PATH; required for VSOCK SSH")
     if not host_key_path.exists():
         raise RuntimeError(
-            f"SSH private key not found at {host_key_path} — "
-            "run `make image IMAGE=key` to generate it"
+            f"SSH private key not found at {host_key_path} — run `make image IMAGE=key` to generate it"
         )
 
     payload_b64 = base64.b64encode(build_link_frame()).decode("ascii")
@@ -146,8 +144,7 @@ def probe_spice_link(
     node_script = (
         f"import base64, socket, sys\n"
         f"p = base64.b64decode('{payload_b64}')\n"
-        f"s = socket.create_connection(('127.0.0.1', {spice_port}), "
-        f"timeout={timeout_sec})\n"
+        f"s = socket.create_connection(('127.0.0.1', {spice_port}), timeout={timeout_sec})\n"
         f"s.sendall(p)\n"
         f"buf = b''\n"
         f"while len(buf) < 16:\n"
@@ -189,8 +186,7 @@ def probe_spice_link(
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"SPICE probe SSH exited {proc.returncode}: "
-            f"stderr={proc.stderr.decode('utf-8', 'replace').strip()!r}"
+            f"SPICE probe SSH exited {proc.returncode}: stderr={proc.stderr.decode('utf-8', 'replace').strip()!r}"
         )
     hex_reply = proc.stdout.decode("ascii", errors="replace").strip()
     try:

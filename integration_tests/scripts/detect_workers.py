@@ -62,8 +62,7 @@ def main() -> int:
     if args.explain:
         mem_gib = mem_kib / (1024 * 1024)
         print(
-            f"workers={workers} cpu_budget={cpu_budget} mem_budget={mem_budget} "
-            f"logical_cpus={cpus} mem_available_gib={mem_gib:.1f}",
+            f"workers={workers} cpu_budget={cpu_budget} mem_budget={mem_budget} logical_cpus={cpus} mem_available_gib={mem_gib:.1f}",
             file=sys.stderr,
         )
     print(workers)

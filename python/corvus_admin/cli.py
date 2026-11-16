@@ -65,10 +65,7 @@ def _ca_dir_option(f: click.decorators.FC) -> click.decorators.FC:
         type=click.Path(file_okay=False, path_type=Path),
         default=None,
         show_default=False,
-        help=(
-            "Admin-store directory (CA cert+key + index). "
-            "Default: $XDG_CONFIG_HOME/corvus/admin."
-        ),
+        help="Admin-store directory (CA cert+key + index). Default: $XDG_CONFIG_HOME/corvus/admin.",
     )(f)
 
 
@@ -77,10 +74,7 @@ def _dry_run_option(f: click.decorators.FC) -> click.decorators.FC:
         "--dry-run/--no-dry-run",
         "dry_run",
         default=False,
-        help=(
-            "Print what would be deployed but don't mint a cert, push "
-            "files, or restart any unit. Useful before touching prod."
-        ),
+        help="Print what would be deployed but don't mint a cert, push files, or restart any unit. Useful before touching prod.",
     )(f)
 
 
@@ -90,11 +84,7 @@ def _targets_option(f: click.decorators.FC) -> click.decorators.FC:
         "targets_csv",
         default=None,
         show_default=False,
-        help=(
-            "Comma-separated list of targets to deploy to in parallel. "
-            "Mutually exclusive with the TARGET positional. Each target follows "
-            "the same `local` / `[user@]host[:port]` syntax."
-        ),
+        help="Comma-separated list of targets to deploy to in parallel. Mutually exclusive with the TARGET positional. Each target follows the same `local` / `[user@]host[:port]` syntax.",
     )(f)
 
 
@@ -103,10 +93,7 @@ def _allow_shared_cn_option(f: click.decorators.FC) -> click.decorators.FC:
         "--allow-shared-cn",
         is_flag=True,
         default=False,
-        help=(
-            "Deploy the same CN to every target. By default a multi-target "
-            "deploy with a single name is refused — see `doc/multi-node.md`."
-        ),
+        help="Deploy the same CN to every target. By default a multi-target deploy with a single name is refused — see `doc/multi-node.md`.",
     )(f)
 
 
@@ -161,8 +148,7 @@ def _multi_target_deploy(
 
     if len(targets) > 1 and not allow_shared_cn:
         raise click.UsageError(
-            f"refusing to deploy the same {label} cert to {len(targets)} hosts; "
-            "pass --allow-shared-cn to override (see `doc/multi-node.md`)."
+            f"refusing to deploy the same {label} cert to {len(targets)} hosts; pass --allow-shared-cn to override (see `doc/multi-node.md`)."
         )
     if len(targets) == 1:
         # Single-target fast path keeps the existing per-target
@@ -256,8 +242,7 @@ def init(ca_dir: Path | None, admin_name: str | None, force: bool) -> None:
     rec = deploy.deploy_client(st, name=name)
     assert rec is not None  # init never passes dry_run=True
     click.echo(
-        f"Issued client cert {rec.cn} (expires {rec.expires_at}); "
-        f"dropped into {store.default_client_dir()}."
+        f"Issued client cert {rec.cn} (expires {rec.expires_at}); dropped into {store.default_client_dir()}."
     )
 
 
@@ -668,15 +653,13 @@ def deploy_client(ca_dir: Path | None, name: str, dry_run: bool) -> None:
     st = _ensure_initialised(ca_dir)
     if dry_run:
         click.echo(
-            f"[DRY-RUN] would issue client cert corvus-client:{name}; "
-            f"would drop into {store.default_client_dir()}."
+            f"[DRY-RUN] would issue client cert corvus-client:{name}; would drop into {store.default_client_dir()}."
         )
         return
     rec = deploy.deploy_client(st, name=name)
     assert rec is not None  # dry_run=False path always returns a record
     click.echo(
-        f"Issued client cert {rec.cn} (expires {rec.expires_at}); "
-        f"dropped into {store.default_client_dir()}."
+        f"Issued client cert {rec.cn} (expires {rec.expires_at}); dropped into {store.default_client_dir()}."
     )
 
 
@@ -686,11 +669,7 @@ def deploy_client(ca_dir: Path | None, name: str, dry_run: bool) -> None:
     "--user-service/--system-service",
     default=True,
     show_default=True,
-    help=(
-        "User-mode (~/.config/systemd/user) vs system-mode "
-        "(/etc/systemd/system). corvus-web doesn't need root for the "
-        "common loopback-to-local-daemon setup, so the default is user."
-    ),
+    help="User-mode (~/.config/systemd/user) vs system-mode (/etc/systemd/system). corvus-web doesn't need root for the common loopback-to-local-daemon setup, so the default is user.",
 )
 @click.option(
     "--bind-host",
@@ -761,15 +740,11 @@ def deploy_web(
         sys.exit(1)
     if dry_run:
         click.echo(
-            f"[DRY-RUN] would deploy corvus-web to {plan.target}:{plan.cert_dir}; "
-            f"would bind to {bind_host}:{bind_port}; "
-            f"would restart {plan.service_unit}."
+            f"[DRY-RUN] would deploy corvus-web to {plan.target}:{plan.cert_dir}; would bind to {bind_host}:{bind_port}; would restart {plan.service_unit}."
         )
     else:
         click.echo(
-            f"Deployed corvus-web to {plan.target}; "
-            f"listening on {bind_host}:{bind_port}; "
-            f"restarted {plan.service_unit}."
+            f"Deployed corvus-web to {plan.target}; listening on {bind_host}:{bind_port}; restarted {plan.service_unit}."
         )
 
 
@@ -972,14 +947,12 @@ def renew_client(ca_dir: Path | None, name: str, force: bool, dry_run: bool) -> 
         sys.exit(1)
     if dry_run:
         click.echo(
-            f"[DRY-RUN] would renew client cert corvus-client:{name}; "
-            f"would drop into {store.default_client_dir()}."
+            f"[DRY-RUN] would renew client cert corvus-client:{name}; would drop into {store.default_client_dir()}."
         )
         return
     assert rec is not None  # dry_run=False path always returns a record
     click.echo(
-        f"Renewed client cert {rec.cn} (expires {rec.expires_at}); "
-        f"dropped into {store.default_client_dir()}."
+        f"Renewed client cert {rec.cn} (expires {rec.expires_at}); dropped into {store.default_client_dir()}."
     )
 
 
@@ -1158,17 +1131,14 @@ def revoke_cmd(ca_dir: Path | None, cn: str, yes: bool) -> None:
         click.echo(f"No such cert in index: {cn}", err=True)
         sys.exit(1)
     if not yes and not click.confirm(
-        f"Revoke {cn}? (the component on {idx[cn].deployed_to or '?'} "
-        f"will keep using its existing cert until next deploy/renew)",
+        f"Revoke {cn}? (the component on {idx[cn].deployed_to or '?'} will keep using its existing cert until next deploy/renew)",
         default=False,
     ):
         click.echo("Aborted.")
         return
     rec = st.remove_record(cn)
     click.echo(
-        f"Revoked {rec.cn} from the admin store. "
-        f"Issue a fresh cert with `corvus-admin deploy {rec.role.split('-', 1)[1]}` "
-        f"when you're ready to replace it."
+        f"Revoked {rec.cn} from the admin store. Issue a fresh cert with `corvus-admin deploy {rec.role.split('-', 1)[1]}` when you're ready to replace it."
     )
 
 
@@ -1258,13 +1228,11 @@ def _emit_deploy_result(role: str, plan: deploy.DeployPlan, *, dry_run: bool) ->
     cn_prefix = _ROLE_PREFIX[role]
     if dry_run:
         click.echo(
-            f"[DRY-RUN] would deploy {role} cert (CN {cn_prefix}:{plan.name}) "
-            f"to {plan.target}:{plan.cert_dir}; would restart {plan.service_unit}."
+            f"[DRY-RUN] would deploy {role} cert (CN {cn_prefix}:{plan.name}) to {plan.target}:{plan.cert_dir}; would restart {plan.service_unit}."
         )
         return
     click.echo(
-        f"Deployed {role} cert (CN {cn_prefix}:{plan.name}) "
-        f"to {plan.target}:{plan.cert_dir}; restarted {plan.service_unit}."
+        f"Deployed {role} cert (CN {cn_prefix}:{plan.name}) to {plan.target}:{plan.cert_dir}; restarted {plan.service_unit}."
     )
 
 
@@ -1272,13 +1240,11 @@ def _emit_renew_result(role: str, plan: deploy.DeployPlan, *, dry_run: bool) -> 
     cn_prefix = _ROLE_PREFIX[role]
     if dry_run:
         click.echo(
-            f"[DRY-RUN] would renew {role} cert (CN {cn_prefix}:{plan.name}); "
-            f"would redeploy to {plan.target}."
+            f"[DRY-RUN] would renew {role} cert (CN {cn_prefix}:{plan.name}); would redeploy to {plan.target}."
         )
         return
     click.echo(
-        f"Renewed {role} cert (CN {cn_prefix}:{plan.name}); "
-        f"redeployed to {plan.target}."
+        f"Renewed {role} cert (CN {cn_prefix}:{plan.name}); redeployed to {plan.target}."
     )
 
 

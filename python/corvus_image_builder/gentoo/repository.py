@@ -32,35 +32,42 @@ class RepositoryStage(GentooStage):
         ]
         config.write_text(
             "\n".join(lines)
-            + f'''\nDISTDIR="{self.settings.cache}/distfiles"
-PKGDIR="{self.settings.cache}/packages/{self.settings.variant}"
-FEATURES="-userfetch -userpriv -getbinpkg -binpkg-request-signature -binpkg-ignore-signature"
-GPG_VERIFY_USER_DROP=""
-GPG_VERIFY_GROUP_DROP=""
-'''
+            + (
+                f"\n"
+                f'DISTDIR="{self.settings.cache}/distfiles"\n'
+                f'PKGDIR="{self.settings.cache}/packages/{self.settings.variant}"\n'
+                f'FEATURES="-userfetch -userpriv -getbinpkg -binpkg-request-signature -binpkg-ignore-signature"\n'
+                f'GPG_VERIFY_USER_DROP=""\n'
+                f'GPG_VERIFY_GROUP_DROP=""\n'
+            )
         )
         write(
             Path("/etc/portage/binrepos.conf/zz-corvus-python.conf"),
-            f"""[binhost]
-priority = 9999
-location = {self.settings.cache}/binhost/{self.settings.variant}
-sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/{self.settings.variant}
-verify-signature = true
-""",
+            (
+                f"[binhost]\n"
+                f"priority = 9999\n"
+                f"location = {self.settings.cache}/binhost/{self.settings.variant}\n"
+                f"sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/{self.settings.variant}\n"
+                f"verify-signature = true\n"
+            ),
         )
         write(
             Path("/etc/portage/repos.conf/zz-corvus-python.conf"),
-            f"""[gentoo]
-sync-webrsync-verify-signature = true
-sync-rsync-verify-metamanifest = true
-sync-openpgp-key-package = sec-keys/openpgp-keys-gentoo-release
-sync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc
-sync-openpgp-key-refresh = keyserver
-sync-openpgp-keyserver = {os.environ.get("PORTAGE_KEYSERVER", "hkps://keys.gentoo.org")}
-""",
+            (
+                f"[gentoo]\n"
+                f"sync-webrsync-verify-signature = true\n"
+                f"sync-rsync-verify-metamanifest = true\n"
+                f"sync-openpgp-key-package = sec-keys/openpgp-keys-gentoo-release\n"
+                f"sync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc\n"
+                f"sync-openpgp-key-refresh = keyserver\n"
+                f"sync-openpgp-keyserver = {os.environ.get('PORTAGE_KEYSERVER', 'hkps://keys.gentoo.org')}\n"
+            ),
         )
         helper = Path("/etc/portage/corvus-python-getuto")
-        write(helper, "#!/bin/sh\nexec env -u ROOT -u SYSROOT getuto\n")
+        write(helper, (
+            "#!/bin/sh\n"
+            "exec env -u ROOT -u SYSROOT getuto\n"
+        ))
         helper.chmod(0o755)
         with config.open("a") as stream:
             stream.write('PORTAGE_TRUST_HELPER="/etc/portage/corvus-python-getuto"\n')
@@ -78,7 +85,12 @@ sync-openpgp-keyserver = {os.environ.get("PORTAGE_KEYSERVER", "hkps://keys.gento
             adapter = Path(directory) / "gemato"
             write(
                 adapter,
-                '#!/bin/sh\noperation=$1\nshift\nexec "$CORVUS_GEMATO" "$operation" --no-wkd --keyserver "$PORTAGE_KEYSERVER" "$@"\n',
+                (
+                    "#!/bin/sh\n"
+                    "operation=$1\n"
+                    "shift\n"
+                    'exec "$CORVUS_GEMATO" "$operation" --no-wkd --keyserver "$PORTAGE_KEYSERVER" "$@"\n'
+                ),
             )
             adapter.chmod(0o755)
             variables = {
@@ -97,8 +109,10 @@ sync-openpgp-keyserver = {os.environ.get("PORTAGE_KEYSERVER", "hkps://keys.gento
                         if attempt == 3:
                             raise
                         print(
-                            f"{command} failed; retrying ({attempt + 1}/3) "
-                            "with key refresh and signature verification enabled.",
+                            (
+                                f"{command} failed; retrying ({attempt + 1}/3) "
+                                "with key refresh and signature verification enabled."
+                            ),
                             flush=True,
                         )
                         time.sleep(5)

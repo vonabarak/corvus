@@ -218,19 +218,21 @@ class TestImageConcurrency(SingleNodeCase):
             self.client.disks.create(f"{prefix}-prune", 1048576)
             directory = f"/tmp/{prefix}"
             port = 30000 + secrets.randbelow(20000)
-            server = textwrap.dedent(f"""
-                import http.server, pathlib, time
-                root = pathlib.Path({directory!r})
-                class Handler(http.server.BaseHTTPRequestHandler):
-                    def do_GET(self):
-                        if self.path == '/health':
-                            self.send_response(200); self.end_headers(); return
-                        (root / 'ready').touch()
-                        while not (root / 'release').exists(): time.sleep(0.05)
-                        self.send_response(200); self.send_header('Content-Length', '4096'); self.end_headers()
-                        self.wfile.write(b'd' * 4096)
-                http.server.ThreadingHTTPServer(('127.0.0.1', {port}), Handler).serve_forever()
-            """)
+            server = textwrap.dedent(
+                f"\n"
+                f"                import http.server, pathlib, time\n"
+                f"                root = pathlib.Path({directory!r})\n"
+                f"                class Handler(http.server.BaseHTTPRequestHandler):\n"
+                f"                    def do_GET(self):\n"
+                f"                        if self.path == '/health':\n"
+                f"                            self.send_response(200); self.end_headers(); return\n"
+                f"                        (root / 'ready').touch()\n"
+                f"                        while not (root / 'release').exists(): time.sleep(0.05)\n"
+                f"                        self.send_response(200); self.send_header('Content-Length', '4096'); self.end_headers()\n"
+                f"                        self.wfile.write(b'd' * 4096)\n"
+                f"                http.server.ThreadingHTTPServer(('127.0.0.1', {port}), Handler).serve_forever()\n"
+                f"            "
+            )
             self.node.run(f"mkdir -p {directory}")
             self.node.run(
                 f"setsid -f python3 -c {shlex.quote(server)} </dev/null >{directory}/server.log 2>&1"
@@ -353,8 +355,7 @@ class TestImageConcurrency(SingleNodeCase):
                         "Long provisioner blocked node status snapshots"
                     )
                     journal = self.node.run(
-                        "sudo journalctl -u corvus.service --no-pager "
-                        f"--after-cursor={shlex.quote(cursor)}"
+                        f"sudo journalctl -u corvus.service --no-pager --after-cursor={shlex.quote(cursor)}"
                     ).stdout.decode()
                     assert "no processed VM status snapshot" not in journal, (
                         "Busy guest agent triggered a status subscription reconnect"

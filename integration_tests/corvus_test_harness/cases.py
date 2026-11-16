@@ -148,9 +148,7 @@ class IntegrationTestCase:
         """
         assert request.cls is cls
         assert cls.NODES, (
-            f"{cls.__name__} must set NODES to a non-empty tuple of "
-            "short node names (or inherit from SingleNodeCase / "
-            "TwoNodesCase / ThreeNodesCase)."
+            f"{cls.__name__} must set NODES to a non-empty tuple of short node names (or inherit from SingleNodeCase / TwoNodesCase / ThreeNodesCase)."
         )
         state = state_for(cls)
         topology: Topology | None = None
@@ -168,9 +166,7 @@ class IntegrationTestCase:
             ca_keys = tuple(sorted({cls._ca_key_for(name) for name in cls.NODES}))
             topology.init_cas(ca_keys)
             sys.stderr.write(
-                f"[harness] booting class topology for "
-                f"{cls.__qualname__} ({len(cls.NODES)} node(s), "
-                f"{len(ca_keys)} CA(s))\n"
+                f"[harness] booting class topology for {cls.__qualname__} ({len(cls.NODES)} node(s), {len(ca_keys)} CA(s))\n"
             )
             sys.stderr.flush()
             # Phase 1: bring every VM up. No cert deploys yet —
@@ -294,8 +290,7 @@ class IntegrationTestCase:
         state = state_for(type(self))
         if state.scratch_dir is None:
             raise RuntimeError(
-                f"{type(self).__qualname__}: scratch_dir not set — "
-                "class fixture did not create one (attach_source=False?)"
+                f"{type(self).__qualname__}: scratch_dir not set — class fixture did not create one (attach_source=False?)"
             )
         return state.scratch_dir
 
@@ -372,8 +367,7 @@ class IntegrationTestCase:
         cert_dir = node._client_cert_dir
         if cert_dir is None:
             raise RuntimeError(
-                f"node {node.short_name!r} has no host-side client cert dir; "
-                "did the class fixture's deploy_certs() run?"
+                f"node {node.short_name!r} has no host-side client cert dir; did the class fixture's deploy_certs() run?"
             )
         runner = NodeShellRunner(
             NodeShell(cid=node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH),
@@ -422,16 +416,13 @@ class IntegrationTestCase:
             if last_info.result != "running":
                 if last_info.result == "error":
                     raise AssertionError(
-                        f"task {task_id} ({last_info.subsystem}/"
-                        f"{last_info.command}) failed: "
-                        f"{last_info.message or '(no message)'}"
+                        f"task {task_id} ({last_info.subsystem}/{last_info.command}) failed: {last_info.message or '(no message)'}"
                     )
                 return last_info
             time.sleep(poll_sec)
         last_result = last_info.result if last_info else "(no snapshot)"
         raise AssertionError(
-            f"task {task_id} did not finish within {timeout_sec}s "
-            f"(last result: {last_result})"
+            f"task {task_id} did not finish within {timeout_sec}s (last result: {last_result})"
         )
 
     # ---- VM-side shell -----------------------------------------------------
@@ -467,8 +458,7 @@ class IntegrationTestCase:
         """
         if not host_key_path.exists():
             raise RuntimeError(
-                f"SSH private key not found at {host_key_path} — "
-                "run `make image IMAGE=corvus-test-vm` to generate it"
+                f"SSH private key not found at {host_key_path} — run `make image IMAGE=corvus-test-vm` to generate it"
             )
         node = self.nodes[node_index]
         if vm_tcp_port is not None:
@@ -481,8 +471,7 @@ class IntegrationTestCase:
         details = vm.show()
         if details.vsock_cid is None:
             raise RuntimeError(
-                f"VM {details.name!r} has no vsock CID — node kernel "
-                "may be missing /dev/vhost-vsock"
+                f"VM {details.name!r} has no vsock CID — node kernel may be missing /dev/vhost-vsock"
             )
         return VmShell(
             node_cid=node.cid,

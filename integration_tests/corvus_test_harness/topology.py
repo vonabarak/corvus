@@ -123,8 +123,7 @@ class TestNode:
 
         if self._outer_ip is None:
             raise RuntimeError(
-                f"TestNode {self.short_name!r}: outer_ip not resolved yet — "
-                "Topology.deploy_certs() hasn't run"
+                f"TestNode {self.short_name!r}: outer_ip not resolved yet — Topology.deploy_certs() hasn't run"
             )
         return self._outer_ip
 
@@ -155,8 +154,7 @@ class TestNode:
         """
         if self.role is NodeRole.AGENTS_ONLY:
             raise NoDaemonOnNodeError(
-                f"node {self.short_name!r} runs corvus-nodeagent + corvus-netd "
-                "only; no daemon to dial"
+                f"node {self.short_name!r} runs corvus-nodeagent + corvus-netd only; no daemon to dial"
             )
         if self._client is None:
             # cert_dir/tls land here after deploy_certs(); without
@@ -164,8 +162,7 @@ class TestNode:
             # default and fail to validate the server cert.
             if self._client_cert_dir is None:
                 raise RuntimeError(
-                    f"node {self.short_name!r}: cert dir not set — "
-                    "Topology.deploy_certs() hasn't run"
+                    f"node {self.short_name!r}: cert dir not set — Topology.deploy_certs() hasn't run"
                 )
             # Register self-node under `short_name`, not the
             # default "self". The daemon's per-node supervisor
@@ -203,8 +200,7 @@ class TestNode:
         """
         if not HOST_TEST_KEY_PATH.exists():
             raise RuntimeError(
-                f"SSH private key not found at {HOST_TEST_KEY_PATH} — "
-                "run `make image IMAGE=key` to generate it"
+                f"SSH private key not found at {HOST_TEST_KEY_PATH} — run `make image IMAGE=key` to generate it"
             )
         return NodeShell(cid=self.cid, user=user, key_path=HOST_TEST_KEY_PATH).run(
             command, timeout_sec=timeout_sec, check=check
@@ -314,12 +310,8 @@ class Topology:
             if self._nodes:
                 names = " ".join(node.name for node in self._nodes)
                 print(
-                    f"[harness] leaving {len(self._nodes)} node(s) "
-                    f"alive for inspection: {names}\n"
-                    f"[harness] clean up manually with: "
-                    f"`make integration-tests-clean` "
-                    "or "
-                    f"`for n in {names}; do crv vm delete $n; done`"
+                    f"[harness] leaving {len(self._nodes)} node(s) alive for inspection: {names}\n"
+                    f"[harness] clean up manually with: `make integration-tests-clean` or `for n in {names}; do crv vm delete $n; done`"
                 )
             return
 
@@ -343,8 +335,14 @@ class Topology:
                 cleanup_errors.append(f"delete {node.name}: {e}")
         if cleanup_errors:
             raise RuntimeError(
-                "Topology teardown failed for one or more nodes:\n  - "
-                + "\n  - ".join(cleanup_errors)
+                (
+                    "Topology teardown failed for one or more nodes:\n"
+                    "  - "
+                )
+                + (
+                    "\n"
+                    "  - "
+                ).join(cleanup_errors)
             )
 
         # CA stores + per-node host cert dirs are intermediate
@@ -404,8 +402,7 @@ class Topology:
             return
         if not self._ca_contexts:
             raise RuntimeError(
-                "deploy_certs() requires init_cas() first; case fixture "
-                "should call it before the first add()"
+                "deploy_certs() requires init_cas() first; case fixture should call it before the first add()"
             )
 
         host_cert_root = self._cert_root / "host"
@@ -419,13 +416,10 @@ class Topology:
             ca_ctx = self._ca_contexts.get(node.ca_key)
             if ca_ctx is None:
                 raise RuntimeError(
-                    f"node {node.short_name!r}: ca_key={node.ca_key!r} "
-                    f"has no matching CA (init_cas keys: "
-                    f"{tuple(self._ca_contexts)})"
+                    f"node {node.short_name!r}: ca_key={node.ca_key!r} has no matching CA (init_cas keys: {tuple(self._ca_contexts)})"
                 )
             sys.stderr.write(
-                f"[harness] deploying certs to {node.short_name} "
-                f"(role={node.role.value}, ip={outer_ip})\n"
+                f"[harness] deploying certs to {node.short_name} (role={node.role.value}, ip={outer_ip})\n"
             )
             sys.stderr.flush()
 
@@ -455,8 +449,7 @@ class Topology:
         should walk :attr:`ca_contexts` instead."""
         if len(self._ca_contexts) != 1:
             raise RuntimeError(
-                f"Topology has {len(self._ca_contexts)} CAs; "
-                "use .ca_contexts[<key>] explicitly"
+                f"Topology has {len(self._ca_contexts)} CAs; use .ca_contexts[<key>] explicitly"
             )
         return next(iter(self._ca_contexts.values()))
 
@@ -626,10 +619,7 @@ class Topology:
             missing.append("shared_dirs")
         if missing:
             raise RuntimeError(
-                f"`crv apply` created node {node_name!r} but it has no "
-                f"{', '.join(missing)}. Schema drift in `crv apply` YAML? "
-                f"VM show: {post_apply!r} shared-dir list: "
-                f"{post_apply_shared_dirs!r}"
+                f"`crv apply` created node {node_name!r} but it has no {', '.join(missing)}. Schema drift in `crv apply` YAML? VM show: {post_apply!r} shared-dir list: {post_apply_shared_dirs!r}"
             )
 
         # Start and wait for the guest-agent ping — that proves the
@@ -642,8 +632,7 @@ class Topology:
         cid = details.get("vsock_cid")
         if not isinstance(cid, int) or cid <= 2:
             raise RuntimeError(
-                f"Node {node_name} has no usable VSOCK CID (got {cid!r}). "
-                "Check the outer Corvus version supports vsock allocation."
+                f"Node {node_name} has no usable VSOCK CID (got {cid!r}). Check the outer Corvus version supports vsock allocation."
             )
         self._log_nodes[node_name] = cid
         relay = self._stack.enter_context(VsockTcpRelay.start(cid))

@@ -127,8 +127,7 @@ class TestWireErrorSkew:
         from corvus_client.exceptions import InvalidTransition
 
         exc = _fake_kj(
-            f"{ENVELOPE}invalid_transition :: invalid transition from running: "
-            "VM is saving"
+            f"{ENVELOPE}invalid_transition :: invalid transition from running: VM is saving"
         )
         translated = translate_kj_exception(exc)
 

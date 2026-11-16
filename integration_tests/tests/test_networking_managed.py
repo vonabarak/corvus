@@ -61,8 +61,7 @@ def _wait_for_vm_iface_ip(
                 return item
         time.sleep(poll_sec)
     raise AssertionError(
-        f"guest_ip_addresses never appeared on the managed NIC "
-        f"(network_id={network_id}) within {timeout_sec:.0f}s"
+        f"guest_ip_addresses never appeared on the managed NIC (network_id={network_id}) within {timeout_sec:.0f}s"
     )
 
 
@@ -270,8 +269,7 @@ class TestManagedNetworking(SingleNodeCase):
 
                 # Bring the link up and assign a static IP.
                 vm.run(
-                    f"doas ip link set {GUEST_NIC} up && "
-                    f"doas ip addr add 10.50.0.10/24 dev {GUEST_NIC}"
+                    f"doas ip link set {GUEST_NIC} up && doas ip addr add 10.50.0.10/24 dev {GUEST_NIC}"
                 )
 
                 # VM → bridge (the node's host netns).
@@ -299,10 +297,7 @@ class TestManagedNetworking(SingleNodeCase):
 
         if not _node_has_outbound_internet(node):
             pytest.skip(
-                f"test-node {node.name!r} can't reach {EXTERNAL_TARGET} on "
-                "its own — the NAT-chain test requires the host's VDE "
-                "switch to be NAT'd to a real uplink, otherwise the "
-                "masqueraded VM packets have nowhere to go. Skipping."
+                f"test-node {node.name!r} can't reach {EXTERNAL_TARGET} on its own — the NAT-chain test requires the host's VDE switch to be NAT'd to a real uplink, otherwise the masqueraded VM packets have nowhere to go. Skipping."
             )
 
         with _network(
@@ -393,8 +388,9 @@ class TestManagedNetworking(SingleNodeCase):
             r = node.run(f"pgrep -af 'dnsmasq.*--interface={bridge}'")
             cmdline = r.stdout.decode("utf-8", errors="replace")
             assert "--dhcp-option=option:dns-server,1.1.1.1,8.8.8.8" in cmdline, (
-                f"dnsmasq cmdline missing the DNS option:\n{cmdline}"
-            )
+                    f"dnsmasq cmdline missing the DNS option:\n"
+                    f"{cmdline}"
+                )
 
             # 3. End-to-end: spin up a VM, DHCP it, and verify
             #    /etc/resolv.conf carries the advertised resolvers.
@@ -409,8 +405,9 @@ class TestManagedNetworking(SingleNodeCase):
                 resolv = vm.run("cat /etc/resolv.conf").stdout
                 for ip in expected_dns:
                     assert f"nameserver {ip}" in resolv, (
-                        f"missing {ip} in guest /etc/resolv.conf:\n{resolv!r}"
-                    )
+                            f"missing {ip} in guest /etc/resolv.conf:\n"
+                            f"{resolv!r}"
+                        )
 
     # -- 2c. Host-side resolution: `ping <vm>.<network>` from the node ------
 
@@ -498,14 +495,15 @@ class TestManagedNetworking(SingleNodeCase):
                 # iputils prints "1 received"; busybox prints
                 # "1 packets received". Accept either.
                 assert b"1 received" in r.stdout or b"1 packets received" in r.stdout, (
-                    f"unexpected ping output:\n{r.stdout!r}"
-                )
+                        f"unexpected ping output:\n"
+                        f"{r.stdout!r}"
+                    )
                 # And the resolved address matches the lease IP
                 # (catches the cursed case where the host resolves to
                 # something unrelated that just happens to ICMP back).
                 assert ip.encode() in r.stdout, (
-                    f"ping {fqdn} resolved to a different IP than the lease "
-                    f"({ip}):\n{r.stdout!r}"
+                    f"ping {fqdn} resolved to a different IP than the lease ({ip}):\n"
+                    f"{r.stdout!r}"
                 )
 
     # -- 3. Cross-network isolation ------------------------------------------
@@ -530,12 +528,10 @@ class TestManagedNetworking(SingleNodeCase):
                 _VmB(self, name="iso-vm-b") as vm_b,
             ):
                 vm_a.run(
-                    f"doas ip link set {GUEST_NIC} up && "
-                    f"doas ip addr add 10.60.0.10/24 dev {GUEST_NIC}"
+                    f"doas ip link set {GUEST_NIC} up && doas ip addr add 10.60.0.10/24 dev {GUEST_NIC}"
                 )
                 vm_b.run(
-                    f"doas ip link set {GUEST_NIC} up && "
-                    f"doas ip addr add 10.61.0.10/24 dev {GUEST_NIC}"
+                    f"doas ip link set {GUEST_NIC} up && doas ip addr add 10.61.0.10/24 dev {GUEST_NIC}"
                 )
                 # Each VM can ping its own gateway…
                 vm_a.run("ping -c 1 -W 2 10.60.0.1")
@@ -604,8 +600,7 @@ class TestManagedNetworking(SingleNodeCase):
             # Agent kept its kernel state: bridge ifindex unchanged.
             ifindex_after = _bridge_ifindex(node, bridge)
             assert ifindex_after == ifindex_before, (
-                f"bridge recreated across daemon restart "
-                f"({ifindex_before} → {ifindex_after})"
+                f"bridge recreated across daemon restart ({ifindex_before} → {ifindex_after})"
             )
 
             # dnsmasq is still the same process (kept alive by agent).
@@ -614,8 +609,7 @@ class TestManagedNetworking(SingleNodeCase):
                 r.stdout.strip().splitlines()[0] if r.returncode == 0 else b""
             )
             assert dnsmasq_pid_after == dnsmasq_pid_before, (
-                f"dnsmasq pid changed across daemon restart "
-                f"({dnsmasq_pid_before!r} → {dnsmasq_pid_after!r})"
+                f"dnsmasq pid changed across daemon restart ({dnsmasq_pid_before!r} → {dnsmasq_pid_after!r})"
             )
 
             # Daemon's DB view still shows the network running.
@@ -667,9 +661,7 @@ class TestManagedNetworking(SingleNodeCase):
                         break
                 time.sleep(0.5)
             assert ifindex_after is not None and ifindex_after != ifindex_before, (
-                f"bridge never came back with a new ifindex "
-                f"after netd restart (before={ifindex_before}, "
-                f"after={ifindex_after})"
+                f"bridge never came back with a new ifindex after netd restart (before={ifindex_before}, after={ifindex_after})"
             )
 
             # The daemon's DB still says the network is running, and

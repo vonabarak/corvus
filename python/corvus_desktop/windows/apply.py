@@ -26,15 +26,15 @@ if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
 
 
-_APPLY_SKELETON = """\
-# crv-apply YAML — declarative environment.
-# Edit and click Apply. The daemon runs each section in dependency order.
-sshKeys: []
-disks: []
-networks: []
-vms: []
-templates: []
-"""
+_APPLY_SKELETON = (
+    "# crv-apply YAML — declarative environment.\n"
+    "# Edit and click Apply. The daemon runs each section in dependency order.\n"
+    "sshKeys: []\n"
+    "disks: []\n"
+    "networks: []\n"
+    "vms: []\n"
+    "templates: []\n"
+)
 
 
 class ApplyWidget(QWidget):

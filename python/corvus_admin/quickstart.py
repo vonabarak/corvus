@@ -110,10 +110,7 @@ def _check_postgres(url: str, *, timeout_sec: float = 3.0) -> str | None:
             sock_path = Path(sock_dir) / f".s.PGSQL.{port}"
             if sock_path.exists():
                 return None
-        return (
-            f"no postgres Unix socket at /var/run/postgresql/.s.PGSQL.{port} "
-            f"or /tmp/.s.PGSQL.{port}"
-        )
+        return f"no postgres Unix socket at /var/run/postgresql/.s.PGSQL.{port} or /tmp/.s.PGSQL.{port}"
 
     try:
         with socket.create_connection((host, port), timeout=timeout_sec):
@@ -174,10 +171,7 @@ def run(
     netd_feasible = pe is not None and not skip_netd
     if pe is None:
         log(
-            "WARNING: no privilege-escalation tool (sudo/doas) found on $PATH. "
-            "Skipping corvus-netd; no virtual networks (bridges, NAT, dnsmasq) "
-            "will be available. To enable later: install sudo or doas, then "
-            "run `corvus-admin deploy netd <name> local`."
+            "WARNING: no privilege-escalation tool (sudo/doas) found on $PATH. Skipping corvus-netd; no virtual networks (bridges, NAT, dnsmasq) will be available. To enable later: install sudo or doas, then run `corvus-admin deploy netd <name> local`."
         )
     elif skip_netd:
         log("Skipping corvus-netd (--skip-netd passed).")
@@ -209,10 +203,7 @@ def run(
             log(f"Using web binary at {web_path}.")
         else:
             log(
-                "WARNING: corvus-web not on $PATH. Skipping the WebUI install; "
-                "the daemon + nodeagent will come up without it. To enable later: "
-                "install corvus-web (`pipx install corvus`) and run "
-                "`corvus-admin deploy web local`."
+                "WARNING: corvus-web not on $PATH. Skipping the WebUI install; the daemon + nodeagent will come up without it. To enable later: install corvus-web (`pipx install corvus`) and run `corvus-admin deploy web local`."
             )
 
     # ------------------------------------------------------------------
@@ -225,14 +216,12 @@ def run(
         pg_err = _check_postgres(database_value)
         if pg_err is not None:
             raise QuickstartError(
-                f"PostgreSQL not reachable at {database_value}: {pg_err}. "
-                f"Start it (e.g. `sudo systemctl start postgresql`) and re-run."
+                f"PostgreSQL not reachable at {database_value}: {pg_err}. Start it (e.g. `sudo systemctl start postgresql`) and re-run."
             )
         log(f"PostgreSQL reachable at {database_value}.")
     elif _has_uri_scheme(database_value):
         raise QuickstartError(
-            f"Unsupported database URI {database_value!r}. "
-            "Use a PostgreSQL URL or a SQLite file path."
+            f"Unsupported database URI {database_value!r}. Use a PostgreSQL URL or a SQLite file path."
         )
     else:
         _prepare_sqlite_database(database_value)
@@ -257,8 +246,7 @@ def run(
     client_rec = deploy.deploy_client(st, name=admin_name)
     assert client_rec is not None  # quickstart never uses dry_run
     log(
-        f"Issued client cert {client_rec.cn} for {admin_name}; "
-        f"dropped into {store.default_client_dir()}."
+        f"Issued client cert {client_rec.cn} for {admin_name}; dropped into {store.default_client_dir()}."
     )
 
     # ------------------------------------------------------------------
@@ -317,8 +305,7 @@ def run(
         database=database_value,
     )
     log(
-        f"Deployed daemon cert (CN corvus-daemon:{daemon_plan.name}); "
-        f"started {daemon_plan.service_unit}."
+        f"Deployed daemon cert (CN corvus-daemon:{daemon_plan.name}); started {daemon_plan.service_unit}."
     )
 
     node_plan = deploy.deploy_node(
@@ -366,8 +353,7 @@ def run(
         web_installed = True
         web_bind = f"{web_bind_host}:{web_bind_port}"
         log(
-            f"Deployed corvus-web (listening on {web_bind}); "
-            f"started {web_plan.service_unit}."
+            f"Deployed corvus-web (listening on {web_bind}); started {web_plan.service_unit}."
         )
     elif skip_web:
         log("Skipping corvus-web (--skip-web passed).")
@@ -384,15 +370,13 @@ def run(
         )
     except register.RegisterError as e:
         raise QuickstartError(
-            f"node registration failed: {e}. The daemon and agent are running; "
-            f"retry registration with `corvus-admin register {name} --host {listen_ip}`."
+            f"node registration failed: {e}. The daemon and agent are running; retry registration with `corvus-admin register {name} --host {listen_ip}`."
         ) from e
     if result.healthy:
         log(f"Node {name} registered and healthcheck received.")
     else:
         log(
-            f"Node {name} registered but healthcheck did not arrive within "
-            f"{healthcheck_timeout}s. Check `journalctl --user -u corvus-nodeagent`."
+            f"Node {name} registered but healthcheck did not arrive within {healthcheck_timeout}s. Check `journalctl --user -u corvus-nodeagent`."
         )
 
     return QuickstartResult(

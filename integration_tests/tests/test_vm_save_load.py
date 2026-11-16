@@ -156,8 +156,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
             r = vm.cap.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
-                f"sentinel {sentinel!r} did not survive save→start round trip; "
-                f"guest stdout={r.stdout!r}"
+                f"sentinel {sentinel!r} did not survive save→start round trip; guest stdout={r.stdout!r}"
             )
             resumed_boot = vm.cap.guest_exec("cat /proc/sys/kernel/random/boot_id")
             assert resumed_boot.exit_code == 0, resumed_boot
@@ -267,8 +266,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
             r = self.node.run(f"xxd -p -l 4 {shlex.quote(state_path)}")
             magic = r.stdout.decode("utf-8", errors="replace").strip()
             assert magic == "28b52ffd", (
-                f"saved state file at {state_path} is not zstd-compressed: "
-                f"first-4-bytes magic={magic!r} (expected '28b52ffd')"
+                f"saved state file at {state_path} is not zstd-compressed: first-4-bytes magic={magic!r} (expected '28b52ffd')"
             )
 
     def test_async_save_surfaces_saving_state_and_blocks_concurrent_start(self) -> None:

@@ -105,7 +105,10 @@ class TestBuildOfflineOverlay(SingleNodeCase):
             source_path = shlex.quote(source_info.placements[0].file_path)
             before = self.node.run(f"sha256sum {source_path}").stdout
             prepare = (
-                "mkfs.ext4 -F /dev/vdb\nmount /dev/vdb /mnt/target"
+                (
+                    "mkfs.ext4 -F /dev/vdb\n"
+                    "mount /dev/vdb /mnt/target"
+                )
                 if strategy == "from-scratch"
                 else "mount /dev/vdb3 /mnt/target"
             )
@@ -118,14 +121,18 @@ class TestBuildOfflineOverlay(SingleNodeCase):
                 "cleanup": "never",
                 "provisioners": [
                     {
-                        "shell": "set -eux\n"
-                        'test "$(cat /sys/block/vdb/queue/discard_max_bytes)" -gt 0\n'
-                        "mkdir -p /mnt/target\n"
-                        f"{prepare}\n"
-                        "trap 'umount /mnt/target' EXIT\n"
-                        "dd if=/dev/urandom of=/mnt/target/trim-probe bs=1M count=8\n"
-                        "sync\nrm /mnt/target/trim-probe\nsync\n"
-                        "fstrim -v /mnt/target\n"
+                        "shell": (
+                            f"set -eux\n"
+                            f'test "$(cat /sys/block/vdb/queue/discard_max_bytes)" -gt 0\n'
+                            f"mkdir -p /mnt/target\n"
+                            f"{prepare}\n"
+                            f"trap 'umount /mnt/target' EXIT\n"
+                            f"dd if=/dev/urandom of=/mnt/target/trim-probe bs=1M count=8\n"
+                            f"sync\n"
+                            f"rm /mnt/target/trim-probe\n"
+                            f"sync\n"
+                            f"fstrim -v /mnt/target\n"
+                        )
                     }
                 ],
             }
@@ -193,15 +200,18 @@ class TestBuildOfflineOverlay(SingleNodeCase):
                             "target": {},
                             "provisioners": [
                                 {
-                                    "shell": """set -eux
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-# QGA starts in the boot runlevel, before the default runlevel finishes.
-while pidof openrc >/dev/null; do sleep 1; done
-mkdir -p /etc/local.d
-printf '#!/bin/sh\necho firstboot > /etc/firstboot-ran\n' > /etc/local.d/firstboot.start
-chmod +x /etc/local.d/firstboot.start
-rc-update add local default
-"""
+                                    "shell": (
+                                        "set -eux\n"
+                                        "export PATH=/usr/sbin:/usr/bin:/sbin:/bin\n"
+                                        "# QGA starts in the boot runlevel, before the default runlevel finishes.\n"
+                                        "while pidof openrc >/dev/null; do sleep 1; done\n"
+                                        "mkdir -p /etc/local.d\n"
+                                        "printf '#!/bin/sh\n"
+                                        "echo firstboot > /etc/firstboot-ran\n"
+                                        "' > /etc/local.d/firstboot.start\n"
+                                        "chmod +x /etc/local.d/firstboot.start\n"
+                                        "rc-update add local default\n"
+                                    )
                                 }
                             ],
                         }
@@ -275,18 +285,19 @@ rc-update add local default
                 },
                 "provisioners": [
                     {
-                        "shell": """set -eux
-test "$CORVUS_BUILD_STRATEGY" = offline-overlay
-test ! -e /etc/local.d/firstboot.start
-printf helper > /etc/helper-only
-mkdir -p /mnt/target
-mount /dev/vdb3 /mnt/target
-trap 'umount /mnt/target' EXIT
-test -x /mnt/target/etc/local.d/firstboot.start
-test ! -e /mnt/target/etc/firstboot-ran
-printf customized > /mnt/target/etc/offline-custom
-sync
-"""
+                        "shell": (
+                            "set -eux\n"
+                            'test "$CORVUS_BUILD_STRATEGY" = offline-overlay\n'
+                            "test ! -e /etc/local.d/firstboot.start\n"
+                            "printf helper > /etc/helper-only\n"
+                            "mkdir -p /mnt/target\n"
+                            "mount /dev/vdb3 /mnt/target\n"
+                            "trap 'umount /mnt/target' EXIT\n"
+                            "test -x /mnt/target/etc/local.d/firstboot.start\n"
+                            "test ! -e /mnt/target/etc/firstboot-ran\n"
+                            "printf customized > /mnt/target/etc/offline-custom\n"
+                            "sync\n"
+                        )
                     }
                 ],
             }

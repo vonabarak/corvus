@@ -27,33 +27,34 @@ pytestmark = [pytest.mark.slow, pytest.mark.timeout(5400)]
 
 _RECIPE = REPO_ROOT / "yaml/almalinux-10-desktop"
 
-_DESKTOP_PROBE = r"""
-set -eu
-. /etc/os-release
-test "$ID" = almalinux
-test "${VERSION_ID%%.*}" = 10
-test -f /var/lib/corvus/installer-complete
-! rpm -q cloud-init
-systemctl is-active qemu-guest-agent gdm
-test "$(systemctl get-default)" = graphical.target
-pgrep -u corvus -x gnome-shell
-graphical_session=false
-for session in $(loginctl list-sessions --no-legend | awk '$3 == "corvus" {print $1}'); do
-    case $(loginctl show-session "$session" -p Type --value) in
-        wayland|x11)
-            test "$(loginctl show-session "$session" -p Active --value)" = yes
-            graphical_session=true ;;
-    esac
-done
-$graphical_session
-ls -d /sys/bus/virtio/drivers/virtio_gpu/virtio*
-ls /sys/class/drm/card*/dev
-ls /sys/bus/virtio/drivers/virtio_snd/virtio*/sound/card*/id
-cat /proc/asound/cards
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
-wpctl inspect @DEFAULT_AUDIO_SINK@
-pw-play /usr/share/sounds/alsa/Front_Center.wav
-"""
+_DESKTOP_PROBE = (
+    "\n"
+    "set -eu\n"
+    ". /etc/os-release\n"
+    'test "$ID" = almalinux\n'
+    'test "${VERSION_ID%%.*}" = 10\n'
+    "test -f /var/lib/corvus/installer-complete\n"
+    "! rpm -q cloud-init\n"
+    "systemctl is-active qemu-guest-agent gdm\n"
+    'test "$(systemctl get-default)" = graphical.target\n'
+    "pgrep -u corvus -x gnome-shell\n"
+    "graphical_session=false\n"
+    "for session in $(loginctl list-sessions --no-legend | awk '$3 == \"corvus\" {print $1}'); do\n"
+    '    case $(loginctl show-session "$session" -p Type --value) in\n'
+    "        wayland|x11)\n"
+    '            test "$(loginctl show-session "$session" -p Active --value)" = yes\n'
+    "            graphical_session=true ;;\n"
+    "    esac\n"
+    "done\n"
+    "$graphical_session\n"
+    "ls -d /sys/bus/virtio/drivers/virtio_gpu/virtio*\n"
+    "ls /sys/class/drm/card*/dev\n"
+    "ls /sys/bus/virtio/drivers/virtio_snd/virtio*/sound/card*/id\n"
+    "cat /proc/asound/cards\n"
+    "export XDG_RUNTIME_DIR=/run/user/$(id -u)\n"
+    "wpctl inspect @DEFAULT_AUDIO_SINK@\n"
+    "pw-play /usr/share/sounds/alsa/Front_Center.wav\n"
+)
 
 
 def _create_answer_media(directory: Path) -> Path:

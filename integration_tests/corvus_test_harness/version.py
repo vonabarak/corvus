@@ -89,9 +89,7 @@ def check_outer_version(crv: Crv) -> JsonObject:
     except CrvError as e:
         if e.kind in ("connection_error", "connect"):
             raise RuntimeError(
-                "outer Corvus daemon is unreachable. "
-                "Check that the corvus systemd service is running, "
-                "or set $CORVUS_SOCKET to a different daemon."
+                "outer Corvus daemon is unreachable. Check that the corvus systemd service is running, or set $CORVUS_SOCKET to a different daemon."
             ) from None
         raise RuntimeError(
             f"`crv status` failed: {e.message or e.stderr.strip()}"
@@ -107,8 +105,6 @@ def check_outer_version(crv: Crv) -> JsonObject:
     protocol = info.get("protocol_version")
     if not isinstance(protocol, int) or protocol < 3:
         raise RuntimeError(
-            "Integration tests require an outer Corvus daemon and CLI with "
-            "protocol 3 (byte sizes and suffixed CLI/YAML input). "
-            f"Installed daemon reports protocol {protocol!r}; upgrade the outer installation."
+            f"Integration tests require an outer Corvus daemon and CLI with protocol 3 (byte sizes and suffixed CLI/YAML input). Installed daemon reports protocol {protocol!r}; upgrade the outer installation."
         )
     return info

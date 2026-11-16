@@ -76,18 +76,10 @@ class TestCloudInit(SingleNodeCase):
         succeeds, so under normal conditions this returns within a
         second or two of SSH coming up.
         """
-        poll = (
-            f"i=0; "
-            f"while [ $i -lt 60 ]; do "
-            f"  test -f {marker_path} && exit 0; "
-            f"  sleep 2; i=$((i+1)); "
-            f"done; "
-            f"exit 1"
-        )
+        poll = f"i=0; while [ $i -lt 60 ]; do   test -f {marker_path} && exit 0;   sleep 2; i=$((i+1)); done; exit 1"
         bf = vm.run(poll, check=False, timeout_sec=180.0)
         assert bf.exit_code == 0, (
-            f"{marker_label} never reached a terminal state — "
-            f"{marker_path} did not appear within ~180 s of SSH coming up"
+            f"{marker_label} never reached a terminal state — {marker_path} did not appear within ~180 s of SSH coming up"
         )
 
     def _verify_authorized_key(self, vm: VmCloudInit) -> None:
@@ -97,7 +89,10 @@ class TestCloudInit(SingleNodeCase):
         on the cloud-init/nuageinit implementation."""
         pub_body = vm.public_key.split()[1]
         ak = vm.run("cat ~/.ssh/authorized_keys").stdout
-        assert pub_body in ak, f"injected pubkey not found in authorized_keys:\n{ak!r}"
+        assert pub_body in ak, (
+            f"injected pubkey not found in authorized_keys:\n"
+            f"{ak!r}"
+        )
 
     def _verify_login_linux(self, vm: VmCloudInit) -> None:
         """Verify a cloud-init-based Linux distro (Alpine, AlmaLinux,
@@ -223,11 +218,13 @@ class TestCloudInit(SingleNodeCase):
                 # Both pubkey bodies show up in authorized_keys.
                 ak = vm.run("cat ~/.ssh/authorized_keys").stdout
                 assert vm.public_key.split()[1] in ak, (
-                    f"primary key missing from authorized_keys:\n{ak!r}"
-                )
+                        f"primary key missing from authorized_keys:\n"
+                        f"{ak!r}"
+                    )
                 assert key2_pub.split()[1] in ak, (
-                    f"secondary key missing from authorized_keys:\n{ak!r}"
-                )
+                        f"secondary key missing from authorized_keys:\n"
+                        f"{ak!r}"
+                    )
 
                 # The secondary private key also authenticates over
                 # the same node-side hostfwd as the primary shell.
@@ -268,8 +265,16 @@ class TestCloudInit(SingleNodeCase):
             assert info.network_config is None
             assert info.inject_ssh_keys is False
 
-            user_data = "#cloud-config\nhostname: crud-test\n"
-            network_config = "version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"
+            user_data = (
+                "#cloud-config\n"
+                "hostname: crud-test\n"
+            )
+            network_config = (
+                "version: 2\n"
+                "ethernets:\n"
+                "  eth0:\n"
+                "    dhcp4: true\n"
+            )
             self.client.cloud_init.set(
                 vm_id,
                 user_data=user_data,
@@ -314,18 +319,19 @@ class TestCloudInit(SingleNodeCase):
             ssh_user = "testadmin"
 
             def _cloud_init_config(_self) -> _CloudInitOptions:
-                user_data = textwrap.dedent(f"""\
-                    #cloud-config
-                    users:
-                      - name: testadmin
-                        sudo: ALL=(ALL) NOPASSWD:ALL
-                        plain_text_passwd: testpass
-                        lock_passwd: false
-                        shell: /bin/bash
-                        ssh_authorized_keys:
-                          - {_self.public_key}
-                    ssh_pwauth: true
-                """)
+                user_data = textwrap.dedent(
+                    f"                    #cloud-config\n"
+                    f"                    users:\n"
+                    f"                      - name: testadmin\n"
+                    f"                        sudo: ALL=(ALL) NOPASSWD:ALL\n"
+                    f"                        plain_text_passwd: testpass\n"
+                    f"                        lock_passwd: false\n"
+                    f"                        shell: /bin/bash\n"
+                    f"                        ssh_authorized_keys:\n"
+                    f"                          - {_self.public_key}\n"
+                    f"                    ssh_pwauth: true\n"
+                    f"                "
+                )
                 return {"user_data": user_data, "inject_ssh_keys": False}
 
         with _CustomCI(self) as vm:

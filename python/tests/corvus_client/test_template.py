@@ -8,18 +8,18 @@ from corvus_client import AsyncClient
 
 from ._helpers import with_client
 
-TEMPLATE_YAML = """\
-name: py-tpl
-cpuCount: 2
-ram: 512M
-headless: true
-guestAgent: false
-tpm: false
-description: minimal template from python tests
-drives: []
-networkInterfaces: []
-sshKeys: []
-"""
+TEMPLATE_YAML = (
+    "name: py-tpl\n"
+    "cpuCount: 2\n"
+    "ram: 512M\n"
+    "headless: true\n"
+    "guestAgent: false\n"
+    "tpm: false\n"
+    "description: minimal template from python tests\n"
+    "drives: []\n"
+    "networkInterfaces: []\n"
+    "sshKeys: []\n"
+)
 
 
 def test_template_create_show_delete(daemon_socket: Path) -> None:
@@ -73,7 +73,13 @@ def test_floating_tags_and_pinned_ids(daemon_socket: Path) -> None:
             ]:
                 templates.append(
                     await c.templates.create(
-                        f"name: {label}\ncpuCount: 1\nram: 128M\ndrives:\n  - diskImage: {selector}\n    strategy: overlay\n    interface: virtio\n"
+                        f"name: {label}\n"
+                        f"cpuCount: 1\n"
+                        f"ram: 128M\n"
+                        f"drives:\n"
+                        f"  - diskImage: {selector}\n"
+                        f"    strategy: overlay\n"
+                        f"    interface: virtio\n"
                     )
                 )
             before = await templates[0].instantiate("before-update")

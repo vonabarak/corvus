@@ -108,11 +108,11 @@ def test_preprocess_inlines_shell_script(tmp_path: Path, kind: str) -> None:
     script = tmp_path / "do.sh"
     script.write_text("echo hi\n")
     body = (
-        "pipeline:\n"
-        "  - build:\n"
-        "      provisioners:\n"
+        f"pipeline:\n"
+        f"  - build:\n"
+        f"      provisioners:\n"
         f"        - {kind}:\n"
-        "            script: do.sh\n"
+        f"            script: do.sh\n"
     )
     result = preprocess_build_yaml(body, str(tmp_path))
     doc = yaml.safe_load(result)
@@ -150,11 +150,11 @@ def test_preprocess_resolves_relative_paths_from_base_dir(
     nested.mkdir()
     (nested / "a.sh").write_text("a\n")
     body = (
-        "pipeline:\n"
-        "  - build:\n"
-        "      provisioners:\n"
+        f"pipeline:\n"
+        f"  - build:\n"
+        f"      provisioners:\n"
         f"        - {kind}:\n"
-        "            script: sub/a.sh\n"
+        f"            script: sub/a.sh\n"
     )
     result = preprocess_build_yaml(body, str(tmp_path))
     shell = yaml.safe_load(result)["pipeline"][0]["build"]["provisioners"][0][kind]

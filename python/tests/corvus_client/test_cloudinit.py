@@ -8,7 +8,10 @@ from corvus_client import AsyncClient
 
 from ._helpers import with_client
 
-SAMPLE_USERDATA = "#cloud-config\nhostname: py-test\n"
+SAMPLE_USERDATA = (
+    "#cloud-config\n"
+    "hostname: py-test\n"
+)
 
 
 def test_cloudinit_set_get_delete(daemon_socket: Path) -> None:

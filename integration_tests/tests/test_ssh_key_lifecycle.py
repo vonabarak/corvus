@@ -8,11 +8,7 @@ import pytest
 from corvus_client import SshKeyInUse
 from corvus_test_harness import SingleNodeCase
 
-TEST_PUB_KEY = (
-    "ssh-ed25519 "
-    "AAAAC3NzaC1lZDI1NTE5AAAAIH3OAFlPq8wAYIKL3kZx0sMo2krfh1g+OmRkLD1OvBnK "
-    "corvus-it-test"
-)
+TEST_PUB_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH3OAFlPq8wAYIKL3kZx0sMo2krfh1g+OmRkLD1OvBnK corvus-it-test"
 
 
 class TestSshKeyLifecycle(SingleNodeCase):

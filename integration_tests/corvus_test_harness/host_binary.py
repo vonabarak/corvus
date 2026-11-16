@@ -45,8 +45,7 @@ class HostBinary:
         binary = bin_dir / "corvus"
         if not binary.is_file():
             raise RuntimeError(
-                f"Corvus binary not found at {binary}. "
-                "Run `stack build` first (or set $CORVUS_TEST_HOST_BIN_DIR)."
+                f"Corvus binary not found at {binary}. Run `stack build` first (or set $CORVUS_TEST_HOST_BIN_DIR)."
             )
         if not os.access(binary, os.X_OK):
             raise RuntimeError(f"Corvus binary at {binary} is not executable")
@@ -102,9 +101,13 @@ def _check_freshness(binary: Path, repo_root: Path) -> None:
         import warnings
 
         warnings.warn(
-            f"\n\n  *** Corvus binary at {binary} is OLDER than\n"
-            f"  *** {newest_src_path}\n"
-            f"  *** Run `stack build` to pick up your latest source changes\n"
-            f"  *** before relying on these test results.\n",
+            (
+                f"\n"
+                f"\n"
+                f"  *** Corvus binary at {binary} is OLDER than\n"
+                f"  *** {newest_src_path}\n"
+                f"  *** Run `stack build` to pick up your latest source changes\n"
+                f"  *** before relying on these test results.\n"
+            ),
             stacklevel=3,
         )

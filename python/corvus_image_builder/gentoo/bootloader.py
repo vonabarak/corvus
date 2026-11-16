@@ -42,18 +42,19 @@ class BootloaderStage(GentooStage):
         kernel_args = " ".join(self.settings.kernel_args)
         write(
             root / "boot/grub/grub.cfg",
-            f"""set timeout=0
-set default=0
-insmod part_gpt
-insmod ext2
-insmod search_label
-serial --unit=0 --speed=115200
-terminal_input serial console
-terminal_output serial console
-menuentry 'Gentoo Linux' {{
-    search --set=root --label corvus-root
-    linux /boot/{kernel} root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8 {kernel_args}
-}}
-""",
+            (
+                f"set timeout=0\n"
+                f"set default=0\n"
+                f"insmod part_gpt\n"
+                f"insmod ext2\n"
+                f"insmod search_label\n"
+                f"serial --unit=0 --speed=115200\n"
+                f"terminal_input serial console\n"
+                f"terminal_output serial console\n"
+                f"menuentry 'Gentoo Linux' {{\n"
+                f"    search --set=root --label corvus-root\n"
+                f"    linux /boot/{kernel} root=/dev/vda3 rootfstype=ext4 console=tty0 console=ttyS0,115200n8 {kernel_args}\n"
+                f"}}\n"
+            ),
         )
         context.artifacts["bootloader"] = root / "boot/grub/grub.cfg"

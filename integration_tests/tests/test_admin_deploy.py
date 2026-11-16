@@ -513,7 +513,24 @@ class TestAdminDeployAndRegister(IntegrationTestCase):
         script_file = f"{self._subdir()}/test_register.py"
         _shrun(
             self.node,
-            f"cat > {script_file} << 'PYEOF'\nimport shutil, sys\nsys.path.insert(0, '/mnt/corvus/python')\nfrom corvus_admin import register\nold_which = shutil.which\nshutil.which = lambda name: None if name == 'crv' else old_which(name)\ntry:\n    register.register_node(name='test', host='10.0.0.1')\n    sys.exit(1)\nexcept register.RegisterError:\n    print('REGISTER_ERROR:ok')\n    sys.exit(0)\nexcept Exception:\n    print('OTHER_ERROR:fail')\n    sys.exit(2)\nPYEOF",
+            (
+                f"cat > {script_file} << 'PYEOF'\n"
+                f"import shutil, sys\n"
+                f"sys.path.insert(0, '/mnt/corvus/python')\n"
+                f"from corvus_admin import register\n"
+                f"old_which = shutil.which\n"
+                f"shutil.which = lambda name: None if name == 'crv' else old_which(name)\n"
+                f"try:\n"
+                f"    register.register_node(name='test', host='10.0.0.1')\n"
+                f"    sys.exit(1)\n"
+                f"except register.RegisterError:\n"
+                f"    print('REGISTER_ERROR:ok')\n"
+                f"    sys.exit(0)\n"
+                f"except Exception:\n"
+                f"    print('OTHER_ERROR:fail')\n"
+                f"    sys.exit(2)\n"
+                f"PYEOF"
+            ),
             check=True,
         )
         result = _shrun(
@@ -690,9 +707,11 @@ class TestAdminRemoteDeploy(IntegrationTestCase):
             ):
                 cp = _shrun(
                     self.controller,
-                    f"corvus-admin deploy {role} remote {target} "
-                    "--ca-dir $HOME/.config/corvus/admin "
-                    f"--ip {target} --binary-path {binary}",
+                    (
+                        f"corvus-admin deploy {role} remote {target} "
+                        "--ca-dir $HOME/.config/corvus/admin "
+                        f"--ip {target} --binary-path {binary}"
+                    ),
                     check=False,
                     timeout_sec=120.0,
                 )
@@ -791,10 +810,12 @@ def _configure_controller_ssh(controller: TestNode, target: str) -> None:
     )
     _shrun(
         controller,
-        "install -d -m 700 ~/.ssh; "
-        f"printf %s {__import__('shlex').quote(encoded_key)} | base64 -d > ~/.ssh/corvus-it; "
-        "chmod 600 ~/.ssh/corvus-it; "
-        f"printf %s {__import__('shlex').quote(config)} > ~/.ssh/config; chmod 600 ~/.ssh/config",
+        (
+            "install -d -m 700 ~/.ssh; "
+            f"printf %s {__import__('shlex').quote(encoded_key)} | base64 -d > ~/.ssh/corvus-it; "
+            "chmod 600 ~/.ssh/corvus-it; "
+            f"printf %s {__import__('shlex').quote(config)} > ~/.ssh/config; chmod 600 ~/.ssh/config"
+        ),
     )
 
 

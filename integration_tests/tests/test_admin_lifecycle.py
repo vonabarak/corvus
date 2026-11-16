@@ -260,8 +260,7 @@ class TestListAndRevoke:
 
         # But the on-disk cert file survives (revoke is bookkeeping).
         assert admin_crt.is_file(), (
-            "revoke deleted the cert file; cli.py:1146-1153 promises only "
-            "the index row is dropped"
+            "revoke deleted the cert file; cli.py:1146-1153 promises only the index row is dropped"
         )
 
     def test_revoke_unknown_cn_errors(self, tmp_path: Path) -> None:

@@ -7,7 +7,10 @@ from PySide6.QtWidgets import QApplication
 
 
 def test_validate_good_yaml(qapp: QApplication) -> None:
-    ed = YamlEditor("a: 1\nb: [2, 3]\n")
+    ed = YamlEditor(
+        "a: 1\n"
+        "b: [2, 3]\n"
+    )
     assert ed.validate() == ""
 
 
@@ -23,7 +26,11 @@ def test_validation_changed_fires(qapp: QApplication) -> None:
     ed = YamlEditor("a: 1\n")
     events: list[str] = []
     ed.validation_changed.connect(events.append)
-    ed.set_text("a:\n  - oops:\n  -")
+    ed.set_text(
+        "a:\n"
+        "  - oops:\n"
+        "  -"
+    )
     # Validation fires synchronously on textChanged.
     assert len(events) >= 1
 

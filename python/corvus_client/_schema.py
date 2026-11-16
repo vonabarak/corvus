@@ -55,8 +55,7 @@ def _load_all() -> dict[str, ModuleType]:
     # schema's top-level types.
     if not SCHEMA_DIR.is_dir():
         raise RuntimeError(
-            f"corvus_client: schema directory not found at {SCHEMA_DIR}. "
-            "Set CORVUS_SCHEMA_DIR or run `make python-schema-sync`."
+            f"corvus_client: schema directory not found at {SCHEMA_DIR}. Set CORVUS_SCHEMA_DIR or run `make python-schema-sync`."
         )
     imports = [str(SCHEMA_DIR)]
     modules: dict[str, ModuleType] = {}

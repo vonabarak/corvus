@@ -55,25 +55,31 @@ import yaml as yamlmod
 pytestmark = pytest.mark.timeout(1800)
 
 
-_BAKE_TEMPLATE = textwrap.dedent("""
-    name: {tpl_name}
-    cpuCount: 2
-    ram: 1024M
-    headless: true
-    guestAgent: true
-    drives:
-      - diskImage: {base_disk}
-        interface: virtio
-        strategy: overlay
-        size: 2048M
-""").strip()
+_BAKE_TEMPLATE = textwrap.dedent(
+    "\n"
+    "    name: {tpl_name}\n"
+    "    cpuCount: 2\n"
+    "    ram: 1024M\n"
+    "    headless: true\n"
+    "    guestAgent: true\n"
+    "    drives:\n"
+    "      - diskImage: {base_disk}\n"
+    "        interface: virtio\n"
+    "        strategy: overlay\n"
+    "        size: 2048M\n"
+).strip()
 
 
 class TestBuildPipeline(SingleNodeCase):
     def test_build_variable_defaults(self, tmp_path: Path) -> None:
         source = tmp_path / "build.yml"
         source.write_text(
-            "vars:\n  image_if_exists: overwrite\npipeline:\n  - build:\n      target:\n        ifExists: '{{ image_if_exists }}'\n"
+            "vars:\n"
+            "  image_if_exists: overwrite\n"
+            "pipeline:\n"
+            "  - build:\n"
+            "      target:\n"
+            "        ifExists: '{{ image_if_exists }}'\n"
         )
         doc = yamlmod.safe_load(preprocess_build_yaml(str(source)))
         assert "vars" not in doc
@@ -81,7 +87,10 @@ class TestBuildPipeline(SingleNodeCase):
         assert (
             yamlmod.safe_load(
                 resolve_build_defaults(
-                    "vars: {}\nscript: '{{{{ literal }}}} ${HOME}'\n"
+
+                        "vars: {}\n"
+                        "script: '{{{{ literal }}}} ${HOME}'\n"
+
                 )
             )["script"]
             == "{{ literal }} ${HOME}"
@@ -91,8 +100,14 @@ class TestBuildPipeline(SingleNodeCase):
         "text, error",
         [
             ("vars: {required: null}", "required"),
-            ("vars: {}\nvalue: '{{ missing }}'", "unknown"),
-            ("vars: {}\nvalue: '{{ broken'", "malformed"),
+            ((
+                "vars: {}\n"
+                "value: '{{ missing }}'"
+            ), "unknown"),
+            ((
+                "vars: {}\n"
+                "value: '{{ broken'"
+            ), "malformed"),
         ],
     )
     def test_build_variable_errors(self, text: str, error: str) -> None:
@@ -116,22 +131,26 @@ class TestBuildPipeline(SingleNodeCase):
         """Exercise shared Make targets with a catalogue stub, without rebaking fixtures."""
         log = tmp_path / "calls.jsonl"
         fake = tmp_path / "crv"
-        fake.write_text(r"""#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-args = sys.argv[1:]
-if args[0] == 'build':
-    with Path(os.environ['CALL_LOG']).open('a') as stream:
-        stream.write(json.dumps(args) + '\n')
-elif os.environ.get('MISSING') == '1':
-    print(json.dumps({'code': args[2] + '_not_found'}))
-    sys.exit(1)
-else:
-    print(json.dumps({'id': 42}))
-""")
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "args = sys.argv[1:]\n"
+            "if args[0] == 'build':\n"
+            "    with Path(os.environ['CALL_LOG']).open('a') as stream:\n"
+            "        stream.write(json.dumps(args) + '\\n')\n"
+            "elif os.environ.get('MISSING') == '1':\n"
+            "    print(json.dumps({'code': args[2] + '_not_found'}))\n"
+            "    sys.exit(1)\n"
+            "else:\n"
+            "    print(json.dumps({'id': 42}))\n"
+        )
         fake.chmod(0o755)
         (tmp_path / "Makefile").write_text(
-            f"DISKS := example\nTEMPLATES := example-template\nPIPELINE := example.yml\ninclude {REPO_ROOT / 'yaml/image.mk'}\n"
+            f"DISKS := example\n"
+            f"TEMPLATES := example-template\n"
+            f"PIPELINE := example.yml\n"
+            f"include {REPO_ROOT / 'yaml/image.mk'}\n"
         )
         build = tmp_path / "build"
         build.mkdir()
@@ -196,7 +215,9 @@ else:
         )
         fake = tmp_path / "crv"
         fake.write_text(
-            "#!/bin/sh\nif [ \"$1\" != '-o' ]; then exit 99; fi\nprintf '%s\\n' '{\"id\":42}'\n"
+            "#!/bin/sh\n"
+            "if [ \"$1\" != '-o' ]; then exit 99; fi\n"
+            "printf '%s\\n' '{\"id\":42}'\n"
         )
         fake.chmod(0o755)
         directory = (
@@ -222,12 +243,19 @@ else:
     def test_recipe_ensure_stops_on_lookup_error(self, tmp_path: Path) -> None:
         fake = tmp_path / "crv"
         fake.write_text(
-            "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"permission_denied\"}'\nexit 1\n"
+
+                "#!/bin/sh\n"
+                "printf '%s\\n' '{\"code\":\"permission_denied\"}'\n"
+                "exit 1\n"
+
         )
         fake.chmod(0o755)
         marker = tmp_path / "published"
         (tmp_path / "Makefile").write_text(
-            f"DISKS := example\ninclude {REPO_ROOT / 'yaml/image.mk'}\npublish:\n\ttouch {marker}\n"
+            f"DISKS := example\n"
+            f"include {REPO_ROOT / 'yaml/image.mk'}\n"
+            f"publish:\n"
+            f"\ttouch {marker}\n"
         )
         result = subprocess.run(
             ["make", "ensure", f"CRV={fake}"],
@@ -259,24 +287,26 @@ else:
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    format: qcow2
-                    size: 2G
-                    compact: true
-                  provisioners:
-                    - shell: |
-                        set -eux
-                        mkdir -p /var/lib/corvus-test
-                        echo bake-marker > /var/lib/corvus-test/marker
-                  cleanup: always
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    format: qcow2\n"
+            f"                    size: 2G\n"
+            f"                    compact: true\n"
+            f"                  provisioners:\n"
+            f"                    - shell: |\n"
+            f"                        set -eux\n"
+            f"                        mkdir -p /var/lib/corvus-test\n"
+            f"                        echo bake-marker > /var/lib/corvus-test/marker\n"
+            f"                  cleanup: always\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
 
         try:
             step_results = {}
@@ -356,20 +386,22 @@ else:
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    format: qcow2
-                    size: 2G
-                  provisioners:
-                    - shell: "exit 7"
-                  cleanup: always
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    format: qcow2\n"
+            f"                    size: 2G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "exit 7"\n'
+            f"                  cleanup: always\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
 
         try:
             pipeline_end = None
@@ -433,10 +465,7 @@ else:
         )
         if probe.returncode != 0:
             pytest.skip(
-                f"test-node {self.node.name!r} can't reach the internet "
-                "on its own; the Debian-cloud bake VM cannot 'apt install "
-                "qemu-guest-agent' without it. Set up the host's VDE "
-                "uplink to a real NIC + NAT, then re-run."
+                f"test-node {self.node.name!r} can't reach the internet on its own; the Debian-cloud bake VM cannot 'apt install qemu-guest-agent' without it. Set up the host's VDE uplink to a real NIC + NAT, then re-run."
             )
 
         token = secrets.token_hex(4)
@@ -461,51 +490,53 @@ else:
         # downloads), and the bake template. The default update policy makes
         # the test idempotent — re-running in the same topology
         # leaves prior entries untouched.
-        bake_template_yaml = textwrap.dedent("""
-            sshKeys:
-              - name: corvus
-                publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
-
-            disks:
-              - name: ovmf-code
-                register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
-                format: qcow2
-              - name: ovmf-vars
-                register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
-                format: qcow2
-
-            templates:
-              - name: debian12
-                description: "Debian 12 (bake template for corvus-test-vm)"
-                cpuCount: 4
-                ram: 2048M
-                cloudInit: true
-                guestAgent: true
-                cloudInitConfig:
-                  userData:
-                    packages:
-                      - qemu-guest-agent
-                    runcmd:
-                      - systemctl enable --now qemu-guest-agent
-                drives:
-                  - diskImage: debian-generic
-                    interface: virtio
-                    strategy: overlay
-                    cacheType: writeback
-                    discard: true
-                  - diskImage: ovmf-code
-                    interface: pflash
-                    readOnly: true
-                    strategy: direct
-                  - diskImage: ovmf-vars
-                    interface: pflash
-                    strategy: clone
-                networkInterfaces:
-                  - type: vde
-                    hostDevice: /run/vde2/switch.ctl
-                sshKeys:
-                  - name: corvus
-        """).strip()
+        bake_template_yaml = textwrap.dedent(
+            "\n"
+            "            sshKeys:\n"
+            "              - name: corvus\n"
+            '                publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"\n'
+            "\n"
+            "            disks:\n"
+            "              - name: ovmf-code\n"
+            '                register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"\n'
+            "                format: qcow2\n"
+            "              - name: ovmf-vars\n"
+            '                register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"\n'
+            "                format: qcow2\n"
+            "\n"
+            "            templates:\n"
+            "              - name: debian12\n"
+            '                description: "Debian 12 (bake template for corvus-test-vm)"\n'
+            "                cpuCount: 4\n"
+            "                ram: 2048M\n"
+            "                cloudInit: true\n"
+            "                guestAgent: true\n"
+            "                cloudInitConfig:\n"
+            "                  userData:\n"
+            "                    packages:\n"
+            "                      - qemu-guest-agent\n"
+            "                    runcmd:\n"
+            "                      - systemctl enable --now qemu-guest-agent\n"
+            "                drives:\n"
+            "                  - diskImage: debian-generic\n"
+            "                    interface: virtio\n"
+            "                    strategy: overlay\n"
+            "                    cacheType: writeback\n"
+            "                    discard: true\n"
+            "                  - diskImage: ovmf-code\n"
+            "                    interface: pflash\n"
+            "                    readOnly: true\n"
+            "                    strategy: direct\n"
+            "                  - diskImage: ovmf-vars\n"
+            "                    interface: pflash\n"
+            "                    strategy: clone\n"
+            "                networkInterfaces:\n"
+            "                  - type: vde\n"
+            "                    hostDevice: /run/vde2/switch.ctl\n"
+            "                sshKeys:\n"
+            "                  - name: corvus\n"
+            "        "
+        ).strip()
         self.client.apply(bake_template_yaml, wait=True)
 
         # Preprocess the build YAML (inlines file refs like the
@@ -579,25 +610,27 @@ else:
         # Five iterations × 1 s sleep ≈ 5 s of streamed output.
         # `set +x` keeps the loop's set -x trace from drowning the
         # echo lines we're timing.
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: |
-                        set +x
-                        for i in 1 2 3 4 5; do
-                          echo "streaming-marker $i"
-                          sleep 1
-                        done
-                  cleanup: always
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f"                    - shell: |\n"
+            f"                        set +x\n"
+            f"                        for i in 1 2 3 4 5; do\n"
+            f'                          echo "streaming-marker $i"\n'
+            f"                          sleep 1\n"
+            f"                        done\n"
+            f"                  cleanup: always\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
 
         try:
             # (arrival_time, event) pairs for every event the daemon
@@ -632,8 +665,7 @@ else:
                 "no BuildStepOutput carrying 'streaming-marker' arrived"
             )
             assert len(streaming_lines) >= 5, (
-                f"expected ≥5 streaming-marker lines, got "
-                f"{len(streaming_lines)}: {[line for _, line in streaming_lines]}"
+                f"expected ≥5 streaming-marker lines, got {len(streaming_lines)}: {[line for _, line in streaming_lines]}"
             )
 
             # Live-streaming assertions:
@@ -642,8 +674,7 @@ else:
             #     end.
             spread = streaming_lines[-1][0] - streaming_lines[0][0]
             assert spread >= 3.0, (
-                f"streaming-marker lines arrived in {spread:.2f}s — "
-                f"too compressed; output was likely batched at step end"
+                f"streaming-marker lines arrived in {spread:.2f}s — too compressed; output was likely batched at step end"
             )
             # (2) At least one BuildStepOutput arrives BEFORE the
             #     step's BuildStepEnd. Pre-fix, outputs were
@@ -654,8 +685,7 @@ else:
             )
             early_lines = [t for t, _ in streaming_lines if t < end_t - 0.5]
             assert early_lines, (
-                f"all {len(streaming_lines)} BuildStepOutput events arrived "
-                f"within 500 ms of BuildStepEnd — no live streaming"
+                f"all {len(streaming_lines)} BuildStepOutput events arrived within 500 ms of BuildStepEnd — no live streaming"
             )
 
             # Sanity: the build itself succeeded.
@@ -718,50 +748,55 @@ else:
             mode="w",
             delete=False,
         ) as tmp:
-            tmp.write("#!/bin/sh\necho file-provisioner-marker\n")
+            tmp.write(
+                "#!/bin/sh\n"
+                "echo file-provisioner-marker\n"
+            )
             host_payload_path = tmp.name
 
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    format: qcow2
-                    size: 1G
-                  shellDefaults:
-                    preamble: |
-                      set -eu
-                      export PREAMBLE_VAR=preamble-set
-                    env:
-                      DEFAULT_ENV_VAR: env-set-from-defaults
-                  provisioners:
-                    - file:
-                        from: {host_payload_path}
-                        to: /tmp/uploaded.sh
-                        mode: "0755"
-                    - shell: |
-                        echo "MODE=$(stat -c %a /tmp/uploaded.sh)"
-                        echo "PREAMBLE_VAR=$PREAMBLE_VAR"
-                        echo "DEFAULT_ENV_VAR=$DEFAULT_ENV_VAR"
-                        echo "CORVUS_VERSION=$CORVUS_VERSION"
-                        echo "CORVUS_BUILD_NAME=$CORVUS_BUILD_NAME"
-                        echo "CORVUS_BUILD_TEMPLATE=$CORVUS_BUILD_TEMPLATE"
-                        echo "CORVUS_BUILD_STRATEGY=$CORVUS_BUILD_STRATEGY"
-                        # Sentinel for the wait-for step. Backgrounded
-                        # with a 2 s delay so wait-for has work to do
-                        # rather than seeing an already-present file.
-                        ( sleep 2 && touch /tmp/wait-marker ) &
-                    - wait-for:
-                        file: /tmp/wait-marker
-                        timeoutSec: 30
-                  cleanup: always
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  shellDefaults:\n"
+            f"                    preamble: |\n"
+            f"                      set -eu\n"
+            f"                      export PREAMBLE_VAR=preamble-set\n"
+            f"                    env:\n"
+            f"                      DEFAULT_ENV_VAR: env-set-from-defaults\n"
+            f"                  provisioners:\n"
+            f"                    - file:\n"
+            f"                        from: {host_payload_path}\n"
+            f"                        to: /tmp/uploaded.sh\n"
+            f'                        mode: "0755"\n'
+            f"                    - shell: |\n"
+            f'                        echo "MODE=$(stat -c %a /tmp/uploaded.sh)"\n'
+            f'                        echo "PREAMBLE_VAR=$PREAMBLE_VAR"\n'
+            f'                        echo "DEFAULT_ENV_VAR=$DEFAULT_ENV_VAR"\n'
+            f'                        echo "CORVUS_VERSION=$CORVUS_VERSION"\n'
+            f'                        echo "CORVUS_BUILD_NAME=$CORVUS_BUILD_NAME"\n'
+            f'                        echo "CORVUS_BUILD_TEMPLATE=$CORVUS_BUILD_TEMPLATE"\n'
+            f'                        echo "CORVUS_BUILD_STRATEGY=$CORVUS_BUILD_STRATEGY"\n'
+            f"                        # Sentinel for the wait-for step. Backgrounded\n"
+            f"                        # with a 2 s delay so wait-for has work to do\n"
+            f"                        # rather than seeing an already-present file.\n"
+            f"                        ( sleep 2 && touch /tmp/wait-marker ) &\n"
+            f"                    - wait-for:\n"
+            f"                        file: /tmp/wait-marker\n"
+            f"                        timeoutSec: 30\n"
+            f"                  cleanup: always\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
 
         # Write the pipeline to a temp file so we can use
         # ``build_stream`` (which calls ``preprocess_build_yaml``
@@ -789,8 +824,8 @@ else:
             joined = "\n".join(output_lines)
             assert pipeline_end is not None
             assert pipeline_end.builds, (
-                f"BuildPipelineEnd carried no builds; "
-                f"step_results={step_results!r} output tail:\n{joined[-2000:]}"
+                f"BuildPipelineEnd carried no builds; step_results={step_results!r} output tail:\n"
+                f"{joined[-2000:]}"
             )
             assert all(r == "success" for r in step_results.values()), step_results
             # `error_message` is `None` on success and a non-empty
@@ -799,8 +834,8 @@ else:
 
             # file: with mode=0755 → guest stat reports 755.
             assert "MODE=755" in joined, (
-                f"file: provisioner didn't land with mode 0755; "
-                f"output:\n{joined[-2000:]}"
+                f"file: provisioner didn't land with mode 0755; output:\n"
+                f"{joined[-2000:]}"
             )
             # shellDefaults preamble + env both visible.
             assert "PREAMBLE_VAR=preamble-set" in joined, joined[-2000:]
@@ -863,20 +898,22 @@ else:
         )
         # Loud-failure provisioner — if the bake runs, build errors
         # out and the test fails.
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    ifExists: skip
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: "echo SHOULD NOT RUN; exit 1"
-                  cleanup: always
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    ifExists: skip\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "echo SHOULD NOT RUN; exit 1"\n'
+            f"                  cleanup: always\n"
+            f"        "
+        ).strip()
 
         try:
             pipeline_end = None

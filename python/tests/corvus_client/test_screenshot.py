@@ -17,7 +17,10 @@ from corvus_client._async.vm import AsyncVm
 )
 def test_screenshot_atomic(tmp_path: Path, failure: str | None) -> None:
     path = tmp_path / "screen.png"
-    payload = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 300
+    payload = (
+        b'\x89PNG\r\n'
+        b'\x1a\n'
+    ) + bytes(range(256)) * 300
     saved: list[FileSink] = []
 
     async def capture(*, sink: FileSink) -> SimpleNamespace:

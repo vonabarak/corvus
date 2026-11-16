@@ -136,11 +136,7 @@ class VmCreateBody(BaseModel):  # type: ignore[explicit-any]
     rng: bool = True
     cpu_model: str = Field(
         "host",
-        description=(
-            "QEMU -cpu value. Default `host` exposes every available "
-            "host CPU feature; pick a stable model name "
-            "(e.g. `Westmere`) for migration between dissimilar nodes."
-        ),
+        description="QEMU -cpu value. Default `host` exposes every available host CPU feature; pick a stable model name (e.g. `Westmere`) for migration between dissimilar nodes.",
     )
     audio_devices: list[tuple[str, str] | tuple[str, str, str]] = Field(
         default_factory=list
@@ -396,10 +392,7 @@ class NetIfAddBody(BaseModel):  # type: ignore[explicit-any]
     )
     mac_address: str | None = Field(
         None,
-        description=(
-            "Override the auto-generated MAC. Use the prefix from "
-            "``crv network show`` to stay inside the managed range."
-        ),
+        description="Override the auto-generated MAC. Use the prefix from ``crv network show`` to stay inside the managed range.",
     )
     network_ref: str | None = Field(
         None, description="Managed-network id or name (required for type=managed)."

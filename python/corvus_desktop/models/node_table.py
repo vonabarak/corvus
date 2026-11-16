@@ -100,10 +100,7 @@ class NodeTableModel(QAbstractTableModel):
                     return "—"
                 return f"{format_size(free)} / {format_size(total)}"
             if col == self.COL_STORAGE:
-                return (
-                    f"{format_size(node.storage_bytes_free)} / "
-                    f"{format_size(node.storage_bytes_total)}"
-                )
+                return f"{format_size(node.storage_bytes_free)} / {format_size(node.storage_bytes_total)}"
             if col == self.COL_LOAD:
                 la = node.load_avg1
                 return f"{la:.2f}" if la is not None else "—"

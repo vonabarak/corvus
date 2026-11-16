@@ -49,28 +49,30 @@ class TestTemplates(SingleNodeCase):
         base_disk = images["corvus-test-vm"]
         tpl_name = f"corvus-it-tpl-{token}"
         vm_name = f"corvus-it-tpl-vm-{token}"
-        body = textwrap.dedent(f"""
-            name: {tpl_name}
-            description: A test template
-            cpuCount: 2
-            ram: 1024M
-            headless: true
-            guestAgent: true
-            cloudInit: true
-            cloudInitConfig:
-              userData:
-                users:
-                  - name: custom-user
-                    sudo: "ALL=(ALL) NOPASSWD:ALL"
-                packages:
-                  - curl
-              injectSshKeys: false
-            drives:
-              - diskImage: {base_disk}
-                interface: virtio
-                strategy: overlay
-                size: 1024M
-        """).strip()
+        body = textwrap.dedent(
+            f"\n"
+            f"            name: {tpl_name}\n"
+            f"            description: A test template\n"
+            f"            cpuCount: 2\n"
+            f"            ram: 1024M\n"
+            f"            headless: true\n"
+            f"            guestAgent: true\n"
+            f"            cloudInit: true\n"
+            f"            cloudInitConfig:\n"
+            f"              userData:\n"
+            f"                users:\n"
+            f"                  - name: custom-user\n"
+            f'                    sudo: "ALL=(ALL) NOPASSWD:ALL"\n'
+            f"                packages:\n"
+            f"                  - curl\n"
+            f"              injectSshKeys: false\n"
+            f"            drives:\n"
+            f"              - diskImage: {base_disk}\n"
+            f"                interface: virtio\n"
+            f"                strategy: overlay\n"
+            f"                size: 1024M\n"
+            f"        "
+        ).strip()
 
         tpl = self.client.templates.create(body)
         try:
@@ -136,23 +138,25 @@ class TestTemplates(SingleNodeCase):
         # `Handlers/Template.hs`'s validation). Instantiation will
         # auto-create a cloud-init ISO and attach it as a drive; we
         # don't boot, just observe the wiring.
-        body = textwrap.dedent(f"""
-            name: {tpl_name}
-            cpuCount: 1
-            ram: 512M
-            headless: true
-            cloudInit: true
-            networkInterfaces:
-              - type: user
-            sshKeys:
-              - name: {key_name}
-            sharedDirs:
-              - path: /srv/from-template
-                tag: from-template
-                cache: never
-                readOnly: true
-            drives: []
-        """).strip()
+        body = textwrap.dedent(
+            f"\n"
+            f"            name: {tpl_name}\n"
+            f"            cpuCount: 1\n"
+            f"            ram: 512M\n"
+            f"            headless: true\n"
+            f"            cloudInit: true\n"
+            f"            networkInterfaces:\n"
+            f"              - type: user\n"
+            f"            sshKeys:\n"
+            f"              - name: {key_name}\n"
+            f"            sharedDirs:\n"
+            f"              - path: /srv/from-template\n"
+            f"                tag: from-template\n"
+            f"                cache: never\n"
+            f"                readOnly: true\n"
+            f"            drives: []\n"
+            f"        "
+        ).strip()
 
         key = self.client.ssh_keys.create(key_name, TEST_PUB_KEY)
         try:
@@ -252,13 +256,15 @@ class TestTemplates(SingleNodeCase):
         """A second `create()` with the same name must fail."""
         token = secrets.token_hex(4)
         name = f"corvus-it-tpl-{token}"
-        body = textwrap.dedent(f"""
-            name: {name}
-            cpuCount: 1
-            ram: 512M
-            headless: true
-            drives: []
-        """).strip()
+        body = textwrap.dedent(
+            f"\n"
+            f"            name: {name}\n"
+            f"            cpuCount: 1\n"
+            f"            ram: 512M\n"
+            f"            headless: true\n"
+            f"            drives: []\n"
+            f"        "
+        ).strip()
         tpl = self.client.templates.create(body)
         try:
             with pytest.raises(CorvusError):
@@ -291,29 +297,33 @@ class TestTemplates(SingleNodeCase):
             # ``create`` requires ``format`` + ``size`` and skips
             # ``diskImage``; the other three require the base.
             if strategy == "create":
-                body = textwrap.dedent(f"""
-                    name: {tpl_name}
-                    cpuCount: 1
-                    ram: 256M
-                    headless: true
-                    drives:
-                      - interface: virtio
-                        strategy: create
-                        format: qcow2
-                        size: 32M
-                """).strip()
+                body = textwrap.dedent(
+                    f"\n"
+                    f"                    name: {tpl_name}\n"
+                    f"                    cpuCount: 1\n"
+                    f"                    ram: 256M\n"
+                    f"                    headless: true\n"
+                    f"                    drives:\n"
+                    f"                      - interface: virtio\n"
+                    f"                        strategy: create\n"
+                    f"                        format: qcow2\n"
+                    f"                        size: 32M\n"
+                    f"                "
+                ).strip()
             else:
-                body = textwrap.dedent(f"""
-                    name: {tpl_name}
-                    cpuCount: 1
-                    ram: 256M
-                    headless: true
-                    drives:
-                      - diskImage: {base_disk}
-                        interface: virtio
-                        strategy: {strategy}
-                        size: 1024M
-                """).strip()
+                body = textwrap.dedent(
+                    f"\n"
+                    f"                    name: {tpl_name}\n"
+                    f"                    cpuCount: 1\n"
+                    f"                    ram: 256M\n"
+                    f"                    headless: true\n"
+                    f"                    drives:\n"
+                    f"                      - diskImage: {base_disk}\n"
+                    f"                        interface: virtio\n"
+                    f"                        strategy: {strategy}\n"
+                    f"                        size: 1024M\n"
+                    f"                "
+                ).strip()
 
             tpl = self.client.templates.create(body)
             try:
@@ -384,22 +394,24 @@ class TestTemplates(SingleNodeCase):
         # `applyTemplate` flow). Stage it on the node.
         self.node.run(f"mkdir -p {host_path}")
         try:
-            body = textwrap.dedent(f"""
-                name: {tpl_name}
-                cpuCount: 1
-                ram: 256M
-                headless: true
-                drives:
-                  - diskImage: {base_disk}
-                    interface: virtio
-                    strategy: overlay
-                    size: 1024M
-                sharedDirs:
-                  - path: {host_path}
-                    tag: tpl-share
-                    cache: auto
-                    readOnly: false
-            """).strip()
+            body = textwrap.dedent(
+                f"\n"
+                f"                name: {tpl_name}\n"
+                f"                cpuCount: 1\n"
+                f"                ram: 256M\n"
+                f"                headless: true\n"
+                f"                drives:\n"
+                f"                  - diskImage: {base_disk}\n"
+                f"                    interface: virtio\n"
+                f"                    strategy: overlay\n"
+                f"                    size: 1024M\n"
+                f"                sharedDirs:\n"
+                f"                  - path: {host_path}\n"
+                f"                    tag: tpl-share\n"
+                f"                    cache: auto\n"
+                f"                    readOnly: false\n"
+                f"            "
+            ).strip()
             tpl = self.client.templates.create(body)
             try:
                 # Template stores the shared dir.
@@ -440,17 +452,19 @@ class TestTemplates(SingleNodeCase):
         """
         token = secrets.token_hex(4)
         ghost = f"corvus-it-does-not-exist-{token}"
-        body = textwrap.dedent(f"""
-            name: corvus-it-tpl-{token}
-            cpuCount: 1
-            ram: 512M
-            headless: true
-            drives:
-              - diskImage: {ghost}
-                interface: virtio
-                strategy: overlay
-                size: 1024M
-        """).strip()
+        body = textwrap.dedent(
+            f"\n"
+            f"            name: corvus-it-tpl-{token}\n"
+            f"            cpuCount: 1\n"
+            f"            ram: 512M\n"
+            f"            headless: true\n"
+            f"            drives:\n"
+            f"              - diskImage: {ghost}\n"
+            f"                interface: virtio\n"
+            f"                strategy: overlay\n"
+            f"                size: 1024M\n"
+            f"        "
+        ).strip()
         with pytest.raises(CorvusError) as excinfo:
             self.client.templates.create(body)
         msg = str(excinfo.value)

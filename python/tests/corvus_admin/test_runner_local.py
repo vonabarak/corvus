@@ -78,7 +78,10 @@ def test_run_with_sudo_uses_doas_when_injected(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake_doas = bin_dir / "doas"
-    fake_doas.write_text('#!/bin/sh\nexec "$@"\n')
+    fake_doas.write_text(
+        "#!/bin/sh\n"
+        "exec \"$@\"\n"
+    )
     fake_doas.chmod(0o755)
     import os
 
@@ -117,7 +120,10 @@ def test_which_finds_binary_on_path(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     target = bin_dir / "made-up-binary"
-    target.write_text("#!/bin/sh\nexit 0\n")
+    target.write_text(
+        "#!/bin/sh\n"
+        "exit 0\n"
+    )
     target.chmod(0o755)
     import os
 

@@ -83,10 +83,7 @@ def collect_node_logs(crv: Crv, directory: Path, name: str, cid: int | None) -> 
         unit = shlex.quote(f"{service}.service")
         # '+' joins the system and user unit matches with OR. Do not restrict
         # boot, invocation, priority, or line count: restarts are diagnostic.
-        command = (
-            "sudo -n journalctl --no-pager --quiet --all --utc --output=short-iso-precise "
-            f"_SYSTEMD_UNIT={unit} + _SYSTEMD_USER_UNIT={unit}"
-        )
+        command = f"sudo -n journalctl --no-pager --quiet --all --utc --output=short-iso-precise _SYSTEMD_UNIT={unit} + _SYSTEMD_USER_UNIT={unit}"
         try:
             shell.run_to_file(command, directory / f"{service}.log", timeout_sec=15)
         except Exception as error:

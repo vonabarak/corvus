@@ -28,12 +28,12 @@ def launch_remote_viewer(grant: ViewGrant, parent: QWidget | None = None) -> Non
     # the password lives in the file (remote-viewer reads & deletes
     # it on launch for SPICE_AUTO).
     body = (
-        "[virt-viewer]\n"
-        "type=spice\n"
+        f"[virt-viewer]\n"
+        f"type=spice\n"
         f"host={grant.host}\n"
         f"port={grant.port}\n"
         f"password={grant.password}\n"
-        "delete-this-file=1\n"
+        f"delete-this-file=1\n"
     )
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".vv", delete=False) as tmp:
@@ -44,8 +44,11 @@ def launch_remote_viewer(grant: ViewGrant, parent: QWidget | None = None) -> Non
         QMessageBox.warning(
             parent,
             "Could not launch remote-viewer",
-            f"Failed to spawn remote-viewer: {e}\n\n"
-            f"Connect manually to spice://{grant.host}:{grant.port}",
+            (
+                f"Failed to spawn remote-viewer: {e}\n"
+                f"\n"
+                f"Connect manually to spice://{grant.host}:{grant.port}"
+            ),
         )
 
 
@@ -53,10 +56,14 @@ def _show_grant_dialog(grant: ViewGrant, parent: QWidget | None) -> None:
     QMessageBox.information(
         parent,
         "SPICE connection details",
-        "remote-viewer is not installed.\n\n"
-        f"Host: {grant.host}\n"
-        f"Port: {grant.port}\n"
-        f"Password: {grant.password}\n"
-        f"Valid for: {grant.ttl_seconds} seconds\n\n"
-        "Use any SPICE client (virt-viewer, spicy, …) to connect.",
+        (
+            f"remote-viewer is not installed.\n"
+            f"\n"
+            f"Host: {grant.host}\n"
+            f"Port: {grant.port}\n"
+            f"Password: {grant.password}\n"
+            f"Valid for: {grant.ttl_seconds} seconds\n"
+            f"\n"
+            f"Use any SPICE client (virt-viewer, spicy, …) to connect."
+        ),
     )

@@ -545,8 +545,7 @@ class VmDetailWidget(QWidget):
         reply = QMessageBox.question(
             self,
             "Delete VM",
-            "Delete this VM? Ephemeral disks attached to it will also "
-            "be removed (use Edit instead to detach disks you want to keep).",
+            "Delete this VM? Ephemeral disks attached to it will also be removed (use Edit instead to detach disks you want to keep).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

@@ -45,8 +45,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
             try:
                 info = snap.show()
                 assert info.has_vmstate, (
-                    "carrier row of a --with-ram snapshot must report "
-                    f"has_vmstate=True; got info={info!r}"
+                    f"carrier row of a --with-ram snapshot must report has_vmstate=True; got info={info!r}"
                 )
                 # The carrier is also taken live (QMP path), and
                 # the daemon's vmstate code path skips QGA
@@ -58,8 +57,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
                 # caught.
                 assert info.live, f"vmstate snapshot must be live; info={info!r}"
                 assert not info.quiesced, (
-                    "vmstate snapshot must NOT be fsfreeze-quiesced "
-                    f"(captures page cache directly); info={info!r}"
+                    f"vmstate snapshot must NOT be fsfreeze-quiesced (captures page cache directly); info={info!r}"
                 )
 
                 listed = disk.snapshot_list()
@@ -156,8 +154,7 @@ class TestSnapshotsVmstate(SingleNodeCase):
                         "test -f /tmp/vmstate-sentinel && echo PRESENT || echo MISSING"
                     ).stdout.strip()
                     assert restored == "PRESENT", (
-                        "vmstate rollback did not restore the pre-snapshot "
-                        "file; in-flight page cache was not captured"
+                        "vmstate rollback did not restore the pre-snapshot file; in-flight page cache was not captured"
                     )
             finally:
                 # Snapshot may already be gone if the rollback

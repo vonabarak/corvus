@@ -45,7 +45,10 @@ class TestScreenshot(OneDaemonTwoNodesCase):
                         msg="QEMU did not start",
                     )
                     count = vm.screenshot_to_file(path)
-                    assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+                    assert path.read_bytes().startswith(
+                        b'\x89PNG\r\n'
+                        b'\x1a\n'
+                    )
                     assert count == path.stat().st_size
                     vm.pause()
                     paused = tmp_path / f"{node.short_name}-paused.png"

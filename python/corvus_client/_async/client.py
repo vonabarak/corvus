@@ -79,9 +79,7 @@ class AsyncClient:
         else:
             if tls and unix_socket is not None:
                 raise ValueError(
-                    "tls=True requested but unix_socket was given; "
-                    "Unix sockets rely on filesystem permissions and "
-                    "do not wrap with TLS"
+                    "tls=True requested but unix_socket was given; Unix sockets rely on filesystem permissions and do not wrap with TLS"
                 )
             self._tls_enabled = bool(tls)
         self._tls_bundle: _tls.TlsBundle | None = None

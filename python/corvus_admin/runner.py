@@ -105,8 +105,7 @@ class Runner(ABC):
 def _privesc_prefix(pe: privesc.PrivEsc | None) -> list[str]:
     if pe is None:
         raise RunnerError(
-            "no privilege-escalation tool found; install sudo or doas, "
-            "or use the --user-service flow"
+            "no privilege-escalation tool found; install sudo or doas, or use the --user-service flow"
         )
     return list(pe.argv_prefix)
 
@@ -290,8 +289,7 @@ class SshRunner(Runner):
             proc = subprocess.run(full, check=False, text=True, capture_output=True)
             if proc.returncode != 0 or not proc.stdout.strip():
                 raise RunnerError(
-                    f"could not resolve $HOME on {self.target} "
-                    f"(rc={proc.returncode}): {proc.stderr.strip()}",
+                    f"could not resolve $HOME on {self.target} (rc={proc.returncode}): {proc.stderr.strip()}",
                     stderr=proc.stderr,
                 )
             self._remote_home = proc.stdout.strip()
@@ -368,8 +366,7 @@ class SshRunner(Runner):
         )
         if check and proc.returncode != 0:
             raise RunnerError(
-                f"ssh command failed on {self.target} "
-                f"(rc={proc.returncode}): {remote_cmd}",
+                f"ssh command failed on {self.target} (rc={proc.returncode}): {remote_cmd}",
                 stderr=result.stderr,
             )
         return result
@@ -401,8 +398,7 @@ class SshRunner(Runner):
         proc = subprocess.run(full, check=False, text=True, capture_output=True)
         if proc.returncode != 0:
             raise RunnerError(
-                f"scp failed to {self.target}:{remote_dest} "
-                f"(rc={proc.returncode}): {proc.stderr.strip()}",
+                f"scp failed to {self.target}:{remote_dest} (rc={proc.returncode}): {proc.stderr.strip()}",
                 stderr=proc.stderr,
             )
 

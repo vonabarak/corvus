@@ -229,8 +229,7 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.warning(
             self,
             "Shutdown daemon",
-            "Tell the corvus daemon to shut down? Any running VMs and "
-            "in-flight tasks will be affected.",
+            "Tell the corvus daemon to shut down? Any running VMs and in-flight tasks will be affected.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -241,10 +240,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "corvus-desktop",
-            "<b>corvus-desktop</b><br>"
-            "Native PySide6 GUI for the corvus VM management daemon.<br><br>"
-            "See <code>doc/</code> in the repo for protocol + apply / build "
-            "documentation.",
+            "<b>corvus-desktop</b><br>Native PySide6 GUI for the corvus VM management daemon.<br><br>See <code>doc/</code> in the repo for protocol + apply / build documentation.",
         )
 
     # ---------------------------------------------------- navigation

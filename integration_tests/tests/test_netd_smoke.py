@@ -155,28 +155,29 @@ def _network_spec(
 # the response's RCODE. Inputs: target IP, qname. Output stdout:
 # "NOERROR" / "NXDOMAIN" / "REFUSED" / "SERVFAIL" / "TIMEOUT" / "RCODE_<n>".
 
-_DNS_QUERY_PY = r"""
-import socket, struct, sys
-
-def encode_qname(name):
-    parts = name.split('.')
-    return b''.join(bytes([len(p)]) + p.encode() for p in parts) + b'\x00'
-
-target, qname = sys.argv[1], sys.argv[2]
-header = struct.pack('!HHHHHH', 0x1234, 0x0100, 1, 0, 0, 0)  # RD=1
-packet = header + encode_qname(qname) + struct.pack('!HH', 1, 1)  # A IN
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.settimeout(2.0)
-try:
-    s.sendto(packet, (target, 53))
-    resp, _ = s.recvfrom(4096)
-except socket.timeout:
-    print('TIMEOUT')
-    sys.exit(0)
-rcode = struct.unpack('!H', resp[2:4])[0] & 0xf
-print({0: 'NOERROR', 1: 'FORMERR', 2: 'SERVFAIL', 3: 'NXDOMAIN',
-       4: 'NOTIMP', 5: 'REFUSED'}.get(rcode, f'RCODE_{rcode}'))
-"""
+_DNS_QUERY_PY = (
+    "\n"
+    "import socket, struct, sys\n"
+    "\n"
+    "def encode_qname(name):\n"
+    "    parts = name.split('.')\n"
+    "    return b''.join(bytes([len(p)]) + p.encode() for p in parts) + b'\\x00'\n"
+    "\n"
+    "target, qname = sys.argv[1], sys.argv[2]\n"
+    "header = struct.pack('!HHHHHH', 0x1234, 0x0100, 1, 0, 0, 0)  # RD=1\n"
+    "packet = header + encode_qname(qname) + struct.pack('!HH', 1, 1)  # A IN\n"
+    "s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+    "s.settimeout(2.0)\n"
+    "try:\n"
+    "    s.sendto(packet, (target, 53))\n"
+    "    resp, _ = s.recvfrom(4096)\n"
+    "except socket.timeout:\n"
+    "    print('TIMEOUT')\n"
+    "    sys.exit(0)\n"
+    "rcode = struct.unpack('!H', resp[2:4])[0] & 0xf\n"
+    "print({0: 'NOERROR', 1: 'FORMERR', 2: 'SERVFAIL', 3: 'NXDOMAIN',\n"
+    "       4: 'NOTIMP', 5: 'REFUSED'}.get(rcode, f'RCODE_{rcode}'))\n"
+)
 
 
 def _dns_rcode(node: TestNode, target_ip: str, qname: str) -> str:

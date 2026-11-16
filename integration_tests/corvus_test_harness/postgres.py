@@ -33,8 +33,7 @@ def wait_for_postgres(shell: NodeShell, *, timeout_sec: float = 60.0) -> None:
         last_err = out.stderr.decode(errors="replace").strip()
         time.sleep(0.5)
     raise TimeoutError(
-        f"Postgres on node (cid={shell.cid}) not ready after {timeout_sec:.0f}s; "
-        f"last error: {last_err}"
+        f"Postgres on node (cid={shell.cid}) not ready after {timeout_sec:.0f}s; last error: {last_err}"
     )
 
 

@@ -401,8 +401,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             # steady-state poller never came up.
             hc0 = vm.cap.show().last_healthcheck
             assert hc0 is not None, (
-                "last_healthcheck is None after wait_for_qga — "
-                "first-ping path didn't update the DB"
+                "last_healthcheck is None after wait_for_qga — first-ping path didn't update the DB"
             )
             deadline = time.monotonic() + 30.0
             hc1 = hc0
@@ -413,9 +412,7 @@ class TestVmBootBasics(_VmLifecycleBase):
                     hc1 = next_healthcheck
                     break
             assert hc1 > hc0, (
-                f"last_healthcheck didn't advance within 30s; "
-                f"before={hc0!r}, after={hc1!r} — steady-state "
-                f"poller isn't running"
+                f"last_healthcheck didn't advance within 30s; before={hc0!r}, after={hc1!r} — steady-state poller isn't running"
             )
 
             # Guest-IP advertisement: the poller's secondary job.
@@ -434,9 +431,7 @@ class TestVmBootBasics(_VmLifecycleBase):
                     break
                 time.sleep(2.0)
             assert guest_ips, (
-                "QGA poller never reported guest_ip_addresses within "
-                "30s — guest-network-get-interfaces path didn't reach "
-                "the daemon"
+                "QGA poller never reported guest_ip_addresses within 30s — guest-network-get-interfaces path didn't reach the daemon"
             )
 
     def test_status_transitions_through_starting_and_stopping(self) -> None:
@@ -480,11 +475,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             vm.cap.start(wait=False)
             start_seq = self._observe_transitions(vm.cap, "running", timeout_sec=90)
             assert "starting" in start_seq, (
-                "VM status never passed through 'starting' on async start. "
-                f"Observed sequence: {start_seq!r}. "
-                "The daemon should set VmStarting before invoking the "
-                "agent's vmStart so external observers can tell a "
-                "still-booting VM apart from a steady-state one."
+                f"VM status never passed through 'starting' on async start. Observed sequence: {start_seq!r}. The daemon should set VmStarting before invoking the agent's vmStart so external observers can tell a still-booting VM apart from a steady-state one."
             )
             # Order check: starting must come before running.
             assert start_seq.index("starting") < start_seq.index("running"), (
@@ -583,8 +574,7 @@ class TestVmBootBasics(_VmLifecycleBase):
             stats = details.stats
             assert stats is not None, "VmDetails.stats was None"
             assert stats.sampled_at_nanos > 0, (
-                "agent's StatusPoller never produced a non-zero sample "
-                "(sampled_at_nanos still 0)"
+                "agent's StatusPoller never produced a non-zero sample (sampled_at_nanos still 0)"
             )
             assert stats.clk_tck > 0, "clk_tck not stamped by the agent"
             assert stats.host_rss_bytes > 0, (
@@ -741,9 +731,8 @@ class TestVmTpm(_VmLifecycleBase):
         r = case.nodes[0].run("command -v swtpm", check=False)
         if r.returncode != 0:
             pytest.fail(
-                "test-node is missing swtpm on PATH. Rebake only the cached "
-                "test-node image after this recipe change:\n"
-                "  make image-rebuild IMAGE=corvus-test-node\n"
+                f"test-node is missing swtpm on PATH. Rebake only the cached test-node image after this recipe change:\n"
+                f"  make image-rebuild IMAGE=corvus-test-node\n"
                 f"(probe stdout={r.stdout!r}, stderr={r.stderr!r})"
             )
 
@@ -785,8 +774,7 @@ class TestVmTpm(_VmLifecycleBase):
             # driver failed to bind. Assert the CRB device reached Linux as
             # a real TPM 2.0 character device.
             guest_tpm = vm.cap.guest_exec(
-                "/bin/sh -c 'test -c /dev/tpm0 && "
-                "cat /sys/class/tpm/tpm0/tpm_version_major'"
+                "/bin/sh -c 'test -c /dev/tpm0 && cat /sys/class/tpm/tpm0/tpm_version_major'"
             )
             assert guest_tpm.exit_code == 0, guest_tpm
             assert guest_tpm.stdout.strip() == "2", guest_tpm
@@ -864,8 +852,7 @@ class TestVmPauseResetPowerOff(_VmLifecycleBase):
                     "cat /proc/sys/kernel/random/boot_id"
                 ).stdout.strip()
                 assert boot_id_2 and boot_id_2 != boot_id_1, (
-                    f"boot_id unchanged across reset+restart: "
-                    f"before={boot_id_1!r}, after={boot_id_2!r}"
+                    f"boot_id unchanged across reset+restart: before={boot_id_1!r}, after={boot_id_2!r}"
                 )
 
             # --- graceful ACPI shutdown ---------------------------
@@ -950,10 +937,7 @@ class TestVmPauseResetPowerOff(_VmLifecycleBase):
                     "cat /proc/sys/kernel/random/boot_id"
                 ).stdout.strip()
                 assert boot_id_2 and boot_id_2 != boot_id_1, (
-                    f"boot_id unchanged across guest poweroff + start: "
-                    f"before={boot_id_1!r}, after={boot_id_2!r} — "
-                    f"the agent likely returned the stale ledger entry "
-                    f"and no new QEMU was spawned"
+                    f"boot_id unchanged across guest poweroff + start: before={boot_id_1!r}, after={boot_id_2!r} — the agent likely returned the stale ledger entry and no new QEMU was spawned"
                 )
 
 
@@ -1045,12 +1029,10 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 time.sleep(1.0)
 
             assert not saw_stopped, (
-                "VM transitioned to 'stopped' during a quirk-on "
-                "reboot — the agent failed to re-spawn in place"
+                "VM transitioned to 'stopped' during a quirk-on reboot — the agent failed to re-spawn in place"
             )
             assert settled_running, (
-                "VM did not finish rebooting back to 'running' "
-                "within 120s, or boot_id did not change"
+                "VM did not finish rebooting back to 'running' within 120s, or boot_id did not change"
             )
 
     def test_reboot_quirk_does_not_restart_on_daemon_stop(self) -> None:
@@ -1079,8 +1061,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 time.sleep(1.0)
                 status = vm.cap.show().status
                 assert status == "stopped", (
-                    f"VM bounced back to {status!r} after a daemon-"
-                    f"initiated stop — quirk-suppression failed"
+                    f"VM bounced back to {status!r} after a daemon-initiated stop — quirk-suppression failed"
                 )
 
     def test_reboot_quirk_qemu_pid_changes_on_reboot(self) -> None:
@@ -1128,9 +1109,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 time.sleep(1.0)
 
             assert pid_after is not None, (
-                f"QEMU pid for vm id {vm_id} did not change within 120s "
-                f"after a guest-initiated reboot (still {pid_before}) — "
-                f"the reboot-quirk reaper did not re-spawn"
+                f"QEMU pid for vm id {vm_id} did not change within 120s after a guest-initiated reboot (still {pid_before}) — the reboot-quirk reaper did not re-spawn"
             )
 
             self._wait_for_reboot_health(vm.cap)
@@ -1219,15 +1198,11 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 time.sleep(2.0)
 
             assert rebooted, (
-                "guest did not finish rebooting within 120s — "
-                "cannot validate pid stability"
+                "guest did not finish rebooting within 120s — cannot validate pid stability"
             )
 
             pid_after = self._read_qemu_pid(vm_id)
             assert pid_after == pid_before, (
-                f"QEMU pid for vm id {vm_id} changed across an "
-                f"in-place reboot: before={pid_before}, after={pid_after}. "
-                f"Without reboot_quirk the same qemu-system process should "
-                f"survive the guest reset"
+                f"QEMU pid for vm id {vm_id} changed across an in-place reboot: before={pid_before}, after={pid_after}. Without reboot_quirk the same qemu-system process should survive the guest reset"
             )
             self._wait_for_reboot_health(vm.cap)

@@ -45,9 +45,9 @@ def build_router(frontend_dir: Path) -> APIRouter:
         if not index_html.is_file():
             return PlainTextResponse(
                 (
-                    "corvus-web: frontend bundle missing.\n"
+                    f"corvus-web: frontend bundle missing.\n"
                     f"Expected {index_html} to exist.\n"
-                    "Run `make web-build` (or `npm run build` inside frontend/).\n"
+                    f"Run `make web-build` (or `npm run build` inside frontend/).\n"
                 ),
                 status_code=404,
             )

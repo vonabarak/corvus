@@ -161,7 +161,10 @@ class TestApplyUpdate(SingleNodeCase):
             "guestAgent": False,
             "drives": [{"disk": disk_name, "interface": "virtio"}],
             "networkInterfaces": [{"type": "user"}],
-            "cloudInitConfig": {"userData": "#cloud-config\nhostname: update-test"},
+            "cloudInitConfig": {"userData": (
+                "#cloud-config\n"
+                "hostname: update-test"
+            )},
         }
         config = {
             "disks": [

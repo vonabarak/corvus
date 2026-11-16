@@ -137,8 +137,7 @@ class TestBuildInstaller(SingleNodeCase):
                 None,
             )
             assert bo is not None, (
-                f"no {artifact_name!r} build result; "
-                f"got {[b.name for b in pipeline_end.builds]}"
+                f"no {artifact_name!r} build result; got {[b.name for b in pipeline_end.builds]}"
             )
             if bo.error_message:
                 # On a bake-VM error we still hold the bake VM
@@ -148,7 +147,11 @@ class TestBuildInstaller(SingleNodeCase):
                 # "entered error state".
                 diag = self._installer_failure_diagnostics()
                 pytest.fail(
-                    f"build failed: {bo.error_message}\n--- diagnostics ---\n{diag}"
+
+                        f"build failed: {bo.error_message}\n"
+                        f"--- diagnostics ---\n"
+                        f"{diag}"
+
                 )
             assert bo.artifact_disk_id, bo
 
@@ -197,7 +200,10 @@ class TestBuildInstaller(SingleNodeCase):
                 check=False,
                 timeout_sec=30,
             )
-            chunks.append(f"[{unit} journal]\n{r.stdout.decode(errors='replace')}")
+            chunks.append(
+                f"[{unit} journal]\n"
+                f"{r.stdout.decode(errors='replace')}"
+            )
         try:
             bake_vms = [
                 v.name for v in self.client.vms.list() if v.name.startswith("__build_")

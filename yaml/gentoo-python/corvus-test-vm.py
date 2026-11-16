@@ -30,12 +30,13 @@ class TestVmRepository(RepositoryStage):
     def execute(self, context: BuildContext) -> None:
         write(
             Path("/etc/portage/package.use/corvus-test-vm"),
-            """sys-apps/lshw -gtk
-app-crypt/tpm2-tss -fapi -policy
-app-crypt/tpm2-tools -fapi
-app-admin/doas -pam
-sys-apps/busybox -make-symlinks -pam -mdev -syslog
-""",
+            (
+                "sys-apps/lshw -gtk\n"
+                "app-crypt/tpm2-tss -fapi -policy\n"
+                "app-crypt/tpm2-tools -fapi\n"
+                "app-admin/doas -pam\n"
+                "sys-apps/busybox -make-symlinks -pam -mdev -syslog\n"
+            ),
         )
         super().execute(context)
 
@@ -144,7 +145,11 @@ class TestVmConfiguration(OpenRCConfigurationStage):
         ssh = root / "etc/ssh/sshd_config"
         write(
             ssh,
-            "PasswordAuthentication yes\nPermitRootLogin no\nSetEnv PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n"
+            (
+                "PasswordAuthentication yes\n"
+                "PermitRootLogin no\n"
+                "SetEnv PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n"
+            )
             + ssh.read_text(),
         )
         write(
@@ -153,25 +158,32 @@ class TestVmConfiguration(OpenRCConfigurationStage):
         )
         write(
             root / "etc/dhcpcd.conf",
-            """ipv4only
-noipv4ll
-waitip 4
-timeout 20
-clientid
-hostname
-option domain_name_servers, domain_name, domain_search
-option routers, subnet_mask, classless_static_routes
-""",
+            (
+                "ipv4only\n"
+                "noipv4ll\n"
+                "waitip 4\n"
+                "timeout 20\n"
+                "clientid\n"
+                "hostname\n"
+                "option domain_name_servers, domain_name, domain_search\n"
+                "option routers, subnet_mask, classless_static_routes\n"
+            ),
         )
         with (root / "etc/hosts").open("a") as stream:
             stream.write("127.0.0.1 corvus-test-vm\n")
         write(
             root / "etc/acpi/events/corvus-power-button",
-            "event=button/power.*\naction=/etc/acpi/actions/corvus-power-button.sh\n",
+            (
+                "event=button/power.*\n"
+                "action=/etc/acpi/actions/corvus-power-button.sh\n"
+            ),
         )
         write(
             root / "etc/acpi/actions/corvus-power-button.sh",
-            "#!/bin/sh\nexec /sbin/poweroff\n",
+            (
+                "#!/bin/sh\n"
+                "exec /sbin/poweroff\n"
+            ),
         )
         (root / "etc/acpi/actions/corvus-power-button.sh").chmod(0o755)
         (root / "etc/acpi/events/default").unlink(missing_ok=True)

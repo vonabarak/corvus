@@ -227,10 +227,7 @@ def _wait_for_node_field(
             return last
         time.sleep(0.5)
     raise AssertionError(
-        f"timed out after {timeout_sec}s waiting on node {node_name!r}; "
-        f"last details: admin_state={getattr(last, 'admin_state', '?')!r} "
-        f"netd_connected={getattr(last, 'netd_connected', '?')!r} "
-        f"last_node_agent_push_at={getattr(last, 'last_node_agent_push_at', '?')!r}"
+        f"timed out after {timeout_sec}s waiting on node {node_name!r}; last details: admin_state={getattr(last, 'admin_state', '?')!r} netd_connected={getattr(last, 'netd_connected', '?')!r} last_node_agent_push_at={getattr(last, 'last_node_agent_push_at', '?')!r}"
     )
 
 
@@ -326,9 +323,7 @@ class TestNetdReachability(OneDaemonTwoNodesCase):
         # alive") surfaces here rather than as a confusing
         # timeout 120 s later.
         stop_cp = self.node_beta.run(
-            "sudo systemctl stop corvus-netd "
-            "&& sleep 1 "
-            "&& (pgrep -af corvus-netd && echo NETD_ALIVE || echo NETD_STOPPED)",
+            "sudo systemctl stop corvus-netd && sleep 1 && (pgrep -af corvus-netd && echo NETD_ALIVE || echo NETD_STOPPED)",
             timeout_sec=45.0,
         )
         stop_out = stop_cp.stdout.decode(errors="replace")
@@ -452,8 +447,7 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
             details = client.nodes.get(beta_name).show()
             last_state = details.admin_state
             assert last_state == "online", (
-                f"admin_state reverted from 'online' to {last_state!r} "
-                f"unexpectedly; details={details!r}"
+                f"admin_state reverted from 'online' to {last_state!r} unexpectedly; details={details!r}"
             )
             time.sleep(2.0)
         assert last_state == "online"

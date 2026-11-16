@@ -80,11 +80,7 @@ def _user_env_prefix() -> str:
     just makes sure each command we shell into sees the same env
     the user manager exports."""
 
-    return (
-        "export XDG_RUNTIME_DIR=/run/user/$(id -u); "
-        "export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus; "
-        "export PATH=$HOME/.local/bin:/opt/corvus/bin:$PATH; "
-    )
+    return "export XDG_RUNTIME_DIR=/run/user/$(id -u); export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus; export PATH=$HOME/.local/bin:/opt/corvus/bin:$PATH; "
 
 
 def _shrun(
@@ -236,15 +232,16 @@ class TestQuickstart(IntegrationTestCase):
 
         cp = _shrun(
             self.node,
-            "corvus-admin quickstart --node-name self --listen-ip 127.0.0.1 "
-            "--healthcheck-timeout 60",
+            "corvus-admin quickstart --node-name self --listen-ip 127.0.0.1 --healthcheck-timeout 60",
             check=False,
             timeout_sec=180.0,
         )
         assert cp.returncode == 0, (
             f"quickstart failed (rc={cp.returncode}).\n"
-            f"--- stdout ---\n{cp.stdout.decode(errors='replace')}\n"
-            f"--- stderr ---\n{cp.stderr.decode(errors='replace')}"
+            f"--- stdout ---\n"
+            f"{cp.stdout.decode(errors='replace')}\n"
+            f"--- stderr ---\n"
+            f"{cp.stderr.decode(errors='replace')}"
         )
 
     def test_03_daemon_user_service_active(self) -> None:
@@ -255,8 +252,7 @@ class TestQuickstart(IntegrationTestCase):
         )
         assert cp.returncode == 0 and b"active" in cp.stdout, (
             f"corvus.service (user) not active.\n"
-            f"stdout: {cp.stdout.decode().strip()!r} "
-            f"stderr: {cp.stderr.decode().strip()!r}"
+            f"stdout: {cp.stdout.decode().strip()!r} stderr: {cp.stderr.decode().strip()!r}"
         )
 
     def test_04_nodeagent_user_service_active(self) -> None:
@@ -267,8 +263,7 @@ class TestQuickstart(IntegrationTestCase):
         )
         assert cp.returncode == 0 and b"active" in cp.stdout, (
             f"corvus-nodeagent.service (user) not active.\n"
-            f"stdout: {cp.stdout.decode().strip()!r} "
-            f"stderr: {cp.stderr.decode().strip()!r}"
+            f"stdout: {cp.stdout.decode().strip()!r} stderr: {cp.stderr.decode().strip()!r}"
         )
 
     def test_05_netd_system_service_active(self) -> None:
@@ -279,8 +274,7 @@ class TestQuickstart(IntegrationTestCase):
         )
         assert cp.returncode == 0 and b"active" in cp.stdout, (
             f"corvus-netd.service (system) not active.\n"
-            f"stdout: {cp.stdout.decode().strip()!r} "
-            f"stderr: {cp.stderr.decode().strip()!r}"
+            f"stdout: {cp.stdout.decode().strip()!r} stderr: {cp.stderr.decode().strip()!r}"
         )
 
     def test_06_crv_status_works(self) -> None:
@@ -300,15 +294,7 @@ class TestQuickstart(IntegrationTestCase):
     def test_07_python_client_works_via_unix_socket(self) -> None:
         """``corvus_client.Client`` connects over the same socket."""
 
-        snippet = (
-            "from corvus_client import Client; "
-            "import os, json; "
-            "sock = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'corvus', 'corvus.sock'); "
-            "c = Client(unix_socket=sock); "
-            "info = c.status(); "
-            "print(json.dumps({'protocol_version': info.protocol_version})); "
-            "c.close()"
-        )
+        snippet = "from corvus_client import Client; import os, json; sock = os.path.join(os.environ['XDG_RUNTIME_DIR'], 'corvus', 'corvus.sock'); c = Client(unix_socket=sock); info = c.status(); print(json.dumps({'protocol_version': info.protocol_version})); c.close()"
         cp = _shrun(self.node, f"python3 -c {shlex.quote(snippet)}", check=False)
         assert cp.returncode == 0, (
             f"corvus_client status call failed (rc={cp.returncode}).\n"
@@ -328,8 +314,9 @@ class TestQuickstart(IntegrationTestCase):
         )
         output = cp.stdout.decode()
         assert "self" in output, (
-            f"node 'self' not registered. crv node list output:\n{output}"
-        )
+                f"node 'self' not registered. crv node list output:\n"
+                f"{output}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -368,8 +355,7 @@ def _bootstrap_node(node: TestNode) -> None:
     cp = _run(node, f"test -d {SRC_MOUNT}/python/corvus_admin", check=False)
     if cp.returncode != 0:
         raise RuntimeError(
-            f"source tree not visible at {SRC_MOUNT} — "
-            "did Topology(attach_source=True) succeed?"
+            f"source tree not visible at {SRC_MOUNT} — did Topology(attach_source=True) succeed?"
         )
 
     sys.stderr.write("[quickstart-test] installing corvus into ~corvus/.local\n")
@@ -403,22 +389,6 @@ def _bootstrap_node(node: TestNode) -> None:
     # can be unreadable to the guest user through the virtiofs mount.
     _shrun(
         node,
-        (
-            "rm -rf $HOME/corvus-src && "
-            "rsync -aL --relative "
-            "--exclude=.mypy_cache "
-            "--exclude=.ruff_cache "
-            "--exclude=.pytest_cache "
-            "--exclude='__pycache__' "
-            "--exclude='*.egg-info' "
-            f"{SRC_MOUNT}/./pyproject.toml "
-            f"{SRC_MOUNT}/./python/ "
-            f"{SRC_MOUNT}/./schema/ "
-            f"{SRC_MOUNT}/./integration_tests/corvus_test_harness/ "
-            "$HOME/corvus-src/ && "
-            "python3 -m pip install --user --quiet "
-            "--break-system-packages --no-build-isolation --no-deps "
-            "$HOME/corvus-src"
-        ),
+        f"rm -rf $HOME/corvus-src && rsync -aL --relative --exclude=.mypy_cache --exclude=.ruff_cache --exclude=.pytest_cache --exclude='__pycache__' --exclude='*.egg-info' {SRC_MOUNT}/./pyproject.toml {SRC_MOUNT}/./python/ {SRC_MOUNT}/./schema/ {SRC_MOUNT}/./integration_tests/corvus_test_harness/ $HOME/corvus-src/ && python3 -m pip install --user --quiet --break-system-packages --no-build-isolation --no-deps $HOME/corvus-src",
         timeout_sec=300.0,
     )

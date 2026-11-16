@@ -86,7 +86,11 @@ def test_register_node_surfaces_failure(
     bin_dir = tmp_path / "bad-bin"
     bin_dir.mkdir()
     bad_crv = bin_dir / "crv"
-    bad_crv.write_text("#!/bin/sh\necho 'simulated failure' 1>&2\nexit 1\n")
+    bad_crv.write_text(
+        "#!/bin/sh\n"
+        "echo 'simulated failure' 1>&2\n"
+        "exit 1\n"
+    )
     bad_crv.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     with pytest.raises(register_mod.RegisterError) as exc:

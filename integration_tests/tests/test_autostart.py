@@ -262,8 +262,7 @@ class TestVmAutostart(SingleNodeCase):
             r = vm.cap.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
-                f"sentinel {sentinel!r} did not survive autostart resume; "
-                f"guest stdout={r.stdout!r}"
+                f"sentinel {sentinel!r} did not survive autostart resume; guest stdout={r.stdout!r}"
             )
 
     def test_vm_autostart_does_not_refire_on_agent_reconnect(self) -> None:
@@ -343,8 +342,7 @@ class TestVmAutostart(SingleNodeCase):
             # supervisor; 5 s is plenty.
             time.sleep(5.0)
             assert self.client.vms.get(vm_name).show().status == "stopped", (
-                "autostart re-fired on a nodeagent reconnect; the single-shot "
-                "flag is not holding"
+                "autostart re-fired on a nodeagent reconnect; the single-shot flag is not holding"
             )
         finally:
             self._cleanup_silent(vm_name, disk_name)
@@ -454,8 +452,7 @@ class TestNetworkAutostart(SingleNodeCase):
 
             time.sleep(5.0)
             assert self.client.networks.get(name).show().running is False, (
-                "network autostart re-fired on a netd reconnect; the "
-                "single-shot flag is not holding"
+                "network autostart re-fired on a netd reconnect; the single-shot flag is not holding"
             )
         finally:
             self._cleanup_silent_network(name)

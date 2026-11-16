@@ -31,14 +31,14 @@ class TestTaskCancellation(SingleNodeCase):
         # enough to subscribe and cancel. Random bytes avoid sparse-file and
         # compression shortcuts in the transfer path.
         server = textwrap.dedent(
-            f"""
-            import http.server, time
-            class Slow(http.server.SimpleHTTPRequestHandler):
-                def copyfile(self, source, output):
-                    while chunk := source.read(65536):
-                        output.write(chunk); output.flush(); time.sleep(0.03)
-            http.server.ThreadingHTTPServer(('127.0.0.1', {port}), Slow).serve_forever()
-            """
+            f"\n"
+            f"            import http.server, time\n"
+            f"            class Slow(http.server.SimpleHTTPRequestHandler):\n"
+            f"                def copyfile(self, source, output):\n"
+            f"                    while chunk := source.read(65536):\n"
+            f"                        output.write(chunk); output.flush(); time.sleep(0.03)\n"
+            f"            http.server.ThreadingHTTPServer(('127.0.0.1', {port}), Slow).serve_forever()\n"
+            f"            "
         ).strip()
         quoted_server = shlex.quote(server)
         self.node.run(
@@ -47,8 +47,7 @@ class TestTaskCancellation(SingleNodeCase):
         self.node.run(
             # setsid -f forks before returning and all descriptors are
             # redirected, so the SSH command cannot wait on the server.
-            f"cd {server_dir} && setsid -f python3 -c {quoted_server} "
-            f"</dev/null > {server_dir}/server.log 2>&1"
+            f"cd {server_dir} && setsid -f python3 -c {quoted_server} </dev/null > {server_dir}/server.log 2>&1"
         )
         try:
             url = f"http://127.0.0.1:{port}/payload.raw"
@@ -61,21 +60,21 @@ class TestTaskCancellation(SingleNodeCase):
                 time.sleep(0.1)
 
             yaml_body = textwrap.dedent(
-                f"""
-                disks:
-                  - name: {keep_name}
-                    size: 8M
-                    format: qcow2
-                  - name: {import_name}
-                    import: {url}
-                    ifExists: error
-                    format: raw
-                vms:
-                  - name: {future_vm}
-                    cpuCount: 1
-                    ram: 64M
-                    headless: true
-                """
+                f"\n"
+                f"                disks:\n"
+                f"                  - name: {keep_name}\n"
+                f"                    size: 8M\n"
+                f"                    format: qcow2\n"
+                f"                  - name: {import_name}\n"
+                f"                    import: {url}\n"
+                f"                    ifExists: error\n"
+                f"                    format: raw\n"
+                f"                vms:\n"
+                f"                  - name: {future_vm}\n"
+                f"                    cpuCount: 1\n"
+                f"                    ram: 64M\n"
+                f"                    headless: true\n"
+                f"                "
             ).strip()
             # Starting asynchronously gives us the task id before any child
             # work begins.  In particular, do not run apply_stream from a

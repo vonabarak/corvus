@@ -164,10 +164,7 @@ def _try_handshake(host: str, port: int, admin_store: store.AdminStore) -> str |
         return f"admin store {admin_store.root} not initialised"
     client_cert = _find_client_cert(admin_store)
     if client_cert is None:
-        return (
-            "no client cert in admin store; run "
-            "`corvus-admin deploy client <name>` first"
-        )
+        return "no client cert in admin store; run `corvus-admin deploy client <name>` first"
     cert_pem_path, key_pem_path = client_cert
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)

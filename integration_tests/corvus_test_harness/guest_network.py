@@ -44,8 +44,6 @@ def renew_dhcp(
         )
     )
     guest.run(
-        f"doas ip link set {shlex.quote(interface)} up && "
-        f"printf %s {shlex.quote(config)} | doas tee /etc/dhcpcd.conf >/dev/null && "
-        "doas rc-service dhcpcd restart",
+        f"doas ip link set {shlex.quote(interface)} up && printf %s {shlex.quote(config)} | doas tee /etc/dhcpcd.conf >/dev/null && doas rc-service dhcpcd restart",
         timeout_sec=45.0,
     )

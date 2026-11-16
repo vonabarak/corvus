@@ -53,21 +53,21 @@ if TYPE_CHECKING:
     from ..client_bridge import CorvusBridge
 
 
-_BUILD_SKELETON = """\
-# Image build pipeline — see doc/image-builds.md for the schema.
-pipeline:
-  - apply:
-      sshKeys:
-        - name: corvus
-          publicKey: "ssh-ed25519 AAAA…"
-  - build:
-      target:
-        name: my-image
-        ifExists: error
-      strategy: overlay
-      template: debian12
-      provisioners: []
-"""
+_BUILD_SKELETON = (
+    "# Image build pipeline — see doc/image-builds.md for the schema.\n"
+    "pipeline:\n"
+    "  - apply:\n"
+    "      sshKeys:\n"
+    "        - name: corvus\n"
+    '          publicKey: "ssh-ed25519 AAAA…"\n'
+    "  - build:\n"
+    "      target:\n"
+    "        name: my-image\n"
+    "        ifExists: error\n"
+    "      strategy: overlay\n"
+    "      template: debian12\n"
+    "      provisioners: []\n"
+)
 
 
 def preprocess_build_yaml(text: str, base_dir: str) -> str:

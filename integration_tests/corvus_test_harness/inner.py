@@ -83,13 +83,11 @@ def open_client(
                 except Exception:
                     pass
                 raise RuntimeError(
-                    f"inner daemon answered on {host}:{port} but "
-                    f"registering self-node {self_node_name!r} failed: {e}"
+                    f"inner daemon answered on {host}:{port} but registering self-node {self_node_name!r} failed: {e}"
                 ) from e
         return c
     raise TimeoutError(
-        f"inner Corvus daemon did not answer on {host}:{port} within "
-        f"{boot_timeout_sec:.0f}s; last error: {last_err!r}"
+        f"inner Corvus daemon did not answer on {host}:{port} within {boot_timeout_sec:.0f}s; last error: {last_err!r}"
     )
 
 
@@ -118,6 +116,5 @@ def _wait_for_self_node_ready(
             return
         time.sleep(poll_interval_sec)
     raise RuntimeError(
-        "inner daemon's nodeagent never became reachable through "
-        f"the supervisor: {last_message}"
+        f"inner daemon's nodeagent never became reachable through the supervisor: {last_message}"
     )

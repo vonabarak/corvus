@@ -215,8 +215,7 @@ class _MigrationCase(ResourceCleanup, OneDaemonTwoNodesCase):
         base_disk = images.get("corvus-test-vm")
         if base_disk is None:
             pytest.skip(
-                "gentoo (corvus-test-vm) base image not registered — "
-                "run `make image IMAGE=corvus-test-vm` to bake it on the host"
+                "gentoo (corvus-test-vm) base image not registered — run `make image IMAGE=corvus-test-vm` to bake it on the host"
             )
         self.client_alpha.disks.create_overlay(
             overlay_name, base_disk, ephemeral=ephemeral_overlay
@@ -256,8 +255,7 @@ class TestVmMigration(_MigrationCase):
             self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
         lowered = str(ei.value).lower()
         assert any(p.lower() in lowered for p in message_must_match), (
-            f"unexpected migrate task error message: {ei.value!r} "
-            f"(expected one of: {message_must_match!r})"
+            f"unexpected migrate task error message: {ei.value!r} (expected one of: {message_must_match!r})"
         )
 
     def _make_stopped_vm_with_disk(
@@ -321,8 +319,7 @@ class TestVmMigration(_MigrationCase):
                 p.node.name: p.file_path for p in info_before.placements
             }
             assert subdir in placements_before[self.alpha_name], (
-                f"setup: stored file_path on alpha doesn't contain "
-                f"the subdir {subdir!r}: {placements_before!r}"
+                f"setup: stored file_path on alpha doesn't contain the subdir {subdir!r}: {placements_before!r}"
             )
             vm = self.client_alpha.vms.create(
                 vm_name,
@@ -342,9 +339,7 @@ class TestVmMigration(_MigrationCase):
                 f"placement should be on beta only after move: {placements_after!r}"
             )
             assert subdir in placements_after[self.beta_name], (
-                f"subdirectory was flattened during migration; "
-                f"destination file_path is {placements_after[self.beta_name]!r} "
-                f"(expected to contain {subdir!r})"
+                f"subdirectory was flattened during migration; destination file_path is {placements_after[self.beta_name]!r} (expected to contain {subdir!r})"
             )
             # Boot on beta. Without the fix, QEMU on beta cannot
             # find the disk at ``<basePath>/<cloned_disk>.qcow2``
@@ -404,16 +399,10 @@ class TestVmMigration(_MigrationCase):
 
             # Persist a primary key in swtpm. Reading its public portion after
             # migration proves the migrated state is usable, not merely copied.
-            read_key_command = (
-                "TPM2TOOLS_TCTI=device:/dev/tpm0 tpm2_readpublic "
-                "-c 0x81010001 -f pem | sha256sum | awk '{print $1}'"
-            )
+            read_key_command = "TPM2TOOLS_TCTI=device:/dev/tpm0 tpm2_readpublic -c 0x81010001 -f pem | sha256sum | awk '{print $1}'"
             key_command = (
-                "export TPM2TOOLS_TCTI=device:/dev/tpm0; "
-                "tpm2_createprimary -C o -c /tmp/corvus-migration-primary.ctx "
-                ">/dev/null && "
-                "tpm2_evictcontrol -C o -c /tmp/corvus-migration-primary.ctx "
-                "0x81010001 >/dev/null && " + read_key_command
+                "export TPM2TOOLS_TCTI=device:/dev/tpm0; tpm2_createprimary -C o -c /tmp/corvus-migration-primary.ctx >/dev/null && tpm2_evictcontrol -C o -c /tmp/corvus-migration-primary.ctx 0x81010001 >/dev/null && "
+                + read_key_command
             )
             key_before = vm.guest_exec(f"/bin/sh -c {shlex.quote(key_command)}")
             assert key_before.exit_code == 0, key_before
@@ -452,8 +441,7 @@ class TestVmMigration(_MigrationCase):
             assert "swtpm socket" in processes, processes
             assert socket_path in processes, processes
             guest_tpm = vm.guest_exec(
-                "/bin/sh -c 'test -c /dev/tpm0 && "
-                "cat /sys/class/tpm/tpm0/tpm_version_major'"
+                "/bin/sh -c 'test -c /dev/tpm0 && cat /sys/class/tpm/tpm0/tpm_version_major'"
             )
             assert guest_tpm.exit_code == 0, guest_tpm
             assert guest_tpm.stdout.strip() == "2", guest_tpm
@@ -524,9 +512,7 @@ class TestVmMigration(_MigrationCase):
             self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
             details = vm.show()
             assert details.status == "running", (
-                f"after migrate of running VM, expected post-migrate "
-                f"auto-restore to land on status=running; got "
-                f"{details.status!r}"
+                f"after migrate of running VM, expected post-migrate auto-restore to land on status=running; got {details.status!r}"
             )
             # The disk follows; the VM should now be on beta.
             assert details.node.name == self.beta_name
@@ -671,8 +657,7 @@ class TestVmMigration(_MigrationCase):
             # exist on beta too.
             ci_placements = self._placement_nodes(ci_disk_name)
             assert self.beta_name in ci_placements, (
-                f"cloud-init disk not present on beta after migration: "
-                f"{ci_placements!r}"
+                f"cloud-init disk not present on beta after migration: {ci_placements!r}"
             )
             # The r/w boot disk moved.
             assert self._placement_nodes(disk_name) == {self.beta_name}
@@ -738,8 +723,7 @@ class TestVmMigration(_MigrationCase):
                 # Both placements landed on beta — the backing got
                 # auto-copied as part of the migration plan.
                 assert self.beta_name in self._placement_nodes(base), (
-                    f"backing not staged on beta after migrate: "
-                    f"{self._placement_nodes(base)!r}"
+                    f"backing not staged on beta after migrate: {self._placement_nodes(base)!r}"
                 )
                 # The overlay (r/w) moved — alpha placement gone, beta
                 # placement present.
@@ -837,8 +821,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             # flipped status to ``running``.
             r = vm.guest_exec("true")
             assert r.exit_code == 0, (
-                f"guest_exec failed after migrate: exit={r.exit_code!r}, "
-                f"stderr={r.stderr!r}"
+                f"guest_exec failed after migrate: exit={r.exit_code!r}, stderr={r.stderr!r}"
             )
             vm.reset()
             _poll_until(
@@ -891,9 +874,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             # node kernel) and the assertions below would be
             # vacuous. Fail fast with a clear message.
             assert details_before.vsock_cid is not None, (
-                f"VM {vm_name!r} started with guest_agent=True but no "
-                f"vsock_cid was allocated; node kernel may be missing "
-                f"/dev/vhost-vsock"
+                f"VM {vm_name!r} started with guest_agent=True but no vsock_cid was allocated; node kernel may be missing /dev/vhost-vsock"
             )
             # Cleanly stop so we can migrate. Use reset (hard
             # kill) — reset commits status=stopped synchronously,
@@ -1012,8 +993,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             r = vm.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
-                f"sentinel {sentinel!r} did not survive migrate; "
-                f"guest stdout={r.stdout!r}"
+                f"sentinel {sentinel!r} did not survive migrate; guest stdout={r.stdout!r}"
             )
         finally:
             self._delete_vm(vm_name)
@@ -1073,8 +1053,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             r = vm.guest_exec("cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
-                f"sentinel {sentinel!r} did not survive auto-save migrate; "
-                f"guest stdout={r.stdout!r}"
+                f"sentinel {sentinel!r} did not survive auto-save migrate; guest stdout={r.stdout!r}"
             )
         finally:
             self._delete_vm(vm_name)

@@ -76,8 +76,7 @@ def _drain_until(ws: ClientConnection, needle: bytes, *, timeout_sec: float) -> 
         if needle in buf:
             return bytes(buf)
     raise AssertionError(
-        f"timed out waiting for {needle!r} after {timeout_sec}s; "
-        f"tail={bytes(buf[-512:])!r}"
+        f"timed out waiting for {needle!r} after {timeout_sec}s; tail={bytes(buf[-512:])!r}"
     )
 
 
@@ -132,8 +131,8 @@ class TestWebRestSurface(SingleNodeCase):
                 except HTTPError as exc:
                     detail = exc.read().decode("utf-8", errors="replace")
                     pytest.fail(
-                        f"GET {path} returned HTTP {exc.code}: {detail}; "
-                        f"corvus-web log tail:\n{web.log_tail()}"
+                        f"GET {path} returned HTTP {exc.code}: {detail}; corvus-web log tail:\n"
+                        f"{web.log_tail()}"
                     )
                 items = json.loads(body)
                 assert isinstance(items, list), (
@@ -142,9 +141,7 @@ class TestWebRestSurface(SingleNodeCase):
                 inner_items = inner_list()
                 assert isinstance(inner_items, Sized)
                 assert len(items) == len(inner_items), (
-                    f"{path}: gateway returned {len(items)} rows, "
-                    f"inner client returned {len(inner_items)} — "
-                    f"the gateway dropped or invented entries"
+                    f"{path}: gateway returned {len(items)} rows, inner client returned {len(inner_items)} — the gateway dropped or invented entries"
                 )
 
     def test_create_vm_round_trips_through_gateway(self) -> None:
@@ -178,8 +175,8 @@ class TestWebRestSurface(SingleNodeCase):
                 )
                 with urllib.request.urlopen(req, timeout=10.0) as resp:
                     assert resp.status == 200, (
-                        f"POST /api/vms returned {resp.status}; "
-                        f"corvus-web log:\n{web.log_tail()}"
+                        f"POST /api/vms returned {resp.status}; corvus-web log:\n"
+                        f"{web.log_tail()}"
                     )
                     created = json.loads(resp.read().decode("utf-8"))
 
@@ -191,8 +188,7 @@ class TestWebRestSurface(SingleNodeCase):
                 # Inner pycapnp sees the new row.
                 inner_ids = {v.id for v in self.client.vms.list()}
                 assert new_id in inner_ids, (
-                    f"new VM id {new_id} not in inner.vms.list(); "
-                    f"before={before_inner_ids}, after={inner_ids}"
+                    f"new VM id {new_id} not in inner.vms.list(); before={before_inner_ids}, after={inner_ids}"
                 )
 
                 # Gateway list sees it too — proves no stale-cache

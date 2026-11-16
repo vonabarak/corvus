@@ -63,9 +63,6 @@ def _which_required(name: str) -> Path:
     found = shutil.which(name)
     if found is None:
         raise BinaryNotFound(
-            f"required binary {name!r} not found on $PATH. "
-            f"Expected to find it under one of: "
-            f"~/.local/bin, /usr/bin, /usr/local/bin. "
-            f"Install Corvus via your package manager or `stack install`."
+            f"required binary {name!r} not found on $PATH. Expected to find it under one of: ~/.local/bin, /usr/bin, /usr/local/bin. Install Corvus via your package manager or `stack install`."
         )
     return Path(found).resolve()

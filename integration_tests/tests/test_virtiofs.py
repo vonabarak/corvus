@@ -95,8 +95,7 @@ class TestVirtiofs(SingleNodeCase):
         base = images.get("corvus-test-vm")
         if base is None:
             pytest.skip(
-                "gentoo (corvus-test-vm) base image not registered — "
-                "run `make image IMAGE=corvus-test-vm` to bake it on the host"
+                "gentoo (corvus-test-vm) base image not registered — run `make image IMAGE=corvus-test-vm` to bake it on the host"
             )
         name = _uniq("virtiofs-missing")
         bad_path = f"/tmp/nonexistent-virtiofs-{secrets.token_hex(4)}"
@@ -131,12 +130,11 @@ class TestVirtiofs(SingleNodeCase):
                 assert start_tasks, "no `start` task recorded for the failed VM"
                 errored = [t for t in start_tasks if t.result == "error"]
                 assert errored, (
-                    "no `start` task recorded as error — daemon didn't "
-                    "surface the missing-path failure"
+                    "no `start` task recorded as error — daemon didn't surface the missing-path failure"
                 )
                 assert any("virtiofsd" in (t.message or "") for t in errored), (
-                    "no errored `start` task mentions virtiofsd in its "
-                    "message; messages: " + repr([t.message for t in errored])
+                    "no errored `start` task mentions virtiofsd in its message; messages: "
+                    + repr([t.message for t in errored])
                 )
             finally:
                 try:
@@ -264,8 +262,7 @@ class TestVirtiofs(SingleNodeCase):
                     ln for ln in w.stdout.splitlines() if ln.startswith("EXIT=")
                 ]
                 assert exit_line and exit_line[-1] != "EXIT=0", (
-                    f"write to read-only virtiofs unexpectedly succeeded: "
-                    f"stdout={w.stdout!r}"
+                    f"write to read-only virtiofs unexpectedly succeeded: stdout={w.stdout!r}"
                 )
 
                 # Host confirms the file was never created.
@@ -274,8 +271,7 @@ class TestVirtiofs(SingleNodeCase):
                     check=False,
                 )
                 assert host_check.stdout.decode().strip() == "1", (
-                    "guest write made it to the host directory despite "
-                    "read_only=True — daemon didn't honour the flag"
+                    "guest write made it to the host directory despite read_only=True — daemon didn't honour the flag"
                 )
         finally:
             self.node.run(f"rm -rf {ro_path}", check=False)
@@ -321,15 +317,7 @@ class TestVirtiofs(SingleNodeCase):
                 # exe path of each process.
                 vm_id = vm.cap.show().id
                 r = self.node.run(
-                    "sh -c '"
-                    "for d in /proc/*/cmdline; do "
-                    'cmd=$(tr "\\0" " " < "$d" 2>/dev/null); '
-                    "first=${cmd%% *}; "
-                    'case "$first" in '
-                    "  */virtiofsd|virtiofsd) "
-                    '    echo "$cmd";; '
-                    "esac; "
-                    "done'",
+                    'sh -c \'for d in /proc/*/cmdline; do cmd=$(tr "\\0" " " < "$d" 2>/dev/null); first=${cmd%% *}; case "$first" in   */virtiofsd|virtiofsd)     echo "$cmd";; esac; done\'',
                     check=False,
                 )
                 argvs = r.stdout.decode(errors="replace")
@@ -339,12 +327,12 @@ class TestVirtiofs(SingleNodeCase):
                     if f"vms/{vm_id}/" in ln and "cached" in ln
                 ]
                 assert cached_lines, (
-                    f"no virtiofsd process found for vm {vm_id} with the "
-                    f"'cached' tag; all virtiofsd processes:\n{argvs}"
+                    f"no virtiofsd process found for vm {vm_id} with the 'cached' tag; all virtiofsd processes:\n"
+                    f"{argvs}"
                 )
                 assert all("--cache=always" in ln for ln in cached_lines), (
-                    f"virtiofsd for 'cached' tag missing --cache=always; "
-                    f"argv:\n{cached_lines!r}"
+                    f"virtiofsd for 'cached' tag missing --cache=always; argv:\n"
+                    f"{cached_lines!r}"
                 )
         finally:
             self.node.run(f"rm -rf {path}", check=False)

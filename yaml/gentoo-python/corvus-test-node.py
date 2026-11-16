@@ -41,37 +41,40 @@ class NodeRepository(RepositoryStage):
     def execute(self, context: BuildContext) -> None:
         write(
             Path("/etc/portage/repos.conf/corvus.conf"),
-            """[vonabarak]
-location = /var/db/repos/vonabarak
-sync-type = git
-sync-uri = https://github.com/vonabarak/gentoo.git
-
-[haskell]
-location = /var/db/repos/haskell
-sync-type = git
-sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git
-""",
+            (
+                "[vonabarak]\n"
+                "location = /var/db/repos/vonabarak\n"
+                "sync-type = git\n"
+                "sync-uri = https://github.com/vonabarak/gentoo.git\n"
+                "\n"
+                "[haskell]\n"
+                "location = /var/db/repos/haskell\n"
+                "sync-type = git\n"
+                "sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git\n"
+            ),
         )
         write(
             Path("/etc/portage/package.use/corvus"),
-            """app-emulation/qemu spice pipewire pulseaudio usb usbredir virtfs passt vde
-net-libs/gnutls pkcs11 tools
-dev-db/postgresql python uuid xml
-media-libs/libpulse -X -gtk -glib
-media-video/pipewire -X -zeroconf -v4l -bluetooth pulseaudio sound-server
-""",
+            (
+                "app-emulation/qemu spice pipewire pulseaudio usb usbredir virtfs passt vde\n"
+                "net-libs/gnutls pkcs11 tools\n"
+                "dev-db/postgresql python uuid xml\n"
+                "media-libs/libpulse -X -gtk -glib\n"
+                "media-video/pipewire -X -zeroconf -v4l -bluetooth pulseaudio sound-server\n"
+            ),
         )
         write(
             Path("/etc/portage/package.accept_keywords/corvus"),
-            """app-emulation/corvus **
-app-emulation/corvus-bin **
-dev-python/pycapnp **
-dev-python/fastapi **
-dev-haskell/supervisors **
-dev-haskell/data-default-instances-vector **
-dev-haskell/monad-stm **
-dev-haskell/zenhack-prelude **
-""",
+            (
+                "app-emulation/corvus **\n"
+                "app-emulation/corvus-bin **\n"
+                "dev-python/pycapnp **\n"
+                "dev-python/fastapi **\n"
+                "dev-haskell/supervisors **\n"
+                "dev-haskell/data-default-instances-vector **\n"
+                "dev-haskell/monad-stm **\n"
+                "dev-haskell/zenhack-prelude **\n"
+            ),
         )
         super().execute(context)
 
@@ -170,7 +173,9 @@ class NodeConfiguration(GentooStage):
         else:
             self.chroot_string(context, "useradd -m -s /bin/bash -G wheel,kvm corvus")
         self.chroot_string(context, "chown corvus:corvus /home/corvus")
-        self.chroot_string(context, "install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh")
+        self.chroot_string(
+            context, "install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh"
+        )
         self.chroot_string(
             context,
             "install -d -m 0755 -o corvus -g corvus /home/corvus/VMs /home/corvus/VMs/BaseImages /home/corvus/VMs/BaseImagesRO /etc/corvus",
@@ -180,7 +185,9 @@ class NodeConfiguration(GentooStage):
             root / "home/corvus/.ssh/authorized_keys",
         )
         (root / "home/corvus/.ssh/authorized_keys").chmod(0o600)
-        self.chroot_string(context, "chown corvus:corvus /home/corvus/.ssh/authorized_keys")
+        self.chroot_string(
+            context, "chown corvus:corvus /home/corvus/.ssh/authorized_keys"
+        )
         write(root / "etc/sudoers.d/wheel-nopasswd", "%wheel ALL=(ALL) NOPASSWD: ALL\n")
         (root / "etc/sudoers.d").chmod(0o750)
         (root / "etc/sudoers.d/wheel-nopasswd").chmod(0o440)
@@ -188,35 +195,58 @@ class NodeConfiguration(GentooStage):
             (root / directory).mkdir(parents=True, exist_ok=True)
         for unit in Path("/run/corvus-test-node/systemd").iterdir():
             shutil.copyfile(unit, root / "etc/systemd/system" / unit.name)
-        self.command(context, 'systemctl', f'--root={root!s}', 'enable', 'vde-switch.service', 'nftables.service', 'dnsmasq.service', 'opt-corvus-bin.mount', 'mnt-corvus.mount', 'home-corvus-VMs-BaseImagesRO.mount', 'corvus-tcp-relay.service', 'sshd.service')
-        self.command(context, 'systemctl', f'--root={root!s}', 'disable', 'corvus.service', 'corvus-netd.service', 'corvus-nodeagent.service')
+        self.command(
+            context,
+            "systemctl",
+            f"--root={root!s}",
+            "enable",
+            "vde-switch.service",
+            "nftables.service",
+            "dnsmasq.service",
+            "opt-corvus-bin.mount",
+            "mnt-corvus.mount",
+            "home-corvus-VMs-BaseImagesRO.mount",
+            "corvus-tcp-relay.service",
+            "sshd.service",
+        )
+        self.command(
+            context,
+            "systemctl",
+            f"--root={root!s}",
+            "disable",
+            "corvus.service",
+            "corvus-netd.service",
+            "corvus-nodeagent.service",
+        )
         write(root / "etc/profile.d/50-corvus.sh", DEBUG_PROFILE)
         write(
             root / "etc/motd",
-            """── Corvus integration-test outer node ───────────────────────
-  crv / crv-log / crv-status / crv-psql / crv-procs
-  Fresh host binaries are shared at /opt/corvus/bin.
-""",
+            (
+                "── Corvus integration-test outer node ───────────────────────\n"
+                "  crv / crv-log / crv-status / crv-psql / crv-procs\n"
+                "  Fresh host binaries are shared at /opt/corvus/bin.\n"
+            ),
         )
         context.artifacts["configured"] = root
 
 
-DEBUG_PROFILE = """if [ -d /opt/corvus/bin ]; then
-  case ":$PATH:" in
-    *:/opt/corvus/bin:*) ;;
-    *) PATH="/opt/corvus/bin:$PATH" ;;
-  esac
-  export PATH CORVUS_HOST=127.0.0.1 CORVUS_PORT=9876
-fi
-alias crv='/opt/corvus/bin/crv'
-alias crv-log='journalctl -u corvus -f --since "5 min ago"'
-alias crv-status='systemctl status --no-pager corvus'
-alias crv-psql='psql -U corvus corvus'
-alias crv-procs='pgrep -af "[c]orvus|[q]emu-system|[v]irtiofsd|[d]nsmasq" | sort'
-if [ -x /opt/corvus/bin/crv ]; then
-  eval "$(/opt/corvus/bin/crv completion bash 2>/dev/null)"
-fi
-"""
+DEBUG_PROFILE = (
+    "if [ -d /opt/corvus/bin ]; then\n"
+    '  case ":$PATH:" in\n'
+    "    *:/opt/corvus/bin:*) ;;\n"
+    '    *) PATH="/opt/corvus/bin:$PATH" ;;\n'
+    "  esac\n"
+    "  export PATH CORVUS_HOST=127.0.0.1 CORVUS_PORT=9876\n"
+    "fi\n"
+    "alias crv='/opt/corvus/bin/crv'\n"
+    "alias crv-log='journalctl -u corvus -f --since \"5 min ago\"'\n"
+    "alias crv-status='systemctl status --no-pager corvus'\n"
+    "alias crv-psql='psql -U corvus corvus'\n"
+    "alias crv-procs='pgrep -af \"[c]orvus|[q]emu-system|[v]irtiofsd|[d]nsmasq\" | sort'\n"
+    "if [ -x /opt/corvus/bin/crv ]; then\n"
+    '  eval "$(/opt/corvus/bin/crv completion bash 2>/dev/null)"\n'
+    "fi\n"
+)
 
 
 class NodeFinalize(FinalizeStage):

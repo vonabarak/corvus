@@ -186,7 +186,10 @@ def test_cloud_init_panel_renders_payload(
     bridge.cloud_init_ready.emit(
         7,
         CloudInitInfo(
-            user_data="#cloud-config\nhostname: a\n",
+            user_data=(
+                "#cloud-config\n"
+                "hostname: a\n"
+            ),
             network_config="version: 2\n",
             inject_ssh_keys=True,
         ),

@@ -235,8 +235,7 @@ class TestMultipleConcurrentClientsSameCn(SingleNodeCase):
                 info1 = c1.status()
                 info2 = c2.status()
                 assert info1.version == info2.version, (
-                    f"two clients reported different versions: "
-                    f"{info1.version} vs {info2.version}"
+                    f"two clients reported different versions: {info1.version} vs {info2.version}"
                 )
             finally:
                 c2.close()

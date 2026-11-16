@@ -6,22 +6,22 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QW
 
 from ..widgets.yaml_editor import YamlEditor
 
-_TEMPLATE_SKELETON = """\
-name: "my-template"
-description: "Edit this skeleton"
-cpuCount: 2
-ram: 2048M
-guestAgent: true
-tpm: false
-drives:
-  - diskImage: "ubuntu-server:26.04"
-    interface: "virtio"
-    strategy: "overlay"
-    size: 10240M
-networkInterfaces:
-  - type: "user"
-sshKeys: []
-"""
+_TEMPLATE_SKELETON = (
+    'name: "my-template"\n'
+    'description: "Edit this skeleton"\n'
+    "cpuCount: 2\n"
+    "ram: 2048M\n"
+    "guestAgent: true\n"
+    "tpm: false\n"
+    "drives:\n"
+    '  - diskImage: "ubuntu-server:26.04"\n'
+    '    interface: "virtio"\n'
+    '    strategy: "overlay"\n'
+    "    size: 10240M\n"
+    "networkInterfaces:\n"
+    '  - type: "user"\n'
+    "sshKeys: []\n"
+)
 
 
 class TemplateYamlDialog(QDialog):

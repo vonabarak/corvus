@@ -136,8 +136,13 @@ def test_cleanup_protects_templates_and_attachments(daemon_socket: Path) -> None
             ]:
                 templates.append(
                     await c.templates.create(
-                        f"name: cleanup-{label}\ncpuCount: 1\nram: 128M\ndrives:\n"
-                        f"  - diskImage: {selector}\n    strategy: overlay\n    interface: virtio\n"
+                        f"name: cleanup-{label}\n"
+                        f"cpuCount: 1\n"
+                        f"ram: 128M\n"
+                        f"drives:\n"
+                        f"  - diskImage: {selector}\n"
+                        f"    strategy: overlay\n"
+                        f"    interface: virtio\n"
                     )
                 )
             await vm.attach_disk(attached_id)

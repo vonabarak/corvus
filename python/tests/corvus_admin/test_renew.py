@@ -28,8 +28,7 @@ def test_renew_daemon_reuses_existing_uuid(
     first = deploy.deploy_daemon(initialised_store, runner, listen_ip="127.0.0.1")
     second = deploy.renew_daemon(initialised_store, target="local", force=True)
     assert first.name == second.name, (
-        "renew must reuse the daemon UUID — otherwise every renewal "
-        "orphans the daemon's identity"
+        "renew must reuse the daemon UUID — otherwise every renewal orphans the daemon's identity"
     )
 
 

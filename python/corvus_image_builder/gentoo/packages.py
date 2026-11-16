@@ -66,25 +66,27 @@ class PackageInstallStage(GentooStage):
         )
         write(
             root / "etc/portage/make.conf",
-            f"""CHOST="x86_64-pc-linux-{"musl" if self.settings.libc == "musl" else "gnu"}"
-USE="bash-completion"
-COMMON_FLAGS="-O2 -pipe"
-CFLAGS="${{COMMON_FLAGS}}"
-CXXFLAGS="${{COMMON_FLAGS}}"
-ACCEPT_LICENSE="*"
-DISTDIR="/var/cache/distfiles"
-PKGDIR="/var/cache/binpkgs"
-GPG_VERIFY_USER_DROP=""
-GPG_VERIFY_GROUP_DROP=""
-""",
+            (
+                f'CHOST="x86_64-pc-linux-{"musl" if self.settings.libc == "musl" else "gnu"}"\n'
+                f'USE="bash-completion"\n'
+                f'COMMON_FLAGS="-O2 -pipe"\n'
+                f'CFLAGS="${{COMMON_FLAGS}}"\n'
+                f'CXXFLAGS="${{COMMON_FLAGS}}"\n'
+                f'ACCEPT_LICENSE="*"\n'
+                f'DISTDIR="/var/cache/distfiles"\n'
+                f'PKGDIR="/var/cache/binpkgs"\n'
+                f'GPG_VERIFY_USER_DROP=""\n'
+                f'GPG_VERIFY_GROUP_DROP=""\n'
+            ),
         )
         write(
             root / "etc/portage/binrepos.conf/zz-corvus-python.conf",
-            f"""[binhost]
-location = /var/cache/binhost/{self.settings.variant}
-sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/{self.settings.variant}
-verify-signature = true
-""",
+            (
+                f"[binhost]\n"
+                f"location = /var/cache/binhost/{self.settings.variant}\n"
+                f"sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/{self.settings.variant}\n"
+                f"verify-signature = true\n"
+            ),
         )
 
     @abstractmethod
@@ -110,7 +112,10 @@ class GlibcPackageInstallStage(PackageInstallStage):
         override = Path("/etc/portage/package.use/zz-corvus-python-bootstrap")
         if override.exists():
             raise RuntimeError(f"Bootstrap override already exists: {override}")
-        write(override, "sys-apps/util-linux build\nsys-libs/pam -systemd\n")
+        write(override, (
+            "sys-apps/util-linux build\n"
+            "sys-libs/pam -systemd\n"
+        ))
         try:
             self.packages(context, ("@system",))
         finally:

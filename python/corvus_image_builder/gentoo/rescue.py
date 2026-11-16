@@ -18,8 +18,22 @@ from .mounts import Mounts
 from .packages import GlibcPackageInstallStage
 from .repository import RepositoryStage
 
-POLICY = 'ACCEPT_KEYWORDS="amd64"\nGENTOO_MIRRORS="https://distfiles.gentoo.org"\nCOMMON_FLAGS="-O2 -pipe -march=x86-64 -mtune=generic"\nCFLAGS="${COMMON_FLAGS}"\nCXXFLAGS="${COMMON_FLAGS}"\nUSE="dbus wifi"\n'
-USE = "sys-kernel/gentoo-kernel-bin -initramfs\nsys-kernel/linux-firmware -savedconfig\nsys-kernel/installkernel -dracut -grub -systemd\nsys-kernel/dracut systemd\nsys-fs/squashfs-tools zstd xattr\nsys-fs/lvm2 lvm -systemd -udev\n"
+POLICY = (
+    'ACCEPT_KEYWORDS="amd64"\n'
+    'GENTOO_MIRRORS="https://distfiles.gentoo.org"\n'
+    'COMMON_FLAGS="-O2 -pipe -march=x86-64 -mtune=generic"\n'
+    'CFLAGS="${COMMON_FLAGS}"\n'
+    'CXXFLAGS="${COMMON_FLAGS}"\n'
+    'USE="dbus wifi"\n'
+)
+USE = (
+    "sys-kernel/gentoo-kernel-bin -initramfs\n"
+    "sys-kernel/linux-firmware -savedconfig\n"
+    "sys-kernel/installkernel -dracut -grub -systemd\n"
+    "sys-kernel/dracut systemd\n"
+    "sys-fs/squashfs-tools zstd xattr\n"
+    "sys-fs/lvm2 lvm -systemd -udev\n"
+)
 ATOMS = (
     "sys-kernel/gentoo-kernel-bin",
     "sys-kernel/linux-firmware",
@@ -63,10 +77,54 @@ ATOMS = (
     "app-arch/unzip",
 )
 RUNTIME_FILES = {
-    "etc/systemd/system/rescue-grow.service": "[Unit]\nDescription=Expand the rescue storage partition when space is available\nDefaultDependencies=no\nBefore=rescue-home.service\nAfter=systemd-udev-trigger.service\nConflicts=shutdown.target\nBefore=shutdown.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/rescue-grow\nTimeoutStartSec=120\n",
-    "etc/systemd/system/rescue-home.service": "[Unit]\nDescription=Persistent rescue home with empty RAM fallback\nDefaultDependencies=no\nWants=rescue-grow.service\nAfter=systemd-udev-trigger.service systemd-remount-fs.service rescue-grow.service\nBefore=local-fs.target systemd-user-sessions.service getty.target\nConflicts=shutdown.target\nBefore=shutdown.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/local/sbin/rescue-home\nTimeoutStartSec=45\n\n[Install]\nWantedBy=local-fs.target\n",
-    "etc/systemd/network/20-wired.network": "[Match]\nName=en* eth*\nType=ether\n\n[Network]\nDHCP=yes\n",
-    "etc/motd": "Gentoo rescue: local root console, volatile system, persistent /root when usable.\nOnly rescue storage is mounted and expanded automatically. Other disks, swap, RAID and LVM require manual activation.\nUpdate kernel, initramfs and squashfs offline to preserve /root. Back up /root before reflashing.\nWired DHCP is enabled. Wi-Fi: iw, wpa_supplicant. SSH: ssh-keygen -A; systemctl unmask sshd; systemctl start sshd\nFor SSH login, install an authorized key in /root/.ssh/authorized_keys first.\n",
+    "etc/systemd/system/rescue-grow.service": (
+        "[Unit]\n"
+        "Description=Expand the rescue storage partition when space is available\n"
+        "DefaultDependencies=no\n"
+        "Before=rescue-home.service\n"
+        "After=systemd-udev-trigger.service\n"
+        "Conflicts=shutdown.target\n"
+        "Before=shutdown.target\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "ExecStart=/usr/local/sbin/rescue-grow\n"
+        "TimeoutStartSec=120\n"
+    ),
+    "etc/systemd/system/rescue-home.service": (
+        "[Unit]\n"
+        "Description=Persistent rescue home with empty RAM fallback\n"
+        "DefaultDependencies=no\n"
+        "Wants=rescue-grow.service\n"
+        "After=systemd-udev-trigger.service systemd-remount-fs.service rescue-grow.service\n"
+        "Before=local-fs.target systemd-user-sessions.service getty.target\n"
+        "Conflicts=shutdown.target\n"
+        "Before=shutdown.target\n"
+        "\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        "ExecStart=/usr/local/sbin/rescue-home\n"
+        "TimeoutStartSec=45\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=local-fs.target\n"
+    ),
+    "etc/systemd/network/20-wired.network": (
+            "[Match]\n"
+            "Name=en* eth*\n"
+            "Type=ether\n"
+            "\n"
+            "[Network]\n"
+            "DHCP=yes\n"
+        ),
+    "etc/motd": (
+        "Gentoo rescue: local root console, volatile system, persistent /root when usable.\n"
+        "Only rescue storage is mounted and expanded automatically. Other disks, swap, RAID and LVM require manual activation.\n"
+        "Update kernel, initramfs and squashfs offline to preserve /root. Back up /root before reflashing.\n"
+        "Wired DHCP is enabled. Wi-Fi: iw, wpa_supplicant. SSH: ssh-keygen -A; systemctl unmask sshd; systemctl start sshd\n"
+        "For SSH login, install an authorized key in /root/.ssh/authorized_keys first.\n"
+    ),
 }
 
 ASSETS = Path("/run/rescue-assets")
@@ -209,10 +267,16 @@ class RescueRuntimeStage(GentooStage):
             ("etc/crypttab", ""),
             ("etc/hostname", "gentoo-rescue\n"),
             ("etc/locale.conf", "LANG=C.UTF-8\n"),
-            ("etc/hosts", "127.0.0.1 localhost\n::1 localhost\n"),
+            ("etc/hosts", (
+                "127.0.0.1 localhost\n"
+                "::1 localhost\n"
+            )),
             (
                 "etc/lvm/lvm.conf",
-                "global { event_activation = 0 }\nactivation { auto_activation_volume_list = [] }\n",
+                (
+                    "global { event_activation = 0 }\n"
+                    "activation { auto_activation_volume_list = [] }\n"
+                ),
             ),
             ("etc/mdadm.conf", "AUTO -all\n"),
         ):
@@ -231,7 +295,14 @@ class RescueRuntimeStage(GentooStage):
         for name in ("getty@", "serial-getty@"):
             write(
                 root / f"etc/systemd/system/{name}.service.d/autologin.conf",
-                "[Unit]\nRequires=rescue-home.service\nAfter=rescue-home.service\n[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n",
+                (
+                    "[Unit]\n"
+                    "Requires=rescue-home.service\n"
+                    "After=rescue-home.service\n"
+                    "[Service]\n"
+                    "ExecStart=\n"
+                    "ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n"
+                ),
             )
         for name in (
             "sshd.service",
@@ -334,14 +405,15 @@ class RescueKernelStage(GentooStage):
             asset.chmod(0o755)
         write(
             root / "etc/dracut.conf.d/90-rescue.conf",
-            """hostonly="no"
-hostonly_cmdline="no"
-use_fstab="no"
-add_dracutmodules+=" systemd systemd-initrd kernel-modules corvus-rescue shutdown "
-omit_dracutmodules+=" lvm mdraid dmraid crypt resume network network-manager systemd-networkd "
-filesystems+=" ext4 squashfs overlay "
-add_drivers+=" xhci_pci usb_storage uas ahci nvme sd_mod virtio_pci virtio_blk virtio_scsi usbhid hid_generic "
-""",
+            (
+                'hostonly="no"\n'
+                'hostonly_cmdline="no"\n'
+                'use_fstab="no"\n'
+                'add_dracutmodules+=" systemd systemd-initrd kernel-modules corvus-rescue shutdown "\n'
+                'omit_dracutmodules+=" lvm mdraid dmraid crypt resume network network-manager systemd-networkd "\n'
+                'filesystems+=" ext4 squashfs overlay "\n'
+                'add_drivers+=" xhci_pci usb_storage uas ahci nvme sd_mod virtio_pci virtio_blk virtio_scsi usbhid hid_generic "\n'
+            ),
         )
         archive = f"/boot/initramfs-{kernel}.img"
         self.chroot(
@@ -551,20 +623,21 @@ class RescueBootloaderStage(GentooStage):
             raise ValueError("Invalid carrier UUID")
         write(
             esp / "grub/grub.cfg",
-            f"""set timeout=300
-set default=0
-insmod part_gpt
-insmod ext2
-insmod search_fs_uuid
-serial --unit=0 --speed=115200
-terminal_input console serial
-terminal_output console serial
-menuentry 'Gentoo rescue' {{
-    search --no-floppy --fs-uuid --set=root {uuid}
-    linux /boot/vmlinuz root=rescue:UUID={uuid} ro fsck.mode=skip rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 vt.color=0x02 console=tty0 console=ttyS0,115200n8
-    initrd /boot/initramfs.img
-}}
-""",
+            (
+                f"set timeout=300\n"
+                f"set default=0\n"
+                f"insmod part_gpt\n"
+                f"insmod ext2\n"
+                f"insmod search_fs_uuid\n"
+                f"serial --unit=0 --speed=115200\n"
+                f"terminal_input console serial\n"
+                f"terminal_output console serial\n"
+                f"menuentry 'Gentoo rescue' {{\n"
+                f"    search --no-floppy --fs-uuid --set=root {uuid}\n"
+                f"    linux /boot/vmlinuz root=rescue:UUID={uuid} ro fsck.mode=skip rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 vt.color=0x02 console=tty0 console=ttyS0,115200n8\n"
+                f"    initrd /boot/initramfs.img\n"
+                f"}}\n"
+            ),
         )
         self.command_string(context, "sync")
         context.artifacts["image"] = self.settings.disk

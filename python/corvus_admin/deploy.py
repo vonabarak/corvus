@@ -533,10 +533,7 @@ def _resolve_binary_path(
     from corvus_admin.runner import RunnerError
 
     raise RunnerError(
-        f"could not locate {binary_name!r} on {runner.label} "
-        f"(`command -v {binary_name}` returned nothing). "
-        f"Install it on the target or pass --binary-path "
-        f"explicitly."
+        f"could not locate {binary_name!r} on {runner.label} (`command -v {binary_name}` returned nothing). Install it on the target or pass --binary-path explicitly."
     )
 
 
@@ -609,8 +606,7 @@ def find_record(
         matches = [r for r in records if r.role == role]
         if len(matches) > 1:
             raise RenewError(
-                "multiple daemon records exist; admin store should have at "
-                f"most one — found {len(matches)}"
+                f"multiple daemon records exist; admin store should have at most one — found {len(matches)}"
             )
     else:
         if name is None:
@@ -637,8 +633,7 @@ def runner_label_to_target(label: str) -> str:
         return label[len("ssh:") :]
     if label.startswith("local:"):
         raise RenewError(
-            f"deploy target {label!r} is a local file path, not a runner "
-            f"target — use `deploy client` to re-mint a client cert"
+            f"deploy target {label!r} is a local file path, not a runner target — use `deploy client` to re-mint a client cert"
         )
     raise RenewError(f"can't reuse target label {label!r} for renew")
 
@@ -752,8 +747,7 @@ def _check_due(record: store.IssuedRecord, *, force: bool) -> None:
         remaining = expires - dt.datetime.now(dt.timezone.utc)
         days = max(0, int(remaining.total_seconds() // 86400))
         raise RenewError(
-            f"cert {record.cn} is still valid for {days} days "
-            f"(renewal window is {RENEW_WINDOW.days}d); pass --force to renew anyway"
+            f"cert {record.cn} is still valid for {days} days (renewal window is {RENEW_WINDOW.days}d); pass --force to renew anyway"
         )
 
 

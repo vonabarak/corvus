@@ -123,8 +123,7 @@ class Crv:
             override_path = Path(override)
             if not override_path.is_file() or not os.access(override_path, os.X_OK):
                 raise RuntimeError(
-                    f"$CORVUS_CRV points at {override_path} which is not an "
-                    "executable file"
+                    f"$CORVUS_CRV points at {override_path} which is not an executable file"
                 )
             return cls(binary=str(override_path))
         found = shutil.which("crv")
@@ -134,8 +133,7 @@ class Crv:
         if local.is_file() and os.access(local, os.X_OK):
             return cls(binary=str(local))
         raise RuntimeError(
-            "`crv` not found on $PATH or in ~/.local/bin. "
-            "Run `make install` (or set $CORVUS_CRV to an explicit path)."
+            "`crv` not found on $PATH or in ~/.local/bin. Run `make install` (or set $CORVUS_CRV to an explicit path)."
         )
 
     # ---- raw subprocess machinery ----------------------------------------

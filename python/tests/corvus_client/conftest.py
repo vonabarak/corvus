@@ -72,9 +72,7 @@ def _bin_search(name: str, env_override: str | None) -> str:
     found = shutil.which(name)
     if not found:
         raise RuntimeError(
-            f"`{name}` not found in .stack-work, ~/.local/bin, or $PATH "
-            "(set $CORVUS_BIN / $CORVUS_NODEAGENT_BIN, run `stack build`, "
-            "or `make install`)"
+            f"`{name}` not found in .stack-work, ~/.local/bin, or $PATH (set $CORVUS_BIN / $CORVUS_NODEAGENT_BIN, run `stack build`, or `make install`)"
         )
     return found
 
@@ -127,8 +125,8 @@ def _wait_for_tcp(
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             raise RuntimeError(
-                f"corvus-nodeagent exited (code {proc.returncode}) before "
-                f"listening on {host}:{port}:\n{_read_log_tail(log_path)}"
+                f"corvus-nodeagent exited (code {proc.returncode}) before listening on {host}:{port}:\n"
+                f"{_read_log_tail(log_path)}"
             )
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -184,8 +182,7 @@ def _drop_db(name: str) -> None:
             "-d",
             _pg_admin_db(),
             "-c",
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-            f"WHERE datname = '{name}' AND pid <> pg_backend_pid()",
+            f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{name}' AND pid <> pg_backend_pid()",
         ],
         check=False,
         stdout=subprocess.DEVNULL,
@@ -221,8 +218,8 @@ def _wait_for_socket(
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             raise RuntimeError(
-                f"corvus daemon exited (code {proc.returncode}) before socket "
-                f"{sock_path}:\n{_read_log_tail(log_path)}"
+                f"corvus daemon exited (code {proc.returncode}) before socket {sock_path}:\n"
+                f"{_read_log_tail(log_path)}"
             )
         if sock_path.exists():
             try:

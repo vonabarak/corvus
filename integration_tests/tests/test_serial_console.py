@@ -206,10 +206,12 @@ class TestSerialConsole(SingleNodeCase):
                 # consumes escape sequences rather than echoing them.
                 os.write(
                     terminal.master,
-                    b"printf '\\nWINDOW-LIVE-%s\\n' READY; IFS= read -r reply; "
-                    b"printf '\\nWINDOW-LIVE-REPLY:%s\\n' \"$reply\"\r",
+                    b"printf '\\nWINDOW-LIVE-%s\\n' READY; IFS= read -r reply; printf '\\nWINDOW-LIVE-REPLY:%s\\n' \"$reply\"\r",
                 )
-                terminal.read_until(b"\r\nWINDOW-LIVE-READY\r\n")
+                terminal.read_until(
+                    b'\r\n'
+                    b'WINDOW-LIVE-READY\r\n'
+                )
                 result = vm.cap.guest_exec(
                     "/bin/sh -c 'printf \"\\033[18t\" > /dev/ttyS0'"
                 )

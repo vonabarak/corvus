@@ -266,8 +266,7 @@ class TestDisk(SingleNodeCase):
                 # default would have been.
                 default_suffix = f"/{clone_name}.qcow2"
                 assert not any(fp.endswith(default_suffix) for fp in file_paths), (
-                    f"file_path matches the default location, not the custom one: "
-                    f"{file_paths!r}"
+                    f"file_path matches the default location, not the custom one: {file_paths!r}"
                 )
             finally:
                 clone.delete()

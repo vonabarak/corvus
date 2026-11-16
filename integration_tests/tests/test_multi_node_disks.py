@@ -132,8 +132,7 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
             if p.node.name == node_name:
                 return p.file_path
         raise AssertionError(
-            f"disk {disk_name!r} has no placement on {node_name!r}; "
-            f"placements: {[p.node.name for p in info.placements]!r}"
+            f"disk {disk_name!r} has no placement on {node_name!r}; placements: {[p.node.name for p in info.placements]!r}"
         )
 
     def _node_for(self, short_name: str) -> TestNode:
@@ -192,16 +191,18 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
         try:
             assert self._placement_nodes(disk_name) == {self.alpha_name}
             template = self.client_alpha.templates.create(
-                textwrap.dedent(f"""
-                    name: {template_name}
-                    cpuCount: 1
-                    ram: 128M
-                    headless: true
-                    drives:
-                      - diskImage: {disk_name}
-                        interface: virtio
-                        strategy: direct
-                """).strip()
+                textwrap.dedent(
+                    f"\n"
+                    f"                    name: {template_name}\n"
+                    f"                    cpuCount: 1\n"
+                    f"                    ram: 128M\n"
+                    f"                    headless: true\n"
+                    f"                    drives:\n"
+                    f"                      - diskImage: {disk_name}\n"
+                    f"                        interface: virtio\n"
+                    f"                        strategy: direct\n"
+                    f"                "
+                ).strip()
             )
 
             async def instantiate_with_progress() -> None:
@@ -376,17 +377,19 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
         token = secrets.token_hex(3)
         alpha_disk = f"apply-a-{token}"
         beta_disk = f"apply-b-{token}"
-        yaml_body = textwrap.dedent(f"""
-            disks:
-              - name: {alpha_disk}
-                size: 16M
-                format: qcow2
-                node: {self.alpha_name}
-              - name: {beta_disk}
-                size: 16M
-                format: qcow2
-                node: {self.beta_name}
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            disks:\n"
+            f"              - name: {alpha_disk}\n"
+            f"                size: 16M\n"
+            f"                format: qcow2\n"
+            f"                node: {self.alpha_name}\n"
+            f"              - name: {beta_disk}\n"
+            f"                size: 16M\n"
+            f"                format: qcow2\n"
+            f"                node: {self.beta_name}\n"
+            f"        "
+        ).strip()
         try:
             result, _ = self.client_alpha.apply(yaml_body, wait=True)
             assert {d.name for d in result.disks} == {alpha_disk, beta_disk}
@@ -408,19 +411,21 @@ class TestMultiNodeDiskPlacement(ResourceCleanup, OneDaemonTwoNodesCase):
         """
         token = secrets.token_hex(3)
         shared = f"web-{token}"
-        yaml_body = textwrap.dedent(f"""
-            vms:
-              - name: {shared}
-                node: {self.alpha_name}
-                cpuCount: 1
-                ram: 128M
-                headless: true
-              - name: {shared}
-                node: {self.beta_name}
-                cpuCount: 1
-                ram: 128M
-                headless: true
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            vms:\n"
+            f"              - name: {shared}\n"
+            f"                node: {self.alpha_name}\n"
+            f"                cpuCount: 1\n"
+            f"                ram: 128M\n"
+            f"                headless: true\n"
+            f"              - name: {shared}\n"
+            f"                node: {self.beta_name}\n"
+            f"                cpuCount: 1\n"
+            f"                ram: 128M\n"
+            f"                headless: true\n"
+            f"        "
+        ).strip()
         # Track ids for cleanup. We can't `vms.get(name, by_name=True)`
         # because the name is no longer unique cluster-wide; rely on
         # the apply result.

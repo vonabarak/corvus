@@ -29,16 +29,7 @@ _TASK_RESULT_COLORS: dict[str, tuple[str, str]] = {
 
 
 def _badge_stylesheet(bg: str, fg: str) -> str:
-    return (
-        "QLabel {"
-        f" background: {bg};"
-        f" color: {fg};"
-        " border-radius: 4px;"
-        " padding: 2px 8px;"
-        " font-weight: 600;"
-        " font-size: 11px;"
-        "}"
-    )
+    return f"QLabel {{ background: {bg}; color: {fg}; border-radius: 4px; padding: 2px 8px; font-weight: 600; font-size: 11px;}}"
 
 
 class StatusBadge(QLabel):

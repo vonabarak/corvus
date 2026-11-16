@@ -60,8 +60,8 @@ def _wait_for_lease(
                 return ip
         time.sleep(poll_sec)
     raise AssertionError(
-        f"{GUEST_NIC} never got a 192.168.92.x lease within "
-        f"{timeout_sec:.0f}s; last `ip -4 -o addr show` returned:\n{last}"
+        f"{GUEST_NIC} never got a 192.168.92.x lease within {timeout_sec:.0f}s; last `ip -4 -o addr show` returned:\n"
+        f"{last}"
     )
 
 
@@ -126,8 +126,7 @@ class TestVdeNetworking(SingleNodeCase):
             ip_a = _wait_for_lease(vm_a)
             ip_b = _wait_for_lease(vm_b)
             assert ip_a != ip_b, (
-                f"both VMs got the same VDE lease {ip_a}; dnsmasq "
-                "isn't tracking client identity"
+                f"both VMs got the same VDE lease {ip_a}; dnsmasq isn't tracking client identity"
             )
 
             # 2. VM ↔ VM over the shared vde0 L2 broadcast domain.
@@ -192,8 +191,7 @@ class TestVdeNetworking(SingleNodeCase):
         #    every TCP listener.
         cert_dir = node._client_cert_dir
         assert cert_dir is not None, (
-            "harness should have populated node._client_cert_dir during "
-            "deploy_certs(); did the class fixture run?"
+            "harness should have populated node._client_cert_dir during deploy_certs(); did the class fixture run?"
         )
         runner = NodeShellRunner(
             NodeShell(cid=node.cid, user="corvus", key_path=HOST_TEST_KEY_PATH),
@@ -228,10 +226,10 @@ class TestVdeNetworking(SingleNodeCase):
         node_lines = [ln for ln in stdout.splitlines() if node.short_name in ln]
         assert node_lines, (
             f"no `crv node list` row mentions node {node.short_name!r}.\n"
-            f"Full output:\n{stdout}"
+            f"Full output:\n"
+            f"{stdout}"
         )
         assert any("disabled" in ln for ln in node_lines), (
-            f"`crv node list` row for {node.short_name!r} does not "
-            f"show 'disabled' in the NETD column.\n"
-            f"Matching lines:\n" + "\n".join(node_lines)
-        )
+            f"`crv node list` row for {node.short_name!r} does not show 'disabled' in the NETD column.\n"
+            f"Matching lines:\n"
+        ) + "\n".join(node_lines)

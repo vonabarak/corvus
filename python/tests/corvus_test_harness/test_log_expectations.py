@@ -63,16 +63,48 @@ def test_differences_include_decreases_and_overlapping_regexes(tmp_path: Path) -
 @pytest.mark.parametrize(
     "text",
     [
-        "version: 2\nclasses: {}",
-        "version: true\nclasses: {}",
-        "version: 1\nversion: 1\nclasses: {}",
-        "version: 1\nclasses: []",
-        "version: 1\nclasses: {}\nextra: true",
-        "version: 1\nclasses: {Test: {nodes: {single: {other.log: {warnings: 0, errors: 0}}}}}",
-        "version: 1\nclasses: {Test: {nodes: {single: {corvus.log: {warnings: -1, errors: 0}}}}}",
-        "version: 1\nclasses: {Test: {nodes: {single: {corvus.log: {warnings: true, errors: 0}}}}}",
-        "version: 1\nclasses: {Test: {nodes: {single: {corvus.log: {warnings: 0}}}}}",
-        "version: 1\nclasses: {Test: {nodes: {single: {corvus.log: {warnings: 0, errors: 0, patterns: [{regex: '[', count: 0}]}}}}}}",
+        (
+            "version: 2\n"
+            "classes: {}"
+        ),
+        (
+            "version: true\n"
+            "classes: {}"
+        ),
+        (
+            "version: 1\n"
+            "version: 1\n"
+            "classes: {}"
+        ),
+        (
+            "version: 1\n"
+            "classes: []"
+        ),
+        (
+            "version: 1\n"
+            "classes: {}\n"
+            "extra: true"
+        ),
+        (
+            "version: 1\n"
+            "classes: {Test: {nodes: {single: {other.log: {warnings: 0, errors: 0}}}}}"
+        ),
+        (
+            "version: 1\n"
+            "classes: {Test: {nodes: {single: {corvus.log: {warnings: -1, errors: 0}}}}}"
+        ),
+        (
+            "version: 1\n"
+            "classes: {Test: {nodes: {single: {corvus.log: {warnings: true, errors: 0}}}}}"
+        ),
+        (
+            "version: 1\n"
+            "classes: {Test: {nodes: {single: {corvus.log: {warnings: 0}}}}}"
+        ),
+        (
+            "version: 1\n"
+            "classes: {Test: {nodes: {single: {corvus.log: {warnings: 0, errors: 0, patterns: [{regex: '[', count: 0}]}}}}}}"
+        ),
     ],
 )
 def test_invalid_baseline_is_rejected(tmp_path: Path, text: str) -> None:
@@ -163,7 +195,10 @@ def run_project(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def test_new_classes_are_saved_once_by_xdist_controller(project: Path) -> None:
     source = project / "test_fake.py"
-    source.write_text(source.read_text() + "\nclass TestOther(TestLogs): pass\n")
+    source.write_text(source.read_text() + (
+        "\n"
+        "class TestOther(TestLogs): pass\n"
+    ))
     result = run_project(project, "-n", "2")
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.count("ADDED new test class TestLogs ") == 1
@@ -232,7 +267,10 @@ def test_incomplete_class_never_initializes_baseline(
 
 def test_invalid_config_warns_without_being_overwritten(project: Path) -> None:
     path = project / "baseline.yaml"
-    path.write_text("version: 17\nclasses: {}\n")
+    path.write_text(
+        "version: 17\n"
+        "classes: {}\n"
+    )
     before = path.read_bytes()
     result = run_project(project, "--update-log-expectations")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -273,7 +311,11 @@ def test_failed_class_does_not_block_adding_another_successful_class(
     source = project / "test_fake.py"
     source.write_text(
         source.read_text()
-        + "\nclass TestBroken:\n    def test_fail(self): assert False\n"
+        + (
+            "\n"
+            "class TestBroken:\n"
+            "    def test_fail(self): assert False\n"
+        )
     )
     result = run_project(project, "-n", "2")
     assert result.returncode == 1, result.stdout + result.stderr
@@ -317,7 +359,11 @@ def test_worker_crash_never_initializes_baseline(project: Path) -> None:
     source.write_text(
         source.read_text().replace(
             "def test_second(self): pass",
-            "def test_second(self):\n        import os\n        os._exit(3)",
+            (
+                "def test_second(self):\n"
+                "        import os\n"
+                "        os._exit(3)"
+            ),
         )
     )
     result = run_project(project, "-n", "2", "--max-worker-restart=0")

@@ -33,9 +33,7 @@ class TestSshKeyInjection(SingleNodeCase):
                 assert not vm.cap.show().cloud_init
                 # Use a dedicated account so reset never alters the harness login.
                 result = vm.cap.guest_exec(
-                    "useradd --create-home keytest && mkdir -p /home/keytest/.ssh && "
-                    f"printf '%s\\n' '{unrelated}' > /home/keytest/.ssh/authorized_keys && "
-                    "chown -R keytest:keytest /home/keytest/.ssh"
+                    f"useradd --create-home keytest && mkdir -p /home/keytest/.ssh && printf '%s\\n' '{unrelated}' > /home/keytest/.ssh/authorized_keys && chown -R keytest:keytest /home/keytest/.ssh"
                 )
                 assert result.exit_code == 0, result
                 for key in keys:

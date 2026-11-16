@@ -146,8 +146,7 @@ def _nested_kvm_ok() -> None:
     status = check_nested_kvm()
     if not status.available:
         pytest.skip(
-            f"nested KVM unavailable on this host: {status.reason}. "
-            "Integration tests require it; see integration_tests/README.md."
+            f"nested KVM unavailable on this host: {status.reason}. Integration tests require it; see integration_tests/README.md."
         )
 
 
@@ -274,9 +273,7 @@ def _pick_session_subnet(crv: Crv) -> str:
         if candidate not in existing:
             return candidate
     raise RuntimeError(
-        "All 256 /24 subnets under 10.91.0.0/16 are in use. "
-        "Run `make integration-tests-clean` to release leaked "
-        "session networks before retrying."
+        "All 256 /24 subnets under 10.91.0.0/16 are in use. Run `make integration-tests-clean` to release leaked session networks before retrying."
     )
 
 

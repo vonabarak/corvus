@@ -98,9 +98,7 @@ class TestGuestExecCli(SingleNodeCase):
             for guest_code, cli_code in [(0, 0), (1, 1), (77, 1), (42, 1)]:
                 cp = _crv(node, f"vm exec {vm_id} 'exit {guest_code}'")
                 assert cp.returncode == cli_code, (
-                    f"crv vm exec 'exit {guest_code}' returned "
-                    f"{cp.returncode}, expected {cli_code}; "
-                    f"stdout={cp.stdout!r} stderr={cp.stderr!r}"
+                    f"crv vm exec 'exit {guest_code}' returned {cp.returncode}, expected {cli_code}; stdout={cp.stdout!r} stderr={cp.stderr!r}"
                 )
 
             # ── Phase B: --output json shape. The flag is on the

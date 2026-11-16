@@ -111,7 +111,10 @@ def main() -> int:
         create(args.target)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         print(
-            f"{error}\nCreation may be incomplete; run make dev-node-vm-clean with the same DEV_NODE_VM before retrying.",
+            (
+                f"{error}\n"
+                f"Creation may be incomplete; run make dev-node-vm-clean with the same DEV_NODE_VM before retrying."
+            ),
             file=sys.stderr,
         )
         return 1

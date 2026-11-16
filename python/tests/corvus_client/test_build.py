@@ -16,7 +16,10 @@ from ._helpers import with_client
 
 def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
     script_path = tmp_path / "init.sh"
-    script_path.write_text("#!/bin/sh\necho hi\n")
+    script_path.write_text(
+        "#!/bin/sh\n"
+        "echo hi\n"
+    )
     file_path = tmp_path / "payload.bin"
     file_path.write_bytes(b"\x00\x01\x02hello")
 
@@ -51,11 +54,17 @@ def test_preprocess_inlines_shell_and_file(tmp_path: Path) -> None:
     assert build["target"] == {"ephemeral": True}
     shell = build["provisioners"][0]["shell"]
     probe = build["provisioners"][1]["wait-for"]
-    assert probe == {"inline": "#!/bin/sh\necho hi\n", "interpreter": "sh"}
+    assert probe == {"inline": (
+        "#!/bin/sh\n"
+        "echo hi\n"
+    ), "interpreter": "sh"}
     file_ = build["provisioners"][2]["file"]
 
     assert "script" not in shell
-    assert shell["inline"] == "#!/bin/sh\necho hi\n"
+    assert shell["inline"] == (
+        "#!/bin/sh\n"
+        "echo hi\n"
+    )
 
     assert "from" not in file_
     assert base64.b64decode(file_["content"]) == b"\x00\x01\x02hello"

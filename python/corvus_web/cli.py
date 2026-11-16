@@ -24,11 +24,7 @@ logger = logging.getLogger("corvus_web")
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="corvus-web",
-        description=(
-            "HTTP/WebSocket gateway in front of the corvus daemon. "
-            "Serves a React SPA plus a REST + WS bridge over the daemon's "
-            "Cap'n Proto RPC."
-        ),
+        description="HTTP/WebSocket gateway in front of the corvus daemon. Serves a React SPA plus a REST + WS bridge over the daemon's Cap'n Proto RPC.",
     )
     p.add_argument(
         "--version",
@@ -56,10 +52,7 @@ def _build_parser() -> argparse.ArgumentParser:
     src.add_argument(
         "--daemon-socket",
         default=None,
-        help=(
-            "Unix socket path for the daemon "
-            "(default: $XDG_RUNTIME_DIR/corvus/corvus.sock)."
-        ),
+        help="Unix socket path for the daemon (default: $XDG_RUNTIME_DIR/corvus/corvus.sock).",
     )
     src.add_argument(
         "--daemon-host",
@@ -95,10 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--daemon-cert-dir",
         type=Path,
         default=None,
-        help=(
-            "Directory containing client cert/key/CA used to authenticate to the "
-            "daemon over TLS. Defaults to the corvus-admin search path."
-        ),
+        help="Directory containing client cert/key/CA used to authenticate to the daemon over TLS. Defaults to the corvus-admin search path.",
     )
 
     # SPA assets. Tests + dev override the default to point at frontend/dist/.
@@ -106,10 +96,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--frontend-dir",
         type=Path,
         default=None,
-        help=(
-            "Directory containing the built SPA (vite output). "
-            "Defaults to the static/ directory bundled in the wheel."
-        ),
+        help="Directory containing the built SPA (vite output). Defaults to the static/ directory bundled in the wheel.",
     )
 
     p.add_argument(

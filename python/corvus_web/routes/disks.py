@@ -85,10 +85,7 @@ class DiskCreateBody(BaseModel):  # type: ignore[explicit-any]
     )
     ephemeral: bool = Field(
         False,
-        description=(
-            "Auto-delete with the VM the disk is attached to. Useful for "
-            "scratch overlays the operator never wants to keep."
-        ),
+        description="Auto-delete with the VM the disk is attached to. Useful for scratch overlays the operator never wants to keep.",
     )
     node: str | None = Field(
         None, description="Node name or id; null = scheduler picks."

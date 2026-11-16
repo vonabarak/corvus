@@ -32,7 +32,10 @@ def run_request(request: SqliteRequest) -> list[list[SqlValue]]:
         if operation == "script":
             # executescript does not open a transaction itself. The explicit
             # transaction ensures a failing statement rolls back the whole script.
-            db.executescript("BEGIN;\n" + request["sql"] + "\n;COMMIT;")
+            db.executescript("BEGIN;\n" + request["sql"] + (
+                "\n"
+                ";COMMIT;"
+            ))
             return []
         cursor = db.execute(request["sql"], request["parameters"])
         if operation == "execute":

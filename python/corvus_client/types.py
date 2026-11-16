@@ -302,23 +302,29 @@ class SnapshotInfo:
     created_at: datetime
     size: int | None = None
     live: bool = False
-    """Whether this snapshot was taken via QMP on a running VM
-    (``True``) versus offline via ``qemu-img snapshot -c``
-    (``False``). Operator diagnostic only — the qcow2 record is
-    bit-identical either way."""
+    (
+        "Whether this snapshot was taken via QMP on a running VM\n"
+        "    (``True``) versus offline via ``qemu-img snapshot -c``\n"
+        "    (``False``). Operator diagnostic only — the qcow2 record is\n"
+        "    bit-identical either way."
+    )
     quiesced: bool = False
-    """Whether QGA ``guest-fsfreeze-freeze`` was active when the
-    snapshot was stamped. ``True`` implies filesystem-level
-    consistency; ``False`` is hard-reset-equivalent for any
-    unflushed in-guest writes."""
+    (
+        "Whether QGA ``guest-fsfreeze-freeze`` was active when the\n"
+        "    snapshot was stamped. ``True`` implies filesystem-level\n"
+        "    consistency; ``False`` is hard-reset-equivalent for any\n"
+        "    unflushed in-guest writes."
+    )
     has_vmstate: bool = False
-    """Whether this snapshot row carries QEMU vmstate (RAM + device
-    model + CPU state). Only the single "carrier" disk of a
-    full-machine snapshot is ``True``; sibling rows that share the
-    same name carry block snapshots alone. Rollback of a carrier
-    routes through QMP ``snapshot-load`` (which resumes the VM in
-    the saved running state) rather than offline ``qemu-img
-    snapshot -a``."""
+    (
+        "Whether this snapshot row carries QEMU vmstate (RAM + device\n"
+        '    model + CPU state). Only the single "carrier" disk of a\n'
+        "    full-machine snapshot is ``True``; sibling rows that share the\n"
+        "    same name carry block snapshots alone. Rollback of a carrier\n"
+        "    routes through QMP ``snapshot-load`` (which resumes the VM in\n"
+        "    the saved running state) rather than offline ``qemu-img\n"
+        "    snapshot -a``."
+    )
 
 
 @dataclass(frozen=True)

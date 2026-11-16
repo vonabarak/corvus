@@ -112,8 +112,7 @@ class TestWindows(SingleNodeCase):
         """
         list_r = vm.cap.guest_exec(
             _ps(
-                "Get-PSDrive -PSProvider FileSystem | "
-                "Select-Object -ExpandProperty Name"
+                "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Name"
             )
         )
         if list_r.exit_code != 0:
@@ -153,18 +152,12 @@ class TestWindows(SingleNodeCase):
         # `Error`/`Unknown` = ConfigManagerErrorCode tells us why.
         pnp = _probe(
             _ps(
-                "Get-PnpDevice -Class System -ErrorAction "
-                "SilentlyContinue | Where-Object "
-                "{$_.FriendlyName -match 'VirtIO|virtio'} | "
-                "Select-Object FriendlyName,Status,InstanceId | "
-                "Format-List | Out-String"
+                "Get-PnpDevice -Class System -ErrorAction SilentlyContinue | Where-Object {$_.FriendlyName -match 'VirtIO|virtio'} | Select-Object FriendlyName,Status,InstanceId | Format-List | Out-String"
             )
         )
         drives_seen = _probe(
             _ps(
-                "Get-PSDrive -PSProvider FileSystem | "
-                "Select-Object Name,Used,Free | "
-                "Format-Table | Out-String"
+                "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | Format-Table | Out-String"
             )
         )
         # `Win32_Volume` lists volumes that may have no drive letter
@@ -172,9 +165,7 @@ class TestWindows(SingleNodeCase):
         # volume but Windows refused to assign a letter" case.
         volumes = _probe(
             _ps(
-                "Get-CimInstance Win32_Volume | "
-                "Select-Object DriveLetter,Label,FileSystem,Capacity | "
-                "Format-Table | Out-String"
+                "Get-CimInstance Win32_Volume | Select-Object DriveLetter,Label,FileSystem,Capacity | Format-Table | Out-String"
             )
         )
         # Windows event log entries from VirtioFsSvc / WinFsp —
@@ -182,18 +173,11 @@ class TestWindows(SingleNodeCase):
         # but the mount didn't.
         events = _probe(
             _ps(
-                "Get-WinEvent -LogName Application -MaxEvents 200 "
-                "-ErrorAction SilentlyContinue | "
-                "Where-Object {$_.ProviderName -match "
-                "'virtio|VirtIO|WinFsp'} | "
-                "Select-Object -First 10 TimeCreated,LevelDisplayName,"
-                "Message | Format-List | Out-String"
+                "Get-WinEvent -LogName Application -MaxEvents 200 -ErrorAction SilentlyContinue | Where-Object {$_.ProviderName -match 'virtio|VirtIO|WinFsp'} | Select-Object -First 10 TimeCreated,LevelDisplayName,Message | Format-List | Out-String"
             )
         )
         raise AssertionError(
-            "virtiofs share never mounted (no FileSystem PSDrive "
-            "contained from-host.txt), even after a VirtioFsSvc "
-            "restart and a full guest reset\n"
+            f"virtiofs share never mounted (no FileSystem PSDrive contained from-host.txt), even after a VirtioFsSvc restart and a full guest reset\n"
             f"VirtioFsSvc status: {svc}\n"
             f"WinFsp.Launcher status: {winfsp}\n"
             f"virtio PnP devices: {pnp}\n"
@@ -235,9 +219,8 @@ class TestWindows(SingleNodeCase):
 
             def _cloud_init_config(_self) -> _CloudInitOptions:
                 user_data = (
-                    "#ps1_sysnative\r\n"
-                    f"Set-Content -Path C:\\corvus-marker.txt "
-                    f"-Value 'ci-ok-{marker_token}'\r\n"
+                    f"#ps1_sysnative\r\n"
+                    f"Set-Content -Path C:\\corvus-marker.txt -Value 'ci-ok-{marker_token}'\r\n"
                 )
                 return {"user_data": user_data}
 
@@ -315,10 +298,7 @@ class TestWindows(SingleNodeCase):
                         def _probe(cmd: str) -> str:
                             try:
                                 rr = vm.cap.guest_exec(cmd)
-                                return (
-                                    f"exit={rr.exit_code} "
-                                    f"stdout={rr.stdout!r} stderr={rr.stderr!r}"
-                                )
+                                return f"exit={rr.exit_code} stdout={rr.stdout!r} stderr={rr.stderr!r}"
                             except (GuestAgentError, ServerError) as e:
                                 return f"{type(e).__name__}({e!r})"
 
@@ -335,28 +315,20 @@ class TestWindows(SingleNodeCase):
                         svc = _probe(_ps("(Get-Service cloudbase-init).Status"))
                         log_tail = _probe(
                             _ps(
-                                "$p = 'C:\\Program Files\\Cloudbase Solutions"
-                                "\\Cloudbase-Init\\log\\cloudbase-init.log'; "
-                                "if (Test-Path $p) "
-                                "{ Get-Content -Tail 40 -Path $p } "
-                                "else { 'log not present' }"
+                                "$p = 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\log\\cloudbase-init.log'; if (Test-Path $p) { Get-Content -Tail 40 -Path $p } else { 'log not present' }"
                             )
                         )
                         last_desc = (
                             f"last err: {last_err!r}"
                             if last_err is not None
                             else (
-                                f"last `type {marker_path}` "
-                                f"exit={last_r.exit_code} "
-                                f"stdout={last_r.stdout!r} "
-                                f"stderr={last_r.stderr!r}"
+                                f"last `type {marker_path}` exit={last_r.exit_code} stdout={last_r.stdout!r} stderr={last_r.stderr!r}"
                                 if last_r is not None
                                 else "no exec attempted"
                             )
                         )
                         raise AssertionError(
-                            f"cloud-init #ps1_sysnative didn't run; "
-                            f"{last_desc}\n"
+                            f"cloud-init #ps1_sysnative didn't run; {last_desc}\n"
                             f"daemon-side VM status: {daemon_status}\n"
                             f"cloudbase-init service: {svc}\n"
                             f"cloudbase-init.log tail probe: {log_tail}"
@@ -387,10 +359,7 @@ class TestWindows(SingleNodeCase):
                         distinct = sorted({ts for ts in snapshot if ts is not None})
                     if not (len(distinct) >= 2 and distinct[1] > distinct[0]):
                         raise AssertionError(
-                            "guest-agent healthcheck did not renew "
-                            f"across the cloud-init wait; events="
-                            f"{snapshot!r}, distinct={distinct!r} — "
-                            "Windows healthcheck-poller regression?"
+                            f"guest-agent healthcheck did not renew across the cloud-init wait; events={snapshot!r}, distinct={distinct!r} — Windows healthcheck-poller regression?"
                         )
 
                     # ---- (4) virtiofs round-trip ------------------------
@@ -425,8 +394,7 @@ class TestWindows(SingleNodeCase):
                     # Write from the guest, observe on the host.
                     guest_token = secrets.token_hex(4)
                     w = vm.cap.guest_exec(
-                        f"cmd.exe /c echo GUEST-WROTE-{guest_token} > "
-                        f"{drive}:\\from-guest.txt"
+                        f"cmd.exe /c echo GUEST-WROTE-{guest_token} > {drive}:\\from-guest.txt"
                     )
                     assert w.exit_code == 0, w
 

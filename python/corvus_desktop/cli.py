@@ -45,11 +45,7 @@ def _default_unix_socket() -> str:
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="corvus-desktop",
-        description=(
-            "Native desktop GUI for the corvus daemon. Talks Cap'n Proto RPC "
-            "directly via corvus_client.AsyncClient. Requires the [desktop] "
-            "extra (PySide6 + pyte)."
-        ),
+        description="Native desktop GUI for the corvus daemon. Talks Cap'n Proto RPC directly via corvus_client.AsyncClient. Requires the [desktop] extra (PySide6 + pyte).",
     )
     p.add_argument(
         "--version",
@@ -63,10 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
     src.add_argument(
         "--daemon-socket",
         default=None,
-        help=(
-            "Unix socket path for the daemon "
-            "(default: $XDG_RUNTIME_DIR/corvus/corvus.sock)."
-        ),
+        help="Unix socket path for the daemon (default: $XDG_RUNTIME_DIR/corvus/corvus.sock).",
     )
     src.add_argument(
         "--daemon-host",
@@ -100,10 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--daemon-cert-dir",
         type=Path,
         default=None,
-        help=(
-            "Directory containing client cert/key/CA used to authenticate to "
-            "the daemon over TLS. Defaults to the corvus-admin search path."
-        ),
+        help="Directory containing client cert/key/CA used to authenticate to the daemon over TLS. Defaults to the corvus-admin search path.",
     )
 
     p.add_argument(
@@ -148,10 +138,9 @@ def main(argv: list[str] | None = None) -> int:
         # cryptic without context, and we want the user to land on the
         # extras hint, not a stack trace.
         sys.stderr.write(
-            f"corvus-desktop requires the [desktop] extra ({e.name or 'PySide6'} "
-            "not installed).\n"
-            "Install with:\n"
-            "    pip install 'corvus[desktop]'\n"
+            f"corvus-desktop requires the [desktop] extra ({e.name or 'PySide6'} not installed).\n"
+            f"Install with:\n"
+            f"    pip install 'corvus[desktop]'\n"
         )
         return 2
 

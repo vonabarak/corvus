@@ -235,15 +235,17 @@ class TestTaskHistory(SingleNodeCase):
             "AAAAC3NzaC1lZDI1NTE5AAAAIH3OAFlPq8wAYIKL3kZx0sMo2krfh1g+OmRkLD1OvBnK"
             f" corvus-it-task-test-{token}"
         )
-        yaml_body = textwrap.dedent(f"""
-            sshKeys:
-              - name: {key_name}
-                publicKey: "{pubkey}"
-            disks:
-              - name: {disk_name}
-                size: 16M
-                format: qcow2
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            sshKeys:\n"
+            f"              - name: {key_name}\n"
+            f'                publicKey: "{pubkey}"\n'
+            f"            disks:\n"
+            f"              - name: {disk_name}\n"
+            f"                size: 16M\n"
+            f"                format: qcow2\n"
+            f"        "
+        ).strip()
         try:
             self.client.apply(yaml_body, wait=True)
             # Find the parent. Tests within a class run sequentially
@@ -315,15 +317,17 @@ class TestTaskHistory(SingleNodeCase):
         # SSH key succeeds (phase 1); registering a nonexistent file
         # fails inside the disk subtask (phase 2). A missing source disk
         # would fail earlier during apply preflight, without a subtask.
-        yaml_body = textwrap.dedent(f"""
-            sshKeys:
-              - name: {key_ok}
-                publicKey: "{pubkey}"
-            disks:
-              - name: {disk_bad}
-                register: {missing_path}
-                ephemeral: true
-        """).strip()
+        yaml_body = textwrap.dedent(
+            f"\n"
+            f"            sshKeys:\n"
+            f"              - name: {key_ok}\n"
+            f'                publicKey: "{pubkey}"\n'
+            f"            disks:\n"
+            f"              - name: {disk_bad}\n"
+            f"                register: {missing_path}\n"
+            f"                ephemeral: true\n"
+            f"        "
+        ).strip()
         try:
             with pytest.raises(CorvusError):
                 self.client.apply(yaml_body, wait=True)

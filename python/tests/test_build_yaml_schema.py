@@ -53,9 +53,18 @@ def test_repository_recipes(validator: Draft7Validator) -> None:
         "pipeline: [{build: {name: x, template: t, strategy: '{{ strategy }}', sourceImage: '{{ source }}', target: {}}}]",
         "pipeline: [{apply: {ifExists: update}}]",
         "pipeline: []",
-        "vars: null\npipeline: []",
-        "vars: {url: null, enabled: true, count: 3, ratio: 1.5}\npipeline: []",
-        "_defaults: &defaults {format: qcow2}\npipeline: [{build: {name: x, template: t, target: {<<: *defaults}}}]",
+        (
+            "vars: null\n"
+            "pipeline: []"
+        ),
+        (
+            "vars: {url: null, enabled: true, count: 3, ratio: 1.5}\n"
+            "pipeline: []"
+        ),
+        (
+            "_defaults: &defaults {format: qcow2}\n"
+            "pipeline: [{build: {name: x, template: t, target: {<<: *defaults}}}]"
+        ),
         "pipeline: [{upload: {name: x, from: x.raw, format: RAW, ephemeral: null}}]",
         "pipeline: [{build: {name: x, template: t, target: {}, cleanup: onSuccess}}]",
         "pipeline: [{build: {name: x, template: t, target: {format: '{{ format }}', size: '{{ size }}'}, provisioners: [{shell: 'echo hello'}, {shell: {script: scripts/setup.sh, env: {PORT: '80'}}}, {file: {from: file.txt, to: /tmp/file, mode: '0644'}}, {file: {content: aGk=, to: /tmp/file}}, {wait-for: {ping: true}}, {wait-for: {file: /tmp/ready}}, {wait-for: {port: 80}}, {wait-for: {inline: 'test -f /tmp/ready', interpreter: sh}}, {wait-for: {script: ready.sh}}, {reboot: {}}]}}]",
@@ -78,8 +87,14 @@ def test_valid_authoring_documents(validator: Draft7Validator, document: str) ->
         "pipeline: [{build: {name: x, template: t, strategy: offline-overlay, sourceImage: 0, target: {}}}]",
         "{}",
         "pipeline: {}",
-        "pipline: []\npipeline: []",
-        "vars: {nested: {x: 1}}\npipeline: []",
+        (
+            "pipline: []\n"
+            "pipeline: []"
+        ),
+        (
+            "vars: {nested: {x: 1}}\n"
+            "pipeline: []"
+        ),
         "pipeline: [{}]",
         "pipeline: [{build: null}]",
         "pipeline: [{apply: {}, upload: {name: x, from: x, format: raw}}]",

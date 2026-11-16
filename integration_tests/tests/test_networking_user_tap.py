@@ -148,9 +148,7 @@ class TestUserModeSlirp(SingleNodeCase):
                 check=False,
             )
             assert probe.returncode != 0, (
-                f"node reached {SLIRP_GUEST_IP}:22 — SLIRP isolation is "
-                f"supposed to block this. stdout={probe.stdout!r}, "
-                f"stderr={probe.stderr!r}"
+                f"node reached {SLIRP_GUEST_IP}:22 — SLIRP isolation is supposed to block this. stdout={probe.stdout!r}, stderr={probe.stderr!r}"
             )
 
     def test_user_mode_hostfwd_exposes_guest_port_on_node(self) -> None:
@@ -190,16 +188,17 @@ class TestUserModeSlirp(SingleNodeCase):
                 check=False,
             ).stdout.decode(errors="replace")
             assert f"hostfwd=tcp:127.0.0.1:{host_port}-:22" in argv, (
-                f"hostfwd not in QEMU argv for VM {vm_id}; argv:\n{argv}"
-            )
+                    f"hostfwd not in QEMU argv for VM {vm_id}; argv:\n"
+                    f"{argv}"
+                )
 
             # Confirm QEMU is bound to the hostfwd port at all.
             listening = node.run(
                 f"ss -Hltn 'sport = :{host_port}'", check=False
             ).stdout.decode(errors="replace")
             assert str(host_port) in listening, (
-                f"no listener on 127.0.0.1:{host_port} per ss; "
-                f"ss output:\n{listening!r}"
+                f"no listener on 127.0.0.1:{host_port} per ss; ss output:\n"
+                f"{listening!r}"
             )
 
             # The hostfwd listener binds whenever QEMU starts user-
@@ -211,8 +210,7 @@ class TestUserModeSlirp(SingleNodeCase):
             # Gentoo test-node shell.
             def _banner_ok() -> bool:
                 r = node.run(
-                    f"bash -c 'exec 3<>/dev/tcp/127.0.0.1/{host_port} && "
-                    f"timeout 3 head -1 <&3'",
+                    f"bash -c 'exec 3<>/dev/tcp/127.0.0.1/{host_port} && timeout 3 head -1 <&3'",
                     check=False,
                     timeout_sec=10.0,
                 )
@@ -232,8 +230,7 @@ class TestUserModeSlirp(SingleNodeCase):
             check=False,
         )
         assert cold.returncode != 0, (
-            f"127.0.0.1:{host_port} still accepting after VM stop — "
-            f"the hostfwd should have died with QEMU"
+            f"127.0.0.1:{host_port} still accepting after VM stop — the hostfwd should have died with QEMU"
         )
 
 
@@ -297,8 +294,7 @@ class TestRawTapNic(SingleNodeCase):
                     check=False,
                 )
                 assert not bridges.stdout.strip(), (
-                    f"raw TAP {tap} unexpectedly enslaved to a bridge: "
-                    f"{bridges.stdout!r}"
+                    f"raw TAP {tap} unexpectedly enslaved to a bridge: {bridges.stdout!r}"
                 )
 
             # Operator-owned TAP survives VM teardown — Corvus

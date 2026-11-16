@@ -110,8 +110,7 @@ class TestVmBalloon(SingleNodeCase):
                     time.sleep(2)
                 else:
                     raise AssertionError(
-                        f"balloon did not reclaim guest memory: "
-                        f"actual={actual}, available={available}, before={before}"
+                        f"balloon did not reclaim guest memory: actual={actual}, available={available}, before={before}"
                     )
             finally:
                 vm.cap.set_balloon(target_bytes=1024 * 1024 * 1024)
@@ -136,6 +135,5 @@ class TestVmBalloon(SingleNodeCase):
                 time.sleep(2)
             else:
                 raise AssertionError(
-                    f"balloon did not restore guest memory: "
-                    f"actual={actual}, available={available}, before={before}"
+                    f"balloon did not restore guest memory: actual={actual}, available={available}, before={before}"
                 )

@@ -198,7 +198,10 @@ def test_repository_sync_scopes_keyserver_adapter(tmp_path: Path) -> None:
     from corvus_image_builder.gentoo import RepositoryStage
 
     executable = tmp_path / "real-gemato"
-    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    executable.write_text(
+        "#!/bin/sh\n"
+        "printf \"%s\\n\" \"$@\"\n"
+    )
     executable.chmod(0o755)
     commands = []
     adapters = []

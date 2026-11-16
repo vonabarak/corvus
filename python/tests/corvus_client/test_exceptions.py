@@ -156,8 +156,7 @@ def test_translate_invalid_transition_extracts_status_and_reason() -> None:
     # so the UI can tell the operator which state the VM is in AND why
     # the action was refused.
     exc = _fake_kj(
-        f"{ENVELOPE}invalid_transition :: invalid transition from stopped: "
-        "Network 'corvus' is not running"
+        f"{ENVELOPE}invalid_transition :: invalid transition from stopped: Network 'corvus' is not running"
     )
     out = translate_kj_exception(exc)
     assert isinstance(out, InvalidTransition)
@@ -173,8 +172,7 @@ def test_translate_invalid_transition_from_various_states() -> None:
     # constructor; spot-check a few that operators commonly hit.
     for status in ("running", "starting", "saving", "loading", "migrating"):
         exc = _fake_kj(
-            f"{ENVELOPE}invalid_transition :: invalid transition from {status}: "
-            f"in-flight operation"
+            f"{ENVELOPE}invalid_transition :: invalid transition from {status}: in-flight operation"
         )
         out = translate_kj_exception(exc)
         assert isinstance(out, InvalidTransition)

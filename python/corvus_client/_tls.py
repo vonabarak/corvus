@@ -147,9 +147,7 @@ def build_client_bundle(
         resolved = resolve_cert_dir(search, needed)
         if resolved is None:
             raise CertNotFoundError(
-                f"no directory in {[str(p) for p in search]} contains "
-                f"{needed}; run `corvus-admin deploy {role.split('-', 1)[1]} ...` "
-                f"or pass tls=False"
+                f"no directory in {[str(p) for p in search]} contains {needed}; run `corvus-admin deploy {role.split('-', 1)[1]} ...` or pass tls=False"
             )
         chosen = resolved
 
@@ -223,13 +221,11 @@ def validate_peer_cn(
         )
     if not cn.startswith(bundle.expected_peer_prefix):
         raise CertificateError(
-            f"peer CN {cn!r} does not start with required prefix "
-            f"{bundle.expected_peer_prefix!r}"
+            f"peer CN {cn!r} does not start with required prefix {bundle.expected_peer_prefix!r}"
         )
     if bundle.expected_peer_name is not None:
         suffix = cn[len(bundle.expected_peer_prefix) :]
         if suffix != bundle.expected_peer_name:
             raise CertificateError(
-                f"peer CN {cn!r} has name {suffix!r}, expected "
-                f"{bundle.expected_peer_name!r}"
+                f"peer CN {cn!r} has name {suffix!r}, expected {bundle.expected_peer_name!r}"
             )

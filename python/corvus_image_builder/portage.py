@@ -75,9 +75,9 @@ class PortageBackend:
         environment["ROOT"] = str(request.root)
         if request.tmpdir is not None:
             environment["PORTAGE_TMPDIR"] = str(request.tmpdir)
-        environment["FEATURES"] = environment.get("FEATURES", "") + (
-            " -userfetch -userpriv binpkg-multi-instance parallel-fetch"
-            " -binpkg-request-signature -binpkg-ignore-signature -getbinpkg"
+        environment["FEATURES"] = (
+            environment.get("FEATURES", "")
+            + " -userfetch -userpriv binpkg-multi-instance parallel-fetch -binpkg-request-signature -binpkg-ignore-signature -getbinpkg"
         )
         argv = [
             "emerge",

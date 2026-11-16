@@ -83,10 +83,7 @@ class NodeShellRunner(Runner):
             raise ValueError(f"invalid remote_path {remote_path!r}")
         encoded = base64.b64encode(data).decode("ascii")
         staging = f"/tmp/corvus-admin.{self._shell.cid}.{_safe_basename(remote_path)}"
-        decode_cmd = (
-            f"set -e; "
-            f"printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(staging)}"
-        )
+        decode_cmd = f"set -e; printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(staging)}"
         self._shell.run(decode_cmd, check=True)
         try:
             self.run(
@@ -146,12 +143,19 @@ class NodeShellRunner(Runner):
             # systemd diagnostic that came back over the pipe.
             tail = ""
             if stderr.strip():
-                tail += f"\nstderr:\n{stderr.strip()}"
+                tail += (
+                    f"\n"
+                    f"stderr:\n"
+                    f"{stderr.strip()}"
+                )
             if stdout.strip():
-                tail += f"\nstdout:\n{stdout.strip()}"
+                tail += (
+                    f"\n"
+                    f"stdout:\n"
+                    f"{stdout.strip()}"
+                )
             raise RunnerError(
-                f"command failed on {self.label} "
-                f"(rc={proc.returncode}): {cmd_str}{tail}",
+                f"command failed on {self.label} (rc={proc.returncode}): {cmd_str}{tail}",
                 stderr=stderr,
             )
         return result

@@ -5,7 +5,7 @@
 # tool package without creating its executable inside .venv/bin.
 # Run `make venv` first; explicit overrides remain possible.
 MYPY ?= .venv/bin/python -m mypy
-RUFF ?= .venv/bin/python -m ruff
+PYTHON_STYLE ?= .venv/bin/python scripts/python_style.py
 
 # Authored sources in maintained packages; generated bindings remain excluded.
 HASKELL_SOURCE_DIRS := src app test tools vendor/haskell-capnp/capnp/lib vendor/haskell-capnp/capnp/cmd vendor/haskell-capnp/capnp-tests/tests vendor/lifetimes/src vendor/lifetimes/tests vendor/supervisors/src vendor/supervisors/tests
@@ -21,8 +21,7 @@ haskell-format-tools:
 # prettier formatter — kept gated so the dev workflow for someone
 # touching only the Haskell/Python side doesn't require Node.
 format: haskell-format-tools
-	$(RUFF) format python integration_tests
-	$(RUFF) check --fix python integration_tests
+	$(PYTHON_STYLE)
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode inplace $(HASKELL_SOURCES)
 	@if [ -d frontend/node_modules ]; then \
 	  $(MAKE) web-format ; \
@@ -37,8 +36,7 @@ format: haskell-format-tools
 check: haskell-format-tools
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- hlint --hint=.hlint.yaml $(HASKELL_SOURCES)
 	stack $(STACK_BUILD_FLAGS) --stack-yaml tools/stack.yaml exec -- fourmolu --mode check $(HASKELL_SOURCES)
-	$(RUFF) check python integration_tests
-	$(RUFF) format --check python integration_tests
+	$(PYTHON_STYLE) --check
 	$(MAKE) typecheck-core
 	$(MAKE) yaml-schema-check
 	@if [ -d frontend/node_modules ]; then \

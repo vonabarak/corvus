@@ -61,6 +61,36 @@ repository root. Image recipes remain owned by their Makefiles under `yaml/`.
 Use `make set-version VERSION=X.Y.Z.W` for version bumps and releases; do not
 hand-edit version files.
 
+## Python string formatting
+
+Run `make format` to apply Ruff lint fixes and formatting followed by the custom
+multiline-string formatter in `scripts/python_style.py`. `make check` runs the
+same pipeline in read-only mode and reports `CML001` for noncanonical formatting.
+The wrapper covers authored Python under `python/`, `integration_tests/`,
+`scripts/`, and `yaml/`, using Ruff's exclusions for generated files.
+For a focused run, use `.venv/bin/python scripts/python_style.py [--check] PATH`.
+Install the developer dependencies with `make venv` first.
+
+Multiline data strings use parenthesized adjacent literals, with one output line
+per literal, preserving whitespace, blank lines, and the final newline:
+
+```python
+configuration = (
+    "first line\n"
+    "second line\n"
+    "last line"
+)
+```
+
+Do not use triple-quoted data strings or put several output lines in one literal.
+Conventional module, class, and function docstrings are exempt. A single line
+with one trailing `\n` is allowed. Ruff still controls wrapping ordinary long
+single-line messages. The normalizer supports bytes and formatted strings,
+keeps interpolation expressions unevaluated, and checks AST equivalence before
+writing. Comments in existing line-oriented concatenations are retained; when a
+multiline literal mixed with comments needs splitting, split it manually rather
+than relocating the comments automatically.
+
 ## Git Hooks
 
 Enable the repository-managed hooks after cloning:

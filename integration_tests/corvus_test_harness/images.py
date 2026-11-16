@@ -73,9 +73,7 @@ class ImageReady:
             raise FileNotFoundError(f"integration-test YAML not found at {path}")
         if not _disk_exists(crv, disk_name):
             raise RuntimeError(
-                f"Integration-test image {disk_name!r} is not registered "
-                f"with the outer daemon. Run `make image IMAGE=corvus-test-node` before "
-                f"`make integration-tests`."
+                f"Integration-test image {disk_name!r} is not registered with the outer daemon. Run `make image IMAGE=corvus-test-node` before `make integration-tests`."
             )
         return cls(disk_name=disk_name, yaml_path=path)
 
@@ -108,9 +106,7 @@ class InstallerImageReady:
             raise FileNotFoundError(f"installer-build YAML not found at {path}")
         if not _disk_exists(crv, disk_name):
             raise RuntimeError(
-                f"Synthetic installer ISO {disk_name!r} is not "
-                f"registered with the outer daemon. Run "
-                f"`make image IMAGE=installer` before `make integration-tests`."
+                f"Synthetic installer ISO {disk_name!r} is not registered with the outer daemon. Run `make image IMAGE=installer` before `make integration-tests`."
             )
         return cls(disk_name=disk_name, yaml_path=path)
 

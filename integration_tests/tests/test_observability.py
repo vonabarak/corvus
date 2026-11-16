@@ -206,7 +206,8 @@ class TestObservability(SingleNodeCase):
                 ]
                 assert not missing, (
                     f"metric families missing from /metrics exposition: {missing}\n"
-                    f"body head:\n{body[:800]!r}"
+                    f"body head:\n"
+                    f"{body[:800]!r}"
                 )
 
                 # corvus_vm_up for our VM must be exactly 1.
@@ -214,8 +215,8 @@ class TestObservability(SingleNodeCase):
                     body, "corvus_vm_up", {"vm_id": str(vm_id), "vm_name": vm_name}
                 )
                 assert up_series, (
-                    f"no corvus_vm_up series for vm_id={vm_id} vm_name={vm_name!r}; "
-                    f"body head:\n{body[:800]!r}"
+                    f"no corvus_vm_up series for vm_id={vm_id} vm_name={vm_name!r}; body head:\n"
+                    f"{body[:800]!r}"
                 )
                 assert up_series[0][1] == 1.0, (
                     f"corvus_vm_up for our VM expected 1.0, got {up_series[0][1]}"
@@ -240,8 +241,7 @@ class TestObservability(SingleNodeCase):
                 # keeps the test deterministic on tmpfs-backed
                 # rootfs (no compression on the qcow2 hot path).
                 r = vm.cap.guest_exec(
-                    "/bin/sh -c 'dd if=/dev/urandom of=/tmp/load bs=1M count=50 "
-                    "conv=fsync 2>/dev/null && sync'"
+                    "/bin/sh -c 'dd if=/dev/urandom of=/tmp/load bs=1M count=50 conv=fsync 2>/dev/null && sync'"
                 )
                 assert r.exit_code == 0, r
 
@@ -257,8 +257,7 @@ class TestObservability(SingleNodeCase):
                     body2, "corvus_vm_cpu_seconds_total", {"vm_id": str(vm_id)}
                 )[0][1]
                 assert cpu_after > cpu_before, (
-                    f"cpu_seconds_total did not advance: "
-                    f"before={cpu_before}, after={cpu_after}"
+                    f"cpu_seconds_total did not advance: before={cpu_before}, after={cpu_after}"
                 )
 
                 # At least one drive's write counter must be > 0
@@ -273,8 +272,7 @@ class TestObservability(SingleNodeCase):
                 )
                 assert disk_writes_after, "no disk write counter for our vm"
                 assert any(v > 0 for _, v in disk_writes_after), (
-                    f"all disk_write_bytes_total values are zero after dd; "
-                    f"series: {disk_writes_after!r}"
+                    f"all disk_write_bytes_total values are zero after dd; series: {disk_writes_after!r}"
                 )
 
                 # ── Phase E: REST stats history. The endpoint
@@ -304,8 +302,7 @@ class TestObservability(SingleNodeCase):
                 last_ts = latest["sampled_at_nanos"]
                 if len(history) > 1:
                     assert last_ts > first_ts, (
-                        f"history end ({last_ts}) not after start ({first_ts}); "
-                        f"all timestamps: {[s['sampled_at_nanos'] for s in history]!r}"
+                        f"history end ({last_ts}) not after start ({first_ts}); all timestamps: {[s['sampled_at_nanos'] for s in history]!r}"
                     )
 
                 # ── Phase F: live WebSocket stream. Collect 2
@@ -333,8 +330,7 @@ class TestObservability(SingleNodeCase):
                             {"sampled_at_nanos": timestamp, "host_rss_bytes": rss_value}
                         )
                 assert len(frames) >= 2, (
-                    f"received {len(frames)} WS frames in 25 s; expected ≥ 2 "
-                    f"(StatusPoller cadence is 10 s)"
+                    f"received {len(frames)} WS frames in 25 s; expected ≥ 2 (StatusPoller cadence is 10 s)"
                 )
                 # Each frame is a VmStats dict with the same shape
                 # /history returns. Timestamps must be monotonic.

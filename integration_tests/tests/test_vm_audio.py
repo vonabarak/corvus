@@ -29,18 +29,17 @@ class TestVmAudio(SingleNodeCase):
                 ),
             ):
                 result = self.node.run(
-                    f"nohup env XDG_RUNTIME_DIR=/run/corvus {command} "
-                    f">{log} 2>&1 </dev/null & echo $!"
+                    f"nohup env XDG_RUNTIME_DIR=/run/corvus {command} >{log} 2>&1 </dev/null & echo $!"
                 )
                 pids.append(int(result.stdout.decode().strip()))
                 ready = self.node.run(
-                    f"for i in $(seq 1 50); do test -S {socket} && exit 0; "
-                    f"sleep 0.1; done; cat {log}; exit 1",
+                    f"for i in $(seq 1 50); do test -S {socket} && exit 0; sleep 0.1; done; cat {log}; exit 1",
                     check=False,
                 )
                 assert ready.returncode == 0, (
                     f"{command} did not create {socket}:\n"
-                    f"{ready.stdout.decode()}\n{ready.stderr.decode()}"
+                    f"{ready.stdout.decode()}\n"
+                    f"{ready.stderr.decode()}"
                 )
             yield
         finally:
@@ -62,8 +61,7 @@ class TestVmAudio(SingleNodeCase):
         qemu_backend = "pa" if backend == "pulse" else backend
         available = self.node.run("qemu-system-x86_64 -audiodev help").stdout.decode()
         assert qemu_backend in available.splitlines(), (
-            f"QEMU lacks the {qemu_backend} audio driver; rebuild the test node "
-            "with `make image-rebuild IMAGE=corvus-test-node`"
+            f"QEMU lacks the {qemu_backend} audio driver; rebuild the test node with `make image-rebuild IMAGE=corvus-test-node`"
         )
 
         with self._audio_server(backend):
@@ -88,8 +86,9 @@ class TestVmAudio(SingleNodeCase):
                 result = vm.guest_exec("/usr/bin/lspci -n")
                 assert result.exit_code == 0, result.stderr
                 assert any(pci_id in line for line in result.stdout.splitlines()), (
-                    f"{model} card missing from guest lspci:\n{result.stdout}"
-                )
+                        f"{model} card missing from guest lspci:\n"
+                        f"{result.stdout}"
+                    )
             finally:
                 if vm is not None:
                     with suppress(Exception):

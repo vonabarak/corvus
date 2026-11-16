@@ -369,8 +369,7 @@ class DiskDetailWidget(QWidget):
             reply = QMessageBox.question(
                 self,
                 f"{verb.capitalize()} snapshot",
-                f"{verb.capitalize()} snapshot '{snap_name}'? "
-                "This may affect VMs using this disk.",
+                f"{verb.capitalize()} snapshot '{snap_name}'? This may affect VMs using this disk.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )

@@ -64,7 +64,10 @@ class PostgreSQLInitializationStage(GentooStage):
                 "/run/postgresql",
                 "-v",
                 "ON_ERROR_STOP=1",
-                input=b"CREATE USER corvus SUPERUSER;\nCREATE DATABASE corvus OWNER corvus;\n",
+                input=(
+                    b"CREATE USER corvus SUPERUSER;\n"
+                    b"CREATE DATABASE corvus OWNER corvus;\n"
+                ),
             )
         finally:
             stop()
@@ -81,24 +84,31 @@ class VdeNetworkConfigurationStage(GentooStage):
         root = context.root
         write(
             root / "etc/systemd/system/vde-switch.service",
-            """[Unit]
-Description=VDE virtual switch for Corvus test VMs
-After=network-pre.target
-Before=network.target
-Wants=network-pre.target
-[Service]
-Type=forking
-ExecStartPre=/bin/mkdir -p /run/vde2
-ExecStart=/usr/bin/vde_switch --sock /run/vde2/switch.ctl --mgmt /run/vde2/switch.mgmt -tap vde0 -m 666 -group kvm --daemon --pidfile /run/vde2/vde_switch.pid
-PIDFile=/run/vde2/vde_switch.pid
-Restart=on-failure
-[Install]
-WantedBy=multi-user.target
-""",
+            (
+                "[Unit]\n"
+                "Description=VDE virtual switch for Corvus test VMs\n"
+                "After=network-pre.target\n"
+                "Before=network.target\n"
+                "Wants=network-pre.target\n"
+                "[Service]\n"
+                "Type=forking\n"
+                "ExecStartPre=/bin/mkdir -p /run/vde2\n"
+                "ExecStart=/usr/bin/vde_switch --sock /run/vde2/switch.ctl --mgmt /run/vde2/switch.mgmt -tap vde0 -m 666 -group kvm --daemon --pidfile /run/vde2/vde_switch.pid\n"
+                "PIDFile=/run/vde2/vde_switch.pid\n"
+                "Restart=on-failure\n"
+                "[Install]\n"
+                "WantedBy=multi-user.target\n"
+            ),
         )
         write(
             root / "etc/systemd/network/30-vde0.network",
-            "[Match]\nName=vde0\n[Network]\nAddress=192.168.92.1/24\nConfigureWithoutCarrier=yes\n",
+            (
+                "[Match]\n"
+                "Name=vde0\n"
+                "[Network]\n"
+                "Address=192.168.92.1/24\n"
+                "ConfigureWithoutCarrier=yes\n"
+            ),
         )
         write(
             root / "etc/sysctl.d/30-corvus-vde-forward.conf",
@@ -106,30 +116,36 @@ WantedBy=multi-user.target
         )
         write(
             root / "etc/nftables/rules/main.nft",
-            """flush ruleset
-table ip nat {
-    chain postrouting {
-        type nat hook postrouting priority srcnat
-        policy accept
-        ip saddr 192.168.92.0/24 oifname != "vde0" masquerade
-    }
-}
-""",
+            (
+                "flush ruleset\n"
+                "table ip nat {\n"
+                "    chain postrouting {\n"
+                "        type nat hook postrouting priority srcnat\n"
+                "        policy accept\n"
+                '        ip saddr 192.168.92.0/24 oifname != "vde0" masquerade\n'
+                "    }\n"
+                "}\n"
+            ),
         )
         write(
             root / "etc/dnsmasq.conf",
-            """interface=vde0
-bind-dynamic
-dhcp-range=192.168.92.10,192.168.92.200,12h
-dhcp-option=option:router,192.168.92.1
-dhcp-option=option:dns-server,192.168.92.1
-domain-needed
-bogus-priv
-""",
+            (
+                "interface=vde0\n"
+                "bind-dynamic\n"
+                "dhcp-range=192.168.92.10,192.168.92.200,12h\n"
+                "dhcp-option=option:router,192.168.92.1\n"
+                "dhcp-option=option:dns-server,192.168.92.1\n"
+                "domain-needed\n"
+                "bogus-priv\n"
+            ),
         )
         write(
             root / "etc/systemd/system/dnsmasq.service.d/wait-vde.conf",
-            "[Unit]\nAfter=vde-switch.service systemd-networkd.service\nWants=systemd-networkd.service\n",
+            (
+                "[Unit]\n"
+                "After=vde-switch.service systemd-networkd.service\n"
+                "Wants=systemd-networkd.service\n"
+            ),
         )
         self.command(
             context,

@@ -36,19 +36,20 @@ from corvus_test_harness import SingleNodeCase
 pytestmark = pytest.mark.timeout(1800)
 
 
-_BAKE_TEMPLATE = textwrap.dedent("""
-    name: {tpl_name}
-    hidden: true
-    cpuCount: 2
-    ram: 1024M
-    headless: true
-    guestAgent: true
-    drives:
-      - diskImage: {base_disk}
-        interface: virtio
-        strategy: overlay
-        size: 2048M
-""").strip()
+_BAKE_TEMPLATE = textwrap.dedent(
+    "\n"
+    "    name: {tpl_name}\n"
+    "    hidden: true\n"
+    "    cpuCount: 2\n"
+    "    ram: 1024M\n"
+    "    headless: true\n"
+    "    guestAgent: true\n"
+    "    drives:\n"
+    "      - diskImage: {base_disk}\n"
+    "        interface: virtio\n"
+    "        strategy: overlay\n"
+    "        size: 2048M\n"
+).strip()
 
 
 def _drop_build_orphans(client: Client) -> None:
@@ -100,20 +101,22 @@ class TestBuildModes(SingleNodeCase):
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    ifExists: error
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: "true"
-                  cleanup: always
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    ifExists: error\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "true"\n'
+            f"                  cleanup: always\n"
+            f"        "
+        ).strip()
         try:
             end = _run_pipeline(self.client, pipeline_yaml)
             bo = end.builds[0]
@@ -163,20 +166,22 @@ class TestBuildModes(SingleNodeCase):
             tpl = self.client.templates.create(
                 _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
             )
-            pipeline_yaml = textwrap.dedent(f"""
-                pipeline:
-                  - build:
-                      name: {artifact_name}
-                      template: {tpl_name}
-                      strategy: overlay
-                      target:
-                        ifExists: overwrite
-                        format: qcow2
-                        size: 1G
-                      provisioners:
-                        - shell: "true"
-                      cleanup: always
-            """).strip()
+            pipeline_yaml = textwrap.dedent(
+                f"\n"
+                f"                pipeline:\n"
+                f"                  - build:\n"
+                f"                      name: {artifact_name}\n"
+                f"                      template: {tpl_name}\n"
+                f"                      strategy: overlay\n"
+                f"                      target:\n"
+                f"                        ifExists: overwrite\n"
+                f"                        format: qcow2\n"
+                f"                        size: 1G\n"
+                f"                      provisioners:\n"
+                f'                        - shell: "true"\n'
+                f"                      cleanup: always\n"
+                f"            "
+            ).strip()
             try:
                 end = _run_pipeline(self.client, pipeline_yaml)
                 bo = end.builds[0]
@@ -223,21 +228,23 @@ class TestBuildModes(SingleNodeCase):
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    ifExists: overwrite
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: "true"
-                  cleanup: always
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    ifExists: overwrite\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "true"\n'
+            f"                  cleanup: always\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
         try:
             end = _run_pipeline(self.client, pipeline_yaml)
             bo = end.builds[0]
@@ -275,20 +282,22 @@ class TestBuildModes(SingleNodeCase):
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: "exit 7"
-                  cleanup: onSuccess
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "exit 7"\n'
+            f"                  cleanup: onSuccess\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
         try:
             end = _run_pipeline(self.client, pipeline_yaml)
             bo = end.builds[0]
@@ -323,20 +332,22 @@ class TestBuildModes(SingleNodeCase):
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: "exit 7"
-                  cleanup: never
-                  waitForShutdownSec: 300
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "exit 7"\n'
+            f"                  cleanup: never\n"
+            f"                  waitForShutdownSec: 300\n"
+            f"        "
+        ).strip()
         try:
             end = _run_pipeline(self.client, pipeline_yaml)
             bo = end.builds[0]
@@ -383,28 +394,30 @@ class TestBuildModes(SingleNodeCase):
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )
-        pipeline_yaml = textwrap.dedent(f"""
-            pipeline:
-              - apply:
-                  sshKeys:
-                    - name: {key_name}
-                      publicKey: "{pubkey}"
-                  disks:
-                    - name: {artifact_name}
-                      size: 64M
-                      format: qcow2
-              - build:
-                  name: {artifact_name}
-                  template: {tpl_name}
-                  strategy: overlay
-                  target:
-                    ifExists: skip
-                    format: qcow2
-                    size: 1G
-                  provisioners:
-                    - shell: "echo SHOULD NOT RUN; exit 1"
-                  cleanup: always
-        """).strip()
+        pipeline_yaml = textwrap.dedent(
+            f"\n"
+            f"            pipeline:\n"
+            f"              - apply:\n"
+            f"                  sshKeys:\n"
+            f"                    - name: {key_name}\n"
+            f'                      publicKey: "{pubkey}"\n'
+            f"                  disks:\n"
+            f"                    - name: {artifact_name}\n"
+            f"                      size: 64M\n"
+            f"                      format: qcow2\n"
+            f"              - build:\n"
+            f"                  name: {artifact_name}\n"
+            f"                  template: {tpl_name}\n"
+            f"                  strategy: overlay\n"
+            f"                  target:\n"
+            f"                    ifExists: skip\n"
+            f"                    format: qcow2\n"
+            f"                    size: 1G\n"
+            f"                  provisioners:\n"
+            f'                    - shell: "echo SHOULD NOT RUN; exit 1"\n'
+            f"                  cleanup: always\n"
+            f"        "
+        ).strip()
         try:
             end = _run_pipeline(self.client, pipeline_yaml)
             # Two `BuildOneResult` entries — one per pipeline step.

@@ -100,9 +100,10 @@ class DatabaseMigrationCase(SingleNodeCase):
         # Disable restart-on-failure so rejected upgrades have a definitive
         # exit status and cannot repeatedly touch the database under inspection.
         unit = (
-            "[Service]\nExecStart=\n"
-            "ExecStart=/opt/corvus/bin/corvus --host 0.0.0.0 --port 9876 "
-            f"--database {database} --log-level debug\nRestart=no\n"
+            f"[Service]\n"
+            f"ExecStart=\n"
+            f"ExecStart=/opt/corvus/bin/corvus --host 0.0.0.0 --port 9876 --database {database} --log-level debug\n"
+            f"Restart=no\n"
         )
         self.node.run("sudo mkdir -p /etc/systemd/system/corvus.service.d")
         self.node.run(
@@ -148,10 +149,7 @@ class DatabaseMigrationCase(SingleNodeCase):
     def test_01_upgrade_version_2_and_restart(self) -> None:
         self._prepare(historical=True)
         assert self._query("SELECT version FROM schema_version") == "2"
-        insert = (
-            "INSERT INTO drive (vm_id, disk_image_id, interface, media, cache_type) "
-            "VALUES (1, NULL, 'ide', 'cdrom', 'none')"
-        )
+        insert = "INSERT INTO drive (vm_id, disk_image_id, interface, media, cache_type) VALUES (1, NULL, 'ide', 'cdrom', 'none')"
         # Establish that this really is the old schema before starting Corvus.
         with pytest.raises(subprocess.CalledProcessError):
             self._execute(insert)
@@ -180,8 +178,7 @@ class DatabaseMigrationCase(SingleNodeCase):
             == "latest"
         )
         self._execute(
-            "INSERT INTO audio_device (vm_id, backend, options) "
-            "VALUES (1, 'pulse', 'server=192.0.2.10,out.name=speakers,in.name=mic')"
+            "INSERT INTO audio_device (vm_id, backend, options) VALUES (1, 'pulse', 'server=192.0.2.10,out.name=speakers,in.name=mic')"
         )
         assert self._query("SELECT COUNT(*) FROM audio_device WHERE vm_id = 1") == "1"
         with pytest.raises(subprocess.CalledProcessError):
@@ -203,19 +200,13 @@ class DatabaseMigrationCase(SingleNodeCase):
         )
         assert "migration_drive_media" in self._query(index_query)
         assert self._query("SELECT COUNT(*) FROM disk_image_build_identity") == "0"
-        identity = (
-            "INSERT INTO disk_image_build_identity (disk_image_id, fingerprint, inputs) "
-            "VALUES (1, 'abc', '{}')"
-        )
+        identity = "INSERT INTO disk_image_build_identity (disk_image_id, fingerprint, inputs) VALUES (1, 'abc', '{}')"
         self._execute(identity)
         with pytest.raises(subprocess.CalledProcessError):
             self._execute(identity)
         with pytest.raises(subprocess.CalledProcessError):
             self._execute(identity.replace("(1,", "(999,"))
-        upload_identity = (
-            "INSERT INTO disk_image_upload_identity (disk_image_id, digest, source_path) "
-            "VALUES (1, 'sha256-digest', NULL)"
-        )
+        upload_identity = "INSERT INTO disk_image_upload_identity (disk_image_id, digest, source_path) VALUES (1, 'sha256-digest', NULL)"
         self._execute(upload_identity)
         with pytest.raises(subprocess.CalledProcessError):
             self._execute(upload_identity)
@@ -310,12 +301,7 @@ class TestDatabaseMigrationsSqlite(DatabaseMigrationCase):
                         == 0
                     )
                 database.execute_script(
-                    "CREATE TABLE parent (id INTEGER PRIMARY KEY);"
-                    "CREATE TABLE sample ("
-                    "id INTEGER PRIMARY KEY, label TEXT, weight REAL, optional TEXT,"
-                    "parent_id INTEGER REFERENCES parent(id));"
-                    "INSERT INTO parent VALUES (1);"
-                    "INSERT INTO sample VALUES (1, 'a;b', 1.5, NULL, 1);",
+                    "CREATE TABLE parent (id INTEGER PRIMARY KEY);CREATE TABLE sample (id INTEGER PRIMARY KEY, label TEXT, weight REAL, optional TEXT,parent_id INTEGER REFERENCES parent(id));INSERT INTO parent VALUES (1);INSERT INTO sample VALUES (1, 'a;b', 1.5, NULL, 1);",
                     create=True,
                 )
                 label = "https://example.test/образ?name='quoted'&release=2;next"
@@ -340,8 +326,7 @@ class TestDatabaseMigrationsSqlite(DatabaseMigrationCase):
                 assert b"FOREIGN KEY" in failure.value.stderr
                 with pytest.raises(subprocess.CalledProcessError):
                     database.execute_script(
-                        "INSERT INTO sample (id, label, parent_id) VALUES (3, 'rolled;back', 1);"
-                        "INSERT INTO sample (id, parent_id) VALUES (4, 999);"
+                        "INSERT INTO sample (id, label, parent_id) VALUES (3, 'rolled;back', 1);INSERT INTO sample (id, parent_id) VALUES (4, 999);"
                     )
                 assert database.query("SELECT id FROM sample ORDER BY id") == [[1], [2]]
                 assert database.query("SELECT * FROM sample WHERE id = ?", (999,)) == []
