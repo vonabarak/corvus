@@ -1,0 +1,79 @@
+# yaml-language-server: $schema=../../../schema/json/build.schema.json
+# Prepare dependencies and the harness key through this directory's Makefile.
+vars:
+  portage_keyserver: hkps://keys.gentoo.org
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: 'true'
+  GETBINPKG: 'true'
+pipeline:
+- apply:
+    templates:
+    - name: corvus-test-vm-bake
+      hidden: true
+      cpuCount: 8
+      ram: 16G
+      cloudInit: false
+      guestAgent: true
+      startupTimeoutSec: 1200
+      description: Native musl builder for the Python corvus-test-vm recipe
+      sharedDirs:
+      - path: '{{ cache_dir }}'
+        tag: corvus-cache
+      drives:
+      - diskImage: gentoo-musl-openrc-builder:latest
+        interface: virtio
+        strategy: overlay
+        cacheType: writeback
+        discard: true
+        size: 40G
+      - diskImage: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImage: ovmf-vars
+        interface: pflash
+        strategy: clone
+      networkInterfaces:
+      - network: corvus
+      headless: true
+- build:
+    name: corvus-test-vm
+    description: Python-built Gentoo integration-test guest
+    template: corvus-test-vm-bake
+    strategy: from-scratch
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      size: 1G
+      path: BaseImages/Gentoo/
+      compact: true
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
+        IMAGE_LIBC: musl
+        IMAGE_INIT: openrc
+        IMAGE_ROOT: /mnt/sysroot
+        TARGET_DISK: /dev/vdb
+        FEATURES: -userfetch -userpriv
+        KERNEL_CONFIG: /run/corvus-kernel-config
+    provisioners:
+    - file:
+        from: ./build.pyz
+        to: /run/corvus-test-vm.pyz
+        mode: '0644'
+    - file:
+        from: ../common/kernel/gentoo-kernel
+        to: /run/corvus-kernel-config
+        mode: '0644'
+    - file:
+        from: ../../../integration_tests/keys/corvus-test-key.pub
+        to: /run/corvus-test-key.pub
+        mode: '0644'
+    - shell:
+        inline: python3 /run/corvus-test-vm.pyz
+        timeoutSec: 28800
+    cleanup: onSuccess

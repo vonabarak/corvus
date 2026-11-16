@@ -1,7 +1,7 @@
 """Register pre-baked OS images with the inner Corvus daemon.
 
 The test image's `home-corvus-VMs-BaseImagesRO.mount` (baked in
-[`yaml/gentoo/scripts/images/corvus-test-node/systemd/`](../../yaml/gentoo/scripts/images/corvus-test-node/systemd/)) virtiofs-mounts
+[`yaml/gentoo/corvus-test-node/assets/systemd/`](../../yaml/gentoo/corvus-test-node/assets/systemd/)) virtiofs-mounts
 the host's `~/VMs/BaseImages` read-only at `/home/corvus/VMs/BaseImagesRO`
 inside the test VM. The node's own writable `BaseImages` holds test outputs.
 This module:
@@ -81,7 +81,9 @@ def discover(
 
     Directory aliases prefer a corvus-test-* family; otherwise they use the
     alphabetically first family. Retained versions and unregistered files are
-    ignored. File names and numeric IDs never determine which version wins.
+    ignored. Placements unavailable on this host are ignored too: catalogue
+    paths belong to their nodes, even when their directory names match ours.
+    File names and numeric IDs never determine which version wins.
     """
     host_dir = host_dir.resolve()
     families: dict[str, BaseImage] = {}
@@ -106,11 +108,11 @@ def discover(
             if not isinstance(raw_path, str):
                 raise ValueError(f"Missing placement path for image {name}:{version}")
             path = Path(raw_path).resolve()
-            if path.is_relative_to(host_dir) and path.suffix.lower() in _IMAGE_SUFFIXES:
-                if not path.is_file():
-                    raise FileNotFoundError(
-                        f"Published image {name}:{version} is missing: {path}"
-                    )
+            if (
+                path.is_relative_to(host_dir)
+                and path.suffix.lower() in _IMAGE_SUFFIXES
+                and path.is_file()
+            ):
                 paths.add(path)
         if not paths:
             continue

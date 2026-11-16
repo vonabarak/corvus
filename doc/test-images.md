@@ -45,39 +45,18 @@ publication. `image-check` checks every declared output without publishing.
 removes reusable download caches where declared. Published resources, runtime
 VMs, writable disks, SSH keys, and caches survive ordinary cleanup.
 
-A standalone [Catalyst alternative](../yaml/gentoo-catalyst/README.md) builds a
-separately named headless image. It is not included in aggregate image targets.
-
-A standalone [Python stage library](image-builder.md) builds
-`gentoo-glibc-systemd-headless` and `gentoo-musl-openrc-headless`
-using their registered native builders. Select the latter with
-`IMAGE=musl-openrc-headless`; the default is `IMAGE=glibc-systemd-headless`.
-Each flavor has matching `.yml`, `.py`, and generated `.pyz` basenames.
-Run `make -C yaml/gentoo-python plan` to inspect its stages and
-`make -C yaml/gentoo-python build` to build the image and register BIOS/UEFI
-templates. It uses Portage Python APIs for target package verification and
-`emerge` for installation, and does not call the legacy shell stages. This pilot
-is separate from the top-level image targets.
-
-The same directory also supports `IMAGE=corvus-test-node` and
-`IMAGE=corvus-test-vm`. Build these explicitly with
-`make -C yaml/gentoo-python build IMAGE=<name>`; the node first evaluates its
-Python glibc headless base, while the guest needs only the native musl builder.
-Both prepare the harness SSH key. Python and retained shell recipes publish the
-same canonical names, so existing tests consume the selected implementation
-without harness changes. Top-level image commands still use the shell recipes.
-
-The existing shell-based Gentoo recipes share `yaml/gentoo/`, its Makefile,
-kernel configuration and `scripts/` provisioners. The Corvus development image builds from
-`gentoo-glibc-systemd-headless`. The default `build` target runs the full chain. Manage the stages
-with `IMAGE` (default: `gentoo-corvus-test`):
+Gentoo recipes use the [Python stage library](image-builder.md) in
+`yaml/gentoo/`. Each recipe owns its YAML, build scripts, and private assets;
+`common/` holds shared assets. Headless recipes publish base and cloud-init
+images with BIOS/UEFI templates. The top-level image targets use these recipes.
+The default local selector is `IMAGE=glibc-systemd-headless`.
 
 ```sh
-make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-upstream-cloudinit
-make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-builder-cloudinit
-make -C yaml/gentoo build IMAGE=gentoo-musl-openrc-builder
-make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-headless
-make -C yaml/gentoo build IMAGE=gentoo-corvus-test
+make -C yaml/gentoo build IMAGE=glibc-systemd-upstream-cloudinit
+make -C yaml/gentoo build IMAGE=glibc-systemd-builder-cloudinit
+make -C yaml/gentoo build IMAGE=musl-openrc-builder
+make -C yaml/gentoo build IMAGE=glibc-systemd-headless
+make -C yaml/gentoo build IMAGE=corvus-test
 make image IMAGE=gentoo-glibc-systemd-headless
 make image IMAGE=gentoo-corvus-test
 ```
@@ -87,12 +66,12 @@ and `cache-clean`. Each selector covers the complete recipe and its templates;
 headless and musl recipes include both base and cloud-init variants.
 `publish` submits only the selected recipe; `build` refreshes dependencies first.
 
-Ordinary Gentoo builds use `ifExists: update`. `build IMAGE=gentoo-glibc-systemd-upstream-cloudinit`
+Ordinary Gentoo builds use `ifExists: update`. `build IMAGE=glibc-systemd-upstream-cloudinit`
 fetches the current upstream manifest and the SHA256 for its selected filename.
 An unchanged checksum reuses the imported image without downloading it again.
-`build IMAGE=gentoo-glibc-systemd-headless` checks that import first, then evaluates the
+`build IMAGE=glibc-systemd-headless` checks that import first, then evaluates the
 builder, headless, and headless cloud-init builds in order.
-`build IMAGE=gentoo-corvus-test` evaluates that whole chain before the
+`build IMAGE=corvus-test` evaluates that whole chain before the
 development image. Each build skips when its stored metadata matches the
 current recipe and resolved source versions; a changed source or rebuilt
 intermediate causes dependent builds to rebuild. See
@@ -100,9 +79,9 @@ intermediate causes dependent builds to rebuild. See
 
 The Gentoo pipelines use official Gentoo mirrors and a writable
 virtiofs cache; the build host does not need Gentoo or a Portage tree. The
-`gentoo-glibc-systemd-upstream-cloudinit.yml` recipe owns the upstream import, tagged with the timestamp
-in Gentoo's filename. `gentoo-glibc-systemd-builder-cloudinit.yml` prepares `gentoo-glibc-systemd-builder-cloudinit` and the
-common `gentoo-glibc-systemd-builder-cloudinit-bake` template, then `gentoo-glibc-systemd-headless.yml` builds
+`glibc-systemd-upstream-cloudinit.yml` recipe owns the upstream import, tagged with the timestamp
+in Gentoo's filename. `glibc-systemd-builder-cloudinit.yml` prepares `gentoo-glibc-systemd-builder-cloudinit` and the
+common `gentoo-glibc-systemd-builder-cloudinit-bake` template, then `glibc-systemd-headless.yml` builds
 `gentoo-glibc-systemd-headless` from scratch, then adds cloud-init with `offline-overlay`
 using that same external builder.
 The base runtime is never booted as a cloud-init build host.
@@ -160,11 +139,12 @@ recreated after a later failure. Cleanup failures can leave partially released
 resources; inspect the remaining mounts before removing any workspace. Use a
 fresh helper for another build rather than rerunning over preserved mounts.
 
-Each image has a dedicated entry point under `scripts/images/<image>/`.
-Shared workflows, stages, and responsibility-based libraries live under
-`scripts/workflows/`, `scripts/stages/`, and `scripts/lib/` respectively.
-See the [Gentoo development rules](../yaml/gentoo/README.md) for naming,
-script ownership, package ownership, and the entry-point inventory.
+Each recipe lives in its own directory under `yaml/gentoo/`, with its YAML,
+Python entry point, and recipe-specific assets. Shared assets live in `common/`.
+The headless recipes use separate `build-base.py` and `build-cloudinit.py` scripts.
+The Makefile bundles these scripts with `python/corvus_image_builder` into standalone
+`.pyz` files before publication. See the [Gentoo build guide](../yaml/gentoo/README.md)
+and [builder architecture](image-builder.md).
 
 Both runtimes refresh repository metadata before package selection and use UTC,
 localhost defaults, locked root passwords, and fresh machine/SSH identities.
@@ -177,31 +157,31 @@ Locale handling, service setup, and package sets remain specific to each image.
 Documentation/development-file stripping and forbidden-package checks belong only
 to the immutable `corvus-test-vm` guest.
 
-The independent `gentoo-musl-openrc-headless.yml` pipeline builds a complete musl/OpenRC system:
+The independent `musl-openrc-headless.yml` pipeline builds a complete musl/OpenRC system:
 
 ```sh
 make image IMAGE=gentoo-musl-openrc-headless
 make image-ensure IMAGE=gentoo-musl-openrc-headless
 make image-rebuild IMAGE=gentoo-musl-openrc-headless
 # Equivalent entry point:
-make -C yaml/gentoo build IMAGE=gentoo-musl-openrc-headless
+make -C yaml/gentoo build IMAGE=musl-openrc-headless
 ```
 
 It consumes the native `gentoo-musl-openrc-builder-bake` template. Its dedicated
-`gentoo-musl-openrc-builder.yml` recipe bootstraps a persistent musl/OpenRC image from
+`musl-openrc-builder.yml` recipe bootstraps a persistent musl/OpenRC image from
 the official stage3 using the glibc builder. This one-time bootstrap enters
 the new disk with chroot to install Portage, GCC, binutils,
 GRUB, disk tools, networking, and QGA. The resulting builder boots independently
 with 8 CPUs, 8 GiB RAM, and a 40 GiB disk.
 The dependency chain is `gentoo-glibc-systemd-upstream-cloudinit → gentoo-glibc-systemd-builder-cloudinit → gentoo-musl-openrc-builder →
 gentoo-musl-openrc-headless`; the headless and development images are not required.
-`ensure IMAGE=gentoo-musl-openrc-builder` checks presence only;
-`build IMAGE=gentoo-musl-openrc-builder` propagates the selected image policy.
+`ensure IMAGE=musl-openrc-builder` checks presence only;
+`build IMAGE=musl-openrc-builder` propagates the selected image policy.
 
-Shared shell libraries in `scripts/lib/` implement cache mounts, glibc cache
-configuration, disk layout, GRUB, and image metadata. Entry scripts own their
-mount lifetimes and flavor-specific package and service choices. Bootstrap
-cloud-init contains only commands needed before QGA can upload scripts; no
+Shared Python stages implement cache mounts, Portage configuration, disk layout,
+GRUB, and image metadata. Recipe scripts select stage sequences and flavor-specific
+package and service choices. Bootstrap cloud-init contains only commands needed
+before QGA can upload bundles; no
 cloud-init `write_files` support is required. The Makefile resolves
 an official amd64 musl/OpenRC stage3 and its SHA256 only when publishing the
 builder recipe. Both runtime steps boot the reusable musl builder and compile
@@ -361,7 +341,7 @@ Pass them as Make variables or YAML build variables (`--var USEPKG=false`).
 For a build that installs packages from source, run:
 
 ```sh
-make -C yaml/gentoo build IMAGE=gentoo-corvus-test USEPKG=false GETBINPKG=false
+make -C yaml/gentoo build IMAGE=corvus-test USEPKG=false GETBINPKG=false
 ```
 
 The controls propagate through dependency builds and musl bootstrap installations.
@@ -452,7 +432,7 @@ Conditional builds do not detect changes in external package repositories or
 host-mounted directories. Use `image-rebuild` when those undeclared inputs
 must be refreshed. Direct CLI invocation requires preparing dependencies first.
 
-For direct Gentoo CLI use, run `make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-builder-cloudinit` before
+For direct Gentoo CLI use, run `make -C yaml/gentoo build IMAGE=glibc-systemd-builder-cloudinit` before
 invoking the headless YAML. Its Make build targets prepare the source
 automatically, including with parallel Make.
 
@@ -502,7 +482,7 @@ consumers. `image-rebuild` uses `overwrite` for imports, uploads, and builds;
 | `ubuntu-nginx` | `yaml/ubuntu-nginx/` | `ubuntu26-nginx`, an example Ubuntu 26.04 nginx derivative built from the multi-OS Ubuntu base. |
 | `monitor` | `yaml/corvus-monitor/` | `corvus-monitor`, a Debian 12 Prometheus and Grafana image. Set `CORVUS_WEB_TARGET=host:port` when building to bake a Corvus metrics endpoint into its dashboard configuration. |
 
-The test-node recipe lives in `yaml/gentoo/corvus-test-node.yml`. Build it with
+The test-node recipe lives in `yaml/gentoo/corvus-test-node/corvus-test-node.yml`. Build it with
 `make image IMAGE=corvus-test-node` or `make -C yaml/gentoo build IMAGE=corvus-test-node`;
 both prepare the registered dependencies and integration SSH key.
 It uses the same Gentoo cache as the headless and development images. Run

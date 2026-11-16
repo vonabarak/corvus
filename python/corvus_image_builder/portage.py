@@ -22,6 +22,7 @@ class InstallRequest:
     reinstall_atoms: tuple[str, ...] = ()
     tmpdir: Path | None = None
     onlydeps: bool = False
+    # True installs build dependencies into ROOT too; False/None use defaults.
     root_deps: bool | None = None
     update: bool = False
     deep: bool = False
@@ -91,12 +92,10 @@ class PortageBackend:
         for option in ("onlydeps", "update", "deep", "newuse"):
             if getattr(request, option):
                 argv.append(f"--{option}")
-        for option, value in (
-            ("root-deps", request.root_deps),
-            ("autounmask", request.autounmask),
-        ):
-            if value is not None:
-                argv.append(f"--{option}=" + ("y" if value else "n"))
+        if request.root_deps:
+            argv.append("--root-deps")
+        if request.autounmask is not None:
+            argv.append("--autounmask=" + ("y" if request.autounmask else "n"))
         if request.noreplace:
             argv.append("--noreplace")
         for option, atoms in (

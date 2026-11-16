@@ -23,6 +23,8 @@ class WorkspaceStage(GentooStage):
     Mount the corvus-cache virtiofs share when needed and register its cleanup.
     """
 
+    scratch_directory = "/var/tmp"
+
     produces = frozenset({"workspace"})
 
     def validate(self, context: BuildContext) -> None:
@@ -121,7 +123,9 @@ class WorkspaceStage(GentooStage):
         lock = (self.settings.cache / "python-build.lock").open("a")
         fcntl.flock(lock, fcntl.LOCK_EX)
         context.own(lock.close)
-        scratch = Path(tempfile.mkdtemp(prefix="corvus-python-", dir="/var/tmp"))
+        scratch = Path(
+            tempfile.mkdtemp(prefix="corvus-python-", dir=self.scratch_directory)
+        )
         scratch.chmod(0o755)
         context.own(lambda: shutil.rmtree(scratch), preserve_on_failure=True)
         context.artifacts["scratch"] = scratch

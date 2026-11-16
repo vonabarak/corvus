@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_rescue_plan_and_recipe(tmp_path: Path) -> None:
-    script = runpy.run_path(str(ROOT / "yaml/gentoo-python/rescue.py"))
+    script = runpy.run_path(str(ROOT / "yaml/gentoo/rescue/build.py"))
     context = BuildContext(tmp_path)
     names = BuildManager().plan(
         script["build_recipe"](Settings(Path("/dev/vdb"), tmp_path, None)), context
@@ -28,15 +28,24 @@ def test_rescue_plan_and_recipe(tmp_path: Path) -> None:
         < names.index("RescuePackStage")
         < names.index("RescueBootloaderStage")
     )
-    recipe = yaml.safe_load((ROOT / "yaml/gentoo-python/rescue.yml").read_text())
+    recipe = yaml.safe_load((ROOT / "yaml/gentoo/rescue/rescue.yml").read_text())
     build = recipe["pipeline"][1]["build"]
     assert build["target"]["format"] == "raw"
     assert build["target"]["size"] == "2G"
     files = [p["file"]["from"] for p in build["provisioners"] if "file" in p]
-    assert len(files) == 8
+    assert len(files) == 3
+    directories = [p["directory"] for p in build["provisioners"] if "directory" in p]
+    assert directories == [
+        {
+            "from": "./assets/dracut",
+            "to": "/run/rescue-assets/dracut",
+            "mode": "0755",
+        }
+    ]
+    assert (ROOT / "yaml/gentoo/rescue" / directories[0]["from"]).is_dir()
     assert not any(name.endswith(("build.sh", "lib.sh", "kernel.sh")) for name in files)
     for name in files[1:]:
-        assert (ROOT / "yaml/gentoo-python" / name).is_file()
+        assert (ROOT / "yaml/gentoo/rescue" / name).is_file()
     assert not (tmp_path / "etc").exists()
 
 
@@ -77,9 +86,9 @@ def test_cleanup_does_not_publish_image(tmp_path: Path) -> None:
 
 
 def test_rescue_bundle_plans_outside_repository(tmp_path: Path) -> None:
-    bundler = runpy.run_path(str(ROOT / "yaml/gentoo-python/bundle.py"))["bundle"]
+    bundler = runpy.run_path(str(ROOT / "yaml/gentoo/bundle.py"))["bundle"]
     archive = tmp_path / "rescue.pyz"
-    bundler(ROOT / "yaml/gentoo-python/rescue.py", archive)
+    bundler(ROOT / "yaml/gentoo/rescue/build.py", archive)
     result = subprocess.run(
         [sys.executable, "-I", str(archive)],
         cwd=tmp_path,

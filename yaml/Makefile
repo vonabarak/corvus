@@ -18,13 +18,13 @@ IMAGE_DIR_windows := windows-server-2025
 IMAGE_DIR_installer := corvus-test-installer
 IMAGE_DIR_key := ../integration_tests/keys
 IMAGE_DIR_gentoo-rescue := gentoo
-IMAGE_ARGS_gentoo-rescue := IMAGE=gentoo-rescue
+IMAGE_ARGS_gentoo-rescue := IMAGE=rescue
 IMAGE_DIR_gentoo-corvus-test := gentoo
-IMAGE_ARGS_gentoo-corvus-test := IMAGE=gentoo-corvus-test
+IMAGE_ARGS_gentoo-corvus-test := IMAGE=corvus-test
 IMAGE_DIR_gentoo-glibc-systemd-headless := gentoo
-IMAGE_ARGS_gentoo-glibc-systemd-headless := IMAGE=gentoo-glibc-systemd-headless
+IMAGE_ARGS_gentoo-glibc-systemd-headless := IMAGE=glibc-systemd-headless
 IMAGE_DIR_gentoo-musl-openrc-headless := gentoo
-IMAGE_ARGS_gentoo-musl-openrc-headless := IMAGE=gentoo-musl-openrc-headless
+IMAGE_ARGS_gentoo-musl-openrc-headless := IMAGE=musl-openrc-headless
 IMAGE_DIR_windows-11 := windows-11
 IMAGE_DIR_windows-11-desktop := windows-11-desktop
 IMAGE_DIR_debian-nginx := debian-nginx
@@ -75,7 +75,7 @@ image-list:
 images:
 	@for image in key multi-os freebsd freebsd-headless gentoo-corvus-test gentoo-musl-openrc-headless gentoo-rescue corvus-test-node corvus-test-vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do \
 	  case "$$image" in gentoo-musl-openrc-headless) \
-	    $(MAKE) --no-print-directory -C gentoo build IMAGE=gentoo-musl-openrc-builder BUILD_DEPENDENCIES=dependencies && \
+	    $(MAKE) --no-print-directory -C gentoo build IMAGE=musl-openrc-builder BUILD_DEPENDENCIES=dependencies && \
 	    $(MAKE) --no-print-directory image IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
 	  freebsd-headless|gentoo-rescue|corvus-test-node|corvus-test-vm|almalinux-10-desktop|windows|windows-11|windows-11-desktop|debian-nginx|ubuntu-nginx|monitor) \
 	    $(MAKE) --no-print-directory image IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
@@ -88,7 +88,7 @@ images-clean:
 images-rebuild:
 	@for image in gentoo-corvus-test gentoo-musl-openrc-headless gentoo-rescue multi-os freebsd freebsd-headless corvus-test-node corvus-test-vm virtio-win windows-server-media almalinux-10-media almalinux-10-desktop windows installer windows-11 windows-11-desktop debian-nginx ubuntu-nginx monitor; do \
 	  case "$$image" in gentoo-musl-openrc-headless) \
-	    $(MAKE) --no-print-directory -C gentoo rebuild IMAGE=gentoo-musl-openrc-builder BUILD_DEPENDENCIES=dependencies && \
+	    $(MAKE) --no-print-directory -C gentoo rebuild IMAGE=musl-openrc-builder BUILD_DEPENDENCIES=dependencies && \
 	    $(MAKE) --no-print-directory image-rebuild IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \
 	  freebsd-headless|gentoo-rescue|corvus-test-node|corvus-test-vm|almalinux-10-desktop|windows|windows-11|windows-11-desktop|debian-nginx|ubuntu-nginx|monitor) \
 	    $(MAKE) --no-print-directory image-rebuild IMAGE=$$image BUILD_DEPENDENCIES=dependencies ;; \

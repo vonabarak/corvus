@@ -14,6 +14,7 @@
 module Corvus.Client.Commands.Build
   ( handleBuild
   , preprocessRoot
+  , expandDirectoryProvisioners
   )
 where
 
@@ -175,7 +176,21 @@ runBuild fmt conn yaml wait = do
 -- pipeline steps do not carry provisioners, so they are
 -- skipped untouched.
 preprocessRoot :: FilePath -> Value -> IO Value
-preprocessRoot baseDir = walkPipeline
+preprocessRoot baseDir = rewriteProvisioners walkProv
+  where
+    walkProv (Object o) | KM.member "directory" o = expandDirectory baseDir o
+    walkProv value = inlineProvisioner baseDir value
+
+-- | Expand directory shorthand without reading other client-local assets.
+-- Useful for schema validation before generated file assets are available.
+expandDirectoryProvisioners :: FilePath -> Value -> IO Value
+expandDirectoryProvisioners baseDir = rewriteProvisioners walkProv
+  where
+    walkProv (Object o) | KM.member "directory" o = expandDirectory baseDir o
+    walkProv value = pure [value]
+
+rewriteProvisioners :: (Value -> IO [Value]) -> Value -> IO Value
+rewriteProvisioners walkProv = walkPipeline
   where
     walkPipeline (Object o) = case KM.lookup "pipeline" o of
       Just (Array steps) -> do
@@ -186,7 +201,11 @@ preprocessRoot baseDir = walkPipeline
 
     -- Only build: carries provisioners that need preprocessing.
     walkStep (Object o) = do
-      o' <- adjustField "build" rewriteBuild o
+      o' <- case KM.lookup "build" o of
+        Just build -> do
+          build' <- rewriteBuild build
+          pure (KM.insert "build" build' o)
+        Nothing -> pure o
       pure (Object o')
     walkStep v = pure v
 
@@ -199,7 +218,10 @@ preprocessRoot baseDir = walkPipeline
       pure (Object bo1)
     rewriteBuild v = pure v
 
-    walkProv (Object o) | KM.member "directory" o = expandDirectory baseDir o
+-- | Inline one shell or file provisioner after directory shorthand is handled.
+inlineProvisioner :: FilePath -> Value -> IO [Value]
+inlineProvisioner baseDir = walkProv
+  where
     walkProv (Object o) = do
       o1 <- adjustField "shell" rewriteShell o
       oWait <- adjustField "wait-for" rewriteShell o1

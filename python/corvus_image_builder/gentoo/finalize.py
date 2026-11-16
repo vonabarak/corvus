@@ -17,6 +17,8 @@ class FinalizeStage(GentooStage):
     Corvus performs final disk compaction and publication.
     """
 
+    retain_repositories = False
+
     requires = frozenset({"bootloader"})
     produces = frozenset({"image"})
 
@@ -41,7 +43,11 @@ class FinalizeStage(GentooStage):
             "var/lib/portage/logs",
             "usr/local/lib/corvus-build",
         ):
-            remove(context.root, relative)
+            if relative == "var/db/repos" and self.retain_repositories:
+                continue
+            # A builder's non-recursive root bind hides cache mounts, but
+            # removing their underlying mountpoint inode still raises EBUSY.
+            remove(context.root, relative, keep_directory=True)
         for path in (context.root / "var/log").glob("emerge*"):
             remove(context.root, str(path.relative_to(context.root)))
         for relative in ("tmp", "var/tmp"):

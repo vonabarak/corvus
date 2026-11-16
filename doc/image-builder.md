@@ -24,7 +24,7 @@ The implementation separates execution, Portage access, and Gentoo stages:
 | [`portage.py`](../python/corvus_image_builder/portage.py) | Installed-package queries, metadata, and package installation requests |
 | [`gentoo/`](../python/corvus_image_builder/gentoo/) | Native builder validation and concrete Gentoo image stages |
 
-The Gentoo package exports its public classes through
+The Gentoo package exports its core stage classes through
 [`gentoo/__init__.py`](../python/corvus_image_builder/gentoo/__init__.py), so flavor
 scripts can import them from `corvus_image_builder.gentoo`. Its implementation is
 split by responsibility:
@@ -42,16 +42,20 @@ split by responsibility:
 | [`systemd.py`](../python/corvus_image_builder/gentoo/systemd.py) | glibc/systemd image configuration |
 | [`openrc.py`](../python/corvus_image_builder/gentoo/openrc.py) | musl/OpenRC image configuration |
 | [`bootloader.py`](../python/corvus_image_builder/gentoo/bootloader.py) | BIOS and UEFI GRUB installation |
+| [`builders.py`](../python/corvus_image_builder/gentoo/builders.py) | Reusable glibc builder preparation and verified musl stage3 bootstrap |
+| [`cloudinit.py`](../python/corvus_image_builder/gentoo/cloudinit.py) | Cloud-init configuration on existing headless images |
+| [`export.py`](../python/corvus_image_builder/gentoo/export.py) | Rescue payload verification and compact media export |
 | [`finalize.py`](../python/corvus_image_builder/gentoo/finalize.py) | Identity removal and image cleanup |
 
 The exported file-writing, symlink, and guarded removal helpers live in
 [`_files.py`](../python/corvus_image_builder/gentoo/_files.py).
 
-Flavor scripts and their YAML recipes live in
-[`yaml/gentoo-python`](../yaml/gentoo-python/). Each flavor uses matching `.py`,
-`.yml`, and generated `.pyz` basenames. The bundle helper places the chosen
-script at `__main__.py` alongside the library, including its subpackages. Python
-runs that archive inside the builder VM without installing the library there.
+Flavor scripts and YAML recipes live in per-recipe directories under
+[`yaml/gentoo`](../yaml/gentoo/). Each has `build.py`, except the headless
+recipes, which have explicit `build-base.py` and `build-cloudinit.py` scripts.
+Each script is bundled into a same-stem `.pyz` containing the entire library.
+Assets belong to their recipe's `assets/`; shared kernel configuration lives
+in `common/kernel/`. Guest runtime shell hooks remain assets, not build scripts.
 
 `BuildContext` carries the target root, `CommandRunner`, an artifact dictionary,
 and owned resource callbacks. `ImageRecipe` holds stage instances in execution
@@ -137,11 +141,11 @@ Dependency resolution, hooks, compilation, and merges remain owned by `emerge`.
 Run these commands from the repository root:
 
 ```sh
-make -C yaml/gentoo-python plan IMAGE=glibc-systemd-headless
-make -C yaml/gentoo-python build IMAGE=glibc-systemd-headless
+make -C yaml/gentoo plan IMAGE=glibc-systemd-headless
+make -C yaml/gentoo build IMAGE=glibc-systemd-headless
 
-make -C yaml/gentoo-python plan IMAGE=musl-openrc-headless
-make -C yaml/gentoo-python build IMAGE=musl-openrc-headless
+make -C yaml/gentoo plan IMAGE=musl-openrc-headless
+make -C yaml/gentoo build IMAGE=musl-openrc-headless
 ```
 
 `glibc-systemd-headless` is the default `IMAGE`. `plan` bundles the script and
@@ -149,8 +153,7 @@ prints its stage order without requiring Gentoo, root, or a running Corvus daemo
 `build` bundles it, ensures the registered builder dependency through the owning
 `yaml/gentoo` recipe, and invokes `crv build` on the selected YAML. A working
 Corvus installation and the resources named in the YAML, including the `corvus`
-network and OVMF images, are required for actual builds. These targets remain
-local to `yaml/gentoo-python`; the top-level Makefile does not integrate them.
+network and OVMF images, are required for actual builds. Top-level image targets dispatch to these same recipes.
 
 | Flavor | Registered builder dependency | Published image |
 |---|---|---|
@@ -161,15 +164,16 @@ local to `yaml/gentoo-python`; the top-level Makefile does not integrate them.
 
 Each headless YAML also registers BIOS and UEFI runtime templates named after its
 published image, with `-uefi` appended for UEFI. The musl target disk is 4 GiB;
-the glibc target is 20 GiB. Both are headless without cloud-init. The shell
-recipes and their variants remain available under `yaml/gentoo`.
+the glibc target is 20 GiB. Each recipe also builds a separate cloud-init image
+and registers its BIOS and UEFI templates. The legacy shell recipes have been
+replaced by these Python pipelines.
 
-Local Makefile variables include `CACHE_DIR` (default `/data/corvus-cache` on the
+Local Makefile variables include `GENTOO_CACHE_DIR` (default `/data/corvus-cache` on the
 Corvus node), `IMAGE_POLICY` (default `update`), `USEPKG`, and `GETBINPKG` (both
 default `true`). Binary preference permits source builds when needed. For example:
 
 ```sh
-make -C yaml/gentoo-python build IMAGE=musl-openrc-headless USEPKG=false GETBINPKG=false
+make -C yaml/gentoo build IMAGE=musl-openrc-headless USEPKG=false GETBINPKG=false
 ```
 
 `GENTOO_KEYSERVER` selects the repository keyserver (default
@@ -180,7 +184,7 @@ remain enabled on every attempt; persistent failures stop the build. If a
 keyserver cannot refresh a release key, select another server explicitly:
 
 ```sh
-make -C yaml/gentoo-python build IMAGE=musl-openrc-headless GENTOO_KEYSERVER=hkps://keyserver.ubuntu.com
+make -C yaml/gentoo build IMAGE=musl-openrc-headless GENTOO_KEYSERVER=hkps://keyserver.ubuntu.com
 ```
 
 The node cache is shared into the builder as virtiofs tag `corvus-cache`, mounted
@@ -329,40 +333,36 @@ Makefile's `IMAGES` and `BUILDER_<flavor>` definitions. Keep dependency imports 
 their owning recipes. The archive can also be produced directly:
 
 ```sh
-python3 yaml/gentoo-python/bundle.py yaml/gentoo-python/my-flavor.py yaml/gentoo-python/my-flavor.pyz
+python3 yaml/gentoo/bundle.py yaml/gentoo/my-flavor/build.py yaml/gentoo/my-flavor/build.pyz
 ```
 
-Here `my-flavor.py` is the new script you create. Bundle creation is deterministic
+Here `my-flavor/build.py` is the new script you create. Bundle creation is deterministic
 for identical source files; complete image builds depend on repository state,
 packages, and build timestamps and are not guaranteed byte-for-byte reproducible.
 
 
 ## Integration-test images
 
-The standalone Python directory also builds the outer test node and minimal
-nested guest. The original recipes under `yaml/gentoo` remain unchanged.
+The recipe directories also build the outer test node and minimal nested guest.
 
 ```sh
-make -C yaml/gentoo-python plan IMAGE=corvus-test-node
-make -C yaml/gentoo-python build IMAGE=corvus-test-node
-make -C yaml/gentoo-python plan IMAGE=corvus-test-vm
-make -C yaml/gentoo-python build IMAGE=corvus-test-vm
+make -C yaml/gentoo plan IMAGE=corvus-test-node
+make -C yaml/gentoo build IMAGE=corvus-test-node
+make -C yaml/gentoo plan IMAGE=corvus-test-vm
+make -C yaml/gentoo build IMAGE=corvus-test-vm
 ```
 
 Both builds prepare the existing harness SSH key without rotating it. Planning
 only bundles the selected script and checks stage dependencies; it does not
 require the key, root, Gentoo, or a Corvus connection.
 
-All four Python flavors publish canonical names shared with the shell recipes,
-including headless runtime templates and their `-uefi` variants. Whichever
-implementation is built under the selected image policy becomes the published
-version; the integration harness needs no image-name changes. Existing resources
-with older `-python` names are not deleted or redirected. Root image commands
-still select the shell recipes; explicitly use the commands above for Python.
+The Python recipes publish the existing canonical image and runtime template
+names, including the headless cloud-init and UEFI variants. Root image commands
+and the integration harness use these recipes directly.
 
 ### Outer node: customize, do not bootstrap
 
-`corvus-test-node.py` defines an ordered overlay recipe:
+`corvus-test-node/build.py` defines an ordered overlay recipe:
 
 1. Prepare the native glibc workspace, configure the node's Git overlays and
    package policy, and synchronize repositories.
@@ -379,15 +379,14 @@ still select the shell recipes; explicitly use the commands above for Python.
    versions while retaining runtime Portage policy and package records.
 
 The Makefile first evaluates the **local Python glibc headless build**, forwarding
-`IMAGE_POLICY`, `CACHE_DIR`, binary preferences and the keyserver. It does not
-satisfy this dependency merely by finding a shell-built headless image. The node
+`IMAGE_POLICY`, `GENTOO_CACHE_DIR`, binary preferences and the keyserver. The node
 uses `offline-overlay` and retains the headless base's disk size and boot files.
-Static systemd units are uploaded from their existing shared location; no old
+Static systemd units are uploaded from the recipe’s `assets/systemd/` directory; no old
 build shell script is executed.
 
 ### Nested guest: an explicit minimal runtime
 
-`corvus-test-vm.py` assembles the normal fresh-disk, package, kernel, OpenRC and
+`corvus-test-vm/build.py` assembles the normal fresh-disk, package, kernel, OpenRC and
 bootloader stages with test-specific subclasses. Its package bootstrap uses an
 explicit atom list, **not `@system`**, so the artifact contains no compiler,
 Python, Portage, glibc, systemd or sudo. Required C++ runtime DSOs are copied from
@@ -429,8 +428,8 @@ stages belong in `execute()` or `verify()`, not in preflight validation.
 
 ### Corvus development overlay
 
-Run `make -C yaml/gentoo-python plan IMAGE=corvus-test` to inspect the
-stages and `make -C yaml/gentoo-python build IMAGE=corvus-test` to build.
+Run `make -C yaml/gentoo plan IMAGE=corvus-test` to inspect the
+stages and `make -C yaml/gentoo build IMAGE=corvus-test` to build.
 The recipe first evaluates the Python glibc headless base, installs cloud-init
 and live Corvus with build dependencies, and initializes PostgreSQL and VDE.
 It publishes the canonical `gentoo-corvus-test` image and retains the development
@@ -443,10 +442,9 @@ shared isolated subnet, DHCP, and outbound NAT used by development and node imag
 
 ### Removable rescue media
 
-Build with `make -C yaml/gentoo-python build IMAGE=rescue`, or inspect the
-pipeline with `make -C yaml/gentoo-python plan IMAGE=rescue`. The legacy recipe
-is retained; both publish `gentoo-rescue`. The standalone recipe prepares the
-registered glibc builder and does not change top-level build routing.
+Build with `make -C yaml/gentoo build IMAGE=rescue`, or inspect the
+pipeline with `make -C yaml/gentoo plan IMAGE=rescue`. This recipe publishes
+`gentoo-rescue` and prepares the registered glibc builder.
 
 The rescue stages install stable glibc/systemd packages into a 16 GiB tmpfs on
 a 32 GiB helper. The 2 GiB raw disk contains BIOS and removable UEFI bootloaders,
@@ -459,6 +457,6 @@ All mounts are owned resources. Failed builds retain their workspace for inspect
 The Python bundle performs all build orchestration. Existing home/growth and
 dracut shell assets remain runtime inputs; legacy build scripts are not uploaded.
 The existing rescue export command remains applicable to the published raw image:
-`sudo make -C yaml/gentoo export IMAGE=gentoo-rescue SOURCE_IMAGE=/path/to/image.raw`.
-See [rescue operations and acceptance tests](../yaml/gentoo/RESCUE.md) for BIOS/UEFI,
+`sudo make -C yaml/gentoo export IMAGE=rescue SOURCE_IMAGE=/path/to/image.raw`.
+See [rescue operations and acceptance tests](../yaml/gentoo/rescue/README.md) for BIOS/UEFI,
 read-only media, persistence, growth, and offline update verification.

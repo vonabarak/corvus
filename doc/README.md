@@ -330,7 +330,6 @@ are excluded. Developer source-code links require a source checkout.
 | Recipe guides | [Monitoring appliance](../yaml/corvus-monitor/README.md) | Prometheus/Grafana image, configuration, and deployment |
 | Recipe guides | [FreeBSD guest](../yaml/freebsd/README.md) | Headless FreeBSD image with serial console, QGA, and NoCloud |
 | Recipe guides | [Gentoo guests](../yaml/gentoo/README.md) | Cloud imports, headless guests, and development images |
-| Recipe guides | [Gentoo with Catalyst](../yaml/gentoo-catalyst/README.md) | Standalone headless image alternative |
 | Recipe guides | [Windows 11 base](../yaml/windows-11/README.md) | Generalized Windows 11 Pro base, template, and per-VM TPM |
 | Recipe guides | [Windows 11 desktop](../yaml/windows-11-desktop/README.md) | Desktop applications on the managed Windows 11 base |
 

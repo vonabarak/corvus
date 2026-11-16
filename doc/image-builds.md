@@ -325,11 +325,11 @@ publishes a fresh version.
 
 Combine disk-level `ifExists: update` and a verified import checksum with build
 `target.ifExists: update`: the dedicated
-[`gentoo-glibc-systemd-upstream-cloudinit.yml`](../yaml/gentoo/gentoo-glibc-systemd-upstream-cloudinit.yml) recipe
+[`glibc-systemd-upstream-cloudinit.yml`](../yaml/gentoo/glibc-systemd-upstream-cloudinit/glibc-systemd-upstream-cloudinit.yml) recipe
 owns the import, while
-[`gentoo-glibc-systemd-headless.yml`](../yaml/gentoo/gentoo-glibc-systemd-headless.yml)
+[`glibc-systemd-headless.yml`](../yaml/gentoo/glibc-systemd-headless/glibc-systemd-headless.yml)
 consumes the shared builder derived from that registered image.
-`make -C yaml/gentoo build IMAGE=gentoo-glibc-systemd-headless` runs the import, shared
+`make -C yaml/gentoo build IMAGE=glibc-systemd-headless` runs the import, shared
 builder, and headless recipes in separate CLI invocations, forwarding the
 selected policy throughout.
 An unchanged checksum keeps the source version and skips matching downstream
@@ -894,7 +894,7 @@ once before building):
 
 Offline-overlay builds:
 
-- [yaml/gentoo/gentoo-corvus-test.yml](../yaml/gentoo/gentoo-corvus-test.yml) —
+- [yaml/gentoo/corvus-test/corvus-test.yml](../yaml/gentoo/corvus-test/corvus-test.yml) —
   Gentoo development image built with `offline-overlay` from
   `gentoo-glibc-systemd-headless-cloudinit`, using a separate 40 GB helper. The artifact keeps
   its base size and first-boot state. Writable virtiofs package caches are shared
@@ -903,12 +903,12 @@ Offline-overlay builds:
 
 From-scratch builds:
 
-- [yaml/gentoo/gentoo-glibc-systemd-headless.yml](../yaml/gentoo/gentoo-glibc-systemd-headless.yml) —
+- [yaml/gentoo/glibc-systemd-headless/glibc-systemd-headless.yml](../yaml/gentoo/glibc-systemd-headless/glibc-systemd-headless.yml) —
   minimal headless Gentoo on an empty target disk, custom kernel
   (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
-  kernel `.config` next to the YAML. Uses official mirrors and a persistent
+  shared kernel `.config` from `yaml/gentoo/common/kernel/`. Uses official mirrors and a persistent
   virtiofs cache; see [Gentoo cache setup](test-images.md).
-- [yaml/gentoo/corvus-test-vm.yml](../yaml/gentoo/corvus-test-vm.yml) —
+- [yaml/gentoo/corvus-test-vm/corvus-test-vm.yml](../yaml/gentoo/corvus-test-vm/corvus-test-vm.yml) —
   the Gentoo musl/OpenRC integration guest (BIOS+UEFI, SSH over TCP/VSOCK,
   QGA), built by the native musl builder with the shared Gentoo kernel.
 - [Alpine build fixture](../yaml/corvus-test-vm-alpine/corvus-test-vm-alpine.yml) —

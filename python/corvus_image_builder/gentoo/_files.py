@@ -32,8 +32,13 @@ def safe_path(root: Path, relative: str) -> Path:
     return target
 
 
-def remove(root: Path, relative: str) -> None:
-    """Delete image contents without following links or crossing child mounts."""
+def remove(root: Path, relative: str, *, keep_directory: bool = False) -> None:
+    """Delete residue without following links or crossing child mounts.
+
+    keep_directory empties a directory without unlinking its inode. This also
+    works for underlying mountpoints exposed through a non-recursive bind.
+    Symlinks and ordinary files are always unlinked.
+    """
     import re
     import shutil
 
@@ -52,6 +57,10 @@ def remove(root: Path, relative: str) -> None:
     if target.is_symlink():
         target.unlink()
     elif target.is_dir():
-        shutil.rmtree(target)
+        if keep_directory:
+            for child in target.iterdir():
+                remove(root, str(child.relative_to(root)))
+        else:
+            shutil.rmtree(target)
     else:
         target.unlink(missing_ok=True)

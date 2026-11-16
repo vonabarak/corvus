@@ -31,7 +31,11 @@ DISK_NAME = "corvus-test-node"
 
 # The YAML file relative to the repo root.
 DEFAULT_YAML = (
-    Path(__file__).resolve().parents[2] / "yaml" / "gentoo" / "corvus-test-node.yml"
+    Path(__file__).resolve().parents[2]
+    / "yaml"
+    / "gentoo"
+    / "corvus-test-node"
+    / "corvus-test-node.yml"
 )
 
 # The synthetic-installer ISO consumed by

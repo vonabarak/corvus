@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=../../../schema/json/build.schema.json
+vars:
+  portage_keyserver: hkps://keys.gentoo.org
+  image_if_exists: update
+  cache_dir: /data/corvus-cache
+  USEPKG: 'true'
+  GETBINPKG: 'true'
+  musl_stage3_url: ''
+  musl_stage3_sha256: ''
+pipeline:
+- build:
+    name: gentoo-musl-openrc-builder
+    description: Reusable native musl/OpenRC build host
+    template: gentoo-glibc-systemd-builder-cloudinit-bake
+    strategy: from-scratch
+    target:
+      ifExists: '{{ image_if_exists }}'
+      format: qcow2
+      size: 40G
+      path: BaseImages/Gentoo/
+      compact: true
+    shellDefaults:
+      preamble: set -eux
+      env:
+        USEPKG: '{{ USEPKG }}'
+        GETBINPKG: '{{ GETBINPKG }}'
+        PORTAGE_KEYSERVER: '{{ portage_keyserver }}'
+        MUSL_STAGE3_URL: '{{ musl_stage3_url }}'
+        MUSL_STAGE3_SHA256: '{{ musl_stage3_sha256 }}'
+        KERNEL_CONFIG: /run/corvus-kernel-config
+    provisioners:
+    - file:
+        from: ./build.pyz
+        to: /run/build.pyz
+        mode: '0644'
+    - file:
+        from: ../common/kernel/gentoo-kernel
+        to: /run/corvus-kernel-config
+        mode: '0644'
+    - shell:
+        inline: python3 /run/build.pyz
+        timeoutSec: 28800
+    cleanup: onSuccess
+- apply:
+    templates:
+    - name: gentoo-musl-openrc-builder-bake
+      hidden: true
+      description: Native musl/OpenRC host with Portage, compiler and disk tools
+      cpuCount: 8
+      ram: 16G
+      cloudInit: false
+      guestAgent: true
+      headless: true
+      startupTimeoutSec: 1200
+      sharedDirs:
+      - path: '{{ cache_dir }}'
+        tag: corvus-cache
+      drives:
+      - diskImage: gentoo-musl-openrc-builder
+        interface: virtio
+        strategy: overlay
+        discard: true
+        size: 40G
+        cacheType: writeback
+      networkInterfaces:
+      - network: corvus

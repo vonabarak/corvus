@@ -119,6 +119,8 @@ at `/home/corvus/VMs/BaseImagesRO`. Test-generated images are written to the
 node's `/home/corvus/VMs/BaseImages`. Each test class snapshots the outer catalogue's
 `latest` versions and stages those exact files on all its inner nodes. Publishing
 a replacement during a class does not change its selected backing files.
+Only files present under the test host's shared directory are eligible; remote-only
+or missing placements are ignored, without falling back to older image versions.
 
 ## Running Tests
 

@@ -25,7 +25,7 @@ from corvus_image_builder.portage import InstallRequest, PortageBackend
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-DIRECTORY = ROOT / "yaml/gentoo-python"
+DIRECTORY = ROOT / "yaml/gentoo"
 
 
 @pytest.mark.parametrize("failed", [False, True])
@@ -57,8 +57,8 @@ def test_workspace_normalizes_restrictive_umask_and_restores_it(
 def test_standalone_bundle_and_recipe_contract(flavor: str, tmp_path: Path) -> None:
     bundle = runpy.run_path(str(DIRECTORY / "bundle.py"))["bundle"]
     first, second = tmp_path / "first.pyz", tmp_path / "second.pyz"
-    bundle(DIRECTORY / f"{flavor}.py", first)
-    bundle(DIRECTORY / f"{flavor}.py", second)
+    bundle(DIRECTORY / flavor / "build.py", first)
+    bundle(DIRECTORY / flavor / "build.py", second)
     assert first.read_bytes() == second.read_bytes()
     result = subprocess.run(
         [sys.executable, "-I", str(first)],
@@ -68,7 +68,7 @@ def test_standalone_bundle_and_recipe_contract(flavor: str, tmp_path: Path) -> N
         text=True,
         check=True,
     )
-    recipe = yaml.safe_load((DIRECTORY / f"{flavor}.yml").read_text())
+    recipe = yaml.safe_load((DIRECTORY / flavor / f"{flavor}.yml").read_text())
     build = recipe["pipeline"][1]["build"]
     assert build["name"] == flavor
     assert not any(
@@ -152,7 +152,10 @@ def test_private_chroot_unmounts_before_cleanup(tmp_path: Path) -> None:
     assert unmounts[-1] == str(tmp_path / "dev")
 
 
-def test_cleanup_rejects_cache_mounts_and_symlink_ancestors(tmp_path: Path) -> None:
+@pytest.mark.parametrize("keep_directory", [False, True])
+def test_cleanup_rejects_cache_mounts_and_symlink_ancestors(
+    tmp_path: Path, keep_directory: bool
+) -> None:
     cache = tmp_path / "image/var/cache/distfiles"
     cache.mkdir(parents=True)
     payload = cache / "shared.tar"
@@ -162,11 +165,11 @@ def test_cleanup_rejects_cache_mounts_and_symlink_ancestors(tmp_path: Path) -> N
         patch.object(Path, "read_text", return_value=mountinfo),
         pytest.raises(RuntimeError, match="mounted"),
     ):
-        remove(tmp_path / "image", "var/cache")
+        remove(tmp_path / "image", "var/cache", keep_directory=keep_directory)
     assert payload.read_text() == "must survive"
     (tmp_path / "image/alias").symlink_to(cache, target_is_directory=True)
     with pytest.raises(RuntimeError, match="Unsafe"):
-        remove(tmp_path / "image", "alias/shared.tar")
+        remove(tmp_path / "image", "alias/shared.tar", keep_directory=keep_directory)
     assert payload.exists()
 
 
@@ -193,7 +196,7 @@ def test_install_source_rebuild_options_and_helper_scratch(tmp_path: Path) -> No
 
 
 def test_minimal_bootstrap_does_not_install_system_set(tmp_path: Path) -> None:
-    script = runpy.run_path(str(DIRECTORY / "corvus-test-vm.py"))
+    script = runpy.run_path(str(DIRECTORY / "corvus-test-vm/build.py"))
     stage = script["TestVmPackages"](
         Settings(tmp_path, tmp_path, None, libc="musl", init="openrc")
     )
@@ -208,7 +211,7 @@ def test_minimal_bootstrap_does_not_install_system_set(tmp_path: Path) -> None:
 def test_immutable_cleanup_verifies_before_stripping(
     tmp_path: Path, unexpected: bool
 ) -> None:
-    script = runpy.run_path(str(DIRECTORY / "corvus-test-vm.py"))
+    script = runpy.run_path(str(DIRECTORY / "corvus-test-vm/build.py"))
     root = tmp_path / "image"
     for relative in (
         "var/db/pkg/pkg",
@@ -244,7 +247,7 @@ def test_immutable_cleanup_verifies_before_stripping(
 
 @pytest.mark.parametrize("fail", [False, True])
 def test_postgresql_stops_before_releasing_runtime(tmp_path: Path, fail: bool) -> None:
-    script = runpy.run_path(str(DIRECTORY / "corvus-test-node.py"))
+    script = runpy.run_path(str(DIRECTORY / "corvus-test-node/build.py"))
     runner = Mock(spec=CommandRunner)
     context = BuildContext(tmp_path, runner)
     stopped: list[object] = []
@@ -293,11 +296,28 @@ def test_make_node_selects_python_base_and_forwards_policy() -> None:
         text=True,
         check=True,
     )
-    assert (
-        "build IMAGE=glibc-systemd-headless IMAGE_POLICY=overwrite CACHE_DIR=/tmp/cache USEPKG=false GETBINPKG=false"
-        in result.stdout
+    assert "build IMAGE=glibc-systemd-headless IMAGE_POLICY=overwrite" in result.stdout
+    publication = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "-n",
+            "publish",
+            "MAKE=echo",
+            "IMAGE=corvus-test-node",
+            "IMAGE_POLICY=overwrite",
+            "GENTOO_CACHE_DIR=/tmp/cache",
+            "USEPKG=false",
+            "GETBINPKG=false",
+        ],
+        cwd=DIRECTORY,
+        capture_output=True,
+        text=True,
+        check=True,
     )
-    assert "../../integration_tests/keys build" in result.stdout
+    assert "../../integration_tests/keys build" in publication.stdout
+    assert '--var cache_dir="/tmp/cache"' in publication.stdout
+    assert '--var USEPKG="false" --var GETBINPKG="false"' in publication.stdout
     assert "../gentoo IMAGE=gentoo-glibc-systemd-headless" not in result.stdout
 
 
@@ -324,7 +344,7 @@ def test_vm_partition_and_kernel_argument_settings(tmp_path: Path) -> None:
 
 
 def test_stage_order_rejects_missing_runtime_interfaces(tmp_path: Path) -> None:
-    script = runpy.run_path(str(DIRECTORY / "corvus-test-vm.py"))
+    script = runpy.run_path(str(DIRECTORY / "corvus-test-vm/build.py"))
     recipe = script["build_recipe"](
         Settings(tmp_path, tmp_path, None, libc="musl", init="openrc")
     )

@@ -3,7 +3,7 @@
 module Corvus.BuildPreprocessSpec (spec) where
 
 import Corvus.Client.BuildVars (applyBuildVars)
-import Corvus.Client.Commands.Build (preprocessRoot)
+import Corvus.Client.Commands.Build (expandDirectoryProvisioners, preprocessRoot)
 import Corvus.Schema.Build (PipelineConfig)
 import Data.Aeson (Result (..), Value (..), fromJSON, object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -27,6 +27,19 @@ file target content = object ["file" .= object ["to" .= target, "content" .= con
 
 spec :: Spec
 spec = describe "build directory preprocessing" $ do
+  it "expands directories for validation without requiring generated file assets" $
+    withSystemTempDirectory "corvus-directory" $ \base -> do
+      createDirectory (base </> "assets")
+      BS.writeFile (base </> "assets" </> "config") "ok"
+      let generated = object ["file" .= object ["from" .= ("missing.pyz" :: T.Text), "to" .= ("/run/build.pyz" :: T.Text)]]
+          script = object ["shell" .= object ["script" .= ("missing.sh" :: T.Text)]]
+          input = pipeline ([generated] <> directory "assets" <> [script])
+          expected = pipeline [generated, file "/opt/app/config" "b2s=", script]
+      expandDirectoryProvisioners base input `shouldReturn` expected
+      case fromJSON expected :: Result PipelineConfig of
+        Success _ -> pure ()
+        Error err -> expectationFailure err
+
   it "expands hidden, nested, binary and empty files in stable depth-first order" $
     withSystemTempDirectory "corvus-directory" $ \base -> do
       let root = base </> "files"

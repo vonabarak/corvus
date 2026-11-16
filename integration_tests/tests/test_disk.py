@@ -131,9 +131,19 @@ class TestDisk(SingleNodeCase):
         assert images["image"].outer_id == 1
         assert images["image"].host_path == selected
 
-    def test_discover_rejects_missing_latest_file(self, tmp_path: Path) -> None:
-        with pytest.raises(FileNotFoundError, match="Published image"):
-            discover([_catalogue_image("image", tmp_path / "1-image.qcow2")], tmp_path)
+    def test_discover_excludes_missing_latest_without_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        old = tmp_path / "old-image.qcow2"
+        old.touch()
+        images = discover(
+            [
+                _catalogue_image("image", tmp_path / "1-image.qcow2"),
+                _catalogue_image("image", old, 2, latest=False),
+            ],
+            tmp_path,
+        )
+        assert images == {}
 
     def test_discover_rejects_ambiguous_local_placements(self, tmp_path: Path) -> None:
         first = tmp_path / "1-image.qcow2"

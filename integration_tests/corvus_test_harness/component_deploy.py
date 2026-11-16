@@ -32,7 +32,7 @@ from .runner import NodeShellRunner
 from .ssh import NodeShell
 
 # systemd unit names match the production install (see
-# `yaml/gentoo/scripts/images/corvus-test-node/systemd/` and `systemd/`). corvus-admin's
+# `yaml/gentoo/corvus-test-node/assets/systemd/` and `systemd/`). corvus-admin's
 # deploy helpers default to these names so the harness doesn't
 # need to override them.
 DAEMON_UNIT = "corvus.service"

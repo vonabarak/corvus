@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../schema/json/build.schema.json
 ---
 # Alpine fixture for the full image-build integration test.
-# All other integration tests use yaml/gentoo/corvus-test-vm.yml.
+# All other integration tests use yaml/gentoo/corvus-test-vm/corvus-test-vm.yml.
 #
 # Replaces the legacy image-build shell script with
 # a declarative `crv build`. Same output: a 1 GiB qcow2 with BIOS +
