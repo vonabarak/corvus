@@ -264,7 +264,7 @@ def test_postgresql_stops_before_releasing_runtime(tmp_path: Path, fail: bool) -
 
     runner.run.side_effect = run
     context.own(lambda: stopped.append("unmounted"))
-    stage = script["NodeDatabase"](Settings(tmp_path, tmp_path, None))
+    stage = script["PostgreSQLInitializationStage"](Settings(tmp_path, tmp_path, None))
     if fail:
         with pytest.raises(subprocess.CalledProcessError):
             stage.execute(context)

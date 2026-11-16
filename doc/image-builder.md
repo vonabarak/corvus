@@ -405,3 +405,17 @@ Every new stage should declare meaningful `requires` and `produces` artifacts;
 planning checks the supplied order without executing stages. `validate()` runs
 for all stages before execution, so checks involving a root populated by earlier
 stages belong in `execute()` or `verify()`, not in preflight validation.
+
+### Corvus development overlay
+
+Run `make -C yaml/gentoo-python plan IMAGE=corvus-test` to inspect the
+stages and `make -C yaml/gentoo-python build IMAGE=corvus-test` to build.
+The recipe first evaluates the Python glibc headless base, installs cloud-init
+and live Corvus with build dependencies, and initializes PostgreSQL and VDE.
+It publishes the canonical `gentoo-corvus-test` image and retains the development
+VM's NoCloud configuration and optional virtiofs package caches. Legacy recipes
+remain available; both workflows publish the same image name.
+
+`PostgreSQLInitializationStage` owns and stops its socket-only temporary server
+before runtime mounts are released. `VdeNetworkConfigurationStage` provides the
+shared isolated subnet, DHCP, and outbound NAT used by development and node images.

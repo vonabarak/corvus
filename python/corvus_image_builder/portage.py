@@ -21,6 +21,13 @@ class InstallRequest:
     usepkg_exclude: tuple[str, ...] = ()
     reinstall_atoms: tuple[str, ...] = ()
     tmpdir: Path | None = None
+    onlydeps: bool = False
+    root_deps: bool | None = None
+    update: bool = False
+    deep: bool = False
+    newuse: bool = False
+    autounmask: bool | None = None
+    binpkg_changed_deps: bool = False
 
 
 class PortageBackend:
@@ -59,7 +66,7 @@ class PortageBackend:
     def install(self, request: InstallRequest) -> None:
         portage = importlib.import_module("portage")
         for atom in (*request.atoms, *request.usepkg_exclude, *request.reinstall_atoms):
-            if atom != "@system":
+            if atom not in ("@system", "@world"):
                 portage.dep.Atom(atom)
         if not request.atoms:
             raise ValueError("An installation requires package atoms")
@@ -77,10 +84,19 @@ class PortageBackend:
             "--ignore-default-opts",
             "--buildpkg",
             "--binpkg-respect-use=y",
-            "--binpkg-changed-deps=n",
+            "--binpkg-changed-deps=" + ("y" if request.binpkg_changed_deps else "n"),
             "--usepkg=" + ("y" if request.use_binary else "n"),
             "--getbinpkg=" + ("y" if request.fetch_binary else "n"),
         ]
+        for option in ("onlydeps", "update", "deep", "newuse"):
+            if getattr(request, option):
+                argv.append(f"--{option}")
+        for option, value in (
+            ("root-deps", request.root_deps),
+            ("autounmask", request.autounmask),
+        ):
+            if value is not None:
+                argv.append(f"--{option}=" + ("y" if value else "n"))
         if request.noreplace:
             argv.append("--noreplace")
         for option, atoms in (

@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := plan
 PYTHON ?= python3
 IMAGE ?= glibc-systemd-headless
-IMAGES := glibc-systemd-headless musl-openrc-headless corvus-test-node corvus-test-vm
+IMAGES := corvus-test glibc-systemd-headless musl-openrc-headless corvus-test-node corvus-test-vm
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
@@ -20,7 +20,7 @@ GENTOO_KEYSERVER ?= hkps://keys.gentoo.org
 bundle:
 	$(PYTHON) bundle.py $(IMAGE).py $(IMAGE).pyz
 ensure-dependencies:
-ifeq ($(IMAGE),corvus-test-node)
+ifneq ($(filter corvus-test corvus-test-node,$(IMAGE)),)
 	$(MAKE) build IMAGE=glibc-systemd-headless IMAGE_POLICY=$(IMAGE_POLICY) CACHE_DIR=$(CACHE_DIR) USEPKG=$(USEPKG) GETBINPKG=$(GETBINPKG) GENTOO_KEYSERVER="$(GENTOO_KEYSERVER)"
 else
 	$(MAKE) -C ../gentoo IMAGE=$(BUILDER_$(IMAGE)) IMAGE_POLICY=$(IMAGE_POLICY) GENTOO_CACHE_DIR=$(CACHE_DIR) GENTOO_KEYSERVER="$(GENTOO_KEYSERVER)" ensure

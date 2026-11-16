@@ -353,3 +353,35 @@ def test_musl_system_install_avoids_glibc_bootstrap(tmp_path: Path) -> None:
         "sys-apps/openrc",
         "sys-apps/sysvinit",
     )
+
+
+def test_development_and_rescue_install_policy() -> None:
+    runner = Mock(spec=CommandRunner)
+    portage = SimpleNamespace(dep=SimpleNamespace(Atom=Mock()))
+    with patch("importlib.import_module", return_value=portage):
+        PortageBackend(runner).install(
+            InstallRequest(
+                ("@world", "@system", "app-emulation/corvus"),
+                Path("/target"),
+                onlydeps=True,
+                root_deps=True,
+                update=True,
+                deep=True,
+                newuse=True,
+                autounmask=False,
+                binpkg_changed_deps=True,
+            )
+        )
+    argv = runner.run.call_args.args[0]
+    assert {
+        "--onlydeps",
+        "--root-deps=y",
+        "--update",
+        "--deep",
+        "--newuse",
+        "--autounmask=n",
+        "--binpkg-changed-deps=y",
+    } <= set(argv)
+    assert "--binpkg-changed-deps=n" not in argv
+    assert argv[-4:] == ["--", "@world", "@system", "app-emulation/corvus"]
+    portage.dep.Atom.assert_called_once_with("app-emulation/corvus")
