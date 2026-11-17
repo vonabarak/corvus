@@ -44,6 +44,7 @@ pipeline:
                     start_postcmd="/bin/stty -f /dev/vtcon/org.qemu.guest_agent.0 raw -echo 921600"
               packages:
                 - qemu-guest-agent
+                - sudo
               runcmd:
                 - kldstat -q -m virtio_console || kldload virtio_console
                 - sysrc -f /boot/loader.conf virtio_console_load=YES

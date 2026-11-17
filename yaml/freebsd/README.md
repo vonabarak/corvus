@@ -14,7 +14,7 @@ BASIC-CLOUDINIT UFS source import, registered as `freebsd:15`, and its
 
 `freebsd-headless.yml` consumes that registered source and publishes a flattened,
 compacted `freebsd-headless` image and runtime template. The bake uses NoCloud
-(nuageinit) to install QEMU guest agent, configures the primary serial console at
+(nuageinit) to install QEMU guest agent and sudo, configures the primary serial console at
 115200 baud, reboots, verifies the active console and agent, then removes bake
 identity and re-arms first-boot initialization. The runtime VM needs no package
 repository access to start QGA. The QGA startup hook sets its terminal port
@@ -25,7 +25,8 @@ The build requires registered `ovmf-code` and `ovmf-vars` firmware images,
 a `corvus` network with Internet access, and the `corvus` SSH key used by the
 published templates. The dedicated bake template injects no SSH keys and suppresses
 the upstream factory user. The runtime template creates the key-only `corvus` account;
-provide your own NoCloud user configuration if password login on the serial
+members of `wheel`, including `corvus`, can use sudo without a password.
+Provide your own NoCloud user configuration if password login on the serial
 console is desired. Root is locked. Use `crv vm view` for serial access.
 
 ```sh

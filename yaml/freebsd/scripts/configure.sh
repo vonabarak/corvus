@@ -2,6 +2,9 @@
 set -eu
 
 pkg info -e qemu-guest-agent
+pkg info -e sudo
+echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' >> /usr/local/etc/sudoers
+/usr/local/sbin/visudo -cf /usr/local/etc/sudoers
 sysrc -f /boot/loader.conf console=comconsole boot_serial=YES comconsole_speed=115200 virtio_console_load=YES
 sysrc qemu_guest_agent_enable=YES
 sysrc 'qemu_guest_agent_flags=-d -m virtio-serial -p /dev/vtcon/org.qemu.guest_agent.0'
