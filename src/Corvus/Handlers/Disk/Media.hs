@@ -30,7 +30,7 @@ import Corvus.Model
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
-import Corvus.Types (ServerState (..), runServerLogging)
+import Corvus.Types (ServerState (..), checkTaskCommit, runServerLogging)
 import Data.Int (Int64)
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
@@ -81,7 +81,7 @@ handleMediaEject state driveId = runServerLogging state $ do
                         Right r -> case r of
                           Right () -> do
                             liftIO $
-                              runSqlPool (update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Nothing]) (ssDbPool state)
+                              runSqlPool (checkTaskCommit state >> update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Nothing]) (ssDbPool state)
                             logInfoN "Media ejected"
                             pure RespDiskOk
                           Left e -> pure $ RespError $ "vmEjectMedia: " <> T.pack (show e)
@@ -90,7 +90,7 @@ handleMediaEject state driveId = runServerLogging state $ do
                       -- the next boot because the QEMU command line
                       -- omits `file=`/`format=` for media-less drives.
                       liftIO $
-                        runSqlPool (update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Nothing]) (ssDbPool state)
+                        runSqlPool (checkTaskCommit state >> update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Nothing]) (ssDbPool state)
                       logInfoN "Drive media ejected (database only; takes effect at next boot)"
                       pure RespDiskOk
 
@@ -184,7 +184,7 @@ handleMediaChange state driveId newDiskId = runServerLogging state $ do
                                 Right r -> case r of
                                   Right () -> do
                                     liftIO $
-                                      runSqlPool (update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Just (toSqlKey newDiskId)]) (ssDbPool state)
+                                      runSqlPool (checkTaskCommit state >> update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Just (toSqlKey newDiskId)]) (ssDbPool state)
                                     logInfoN "Media changed"
                                     pure RespDiskOk
                                   Left e -> pure $ RespError $ "vmChangeMedia: " <> T.pack (show e)
@@ -192,7 +192,7 @@ handleMediaChange state driveId newDiskId = runServerLogging state $ do
                               -- Stopped VM: DB-only update; the new
                               -- media is picked up at the next boot.
                               liftIO $
-                                runSqlPool (update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Just (toSqlKey newDiskId)]) (ssDbPool state)
+                                runSqlPool (checkTaskCommit state >> update (toSqlKey driveId :: DriveId) [DriveDiskImageId =. Just (toSqlKey newDiskId)]) (ssDbPool state)
                               logInfoN "Drive media changed (database only; takes effect at next boot)"
                               pure RespDiskOk
 
@@ -205,6 +205,7 @@ newtype MediaEject = MediaEject
   }
 
 instance Action MediaEject where
+  actionVmDependencies state a = mediaVmDependencies state (meDriveId a)
   actionResources state a = mediaResources state (meDriveId a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "media eject"
@@ -217,6 +218,7 @@ data MediaChange = MediaChange
   }
 
 instance Action MediaChange where
+  actionVmDependencies state a = mediaVmDependencies state (mcDriveId a)
   actionResources state a = do
     old <- mediaResources state (mcDriveId a)
     new <- imageResources state SharedAccess (mcDiskId a)
@@ -232,3 +234,8 @@ mediaResources state driveId = do
   images <- maybe (pure []) (imageResources state SharedAccess . fromSqlKey) (drive >>= driveDiskImageId)
   owner <- maybe (pure []) (objectResources state ExclusiveAccess VmObject . fromSqlKey . driveVmId) drive
   pure $ images ++ owner
+
+mediaVmDependencies :: ServerState -> Int64 -> IO [Int64]
+mediaVmDependencies state driveId = do
+  drive <- runSqlPool (get (toSqlKey driveId :: DriveId)) (ssDbPool state)
+  pure [fromSqlKey (driveVmId row) | Just row <- [drive]]

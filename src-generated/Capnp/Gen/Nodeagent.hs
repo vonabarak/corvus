@@ -39,7 +39,7 @@ import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
 import Prelude ((<$>), (<*>), (>>=))
-data NodeAgent 
+data NodeAgent
 type instance (R.ReprFor NodeAgent) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId NodeAgent) where
     typeId  = 15897469928431442643
@@ -70,7 +70,7 @@ instance (GH.HasMethod "version" NodeAgent NodeAgent'version'params NodeAgent've
     methodByLabel  = (GH.Method 15897469928431442643 2)
 instance (GH.HasMethod "defaultBasePath" NodeAgent NodeAgent'defaultBasePath'params NodeAgent'defaultBasePath'results) where
     methodByLabel  = (GH.Method 15897469928431442643 3)
-data NodeAgent'session'params 
+data NodeAgent'session'params
 type instance (R.ReprFor NodeAgent'session'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'session'params) where
     typeId  = 15221358664158945242
@@ -86,7 +86,7 @@ instance (C.AllocateList NodeAgent'session'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'session'params (C.Parsed NodeAgent'session'params))
 data instance C.Parsed NodeAgent'session'params
-    = NodeAgent'session'params 
+    = NodeAgent'session'params
         {owner :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'session'params))
@@ -100,7 +100,7 @@ instance (C.Marshal NodeAgent'session'params (C.Parsed NodeAgent'session'params)
         )
 instance (GH.HasField "owner" GH.Slot NodeAgent'session'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data NodeAgent'session'results 
+data NodeAgent'session'results
 type instance (R.ReprFor NodeAgent'session'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'session'results) where
     typeId  = 12295131494272100632
@@ -116,7 +116,7 @@ instance (C.AllocateList NodeAgent'session'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'session'results (C.Parsed NodeAgent'session'results))
 data instance C.Parsed NodeAgent'session'results
-    = NodeAgent'session'results 
+    = NodeAgent'session'results
         {session :: (RP.Parsed Session)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'session'results))
@@ -130,7 +130,7 @@ instance (C.Marshal NodeAgent'session'results (C.Parsed NodeAgent'session'result
         )
 instance (GH.HasField "session" GH.Slot NodeAgent'session'results Session) where
     fieldByLabel  = (GH.ptrField 0)
-data NodeAgent'ping'params 
+data NodeAgent'ping'params
 type instance (R.ReprFor NodeAgent'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'ping'params) where
     typeId  = 14536519863103395621
@@ -146,7 +146,7 @@ instance (C.AllocateList NodeAgent'ping'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'ping'params (C.Parsed NodeAgent'ping'params))
 data instance C.Parsed NodeAgent'ping'params
-    = NodeAgent'ping'params 
+    = NodeAgent'ping'params
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'ping'params))
@@ -155,7 +155,7 @@ instance (C.Parse NodeAgent'ping'params (C.Parsed NodeAgent'ping'params)) where
     parse raw_ = (Std_.pure NodeAgent'ping'params)
 instance (C.Marshal NodeAgent'ping'params (C.Parsed NodeAgent'ping'params)) where
     marshalInto _raw (NodeAgent'ping'params) = (Std_.pure ())
-data NodeAgent'ping'results 
+data NodeAgent'ping'results
 type instance (R.ReprFor NodeAgent'ping'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'ping'results) where
     typeId  = 15217690398450557697
@@ -171,7 +171,7 @@ instance (C.AllocateList NodeAgent'ping'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'ping'results (C.Parsed NodeAgent'ping'results))
 data instance C.Parsed NodeAgent'ping'results
-    = NodeAgent'ping'results 
+    = NodeAgent'ping'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'ping'results))
@@ -180,7 +180,7 @@ instance (C.Parse NodeAgent'ping'results (C.Parsed NodeAgent'ping'results)) wher
     parse raw_ = (Std_.pure NodeAgent'ping'results)
 instance (C.Marshal NodeAgent'ping'results (C.Parsed NodeAgent'ping'results)) where
     marshalInto _raw (NodeAgent'ping'results) = (Std_.pure ())
-data NodeAgent'version'params 
+data NodeAgent'version'params
 type instance (R.ReprFor NodeAgent'version'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'version'params) where
     typeId  = 15858759637600798596
@@ -196,7 +196,7 @@ instance (C.AllocateList NodeAgent'version'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'version'params (C.Parsed NodeAgent'version'params))
 data instance C.Parsed NodeAgent'version'params
-    = NodeAgent'version'params 
+    = NodeAgent'version'params
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'version'params))
@@ -205,7 +205,7 @@ instance (C.Parse NodeAgent'version'params (C.Parsed NodeAgent'version'params)) 
     parse raw_ = (Std_.pure NodeAgent'version'params)
 instance (C.Marshal NodeAgent'version'params (C.Parsed NodeAgent'version'params)) where
     marshalInto _raw (NodeAgent'version'params) = (Std_.pure ())
-data NodeAgent'version'results 
+data NodeAgent'version'results
 type instance (R.ReprFor NodeAgent'version'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'version'results) where
     typeId  = 12830026916437762687
@@ -221,7 +221,7 @@ instance (C.AllocateList NodeAgent'version'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'version'results (C.Parsed NodeAgent'version'results))
 data instance C.Parsed NodeAgent'version'results
-    = NodeAgent'version'results 
+    = NodeAgent'version'results
         {info :: (RP.Parsed AgentInfo)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'version'results))
@@ -235,7 +235,7 @@ instance (C.Marshal NodeAgent'version'results (C.Parsed NodeAgent'version'result
         )
 instance (GH.HasField "info" GH.Slot NodeAgent'version'results AgentInfo) where
     fieldByLabel  = (GH.ptrField 0)
-data NodeAgent'defaultBasePath'params 
+data NodeAgent'defaultBasePath'params
 type instance (R.ReprFor NodeAgent'defaultBasePath'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'defaultBasePath'params) where
     typeId  = 16608591501214317651
@@ -251,7 +251,7 @@ instance (C.AllocateList NodeAgent'defaultBasePath'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBasePath'params))
 data instance C.Parsed NodeAgent'defaultBasePath'params
-    = NodeAgent'defaultBasePath'params 
+    = NodeAgent'defaultBasePath'params
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'defaultBasePath'params))
@@ -260,7 +260,7 @@ instance (C.Parse NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBa
     parse raw_ = (Std_.pure NodeAgent'defaultBasePath'params)
 instance (C.Marshal NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBasePath'params)) where
     marshalInto _raw (NodeAgent'defaultBasePath'params) = (Std_.pure ())
-data NodeAgent'defaultBasePath'results 
+data NodeAgent'defaultBasePath'results
 type instance (R.ReprFor NodeAgent'defaultBasePath'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'defaultBasePath'results) where
     typeId  = 14042383546414730042
@@ -276,7 +276,7 @@ instance (C.AllocateList NodeAgent'defaultBasePath'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeAgent'defaultBasePath'results (C.Parsed NodeAgent'defaultBasePath'results))
 data instance C.Parsed NodeAgent'defaultBasePath'results
-    = NodeAgent'defaultBasePath'results 
+    = NodeAgent'defaultBasePath'results
         {path :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAgent'defaultBasePath'results))
@@ -290,7 +290,7 @@ instance (C.Marshal NodeAgent'defaultBasePath'results (C.Parsed NodeAgent'defaul
         )
 instance (GH.HasField "path" GH.Slot NodeAgent'defaultBasePath'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data AgentInfo 
+data AgentInfo
 type instance (R.ReprFor AgentInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId AgentInfo) where
     typeId  = 14127385698379965687
@@ -306,7 +306,7 @@ instance (C.AllocateList AgentInfo) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc AgentInfo (C.Parsed AgentInfo))
 data instance C.Parsed AgentInfo
-    = AgentInfo 
+    = AgentInfo
         {semver :: (RP.Parsed Basics.Text)
         ,capabilities :: (RP.Parsed (R.List Basics.Text))}
     deriving(Generics.Generic)
@@ -325,7 +325,52 @@ instance (GH.HasField "semver" GH.Slot AgentInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "capabilities" GH.Slot AgentInfo (R.List Basics.Text)) where
     fieldByLabel  = (GH.ptrField 1)
-data Session 
+data VmAuthorization
+type instance (R.ReprFor VmAuthorization) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmAuthorization) where
+    typeId  = 11278057977838312247
+instance (C.TypedStruct VmAuthorization) where
+    numStructWords  = 4
+    numStructPtrs  = 0
+instance (C.Allocate VmAuthorization) where
+    type AllocHint VmAuthorization = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmAuthorization (C.Parsed VmAuthorization))
+instance (C.AllocateList VmAuthorization) where
+    type ListAllocHint VmAuthorization = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmAuthorization (C.Parsed VmAuthorization))
+data instance C.Parsed VmAuthorization
+    = VmAuthorization
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,lifecycleRevision :: (RP.Parsed Std_.Int64)
+        ,runtimeGeneration :: (RP.Parsed Std_.Int64)
+        ,hasRuntimeGeneration :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmAuthorization))
+deriving instance (Std_.Eq (C.Parsed VmAuthorization))
+instance (C.Parse VmAuthorization (C.Parsed VmAuthorization)) where
+    parse raw_ = (VmAuthorization <$> (GH.parseField #vmId raw_)
+                                  <*> (GH.parseField #lifecycleRevision raw_)
+                                  <*> (GH.parseField #runtimeGeneration raw_)
+                                  <*> (GH.parseField #hasRuntimeGeneration raw_))
+instance (C.Marshal VmAuthorization (C.Parsed VmAuthorization)) where
+    marshalInto raw_ VmAuthorization{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
+        (GH.encodeField #runtimeGeneration runtimeGeneration raw_)
+        (GH.encodeField #hasRuntimeGeneration hasRuntimeGeneration raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot VmAuthorization Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "lifecycleRevision" GH.Slot VmAuthorization Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "runtimeGeneration" GH.Slot VmAuthorization Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
+instance (GH.HasField "hasRuntimeGeneration" GH.Slot VmAuthorization Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 3 1 0)
+data Session
 type instance (R.ReprFor Session) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId Session) where
     typeId  = 11450192344861352079
@@ -394,9 +439,11 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'vmGuestSshAddAuthorizedKeys) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmScreenshot) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskSourceIdentity) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmReboot) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmReboot) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmOperation) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmDrainStatus) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon,session'vmGuestPing,session'vmGuestReboot,session'vmGuestWriteFile,session'removeDirectoryIfEmpty,session'removeVmDirectoryIfEmpty,session'vmGuestReadFile,session'vmGuestSshAddAuthorizedKeys,session'vmScreenshot,session'diskSourceIdentity,session'vmReboot #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia,session'prepareTpmMigration,session'restoreTpmMigration,session'cleanupTpmMigrationArchive,session'vmSetBalloon,session'vmGuestPing,session'vmGuestReboot,session'vmGuestWriteFile,session'removeDirectoryIfEmpty,session'removeVmDirectoryIfEmpty,session'vmGuestReadFile,session'vmGuestSshAddAuthorizedKeys,session'vmScreenshot,session'diskSourceIdentity,session'vmReboot,session'vmOperation,session'vmDrainStatus #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -519,6 +566,10 @@ class (Session'server_ s_) where
     session'diskSourceIdentity _ = GH.methodUnimplemented
     session'vmReboot :: s_ -> (GH.MethodHandler Session'vmReboot'params Session'vmReboot'results)
     session'vmReboot _ = GH.methodUnimplemented
+    session'vmOperation :: s_ -> (GH.MethodHandler Session'vmOperation'params Session'vmOperation'results)
+    session'vmOperation _ = GH.methodUnimplemented
+    session'vmDrainStatus :: s_ -> (GH.MethodHandler Session'vmDrainStatus'params Session'vmDrainStatus'results)
+    session'vmDrainStatus _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -641,7 +692,11 @@ instance (GH.HasMethod "diskSourceIdentity" Session Session'diskSourceIdentity'p
     methodByLabel  = (GH.Method 11450192344861352079 59)
 instance (GH.HasMethod "vmReboot" Session Session'vmReboot'params Session'vmReboot'results) where
     methodByLabel  = (GH.Method 11450192344861352079 60)
-data Session'ping'params 
+instance (GH.HasMethod "vmOperation" Session Session'vmOperation'params Session'vmOperation'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 61)
+instance (GH.HasMethod "vmDrainStatus" Session Session'vmDrainStatus'params Session'vmDrainStatus'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 62)
+data Session'ping'params
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
     typeId  = 17120307981116249418
@@ -657,7 +712,7 @@ instance (C.AllocateList Session'ping'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'ping'params (C.Parsed Session'ping'params))
 data instance C.Parsed Session'ping'params
-    = Session'ping'params 
+    = Session'ping'params
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'ping'params))
@@ -666,7 +721,7 @@ instance (C.Parse Session'ping'params (C.Parsed Session'ping'params)) where
     parse raw_ = (Std_.pure Session'ping'params)
 instance (C.Marshal Session'ping'params (C.Parsed Session'ping'params)) where
     marshalInto _raw (Session'ping'params) = (Std_.pure ())
-data Session'ping'results 
+data Session'ping'results
 type instance (R.ReprFor Session'ping'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'results) where
     typeId  = 9319192938553916195
@@ -682,7 +737,7 @@ instance (C.AllocateList Session'ping'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'ping'results (C.Parsed Session'ping'results))
 data instance C.Parsed Session'ping'results
-    = Session'ping'results 
+    = Session'ping'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'ping'results))
@@ -691,7 +746,7 @@ instance (C.Parse Session'ping'results (C.Parsed Session'ping'results)) where
     parse raw_ = (Std_.pure Session'ping'results)
 instance (C.Marshal Session'ping'results (C.Parsed Session'ping'results)) where
     marshalInto _raw (Session'ping'results) = (Std_.pure ())
-data Session'diskCreate'params 
+data Session'diskCreate'params
 type instance (R.ReprFor Session'diskCreate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskCreate'params) where
     typeId  = 16127592023001067955
@@ -707,7 +762,7 @@ instance (C.AllocateList Session'diskCreate'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskCreate'params (C.Parsed Session'diskCreate'params))
 data instance C.Parsed Session'diskCreate'params
-    = Session'diskCreate'params 
+    = Session'diskCreate'params
         {path :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Basics.Text)
         ,size :: (RP.Parsed Std_.Int64)}
@@ -731,7 +786,7 @@ instance (GH.HasField "format" GH.Slot Session'diskCreate'params Basics.Text) wh
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "size" GH.Slot Session'diskCreate'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'diskCreate'results 
+data Session'diskCreate'results
 type instance (R.ReprFor Session'diskCreate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskCreate'results) where
     typeId  = 13761120203856121079
@@ -747,7 +802,7 @@ instance (C.AllocateList Session'diskCreate'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskCreate'results (C.Parsed Session'diskCreate'results))
 data instance C.Parsed Session'diskCreate'results
-    = Session'diskCreate'results 
+    = Session'diskCreate'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskCreate'results))
@@ -761,7 +816,7 @@ instance (C.Marshal Session'diskCreate'results (C.Parsed Session'diskCreate'resu
         )
 instance (GH.HasField "result" GH.Slot Session'diskCreate'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskCreateOverlay'params 
+data Session'diskCreateOverlay'params
 type instance (R.ReprFor Session'diskCreateOverlay'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskCreateOverlay'params) where
     typeId  = 14516785854889517845
@@ -777,7 +832,7 @@ instance (C.AllocateList Session'diskCreateOverlay'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskCreateOverlay'params (C.Parsed Session'diskCreateOverlay'params))
 data instance C.Parsed Session'diskCreateOverlay'params
-    = Session'diskCreateOverlay'params 
+    = Session'diskCreateOverlay'params
         {overlayPath :: (RP.Parsed Basics.Text)
         ,backingPath :: (RP.Parsed Basics.Text)
         ,backingFormat :: (RP.Parsed Basics.Text)}
@@ -801,7 +856,7 @@ instance (GH.HasField "backingPath" GH.Slot Session'diskCreateOverlay'params Bas
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "backingFormat" GH.Slot Session'diskCreateOverlay'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
-data Session'diskCreateOverlay'results 
+data Session'diskCreateOverlay'results
 type instance (R.ReprFor Session'diskCreateOverlay'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskCreateOverlay'results) where
     typeId  = 18296988007277893098
@@ -817,7 +872,7 @@ instance (C.AllocateList Session'diskCreateOverlay'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskCreateOverlay'results (C.Parsed Session'diskCreateOverlay'results))
 data instance C.Parsed Session'diskCreateOverlay'results
-    = Session'diskCreateOverlay'results 
+    = Session'diskCreateOverlay'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskCreateOverlay'results))
@@ -831,7 +886,7 @@ instance (C.Marshal Session'diskCreateOverlay'results (C.Parsed Session'diskCrea
         )
 instance (GH.HasField "result" GH.Slot Session'diskCreateOverlay'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskDelete'params 
+data Session'diskDelete'params
 type instance (R.ReprFor Session'diskDelete'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDelete'params) where
     typeId  = 10676587244486002852
@@ -847,7 +902,7 @@ instance (C.AllocateList Session'diskDelete'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskDelete'params (C.Parsed Session'diskDelete'params))
 data instance C.Parsed Session'diskDelete'params
-    = Session'diskDelete'params 
+    = Session'diskDelete'params
         {path :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDelete'params))
@@ -861,7 +916,7 @@ instance (C.Marshal Session'diskDelete'params (C.Parsed Session'diskDelete'param
         )
 instance (GH.HasField "path" GH.Slot Session'diskDelete'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskDelete'results 
+data Session'diskDelete'results
 type instance (R.ReprFor Session'diskDelete'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDelete'results) where
     typeId  = 11948452925487114338
@@ -877,7 +932,7 @@ instance (C.AllocateList Session'diskDelete'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskDelete'results (C.Parsed Session'diskDelete'results))
 data instance C.Parsed Session'diskDelete'results
-    = Session'diskDelete'results 
+    = Session'diskDelete'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDelete'results))
@@ -891,7 +946,7 @@ instance (C.Marshal Session'diskDelete'results (C.Parsed Session'diskDelete'resu
         )
 instance (GH.HasField "result" GH.Slot Session'diskDelete'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskResize'params 
+data Session'diskResize'params
 type instance (R.ReprFor Session'diskResize'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskResize'params) where
     typeId  = 15646331601880300946
@@ -907,7 +962,7 @@ instance (C.AllocateList Session'diskResize'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskResize'params (C.Parsed Session'diskResize'params))
 data instance C.Parsed Session'diskResize'params
-    = Session'diskResize'params 
+    = Session'diskResize'params
         {path :: (RP.Parsed Basics.Text)
         ,newSize :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
@@ -926,7 +981,7 @@ instance (GH.HasField "path" GH.Slot Session'diskResize'params Basics.Text) wher
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "newSize" GH.Slot Session'diskResize'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'diskResize'results 
+data Session'diskResize'results
 type instance (R.ReprFor Session'diskResize'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskResize'results) where
     typeId  = 13891217123988901794
@@ -942,7 +997,7 @@ instance (C.AllocateList Session'diskResize'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskResize'results (C.Parsed Session'diskResize'results))
 data instance C.Parsed Session'diskResize'results
-    = Session'diskResize'results 
+    = Session'diskResize'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskResize'results))
@@ -956,7 +1011,7 @@ instance (C.Marshal Session'diskResize'results (C.Parsed Session'diskResize'resu
         )
 instance (GH.HasField "result" GH.Slot Session'diskResize'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskRebase'params 
+data Session'diskRebase'params
 type instance (R.ReprFor Session'diskRebase'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskRebase'params) where
     typeId  = 15582431297534686939
@@ -972,7 +1027,7 @@ instance (C.AllocateList Session'diskRebase'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskRebase'params (C.Parsed Session'diskRebase'params))
 data instance C.Parsed Session'diskRebase'params
-    = Session'diskRebase'params 
+    = Session'diskRebase'params
         {overlayPath :: (RP.Parsed Basics.Text)
         ,newBacking :: (RP.Parsed Basics.Text)
         ,newBackingFormat :: (RP.Parsed Basics.Text)
@@ -1006,7 +1061,7 @@ instance (GH.HasField "hasNewBacking" GH.Slot Session'diskRebase'params Std_.Boo
     fieldByLabel  = (GH.dataField 0 0 1 0)
 instance (GH.HasField "unsafeUpdate" GH.Slot Session'diskRebase'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
-data Session'diskRebase'results 
+data Session'diskRebase'results
 type instance (R.ReprFor Session'diskRebase'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskRebase'results) where
     typeId  = 13943800101944505537
@@ -1022,7 +1077,7 @@ instance (C.AllocateList Session'diskRebase'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskRebase'results (C.Parsed Session'diskRebase'results))
 data instance C.Parsed Session'diskRebase'results
-    = Session'diskRebase'results 
+    = Session'diskRebase'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskRebase'results))
@@ -1036,7 +1091,7 @@ instance (C.Marshal Session'diskRebase'results (C.Parsed Session'diskRebase'resu
         )
 instance (GH.HasField "result" GH.Slot Session'diskRebase'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskClone'params 
+data Session'diskClone'params
 type instance (R.ReprFor Session'diskClone'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskClone'params) where
     typeId  = 14875352729381787711
@@ -1052,7 +1107,7 @@ instance (C.AllocateList Session'diskClone'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskClone'params (C.Parsed Session'diskClone'params))
 data instance C.Parsed Session'diskClone'params
-    = Session'diskClone'params 
+    = Session'diskClone'params
         {sourcePath :: (RP.Parsed Basics.Text)
         ,destPath :: (RP.Parsed Basics.Text)
         ,destFormat :: (RP.Parsed Basics.Text)
@@ -1096,7 +1151,7 @@ instance (GH.HasField "hasBacking" GH.Slot Session'diskClone'params Std_.Bool) w
     fieldByLabel  = (GH.dataField 0 0 1 0)
 instance (GH.HasField "compact" GH.Slot Session'diskClone'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
-data Session'diskClone'results 
+data Session'diskClone'results
 type instance (R.ReprFor Session'diskClone'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskClone'results) where
     typeId  = 10482624371876660872
@@ -1112,7 +1167,7 @@ instance (C.AllocateList Session'diskClone'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskClone'results (C.Parsed Session'diskClone'results))
 data instance C.Parsed Session'diskClone'results
-    = Session'diskClone'results 
+    = Session'diskClone'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskClone'results))
@@ -1126,7 +1181,7 @@ instance (C.Marshal Session'diskClone'results (C.Parsed Session'diskClone'result
         )
 instance (GH.HasField "result" GH.Slot Session'diskClone'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskInspect'params 
+data Session'diskInspect'params
 type instance (R.ReprFor Session'diskInspect'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskInspect'params) where
     typeId  = 17002640096473422215
@@ -1142,7 +1197,7 @@ instance (C.AllocateList Session'diskInspect'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskInspect'params (C.Parsed Session'diskInspect'params))
 data instance C.Parsed Session'diskInspect'params
-    = Session'diskInspect'params 
+    = Session'diskInspect'params
         {path :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskInspect'params))
@@ -1156,7 +1211,7 @@ instance (C.Marshal Session'diskInspect'params (C.Parsed Session'diskInspect'par
         )
 instance (GH.HasField "path" GH.Slot Session'diskInspect'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskInspect'results 
+data Session'diskInspect'results
 type instance (R.ReprFor Session'diskInspect'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskInspect'results) where
     typeId  = 16749289768481078801
@@ -1172,7 +1227,7 @@ instance (C.AllocateList Session'diskInspect'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskInspect'results (C.Parsed Session'diskInspect'results))
 data instance C.Parsed Session'diskInspect'results
-    = Session'diskInspect'results 
+    = Session'diskInspect'results
         {result :: (RP.Parsed DiskInspectResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskInspect'results))
@@ -1186,7 +1241,7 @@ instance (C.Marshal Session'diskInspect'results (C.Parsed Session'diskInspect're
         )
 instance (GH.HasField "result" GH.Slot Session'diskInspect'results DiskInspectResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotCreate'params 
+data Session'snapshotCreate'params
 type instance (R.ReprFor Session'snapshotCreate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreate'params) where
     typeId  = 17273836855587515204
@@ -1202,7 +1257,7 @@ instance (C.AllocateList Session'snapshotCreate'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotCreate'params (C.Parsed Session'snapshotCreate'params))
 data instance C.Parsed Session'snapshotCreate'params
-    = Session'snapshotCreate'params 
+    = Session'snapshotCreate'params
         {path :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -1221,7 +1276,7 @@ instance (GH.HasField "path" GH.Slot Session'snapshotCreate'params Basics.Text) 
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "name" GH.Slot Session'snapshotCreate'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'snapshotCreate'results 
+data Session'snapshotCreate'results
 type instance (R.ReprFor Session'snapshotCreate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreate'results) where
     typeId  = 16193070465825742717
@@ -1237,7 +1292,7 @@ instance (C.AllocateList Session'snapshotCreate'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotCreate'results (C.Parsed Session'snapshotCreate'results))
 data instance C.Parsed Session'snapshotCreate'results
-    = Session'snapshotCreate'results 
+    = Session'snapshotCreate'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotCreate'results))
@@ -1251,7 +1306,7 @@ instance (C.Marshal Session'snapshotCreate'results (C.Parsed Session'snapshotCre
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotCreate'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotDelete'params 
+data Session'snapshotDelete'params
 type instance (R.ReprFor Session'snapshotDelete'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDelete'params) where
     typeId  = 16838127620127419893
@@ -1267,7 +1322,7 @@ instance (C.AllocateList Session'snapshotDelete'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotDelete'params (C.Parsed Session'snapshotDelete'params))
 data instance C.Parsed Session'snapshotDelete'params
-    = Session'snapshotDelete'params 
+    = Session'snapshotDelete'params
         {path :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -1286,7 +1341,7 @@ instance (GH.HasField "path" GH.Slot Session'snapshotDelete'params Basics.Text) 
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "name" GH.Slot Session'snapshotDelete'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'snapshotDelete'results 
+data Session'snapshotDelete'results
 type instance (R.ReprFor Session'snapshotDelete'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDelete'results) where
     typeId  = 13336217285621226050
@@ -1302,7 +1357,7 @@ instance (C.AllocateList Session'snapshotDelete'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotDelete'results (C.Parsed Session'snapshotDelete'results))
 data instance C.Parsed Session'snapshotDelete'results
-    = Session'snapshotDelete'results 
+    = Session'snapshotDelete'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotDelete'results))
@@ -1316,7 +1371,7 @@ instance (C.Marshal Session'snapshotDelete'results (C.Parsed Session'snapshotDel
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotDelete'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotRollback'params 
+data Session'snapshotRollback'params
 type instance (R.ReprFor Session'snapshotRollback'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotRollback'params) where
     typeId  = 13108850606835041933
@@ -1332,7 +1387,7 @@ instance (C.AllocateList Session'snapshotRollback'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotRollback'params (C.Parsed Session'snapshotRollback'params))
 data instance C.Parsed Session'snapshotRollback'params
-    = Session'snapshotRollback'params 
+    = Session'snapshotRollback'params
         {path :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -1351,7 +1406,7 @@ instance (GH.HasField "path" GH.Slot Session'snapshotRollback'params Basics.Text
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "name" GH.Slot Session'snapshotRollback'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'snapshotRollback'results 
+data Session'snapshotRollback'results
 type instance (R.ReprFor Session'snapshotRollback'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotRollback'results) where
     typeId  = 15251245268679165986
@@ -1367,7 +1422,7 @@ instance (C.AllocateList Session'snapshotRollback'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotRollback'results (C.Parsed Session'snapshotRollback'results))
 data instance C.Parsed Session'snapshotRollback'results
-    = Session'snapshotRollback'results 
+    = Session'snapshotRollback'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotRollback'results))
@@ -1381,7 +1436,7 @@ instance (C.Marshal Session'snapshotRollback'results (C.Parsed Session'snapshotR
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotRollback'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskDownload'params 
+data Session'diskDownload'params
 type instance (R.ReprFor Session'diskDownload'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDownload'params) where
     typeId  = 17291283613946040912
@@ -1397,7 +1452,7 @@ instance (C.AllocateList Session'diskDownload'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskDownload'params (C.Parsed Session'diskDownload'params))
 data instance C.Parsed Session'diskDownload'params
-    = Session'diskDownload'params 
+    = Session'diskDownload'params
         {destPath :: (RP.Parsed Basics.Text)
         ,url :: (RP.Parsed Basics.Text)
         ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink)}
@@ -1421,7 +1476,7 @@ instance (GH.HasField "url" GH.Slot Session'diskDownload'params Basics.Text) whe
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "sink" GH.Slot Session'diskDownload'params Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink) where
     fieldByLabel  = (GH.ptrField 2)
-data Session'diskDownload'results 
+data Session'diskDownload'results
 type instance (R.ReprFor Session'diskDownload'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDownload'results) where
     typeId  = 16337221411403463124
@@ -1437,7 +1492,7 @@ instance (C.AllocateList Session'diskDownload'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskDownload'results (C.Parsed Session'diskDownload'results))
 data instance C.Parsed Session'diskDownload'results
-    = Session'diskDownload'results 
+    = Session'diskDownload'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDownload'results))
@@ -1451,7 +1506,7 @@ instance (C.Marshal Session'diskDownload'results (C.Parsed Session'diskDownload'
         )
 instance (GH.HasField "result" GH.Slot Session'diskDownload'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskDecompressXz'params 
+data Session'diskDecompressXz'params
 type instance (R.ReprFor Session'diskDecompressXz'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDecompressXz'params) where
     typeId  = 9824205008478466439
@@ -1467,7 +1522,7 @@ instance (C.AllocateList Session'diskDecompressXz'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskDecompressXz'params (C.Parsed Session'diskDecompressXz'params))
 data instance C.Parsed Session'diskDecompressXz'params
-    = Session'diskDecompressXz'params 
+    = Session'diskDecompressXz'params
         {xzPath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDecompressXz'params))
@@ -1481,7 +1536,7 @@ instance (C.Marshal Session'diskDecompressXz'params (C.Parsed Session'diskDecomp
         )
 instance (GH.HasField "xzPath" GH.Slot Session'diskDecompressXz'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskDecompressXz'results 
+data Session'diskDecompressXz'results
 type instance (R.ReprFor Session'diskDecompressXz'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDecompressXz'results) where
     typeId  = 9813928533026383249
@@ -1497,7 +1552,7 @@ instance (C.AllocateList Session'diskDecompressXz'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskDecompressXz'results (C.Parsed Session'diskDecompressXz'results))
 data instance C.Parsed Session'diskDecompressXz'results
-    = Session'diskDecompressXz'results 
+    = Session'diskDecompressXz'results
         {finalPath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDecompressXz'results))
@@ -1511,7 +1566,7 @@ instance (C.Marshal Session'diskDecompressXz'results (C.Parsed Session'diskDecom
         )
 instance (GH.HasField "finalPath" GH.Slot Session'diskDecompressXz'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskHash'params 
+data Session'diskHash'params
 type instance (R.ReprFor Session'diskHash'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskHash'params) where
     typeId  = 9409244432301040014
@@ -1527,7 +1582,7 @@ instance (C.AllocateList Session'diskHash'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskHash'params (C.Parsed Session'diskHash'params))
 data instance C.Parsed Session'diskHash'params
-    = Session'diskHash'params 
+    = Session'diskHash'params
         {path :: (RP.Parsed Basics.Text)
         ,algorithm :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -1546,7 +1601,7 @@ instance (GH.HasField "path" GH.Slot Session'diskHash'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "algorithm" GH.Slot Session'diskHash'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'diskHash'results 
+data Session'diskHash'results
 type instance (R.ReprFor Session'diskHash'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskHash'results) where
     typeId  = 10814768419322956081
@@ -1562,7 +1617,7 @@ instance (C.AllocateList Session'diskHash'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskHash'results (C.Parsed Session'diskHash'results))
 data instance C.Parsed Session'diskHash'results
-    = Session'diskHash'results 
+    = Session'diskHash'results
         {hex :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskHash'results))
@@ -1576,7 +1631,7 @@ instance (C.Marshal Session'diskHash'results (C.Parsed Session'diskHash'results)
         )
 instance (GH.HasField "hex" GH.Slot Session'diskHash'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'cloudInitGenerateIso'params 
+data Session'cloudInitGenerateIso'params
 type instance (R.ReprFor Session'cloudInitGenerateIso'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'cloudInitGenerateIso'params) where
     typeId  = 12688412389628670543
@@ -1592,7 +1647,7 @@ instance (C.AllocateList Session'cloudInitGenerateIso'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'cloudInitGenerateIso'params (C.Parsed Session'cloudInitGenerateIso'params))
 data instance C.Parsed Session'cloudInitGenerateIso'params
-    = Session'cloudInitGenerateIso'params 
+    = Session'cloudInitGenerateIso'params
         {targetDir :: (RP.Parsed Basics.Text)
         ,userData :: (RP.Parsed Basics.Text)
         ,metaData :: (RP.Parsed Basics.Text)
@@ -1626,7 +1681,7 @@ instance (GH.HasField "networkConfig" GH.Slot Session'cloudInitGenerateIso'param
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "hasNetworkConfig" GH.Slot Session'cloudInitGenerateIso'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
-data Session'cloudInitGenerateIso'results 
+data Session'cloudInitGenerateIso'results
 type instance (R.ReprFor Session'cloudInitGenerateIso'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'cloudInitGenerateIso'results) where
     typeId  = 13707265026989532345
@@ -1642,7 +1697,7 @@ instance (C.AllocateList Session'cloudInitGenerateIso'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'cloudInitGenerateIso'results (C.Parsed Session'cloudInitGenerateIso'results))
 data instance C.Parsed Session'cloudInitGenerateIso'results
-    = Session'cloudInitGenerateIso'results 
+    = Session'cloudInitGenerateIso'results
         {isoPath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'cloudInitGenerateIso'results))
@@ -1656,7 +1711,7 @@ instance (C.Marshal Session'cloudInitGenerateIso'results (C.Parsed Session'cloud
         )
 instance (GH.HasField "isoPath" GH.Slot Session'cloudInitGenerateIso'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmStart'params 
+data Session'vmStart'params
 type instance (R.ReprFor Session'vmStart'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStart'params) where
     typeId  = 10823871877857771010
@@ -1672,7 +1727,7 @@ instance (C.AllocateList Session'vmStart'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStart'params (C.Parsed Session'vmStart'params))
 data instance C.Parsed Session'vmStart'params
-    = Session'vmStart'params 
+    = Session'vmStart'params
         {spec :: (RP.Parsed VmSpec)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStart'params))
@@ -1686,7 +1741,7 @@ instance (C.Marshal Session'vmStart'params (C.Parsed Session'vmStart'params)) wh
         )
 instance (GH.HasField "spec" GH.Slot Session'vmStart'params VmSpec) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmStart'results 
+data Session'vmStart'results
 type instance (R.ReprFor Session'vmStart'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStart'results) where
     typeId  = 12248210371593590372
@@ -1702,7 +1757,7 @@ instance (C.AllocateList Session'vmStart'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStart'results (C.Parsed Session'vmStart'results))
 data instance C.Parsed Session'vmStart'results
-    = Session'vmStart'results 
+    = Session'vmStart'results
         {result :: (RP.Parsed VmStartResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStart'results))
@@ -1716,7 +1771,7 @@ instance (C.Marshal Session'vmStart'results (C.Parsed Session'vmStart'results)) 
         )
 instance (GH.HasField "result" GH.Slot Session'vmStart'results VmStartResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmStopGraceful'params 
+data Session'vmStopGraceful'params
 type instance (R.ReprFor Session'vmStopGraceful'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopGraceful'params) where
     typeId  = 16142730254105394244
@@ -1732,7 +1787,7 @@ instance (C.AllocateList Session'vmStopGraceful'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStopGraceful'params (C.Parsed Session'vmStopGraceful'params))
 data instance C.Parsed Session'vmStopGraceful'params
-    = Session'vmStopGraceful'params 
+    = Session'vmStopGraceful'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,timeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
@@ -1751,7 +1806,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmStopGraceful'params Std_.Int64) w
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "timeoutSec" GH.Slot Session'vmStopGraceful'params Std_.Word32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-data Session'vmStopGraceful'results 
+data Session'vmStopGraceful'results
 type instance (R.ReprFor Session'vmStopGraceful'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopGraceful'results) where
     typeId  = 11443307811371017683
@@ -1767,7 +1822,7 @@ instance (C.AllocateList Session'vmStopGraceful'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStopGraceful'results (C.Parsed Session'vmStopGraceful'results))
 data instance C.Parsed Session'vmStopGraceful'results
-    = Session'vmStopGraceful'results 
+    = Session'vmStopGraceful'results
         {result :: (RP.Parsed VmStopResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStopGraceful'results))
@@ -1781,7 +1836,7 @@ instance (C.Marshal Session'vmStopGraceful'results (C.Parsed Session'vmStopGrace
         )
 instance (GH.HasField "result" GH.Slot Session'vmStopGraceful'results VmStopResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmStopHard'params 
+data Session'vmStopHard'params
 type instance (R.ReprFor Session'vmStopHard'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopHard'params) where
     typeId  = 18426405290603545736
@@ -1797,7 +1852,7 @@ instance (C.AllocateList Session'vmStopHard'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStopHard'params (C.Parsed Session'vmStopHard'params))
 data instance C.Parsed Session'vmStopHard'params
-    = Session'vmStopHard'params 
+    = Session'vmStopHard'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,lifecycleRevision :: (RP.Parsed Std_.Int64)
         ,hasLifecycleFence :: (RP.Parsed Std_.Bool)}
@@ -1821,7 +1876,7 @@ instance (GH.HasField "lifecycleRevision" GH.Slot Session'vmStopHard'params Std_
     fieldByLabel  = (GH.dataField 0 1 64 0)
 instance (GH.HasField "hasLifecycleFence" GH.Slot Session'vmStopHard'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 2 1 0)
-data Session'vmStopHard'results 
+data Session'vmStopHard'results
 type instance (R.ReprFor Session'vmStopHard'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopHard'results) where
     typeId  = 11350962112209429015
@@ -1837,7 +1892,7 @@ instance (C.AllocateList Session'vmStopHard'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStopHard'results (C.Parsed Session'vmStopHard'results))
 data instance C.Parsed Session'vmStopHard'results
-    = Session'vmStopHard'results 
+    = Session'vmStopHard'results
         {result :: (RP.Parsed VmStopResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStopHard'results))
@@ -1851,7 +1906,7 @@ instance (C.Marshal Session'vmStopHard'results (C.Parsed Session'vmStopHard'resu
         )
 instance (GH.HasField "result" GH.Slot Session'vmStopHard'results VmStopResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmPause'params 
+data Session'vmPause'params
 type instance (R.ReprFor Session'vmPause'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmPause'params) where
     typeId  = 10346172043406008825
@@ -1867,7 +1922,7 @@ instance (C.AllocateList Session'vmPause'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmPause'params (C.Parsed Session'vmPause'params))
 data instance C.Parsed Session'vmPause'params
-    = Session'vmPause'params 
+    = Session'vmPause'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmPause'params))
@@ -1881,7 +1936,7 @@ instance (C.Marshal Session'vmPause'params (C.Parsed Session'vmPause'params)) wh
         )
 instance (GH.HasField "vmId" GH.Slot Session'vmPause'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'vmPause'results 
+data Session'vmPause'results
 type instance (R.ReprFor Session'vmPause'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmPause'results) where
     typeId  = 11461267413760495112
@@ -1897,7 +1952,7 @@ instance (C.AllocateList Session'vmPause'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmPause'results (C.Parsed Session'vmPause'results))
 data instance C.Parsed Session'vmPause'results
-    = Session'vmPause'results 
+    = Session'vmPause'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmPause'results))
@@ -1906,7 +1961,7 @@ instance (C.Parse Session'vmPause'results (C.Parsed Session'vmPause'results)) wh
     parse raw_ = (Std_.pure Session'vmPause'results)
 instance (C.Marshal Session'vmPause'results (C.Parsed Session'vmPause'results)) where
     marshalInto _raw (Session'vmPause'results) = (Std_.pure ())
-data Session'vmResume'params 
+data Session'vmResume'params
 type instance (R.ReprFor Session'vmResume'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmResume'params) where
     typeId  = 17633964403724124090
@@ -1922,7 +1977,7 @@ instance (C.AllocateList Session'vmResume'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmResume'params (C.Parsed Session'vmResume'params))
 data instance C.Parsed Session'vmResume'params
-    = Session'vmResume'params 
+    = Session'vmResume'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmResume'params))
@@ -1936,7 +1991,7 @@ instance (C.Marshal Session'vmResume'params (C.Parsed Session'vmResume'params)) 
         )
 instance (GH.HasField "vmId" GH.Slot Session'vmResume'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'vmResume'results 
+data Session'vmResume'results
 type instance (R.ReprFor Session'vmResume'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmResume'results) where
     typeId  = 14290231988743062119
@@ -1952,7 +2007,7 @@ instance (C.AllocateList Session'vmResume'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmResume'results (C.Parsed Session'vmResume'results))
 data instance C.Parsed Session'vmResume'results
-    = Session'vmResume'results 
+    = Session'vmResume'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmResume'results))
@@ -1961,7 +2016,7 @@ instance (C.Parse Session'vmResume'results (C.Parsed Session'vmResume'results)) 
     parse raw_ = (Std_.pure Session'vmResume'results)
 instance (C.Marshal Session'vmResume'results (C.Parsed Session'vmResume'results)) where
     marshalInto _raw (Session'vmResume'results) = (Std_.pure ())
-data Session'vmGuestExec'params 
+data Session'vmGuestExec'params
 type instance (R.ReprFor Session'vmGuestExec'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestExec'params) where
     typeId  = 17580761475470500883
@@ -1977,7 +2032,7 @@ instance (C.AllocateList Session'vmGuestExec'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestExec'params (C.Parsed Session'vmGuestExec'params))
 data instance C.Parsed Session'vmGuestExec'params
-    = Session'vmGuestExec'params 
+    = Session'vmGuestExec'params
         {req :: (RP.Parsed VmGuestExecReq)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestExec'params))
@@ -1991,7 +2046,7 @@ instance (C.Marshal Session'vmGuestExec'params (C.Parsed Session'vmGuestExec'par
         )
 instance (GH.HasField "req" GH.Slot Session'vmGuestExec'params VmGuestExecReq) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmGuestExec'results 
+data Session'vmGuestExec'results
 type instance (R.ReprFor Session'vmGuestExec'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestExec'results) where
     typeId  = 9521999371041989570
@@ -2007,7 +2062,7 @@ instance (C.AllocateList Session'vmGuestExec'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestExec'results (C.Parsed Session'vmGuestExec'results))
 data instance C.Parsed Session'vmGuestExec'results
-    = Session'vmGuestExec'results 
+    = Session'vmGuestExec'results
         {info :: (RP.Parsed VmGuestExecInfo)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestExec'results))
@@ -2021,7 +2076,7 @@ instance (C.Marshal Session'vmGuestExec'results (C.Parsed Session'vmGuestExec're
         )
 instance (GH.HasField "info" GH.Slot Session'vmGuestExec'results VmGuestExecInfo) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmStatus'params 
+data Session'vmStatus'params
 type instance (R.ReprFor Session'vmStatus'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStatus'params) where
     typeId  = 11648773013205736465
@@ -2037,7 +2092,7 @@ instance (C.AllocateList Session'vmStatus'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStatus'params (C.Parsed Session'vmStatus'params))
 data instance C.Parsed Session'vmStatus'params
-    = Session'vmStatus'params 
+    = Session'vmStatus'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStatus'params))
@@ -2051,7 +2106,7 @@ instance (C.Marshal Session'vmStatus'params (C.Parsed Session'vmStatus'params)) 
         )
 instance (GH.HasField "vmId" GH.Slot Session'vmStatus'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'vmStatus'results 
+data Session'vmStatus'results
 type instance (R.ReprFor Session'vmStatus'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStatus'results) where
     typeId  = 10964512409179261300
@@ -2067,7 +2122,7 @@ instance (C.AllocateList Session'vmStatus'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmStatus'results (C.Parsed Session'vmStatus'results))
 data instance C.Parsed Session'vmStatus'results
-    = Session'vmStatus'results 
+    = Session'vmStatus'results
         {status :: (RP.Parsed VmAgentStatus)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmStatus'results))
@@ -2081,7 +2136,7 @@ instance (C.Marshal Session'vmStatus'results (C.Parsed Session'vmStatus'results)
         )
 instance (GH.HasField "status" GH.Slot Session'vmStatus'results VmAgentStatus) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmSetSpiceTicket'params 
+data Session'vmSetSpiceTicket'params
 type instance (R.ReprFor Session'vmSetSpiceTicket'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetSpiceTicket'params) where
     typeId  = 17809974164239182615
@@ -2097,7 +2152,7 @@ instance (C.AllocateList Session'vmSetSpiceTicket'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmSetSpiceTicket'params (C.Parsed Session'vmSetSpiceTicket'params))
 data instance C.Parsed Session'vmSetSpiceTicket'params
-    = Session'vmSetSpiceTicket'params 
+    = Session'vmSetSpiceTicket'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,password :: (RP.Parsed Basics.Text)
         ,ttlSeconds :: (RP.Parsed Std_.Word32)}
@@ -2121,7 +2176,7 @@ instance (GH.HasField "password" GH.Slot Session'vmSetSpiceTicket'params Basics.
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "ttlSeconds" GH.Slot Session'vmSetSpiceTicket'params Std_.Word32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-data Session'vmSetSpiceTicket'results 
+data Session'vmSetSpiceTicket'results
 type instance (R.ReprFor Session'vmSetSpiceTicket'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetSpiceTicket'results) where
     typeId  = 15442773020073118915
@@ -2137,7 +2192,7 @@ instance (C.AllocateList Session'vmSetSpiceTicket'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmSetSpiceTicket'results (C.Parsed Session'vmSetSpiceTicket'results))
 data instance C.Parsed Session'vmSetSpiceTicket'results
-    = Session'vmSetSpiceTicket'results 
+    = Session'vmSetSpiceTicket'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmSetSpiceTicket'results))
@@ -2146,7 +2201,7 @@ instance (C.Parse Session'vmSetSpiceTicket'results (C.Parsed Session'vmSetSpiceT
     parse raw_ = (Std_.pure Session'vmSetSpiceTicket'results)
 instance (C.Marshal Session'vmSetSpiceTicket'results (C.Parsed Session'vmSetSpiceTicket'results)) where
     marshalInto _raw (Session'vmSetSpiceTicket'results) = (Std_.pure ())
-data Session'subscribeVmStatus'params 
+data Session'subscribeVmStatus'params
 type instance (R.ReprFor Session'subscribeVmStatus'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'subscribeVmStatus'params) where
     typeId  = 13322787620260168359
@@ -2162,7 +2217,7 @@ instance (C.AllocateList Session'subscribeVmStatus'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'subscribeVmStatus'params (C.Parsed Session'subscribeVmStatus'params))
 data instance C.Parsed Session'subscribeVmStatus'params
-    = Session'subscribeVmStatus'params 
+    = Session'subscribeVmStatus'params
         {sink :: (RP.Parsed VmStatusSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'subscribeVmStatus'params))
@@ -2176,7 +2231,7 @@ instance (C.Marshal Session'subscribeVmStatus'params (C.Parsed Session'subscribe
         )
 instance (GH.HasField "sink" GH.Slot Session'subscribeVmStatus'params VmStatusSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'subscribeVmStatus'results 
+data Session'subscribeVmStatus'results
 type instance (R.ReprFor Session'subscribeVmStatus'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'subscribeVmStatus'results) where
     typeId  = 9283104170751054662
@@ -2192,7 +2247,7 @@ instance (C.AllocateList Session'subscribeVmStatus'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results))
 data instance C.Parsed Session'subscribeVmStatus'results
-    = Session'subscribeVmStatus'results 
+    = Session'subscribeVmStatus'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'subscribeVmStatus'results))
@@ -2201,7 +2256,7 @@ instance (C.Parse Session'subscribeVmStatus'results (C.Parsed Session'subscribeV
     parse raw_ = (Std_.pure Session'subscribeVmStatus'results)
 instance (C.Marshal Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results)) where
     marshalInto _raw (Session'subscribeVmStatus'results) = (Std_.pure ())
-data Session'openSerialConsole'params 
+data Session'openSerialConsole'params
 type instance (R.ReprFor Session'openSerialConsole'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'openSerialConsole'params) where
     typeId  = 13149968643096890336
@@ -2217,7 +2272,7 @@ instance (C.AllocateList Session'openSerialConsole'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'openSerialConsole'params (C.Parsed Session'openSerialConsole'params))
 data instance C.Parsed Session'openSerialConsole'params
-    = Session'openSerialConsole'params 
+    = Session'openSerialConsole'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
@@ -2236,7 +2291,7 @@ instance (GH.HasField "vmId" GH.Slot Session'openSerialConsole'params Std_.Int64
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "sink" GH.Slot Session'openSerialConsole'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'openSerialConsole'results 
+data Session'openSerialConsole'results
 type instance (R.ReprFor Session'openSerialConsole'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'openSerialConsole'results) where
     typeId  = 11705289286321711561
@@ -2252,7 +2307,7 @@ instance (C.AllocateList Session'openSerialConsole'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'openSerialConsole'results (C.Parsed Session'openSerialConsole'results))
 data instance C.Parsed Session'openSerialConsole'results
-    = Session'openSerialConsole'results 
+    = Session'openSerialConsole'results
         {input :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'openSerialConsole'results))
@@ -2266,7 +2321,7 @@ instance (C.Marshal Session'openSerialConsole'results (C.Parsed Session'openSeri
         )
 instance (GH.HasField "input" GH.Slot Session'openSerialConsole'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'openHmpMonitor'params 
+data Session'openHmpMonitor'params
 type instance (R.ReprFor Session'openHmpMonitor'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'openHmpMonitor'params) where
     typeId  = 12373475575530691862
@@ -2282,7 +2337,7 @@ instance (C.AllocateList Session'openHmpMonitor'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'openHmpMonitor'params (C.Parsed Session'openHmpMonitor'params))
 data instance C.Parsed Session'openHmpMonitor'params
-    = Session'openHmpMonitor'params 
+    = Session'openHmpMonitor'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
@@ -2301,7 +2356,7 @@ instance (GH.HasField "vmId" GH.Slot Session'openHmpMonitor'params Std_.Int64) w
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "sink" GH.Slot Session'openHmpMonitor'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'openHmpMonitor'results 
+data Session'openHmpMonitor'results
 type instance (R.ReprFor Session'openHmpMonitor'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'openHmpMonitor'results) where
     typeId  = 11436753603730193187
@@ -2317,7 +2372,7 @@ instance (C.AllocateList Session'openHmpMonitor'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'openHmpMonitor'results (C.Parsed Session'openHmpMonitor'results))
 data instance C.Parsed Session'openHmpMonitor'results
-    = Session'openHmpMonitor'results 
+    = Session'openHmpMonitor'results
         {input :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'openHmpMonitor'results))
@@ -2331,7 +2386,7 @@ instance (C.Marshal Session'openHmpMonitor'results (C.Parsed Session'openHmpMoni
         )
 instance (GH.HasField "input" GH.Slot Session'openHmpMonitor'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'flushSerialConsole'params 
+data Session'flushSerialConsole'params
 type instance (R.ReprFor Session'flushSerialConsole'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'flushSerialConsole'params) where
     typeId  = 12309027465553179158
@@ -2347,7 +2402,7 @@ instance (C.AllocateList Session'flushSerialConsole'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'flushSerialConsole'params (C.Parsed Session'flushSerialConsole'params))
 data instance C.Parsed Session'flushSerialConsole'params
-    = Session'flushSerialConsole'params 
+    = Session'flushSerialConsole'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'flushSerialConsole'params))
@@ -2361,7 +2416,7 @@ instance (C.Marshal Session'flushSerialConsole'params (C.Parsed Session'flushSer
         )
 instance (GH.HasField "vmId" GH.Slot Session'flushSerialConsole'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'flushSerialConsole'results 
+data Session'flushSerialConsole'results
 type instance (R.ReprFor Session'flushSerialConsole'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'flushSerialConsole'results) where
     typeId  = 14315634664360764488
@@ -2377,7 +2432,7 @@ instance (C.AllocateList Session'flushSerialConsole'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'flushSerialConsole'results (C.Parsed Session'flushSerialConsole'results))
 data instance C.Parsed Session'flushSerialConsole'results
-    = Session'flushSerialConsole'results 
+    = Session'flushSerialConsole'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'flushSerialConsole'results))
@@ -2386,7 +2441,7 @@ instance (C.Parse Session'flushSerialConsole'results (C.Parsed Session'flushSeri
     parse raw_ = (Std_.pure Session'flushSerialConsole'results)
 instance (C.Marshal Session'flushSerialConsole'results (C.Parsed Session'flushSerialConsole'results)) where
     marshalInto _raw (Session'flushSerialConsole'results) = (Std_.pure ())
-data Session'flushHmpMonitor'params 
+data Session'flushHmpMonitor'params
 type instance (R.ReprFor Session'flushHmpMonitor'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'flushHmpMonitor'params) where
     typeId  = 17700805822514408571
@@ -2402,7 +2457,7 @@ instance (C.AllocateList Session'flushHmpMonitor'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'flushHmpMonitor'params (C.Parsed Session'flushHmpMonitor'params))
 data instance C.Parsed Session'flushHmpMonitor'params
-    = Session'flushHmpMonitor'params 
+    = Session'flushHmpMonitor'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'flushHmpMonitor'params))
@@ -2416,7 +2471,7 @@ instance (C.Marshal Session'flushHmpMonitor'params (C.Parsed Session'flushHmpMon
         )
 instance (GH.HasField "vmId" GH.Slot Session'flushHmpMonitor'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'flushHmpMonitor'results 
+data Session'flushHmpMonitor'results
 type instance (R.ReprFor Session'flushHmpMonitor'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'flushHmpMonitor'results) where
     typeId  = 17289518928549847130
@@ -2432,7 +2487,7 @@ instance (C.AllocateList Session'flushHmpMonitor'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results))
 data instance C.Parsed Session'flushHmpMonitor'results
-    = Session'flushHmpMonitor'results 
+    = Session'flushHmpMonitor'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'flushHmpMonitor'results))
@@ -2441,7 +2496,7 @@ instance (C.Parse Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMoni
     parse raw_ = (Std_.pure Session'flushHmpMonitor'results)
 instance (C.Marshal Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results)) where
     marshalInto _raw (Session'flushHmpMonitor'results) = (Std_.pure ())
-data Session'vmAttachDrive'params 
+data Session'vmAttachDrive'params
 type instance (R.ReprFor Session'vmAttachDrive'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmAttachDrive'params) where
     typeId  = 13049054298676078877
@@ -2457,7 +2512,7 @@ instance (C.AllocateList Session'vmAttachDrive'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmAttachDrive'params (C.Parsed Session'vmAttachDrive'params))
 data instance C.Parsed Session'vmAttachDrive'params
-    = Session'vmAttachDrive'params 
+    = Session'vmAttachDrive'params
         {req :: (RP.Parsed VmAttachDriveReq)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmAttachDrive'params))
@@ -2471,7 +2526,7 @@ instance (C.Marshal Session'vmAttachDrive'params (C.Parsed Session'vmAttachDrive
         )
 instance (GH.HasField "req" GH.Slot Session'vmAttachDrive'params VmAttachDriveReq) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmAttachDrive'results 
+data Session'vmAttachDrive'results
 type instance (R.ReprFor Session'vmAttachDrive'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmAttachDrive'results) where
     typeId  = 11477257483477198916
@@ -2487,7 +2542,7 @@ instance (C.AllocateList Session'vmAttachDrive'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'results))
 data instance C.Parsed Session'vmAttachDrive'results
-    = Session'vmAttachDrive'results 
+    = Session'vmAttachDrive'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmAttachDrive'results))
@@ -2496,7 +2551,7 @@ instance (C.Parse Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'
     parse raw_ = (Std_.pure Session'vmAttachDrive'results)
 instance (C.Marshal Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'results)) where
     marshalInto _raw (Session'vmAttachDrive'results) = (Std_.pure ())
-data Session'vmDetachDrive'params 
+data Session'vmDetachDrive'params
 type instance (R.ReprFor Session'vmDetachDrive'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmDetachDrive'params) where
     typeId  = 16364905694916860660
@@ -2512,7 +2567,7 @@ instance (C.AllocateList Session'vmDetachDrive'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmDetachDrive'params (C.Parsed Session'vmDetachDrive'params))
 data instance C.Parsed Session'vmDetachDrive'params
-    = Session'vmDetachDrive'params 
+    = Session'vmDetachDrive'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,driveId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
@@ -2531,7 +2586,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmDetachDrive'params Std_.Int64) wh
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "driveId" GH.Slot Session'vmDetachDrive'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-data Session'vmDetachDrive'results 
+data Session'vmDetachDrive'results
 type instance (R.ReprFor Session'vmDetachDrive'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmDetachDrive'results) where
     typeId  = 15875586182582213085
@@ -2547,7 +2602,7 @@ instance (C.AllocateList Session'vmDetachDrive'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results))
 data instance C.Parsed Session'vmDetachDrive'results
-    = Session'vmDetachDrive'results 
+    = Session'vmDetachDrive'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmDetachDrive'results))
@@ -2556,7 +2611,7 @@ instance (C.Parse Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'
     parse raw_ = (Std_.pure Session'vmDetachDrive'results)
 instance (C.Marshal Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results)) where
     marshalInto _raw (Session'vmDetachDrive'results) = (Std_.pure ())
-data Session'probeVsockCid'params 
+data Session'probeVsockCid'params
 type instance (R.ReprFor Session'probeVsockCid'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'probeVsockCid'params) where
     typeId  = 9957990287174145727
@@ -2572,7 +2627,7 @@ instance (C.AllocateList Session'probeVsockCid'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'probeVsockCid'params (C.Parsed Session'probeVsockCid'params))
 data instance C.Parsed Session'probeVsockCid'params
-    = Session'probeVsockCid'params 
+    = Session'probeVsockCid'params
         {cid :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'probeVsockCid'params))
@@ -2586,7 +2641,7 @@ instance (C.Marshal Session'probeVsockCid'params (C.Parsed Session'probeVsockCid
         )
 instance (GH.HasField "cid" GH.Slot Session'probeVsockCid'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'probeVsockCid'results 
+data Session'probeVsockCid'results
 type instance (R.ReprFor Session'probeVsockCid'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'probeVsockCid'results) where
     typeId  = 13444723105890588371
@@ -2602,7 +2657,7 @@ instance (C.AllocateList Session'probeVsockCid'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'probeVsockCid'results (C.Parsed Session'probeVsockCid'results))
 data instance C.Parsed Session'probeVsockCid'results
-    = Session'probeVsockCid'results 
+    = Session'probeVsockCid'results
         {free :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'probeVsockCid'results))
@@ -2616,7 +2671,7 @@ instance (C.Marshal Session'probeVsockCid'results (C.Parsed Session'probeVsockCi
         )
 instance (GH.HasField "free" GH.Slot Session'probeVsockCid'results Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
-data Session'diskOpenRead'params 
+data Session'diskOpenRead'params
 type instance (R.ReprFor Session'diskOpenRead'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskOpenRead'params) where
     typeId  = 14382638796393382158
@@ -2632,7 +2687,7 @@ instance (C.AllocateList Session'diskOpenRead'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskOpenRead'params (C.Parsed Session'diskOpenRead'params))
 data instance C.Parsed Session'diskOpenRead'params
-    = Session'diskOpenRead'params 
+    = Session'diskOpenRead'params
         {path :: (RP.Parsed Basics.Text)
         ,ttlSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
@@ -2651,7 +2706,7 @@ instance (GH.HasField "path" GH.Slot Session'diskOpenRead'params Basics.Text) wh
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "ttlSec" GH.Slot Session'diskOpenRead'params Std_.Word32) where
     fieldByLabel  = (GH.dataField 0 0 32 0)
-data Session'diskOpenRead'results 
+data Session'diskOpenRead'results
 type instance (R.ReprFor Session'diskOpenRead'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskOpenRead'results) where
     typeId  = 18250419826091380833
@@ -2667,7 +2722,7 @@ instance (C.AllocateList Session'diskOpenRead'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskOpenRead'results (C.Parsed Session'diskOpenRead'results))
 data instance C.Parsed Session'diskOpenRead'results
-    = Session'diskOpenRead'results 
+    = Session'diskOpenRead'results
         {reader :: (RP.Parsed DiskReader)
         ,token :: (RP.Parsed Basics.Text)
         ,sizeBytes :: (RP.Parsed Std_.Int64)
@@ -2696,7 +2751,7 @@ instance (GH.HasField "sizeBytes" GH.Slot Session'diskOpenRead'results Std_.Int6
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "md5" GH.Slot Session'diskOpenRead'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
-data Session'attachReader'params 
+data Session'attachReader'params
 type instance (R.ReprFor Session'attachReader'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'attachReader'params) where
     typeId  = 16583164990814995810
@@ -2712,7 +2767,7 @@ instance (C.AllocateList Session'attachReader'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'attachReader'params (C.Parsed Session'attachReader'params))
 data instance C.Parsed Session'attachReader'params
-    = Session'attachReader'params 
+    = Session'attachReader'params
         {token :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'attachReader'params))
@@ -2726,7 +2781,7 @@ instance (C.Marshal Session'attachReader'params (C.Parsed Session'attachReader'p
         )
 instance (GH.HasField "token" GH.Slot Session'attachReader'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'attachReader'results 
+data Session'attachReader'results
 type instance (R.ReprFor Session'attachReader'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'attachReader'results) where
     typeId  = 13063254323432150227
@@ -2742,7 +2797,7 @@ instance (C.AllocateList Session'attachReader'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'attachReader'results (C.Parsed Session'attachReader'results))
 data instance C.Parsed Session'attachReader'results
-    = Session'attachReader'results 
+    = Session'attachReader'results
         {reader :: (RP.Parsed DiskReader)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'attachReader'results))
@@ -2756,7 +2811,7 @@ instance (C.Marshal Session'attachReader'results (C.Parsed Session'attachReader'
         )
 instance (GH.HasField "reader" GH.Slot Session'attachReader'results DiskReader) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskImportFromPeer'params 
+data Session'diskImportFromPeer'params
 type instance (R.ReprFor Session'diskImportFromPeer'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskImportFromPeer'params) where
     typeId  = 14396209859029846008
@@ -2772,7 +2827,7 @@ instance (C.AllocateList Session'diskImportFromPeer'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskImportFromPeer'params (C.Parsed Session'diskImportFromPeer'params))
 data instance C.Parsed Session'diskImportFromPeer'params
-    = Session'diskImportFromPeer'params 
+    = Session'diskImportFromPeer'params
         {destPath :: (RP.Parsed Basics.Text)
         ,peerHost :: (RP.Parsed Basics.Text)
         ,peerPort :: (RP.Parsed Std_.Int32)
@@ -2816,7 +2871,7 @@ instance (GH.HasField "expectedMd5" GH.Slot Session'diskImportFromPeer'params Ba
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "sink" GH.Slot Session'diskImportFromPeer'params Capnp.Gen.ById.X9bd452a518ed3917.DiskProgressSink) where
     fieldByLabel  = (GH.ptrField 4)
-data Session'diskImportFromPeer'results 
+data Session'diskImportFromPeer'results
 type instance (R.ReprFor Session'diskImportFromPeer'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskImportFromPeer'results) where
     typeId  = 18286574020088566998
@@ -2832,7 +2887,7 @@ instance (C.AllocateList Session'diskImportFromPeer'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results))
 data instance C.Parsed Session'diskImportFromPeer'results
-    = Session'diskImportFromPeer'results 
+    = Session'diskImportFromPeer'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskImportFromPeer'results))
@@ -2841,7 +2896,7 @@ instance (C.Parse Session'diskImportFromPeer'results (C.Parsed Session'diskImpor
     parse raw_ = (Std_.pure Session'diskImportFromPeer'results)
 instance (C.Marshal Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results)) where
     marshalInto _raw (Session'diskImportFromPeer'results) = (Std_.pure ())
-data Session'vmGuestExecStream'params 
+data Session'vmGuestExecStream'params
 type instance (R.ReprFor Session'vmGuestExecStream'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestExecStream'params) where
     typeId  = 10495467010808434359
@@ -2857,7 +2912,7 @@ instance (C.AllocateList Session'vmGuestExecStream'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestExecStream'params (C.Parsed Session'vmGuestExecStream'params))
 data instance C.Parsed Session'vmGuestExecStream'params
-    = Session'vmGuestExecStream'params 
+    = Session'vmGuestExecStream'params
         {req :: (RP.Parsed VmGuestExecReq)
         ,stdoutSink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)
         ,stderrSink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
@@ -2881,7 +2936,7 @@ instance (GH.HasField "stdoutSink" GH.Slot Session'vmGuestExecStream'params Capn
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "stderrSink" GH.Slot Session'vmGuestExecStream'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 2)
-data Session'vmGuestExecStream'results 
+data Session'vmGuestExecStream'results
 type instance (R.ReprFor Session'vmGuestExecStream'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestExecStream'results) where
     typeId  = 17516551508749116903
@@ -2897,7 +2952,7 @@ instance (C.AllocateList Session'vmGuestExecStream'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestExecStream'results (C.Parsed Session'vmGuestExecStream'results))
 data instance C.Parsed Session'vmGuestExecStream'results
-    = Session'vmGuestExecStream'results 
+    = Session'vmGuestExecStream'results
         {info :: (RP.Parsed VmGuestExecInfo)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestExecStream'results))
@@ -2911,7 +2966,7 @@ instance (C.Marshal Session'vmGuestExecStream'results (C.Parsed Session'vmGuestE
         )
 instance (GH.HasField "info" GH.Slot Session'vmGuestExecStream'results VmGuestExecInfo) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmSave'params 
+data Session'vmSave'params
 type instance (R.ReprFor Session'vmSave'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSave'params) where
     typeId  = 10510390357778605881
@@ -2927,7 +2982,7 @@ instance (C.AllocateList Session'vmSave'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmSave'params (C.Parsed Session'vmSave'params))
 data instance C.Parsed Session'vmSave'params
-    = Session'vmSave'params 
+    = Session'vmSave'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmSave'params))
@@ -2941,7 +2996,7 @@ instance (C.Marshal Session'vmSave'params (C.Parsed Session'vmSave'params)) wher
         )
 instance (GH.HasField "vmId" GH.Slot Session'vmSave'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'vmSave'results 
+data Session'vmSave'results
 type instance (R.ReprFor Session'vmSave'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSave'results) where
     typeId  = 18091016661478486259
@@ -2957,7 +3012,7 @@ instance (C.AllocateList Session'vmSave'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmSave'results (C.Parsed Session'vmSave'results))
 data instance C.Parsed Session'vmSave'results
-    = Session'vmSave'results 
+    = Session'vmSave'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmSave'results))
@@ -2966,7 +3021,7 @@ instance (C.Parse Session'vmSave'results (C.Parsed Session'vmSave'results)) wher
     parse raw_ = (Std_.pure Session'vmSave'results)
 instance (C.Marshal Session'vmSave'results (C.Parsed Session'vmSave'results)) where
     marshalInto _raw (Session'vmSave'results) = (Std_.pure ())
-data Session'deleteSavedState'params 
+data Session'deleteSavedState'params
 type instance (R.ReprFor Session'deleteSavedState'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteSavedState'params) where
     typeId  = 13578646548577570901
@@ -2982,7 +3037,7 @@ instance (C.AllocateList Session'deleteSavedState'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'deleteSavedState'params (C.Parsed Session'deleteSavedState'params))
 data instance C.Parsed Session'deleteSavedState'params
-    = Session'deleteSavedState'params 
+    = Session'deleteSavedState'params
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'deleteSavedState'params))
@@ -2996,7 +3051,7 @@ instance (C.Marshal Session'deleteSavedState'params (C.Parsed Session'deleteSave
         )
 instance (GH.HasField "vmName" GH.Slot Session'deleteSavedState'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'deleteSavedState'results 
+data Session'deleteSavedState'results
 type instance (R.ReprFor Session'deleteSavedState'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteSavedState'results) where
     typeId  = 11447949880474079985
@@ -3012,7 +3067,7 @@ instance (C.AllocateList Session'deleteSavedState'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'deleteSavedState'results (C.Parsed Session'deleteSavedState'results))
 data instance C.Parsed Session'deleteSavedState'results
-    = Session'deleteSavedState'results 
+    = Session'deleteSavedState'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'deleteSavedState'results))
@@ -3021,7 +3076,7 @@ instance (C.Parse Session'deleteSavedState'results (C.Parsed Session'deleteSaved
     parse raw_ = (Std_.pure Session'deleteSavedState'results)
 instance (C.Marshal Session'deleteSavedState'results (C.Parsed Session'deleteSavedState'results)) where
     marshalInto _raw (Session'deleteSavedState'results) = (Std_.pure ())
-data Session'snapshotCreateLive'params 
+data Session'snapshotCreateLive'params
 type instance (R.ReprFor Session'snapshotCreateLive'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreateLive'params) where
     typeId  = 17354183927217357071
@@ -3037,7 +3092,7 @@ instance (C.AllocateList Session'snapshotCreateLive'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotCreateLive'params (C.Parsed Session'snapshotCreateLive'params))
 data instance C.Parsed Session'snapshotCreateLive'params
-    = Session'snapshotCreateLive'params 
+    = Session'snapshotCreateLive'params
         {path :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)
         ,vmId :: (RP.Parsed Std_.Int64)
@@ -3066,7 +3121,7 @@ instance (GH.HasField "vmId" GH.Slot Session'snapshotCreateLive'params Std_.Int6
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "quiesce" GH.Slot Session'snapshotCreateLive'params Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode) where
     fieldByLabel  = (GH.dataField 0 1 16 0)
-data Session'snapshotCreateLive'results 
+data Session'snapshotCreateLive'results
 type instance (R.ReprFor Session'snapshotCreateLive'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreateLive'results) where
     typeId  = 14984007507268565335
@@ -3082,7 +3137,7 @@ instance (C.AllocateList Session'snapshotCreateLive'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotCreateLive'results (C.Parsed Session'snapshotCreateLive'results))
 data instance C.Parsed Session'snapshotCreateLive'results
-    = Session'snapshotCreateLive'results 
+    = Session'snapshotCreateLive'results
         {result :: (RP.Parsed DiskOpResult)
         ,quiesced :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
@@ -3101,7 +3156,7 @@ instance (GH.HasField "result" GH.Slot Session'snapshotCreateLive'results DiskOp
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "quiesced" GH.Slot Session'snapshotCreateLive'results Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
-data Session'snapshotDeleteLive'params 
+data Session'snapshotDeleteLive'params
 type instance (R.ReprFor Session'snapshotDeleteLive'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDeleteLive'params) where
     typeId  = 11242620735601425299
@@ -3117,7 +3172,7 @@ instance (C.AllocateList Session'snapshotDeleteLive'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotDeleteLive'params (C.Parsed Session'snapshotDeleteLive'params))
 data instance C.Parsed Session'snapshotDeleteLive'params
-    = Session'snapshotDeleteLive'params 
+    = Session'snapshotDeleteLive'params
         {path :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)
         ,vmId :: (RP.Parsed Std_.Int64)}
@@ -3141,7 +3196,7 @@ instance (GH.HasField "name" GH.Slot Session'snapshotDeleteLive'params Basics.Te
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "vmId" GH.Slot Session'snapshotDeleteLive'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'snapshotDeleteLive'results 
+data Session'snapshotDeleteLive'results
 type instance (R.ReprFor Session'snapshotDeleteLive'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDeleteLive'results) where
     typeId  = 11567279993457323767
@@ -3157,7 +3212,7 @@ instance (C.AllocateList Session'snapshotDeleteLive'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotDeleteLive'results (C.Parsed Session'snapshotDeleteLive'results))
 data instance C.Parsed Session'snapshotDeleteLive'results
-    = Session'snapshotDeleteLive'results 
+    = Session'snapshotDeleteLive'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotDeleteLive'results))
@@ -3171,7 +3226,7 @@ instance (C.Marshal Session'snapshotDeleteLive'results (C.Parsed Session'snapsho
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotDeleteLive'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotCreateWithVmstate'params 
+data Session'snapshotCreateWithVmstate'params
 type instance (R.ReprFor Session'snapshotCreateWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreateWithVmstate'params) where
     typeId  = 17352390649456236637
@@ -3187,7 +3242,7 @@ instance (C.AllocateList Session'snapshotCreateWithVmstate'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotCreateWithVmstate'params (C.Parsed Session'snapshotCreateWithVmstate'params))
 data instance C.Parsed Session'snapshotCreateWithVmstate'params
-    = Session'snapshotCreateWithVmstate'params 
+    = Session'snapshotCreateWithVmstate'params
         {vmstateDevicePath :: (RP.Parsed Basics.Text)
         ,devicePaths :: (RP.Parsed (R.List Basics.Text))
         ,name :: (RP.Parsed Basics.Text)
@@ -3216,7 +3271,7 @@ instance (GH.HasField "name" GH.Slot Session'snapshotCreateWithVmstate'params Ba
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "vmId" GH.Slot Session'snapshotCreateWithVmstate'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'snapshotCreateWithVmstate'results 
+data Session'snapshotCreateWithVmstate'results
 type instance (R.ReprFor Session'snapshotCreateWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotCreateWithVmstate'results) where
     typeId  = 15677871614244384781
@@ -3232,7 +3287,7 @@ instance (C.AllocateList Session'snapshotCreateWithVmstate'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotCreateWithVmstate'results (C.Parsed Session'snapshotCreateWithVmstate'results))
 data instance C.Parsed Session'snapshotCreateWithVmstate'results
-    = Session'snapshotCreateWithVmstate'results 
+    = Session'snapshotCreateWithVmstate'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotCreateWithVmstate'results))
@@ -3246,7 +3301,7 @@ instance (C.Marshal Session'snapshotCreateWithVmstate'results (C.Parsed Session'
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotCreateWithVmstate'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotLoadWithVmstate'params 
+data Session'snapshotLoadWithVmstate'params
 type instance (R.ReprFor Session'snapshotLoadWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotLoadWithVmstate'params) where
     typeId  = 16101421658982316407
@@ -3262,7 +3317,7 @@ instance (C.AllocateList Session'snapshotLoadWithVmstate'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotLoadWithVmstate'params (C.Parsed Session'snapshotLoadWithVmstate'params))
 data instance C.Parsed Session'snapshotLoadWithVmstate'params
-    = Session'snapshotLoadWithVmstate'params 
+    = Session'snapshotLoadWithVmstate'params
         {vmstateDevicePath :: (RP.Parsed Basics.Text)
         ,devicePaths :: (RP.Parsed (R.List Basics.Text))
         ,name :: (RP.Parsed Basics.Text)
@@ -3291,7 +3346,7 @@ instance (GH.HasField "name" GH.Slot Session'snapshotLoadWithVmstate'params Basi
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "vmId" GH.Slot Session'snapshotLoadWithVmstate'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'snapshotLoadWithVmstate'results 
+data Session'snapshotLoadWithVmstate'results
 type instance (R.ReprFor Session'snapshotLoadWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotLoadWithVmstate'results) where
     typeId  = 15319697288655617572
@@ -3307,7 +3362,7 @@ instance (C.AllocateList Session'snapshotLoadWithVmstate'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotLoadWithVmstate'results (C.Parsed Session'snapshotLoadWithVmstate'results))
 data instance C.Parsed Session'snapshotLoadWithVmstate'results
-    = Session'snapshotLoadWithVmstate'results 
+    = Session'snapshotLoadWithVmstate'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotLoadWithVmstate'results))
@@ -3321,7 +3376,7 @@ instance (C.Marshal Session'snapshotLoadWithVmstate'results (C.Parsed Session'sn
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotLoadWithVmstate'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'snapshotDeleteWithVmstate'params 
+data Session'snapshotDeleteWithVmstate'params
 type instance (R.ReprFor Session'snapshotDeleteWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDeleteWithVmstate'params) where
     typeId  = 13379629769303057490
@@ -3337,7 +3392,7 @@ instance (C.AllocateList Session'snapshotDeleteWithVmstate'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotDeleteWithVmstate'params (C.Parsed Session'snapshotDeleteWithVmstate'params))
 data instance C.Parsed Session'snapshotDeleteWithVmstate'params
-    = Session'snapshotDeleteWithVmstate'params 
+    = Session'snapshotDeleteWithVmstate'params
         {devicePaths :: (RP.Parsed (R.List Basics.Text))
         ,name :: (RP.Parsed Basics.Text)
         ,vmId :: (RP.Parsed Std_.Int64)}
@@ -3361,7 +3416,7 @@ instance (GH.HasField "name" GH.Slot Session'snapshotDeleteWithVmstate'params Ba
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "vmId" GH.Slot Session'snapshotDeleteWithVmstate'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'snapshotDeleteWithVmstate'results 
+data Session'snapshotDeleteWithVmstate'results
 type instance (R.ReprFor Session'snapshotDeleteWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'snapshotDeleteWithVmstate'results) where
     typeId  = 10484588875035174898
@@ -3377,7 +3432,7 @@ instance (C.AllocateList Session'snapshotDeleteWithVmstate'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'snapshotDeleteWithVmstate'results (C.Parsed Session'snapshotDeleteWithVmstate'results))
 data instance C.Parsed Session'snapshotDeleteWithVmstate'results
-    = Session'snapshotDeleteWithVmstate'results 
+    = Session'snapshotDeleteWithVmstate'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'snapshotDeleteWithVmstate'results))
@@ -3391,7 +3446,7 @@ instance (C.Marshal Session'snapshotDeleteWithVmstate'results (C.Parsed Session'
         )
 instance (GH.HasField "result" GH.Slot Session'snapshotDeleteWithVmstate'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'guestSetTime'params 
+data Session'guestSetTime'params
 type instance (R.ReprFor Session'guestSetTime'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'guestSetTime'params) where
     typeId  = 14347331234765982838
@@ -3407,7 +3462,7 @@ instance (C.AllocateList Session'guestSetTime'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'guestSetTime'params (C.Parsed Session'guestSetTime'params))
 data instance C.Parsed Session'guestSetTime'params
-    = Session'guestSetTime'params 
+    = Session'guestSetTime'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'guestSetTime'params))
@@ -3421,7 +3476,7 @@ instance (C.Marshal Session'guestSetTime'params (C.Parsed Session'guestSetTime'p
         )
 instance (GH.HasField "vmId" GH.Slot Session'guestSetTime'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'guestSetTime'results 
+data Session'guestSetTime'results
 type instance (R.ReprFor Session'guestSetTime'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'guestSetTime'results) where
     typeId  = 14767847684973433713
@@ -3437,7 +3492,7 @@ instance (C.AllocateList Session'guestSetTime'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'guestSetTime'results (C.Parsed Session'guestSetTime'results))
 data instance C.Parsed Session'guestSetTime'results
-    = Session'guestSetTime'results 
+    = Session'guestSetTime'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'guestSetTime'results))
@@ -3451,7 +3506,7 @@ instance (C.Marshal Session'guestSetTime'results (C.Parsed Session'guestSetTime'
         )
 instance (GH.HasField "result" GH.Slot Session'guestSetTime'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'deleteTpmState'params 
+data Session'deleteTpmState'params
 type instance (R.ReprFor Session'deleteTpmState'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteTpmState'params) where
     typeId  = 12950672055964986808
@@ -3467,7 +3522,7 @@ instance (C.AllocateList Session'deleteTpmState'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'deleteTpmState'params (C.Parsed Session'deleteTpmState'params))
 data instance C.Parsed Session'deleteTpmState'params
-    = Session'deleteTpmState'params 
+    = Session'deleteTpmState'params
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'deleteTpmState'params))
@@ -3481,7 +3536,7 @@ instance (C.Marshal Session'deleteTpmState'params (C.Parsed Session'deleteTpmSta
         )
 instance (GH.HasField "vmName" GH.Slot Session'deleteTpmState'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'deleteTpmState'results 
+data Session'deleteTpmState'results
 type instance (R.ReprFor Session'deleteTpmState'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteTpmState'results) where
     typeId  = 11219506602945326464
@@ -3497,7 +3552,7 @@ instance (C.AllocateList Session'deleteTpmState'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'deleteTpmState'results (C.Parsed Session'deleteTpmState'results))
 data instance C.Parsed Session'deleteTpmState'results
-    = Session'deleteTpmState'results 
+    = Session'deleteTpmState'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'deleteTpmState'results))
@@ -3506,7 +3561,7 @@ instance (C.Parse Session'deleteTpmState'results (C.Parsed Session'deleteTpmStat
     parse raw_ = (Std_.pure Session'deleteTpmState'results)
 instance (C.Marshal Session'deleteTpmState'results (C.Parsed Session'deleteTpmState'results)) where
     marshalInto _raw (Session'deleteTpmState'results) = (Std_.pure ())
-data Session'diskOpenWrite'params 
+data Session'diskOpenWrite'params
 type instance (R.ReprFor Session'diskOpenWrite'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskOpenWrite'params) where
     typeId  = 14396184920231242233
@@ -3522,7 +3577,7 @@ instance (C.AllocateList Session'diskOpenWrite'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskOpenWrite'params (C.Parsed Session'diskOpenWrite'params))
 data instance C.Parsed Session'diskOpenWrite'params
-    = Session'diskOpenWrite'params 
+    = Session'diskOpenWrite'params
         {destPath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskOpenWrite'params))
@@ -3536,7 +3591,7 @@ instance (C.Marshal Session'diskOpenWrite'params (C.Parsed Session'diskOpenWrite
         )
 instance (GH.HasField "destPath" GH.Slot Session'diskOpenWrite'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskOpenWrite'results 
+data Session'diskOpenWrite'results
 type instance (R.ReprFor Session'diskOpenWrite'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskOpenWrite'results) where
     typeId  = 18125263205622004658
@@ -3552,7 +3607,7 @@ instance (C.AllocateList Session'diskOpenWrite'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrite'results))
 data instance C.Parsed Session'diskOpenWrite'results
-    = Session'diskOpenWrite'results 
+    = Session'diskOpenWrite'results
         {sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskOpenWrite'results))
@@ -3566,7 +3621,7 @@ instance (C.Marshal Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrit
         )
 instance (GH.HasField "sink" GH.Slot Session'diskOpenWrite'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmEjectMedia'params 
+data Session'vmEjectMedia'params
 type instance (R.ReprFor Session'vmEjectMedia'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmEjectMedia'params) where
     typeId  = 13925541470899200758
@@ -3582,7 +3637,7 @@ instance (C.AllocateList Session'vmEjectMedia'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmEjectMedia'params (C.Parsed Session'vmEjectMedia'params))
 data instance C.Parsed Session'vmEjectMedia'params
-    = Session'vmEjectMedia'params 
+    = Session'vmEjectMedia'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,driveId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
@@ -3601,7 +3656,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmEjectMedia'params Std_.Int64) whe
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "driveId" GH.Slot Session'vmEjectMedia'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-data Session'vmEjectMedia'results 
+data Session'vmEjectMedia'results
 type instance (R.ReprFor Session'vmEjectMedia'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmEjectMedia'results) where
     typeId  = 12295800475057107102
@@ -3617,7 +3672,7 @@ instance (C.AllocateList Session'vmEjectMedia'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'results))
 data instance C.Parsed Session'vmEjectMedia'results
-    = Session'vmEjectMedia'results 
+    = Session'vmEjectMedia'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmEjectMedia'results))
@@ -3626,7 +3681,7 @@ instance (C.Parse Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia're
     parse raw_ = (Std_.pure Session'vmEjectMedia'results)
 instance (C.Marshal Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'results)) where
     marshalInto _raw (Session'vmEjectMedia'results) = (Std_.pure ())
-data Session'vmChangeMedia'params 
+data Session'vmChangeMedia'params
 type instance (R.ReprFor Session'vmChangeMedia'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmChangeMedia'params) where
     typeId  = 9547302620639351284
@@ -3642,7 +3697,7 @@ instance (C.AllocateList Session'vmChangeMedia'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmChangeMedia'params (C.Parsed Session'vmChangeMedia'params))
 data instance C.Parsed Session'vmChangeMedia'params
-    = Session'vmChangeMedia'params 
+    = Session'vmChangeMedia'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,driveId :: (RP.Parsed Std_.Int64)
         ,filePath :: (RP.Parsed Basics.Text)
@@ -3671,7 +3726,7 @@ instance (GH.HasField "filePath" GH.Slot Session'vmChangeMedia'params Basics.Tex
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "format" GH.Slot Session'vmChangeMedia'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'vmChangeMedia'results 
+data Session'vmChangeMedia'results
 type instance (R.ReprFor Session'vmChangeMedia'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmChangeMedia'results) where
     typeId  = 11251615629224092590
@@ -3687,7 +3742,7 @@ instance (C.AllocateList Session'vmChangeMedia'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results))
 data instance C.Parsed Session'vmChangeMedia'results
-    = Session'vmChangeMedia'results 
+    = Session'vmChangeMedia'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmChangeMedia'results))
@@ -3696,7 +3751,7 @@ instance (C.Parse Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'
     parse raw_ = (Std_.pure Session'vmChangeMedia'results)
 instance (C.Marshal Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results)) where
     marshalInto _raw (Session'vmChangeMedia'results) = (Std_.pure ())
-data Session'prepareTpmMigration'params 
+data Session'prepareTpmMigration'params
 type instance (R.ReprFor Session'prepareTpmMigration'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'prepareTpmMigration'params) where
     typeId  = 13072044293411856950
@@ -3712,7 +3767,7 @@ instance (C.AllocateList Session'prepareTpmMigration'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'prepareTpmMigration'params (C.Parsed Session'prepareTpmMigration'params))
 data instance C.Parsed Session'prepareTpmMigration'params
-    = Session'prepareTpmMigration'params 
+    = Session'prepareTpmMigration'params
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'prepareTpmMigration'params))
@@ -3726,7 +3781,7 @@ instance (C.Marshal Session'prepareTpmMigration'params (C.Parsed Session'prepare
         )
 instance (GH.HasField "vmName" GH.Slot Session'prepareTpmMigration'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'prepareTpmMigration'results 
+data Session'prepareTpmMigration'results
 type instance (R.ReprFor Session'prepareTpmMigration'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'prepareTpmMigration'results) where
     typeId  = 11993669989086491528
@@ -3742,7 +3797,7 @@ instance (C.AllocateList Session'prepareTpmMigration'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'prepareTpmMigration'results (C.Parsed Session'prepareTpmMigration'results))
 data instance C.Parsed Session'prepareTpmMigration'results
-    = Session'prepareTpmMigration'results 
+    = Session'prepareTpmMigration'results
         {archivePath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'prepareTpmMigration'results))
@@ -3756,7 +3811,7 @@ instance (C.Marshal Session'prepareTpmMigration'results (C.Parsed Session'prepar
         )
 instance (GH.HasField "archivePath" GH.Slot Session'prepareTpmMigration'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'restoreTpmMigration'params 
+data Session'restoreTpmMigration'params
 type instance (R.ReprFor Session'restoreTpmMigration'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'restoreTpmMigration'params) where
     typeId  = 10211772327123698838
@@ -3772,7 +3827,7 @@ instance (C.AllocateList Session'restoreTpmMigration'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'restoreTpmMigration'params (C.Parsed Session'restoreTpmMigration'params))
 data instance C.Parsed Session'restoreTpmMigration'params
-    = Session'restoreTpmMigration'params 
+    = Session'restoreTpmMigration'params
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'restoreTpmMigration'params))
@@ -3786,7 +3841,7 @@ instance (C.Marshal Session'restoreTpmMigration'params (C.Parsed Session'restore
         )
 instance (GH.HasField "vmName" GH.Slot Session'restoreTpmMigration'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'restoreTpmMigration'results 
+data Session'restoreTpmMigration'results
 type instance (R.ReprFor Session'restoreTpmMigration'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'restoreTpmMigration'results) where
     typeId  = 15013204939972778009
@@ -3802,7 +3857,7 @@ instance (C.AllocateList Session'restoreTpmMigration'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'restoreTpmMigration'results (C.Parsed Session'restoreTpmMigration'results))
 data instance C.Parsed Session'restoreTpmMigration'results
-    = Session'restoreTpmMigration'results 
+    = Session'restoreTpmMigration'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'restoreTpmMigration'results))
@@ -3811,7 +3866,7 @@ instance (C.Parse Session'restoreTpmMigration'results (C.Parsed Session'restoreT
     parse raw_ = (Std_.pure Session'restoreTpmMigration'results)
 instance (C.Marshal Session'restoreTpmMigration'results (C.Parsed Session'restoreTpmMigration'results)) where
     marshalInto _raw (Session'restoreTpmMigration'results) = (Std_.pure ())
-data Session'cleanupTpmMigrationArchive'params 
+data Session'cleanupTpmMigrationArchive'params
 type instance (R.ReprFor Session'cleanupTpmMigrationArchive'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'cleanupTpmMigrationArchive'params) where
     typeId  = 14123564710931201902
@@ -3827,7 +3882,7 @@ instance (C.AllocateList Session'cleanupTpmMigrationArchive'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'cleanupTpmMigrationArchive'params (C.Parsed Session'cleanupTpmMigrationArchive'params))
 data instance C.Parsed Session'cleanupTpmMigrationArchive'params
-    = Session'cleanupTpmMigrationArchive'params 
+    = Session'cleanupTpmMigrationArchive'params
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'cleanupTpmMigrationArchive'params))
@@ -3841,7 +3896,7 @@ instance (C.Marshal Session'cleanupTpmMigrationArchive'params (C.Parsed Session'
         )
 instance (GH.HasField "vmName" GH.Slot Session'cleanupTpmMigrationArchive'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'cleanupTpmMigrationArchive'results 
+data Session'cleanupTpmMigrationArchive'results
 type instance (R.ReprFor Session'cleanupTpmMigrationArchive'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'cleanupTpmMigrationArchive'results) where
     typeId  = 11919681427679042146
@@ -3857,7 +3912,7 @@ instance (C.AllocateList Session'cleanupTpmMigrationArchive'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results))
 data instance C.Parsed Session'cleanupTpmMigrationArchive'results
-    = Session'cleanupTpmMigrationArchive'results 
+    = Session'cleanupTpmMigrationArchive'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'cleanupTpmMigrationArchive'results))
@@ -3866,7 +3921,7 @@ instance (C.Parse Session'cleanupTpmMigrationArchive'results (C.Parsed Session'c
     parse raw_ = (Std_.pure Session'cleanupTpmMigrationArchive'results)
 instance (C.Marshal Session'cleanupTpmMigrationArchive'results (C.Parsed Session'cleanupTpmMigrationArchive'results)) where
     marshalInto _raw (Session'cleanupTpmMigrationArchive'results) = (Std_.pure ())
-data Session'vmSetBalloon'params 
+data Session'vmSetBalloon'params
 type instance (R.ReprFor Session'vmSetBalloon'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetBalloon'params) where
     typeId  = 18285722263799615971
@@ -3882,7 +3937,7 @@ instance (C.AllocateList Session'vmSetBalloon'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmSetBalloon'params (C.Parsed Session'vmSetBalloon'params))
 data instance C.Parsed Session'vmSetBalloon'params
-    = Session'vmSetBalloon'params 
+    = Session'vmSetBalloon'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,targetBytes :: (RP.Parsed Std_.Word64)}
     deriving(Generics.Generic)
@@ -3901,7 +3956,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmSetBalloon'params Std_.Int64) whe
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "targetBytes" GH.Slot Session'vmSetBalloon'params Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-data Session'vmSetBalloon'results 
+data Session'vmSetBalloon'results
 type instance (R.ReprFor Session'vmSetBalloon'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetBalloon'results) where
     typeId  = 10548626588249548089
@@ -3917,7 +3972,7 @@ instance (C.AllocateList Session'vmSetBalloon'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmSetBalloon'results (C.Parsed Session'vmSetBalloon'results))
 data instance C.Parsed Session'vmSetBalloon'results
-    = Session'vmSetBalloon'results 
+    = Session'vmSetBalloon'results
         {status :: (RP.Parsed BalloonStatus)
         ,message :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -3936,7 +3991,7 @@ instance (GH.HasField "status" GH.Slot Session'vmSetBalloon'results BalloonStatu
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "message" GH.Slot Session'vmSetBalloon'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmGuestPing'params 
+data Session'vmGuestPing'params
 type instance (R.ReprFor Session'vmGuestPing'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestPing'params) where
     typeId  = 17201424421732847586
@@ -3952,7 +4007,7 @@ instance (C.AllocateList Session'vmGuestPing'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestPing'params (C.Parsed Session'vmGuestPing'params))
 data instance C.Parsed Session'vmGuestPing'params
-    = Session'vmGuestPing'params 
+    = Session'vmGuestPing'params
         {vmId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestPing'params))
@@ -3966,7 +4021,7 @@ instance (C.Marshal Session'vmGuestPing'params (C.Parsed Session'vmGuestPing'par
         )
 instance (GH.HasField "vmId" GH.Slot Session'vmGuestPing'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'vmGuestPing'results 
+data Session'vmGuestPing'results
 type instance (R.ReprFor Session'vmGuestPing'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestPing'results) where
     typeId  = 11405991015675800505
@@ -3982,7 +4037,7 @@ instance (C.AllocateList Session'vmGuestPing'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestPing'results (C.Parsed Session'vmGuestPing'results))
 data instance C.Parsed Session'vmGuestPing'results
-    = Session'vmGuestPing'results 
+    = Session'vmGuestPing'results
         {alive :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestPing'results))
@@ -3996,7 +4051,7 @@ instance (C.Marshal Session'vmGuestPing'results (C.Parsed Session'vmGuestPing're
         )
 instance (GH.HasField "alive" GH.Slot Session'vmGuestPing'results Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
-data Session'vmGuestReboot'params 
+data Session'vmGuestReboot'params
 type instance (R.ReprFor Session'vmGuestReboot'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestReboot'params) where
     typeId  = 17496540566072557177
@@ -4012,7 +4067,7 @@ instance (C.AllocateList Session'vmGuestReboot'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestReboot'params (C.Parsed Session'vmGuestReboot'params))
 data instance C.Parsed Session'vmGuestReboot'params
-    = Session'vmGuestReboot'params 
+    = Session'vmGuestReboot'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,timeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
@@ -4031,7 +4086,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmGuestReboot'params Std_.Int64) wh
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "timeoutSec" GH.Slot Session'vmGuestReboot'params Std_.Word32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-data Session'vmGuestReboot'results 
+data Session'vmGuestReboot'results
 type instance (R.ReprFor Session'vmGuestReboot'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestReboot'results) where
     typeId  = 12089295155747141877
@@ -4047,7 +4102,7 @@ instance (C.AllocateList Session'vmGuestReboot'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestReboot'results (C.Parsed Session'vmGuestReboot'results))
 data instance C.Parsed Session'vmGuestReboot'results
-    = Session'vmGuestReboot'results 
+    = Session'vmGuestReboot'results
         {result :: (RP.Parsed DiskOpResult)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestReboot'results))
@@ -4061,7 +4116,7 @@ instance (C.Marshal Session'vmGuestReboot'results (C.Parsed Session'vmGuestReboo
         )
 instance (GH.HasField "result" GH.Slot Session'vmGuestReboot'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmGuestWriteFile'params 
+data Session'vmGuestWriteFile'params
 type instance (R.ReprFor Session'vmGuestWriteFile'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestWriteFile'params) where
     typeId  = 12560162766438166956
@@ -4077,7 +4132,7 @@ instance (C.AllocateList Session'vmGuestWriteFile'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestWriteFile'params (C.Parsed Session'vmGuestWriteFile'params))
 data instance C.Parsed Session'vmGuestWriteFile'params
-    = Session'vmGuestWriteFile'params 
+    = Session'vmGuestWriteFile'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,path :: (RP.Parsed Basics.Text)
         ,source :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSource)}
@@ -4101,7 +4156,7 @@ instance (GH.HasField "path" GH.Slot Session'vmGuestWriteFile'params Basics.Text
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "source" GH.Slot Session'vmGuestWriteFile'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSource) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'vmGuestWriteFile'results 
+data Session'vmGuestWriteFile'results
 type instance (R.ReprFor Session'vmGuestWriteFile'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestWriteFile'results) where
     typeId  = 12893894106167256362
@@ -4117,7 +4172,7 @@ instance (C.AllocateList Session'vmGuestWriteFile'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestWriteFile'results (C.Parsed Session'vmGuestWriteFile'results))
 data instance C.Parsed Session'vmGuestWriteFile'results
-    = Session'vmGuestWriteFile'results 
+    = Session'vmGuestWriteFile'results
         {bytesTransferred :: (RP.Parsed Std_.Word64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestWriteFile'results))
@@ -4131,7 +4186,7 @@ instance (C.Marshal Session'vmGuestWriteFile'results (C.Parsed Session'vmGuestWr
         )
 instance (GH.HasField "bytesTransferred" GH.Slot Session'vmGuestWriteFile'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'removeDirectoryIfEmpty'params 
+data Session'removeDirectoryIfEmpty'params
 type instance (R.ReprFor Session'removeDirectoryIfEmpty'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'removeDirectoryIfEmpty'params) where
     typeId  = 18110953943990662290
@@ -4147,7 +4202,7 @@ instance (C.AllocateList Session'removeDirectoryIfEmpty'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'removeDirectoryIfEmpty'params (C.Parsed Session'removeDirectoryIfEmpty'params))
 data instance C.Parsed Session'removeDirectoryIfEmpty'params
-    = Session'removeDirectoryIfEmpty'params 
+    = Session'removeDirectoryIfEmpty'params
         {path :: (RP.Parsed Basics.Text)
         ,protectedBasePath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -4166,7 +4221,7 @@ instance (GH.HasField "path" GH.Slot Session'removeDirectoryIfEmpty'params Basic
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "protectedBasePath" GH.Slot Session'removeDirectoryIfEmpty'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'removeDirectoryIfEmpty'results 
+data Session'removeDirectoryIfEmpty'results
 type instance (R.ReprFor Session'removeDirectoryIfEmpty'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'removeDirectoryIfEmpty'results) where
     typeId  = 12311353999345153533
@@ -4182,7 +4237,7 @@ instance (C.AllocateList Session'removeDirectoryIfEmpty'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'removeDirectoryIfEmpty'results (C.Parsed Session'removeDirectoryIfEmpty'results))
 data instance C.Parsed Session'removeDirectoryIfEmpty'results
-    = Session'removeDirectoryIfEmpty'results 
+    = Session'removeDirectoryIfEmpty'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'removeDirectoryIfEmpty'results))
@@ -4191,7 +4246,7 @@ instance (C.Parse Session'removeDirectoryIfEmpty'results (C.Parsed Session'remov
     parse raw_ = (Std_.pure Session'removeDirectoryIfEmpty'results)
 instance (C.Marshal Session'removeDirectoryIfEmpty'results (C.Parsed Session'removeDirectoryIfEmpty'results)) where
     marshalInto _raw (Session'removeDirectoryIfEmpty'results) = (Std_.pure ())
-data Session'removeVmDirectoryIfEmpty'params 
+data Session'removeVmDirectoryIfEmpty'params
 type instance (R.ReprFor Session'removeVmDirectoryIfEmpty'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'removeVmDirectoryIfEmpty'params) where
     typeId  = 9806962867550230886
@@ -4207,7 +4262,7 @@ instance (C.AllocateList Session'removeVmDirectoryIfEmpty'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'removeVmDirectoryIfEmpty'params (C.Parsed Session'removeVmDirectoryIfEmpty'params))
 data instance C.Parsed Session'removeVmDirectoryIfEmpty'params
-    = Session'removeVmDirectoryIfEmpty'params 
+    = Session'removeVmDirectoryIfEmpty'params
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'removeVmDirectoryIfEmpty'params))
@@ -4221,7 +4276,7 @@ instance (C.Marshal Session'removeVmDirectoryIfEmpty'params (C.Parsed Session're
         )
 instance (GH.HasField "vmName" GH.Slot Session'removeVmDirectoryIfEmpty'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'removeVmDirectoryIfEmpty'results 
+data Session'removeVmDirectoryIfEmpty'results
 type instance (R.ReprFor Session'removeVmDirectoryIfEmpty'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'removeVmDirectoryIfEmpty'results) where
     typeId  = 11660549458102738528
@@ -4237,7 +4292,7 @@ instance (C.AllocateList Session'removeVmDirectoryIfEmpty'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'removeVmDirectoryIfEmpty'results (C.Parsed Session'removeVmDirectoryIfEmpty'results))
 data instance C.Parsed Session'removeVmDirectoryIfEmpty'results
-    = Session'removeVmDirectoryIfEmpty'results 
+    = Session'removeVmDirectoryIfEmpty'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'removeVmDirectoryIfEmpty'results))
@@ -4246,7 +4301,7 @@ instance (C.Parse Session'removeVmDirectoryIfEmpty'results (C.Parsed Session'rem
     parse raw_ = (Std_.pure Session'removeVmDirectoryIfEmpty'results)
 instance (C.Marshal Session'removeVmDirectoryIfEmpty'results (C.Parsed Session'removeVmDirectoryIfEmpty'results)) where
     marshalInto _raw (Session'removeVmDirectoryIfEmpty'results) = (Std_.pure ())
-data Session'vmGuestReadFile'params 
+data Session'vmGuestReadFile'params
 type instance (R.ReprFor Session'vmGuestReadFile'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestReadFile'params) where
     typeId  = 16183694707667730953
@@ -4262,7 +4317,7 @@ instance (C.AllocateList Session'vmGuestReadFile'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestReadFile'params (C.Parsed Session'vmGuestReadFile'params))
 data instance C.Parsed Session'vmGuestReadFile'params
-    = Session'vmGuestReadFile'params 
+    = Session'vmGuestReadFile'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,path :: (RP.Parsed Basics.Text)
         ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
@@ -4286,7 +4341,7 @@ instance (GH.HasField "path" GH.Slot Session'vmGuestReadFile'params Basics.Text)
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "sink" GH.Slot Session'vmGuestReadFile'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 1)
-data Session'vmGuestReadFile'results 
+data Session'vmGuestReadFile'results
 type instance (R.ReprFor Session'vmGuestReadFile'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestReadFile'results) where
     typeId  = 12622641743753488387
@@ -4302,7 +4357,7 @@ instance (C.AllocateList Session'vmGuestReadFile'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestReadFile'results (C.Parsed Session'vmGuestReadFile'results))
 data instance C.Parsed Session'vmGuestReadFile'results
-    = Session'vmGuestReadFile'results 
+    = Session'vmGuestReadFile'results
         {bytesTransferred :: (RP.Parsed Std_.Word64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestReadFile'results))
@@ -4316,7 +4371,7 @@ instance (C.Marshal Session'vmGuestReadFile'results (C.Parsed Session'vmGuestRea
         )
 instance (GH.HasField "bytesTransferred" GH.Slot Session'vmGuestReadFile'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-data Session'vmGuestSshAddAuthorizedKeys'params 
+data Session'vmGuestSshAddAuthorizedKeys'params
 type instance (R.ReprFor Session'vmGuestSshAddAuthorizedKeys'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestSshAddAuthorizedKeys'params) where
     typeId  = 9647495978101455858
@@ -4332,7 +4387,7 @@ instance (C.AllocateList Session'vmGuestSshAddAuthorizedKeys'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestSshAddAuthorizedKeys'params (C.Parsed Session'vmGuestSshAddAuthorizedKeys'params))
 data instance C.Parsed Session'vmGuestSshAddAuthorizedKeys'params
-    = Session'vmGuestSshAddAuthorizedKeys'params 
+    = Session'vmGuestSshAddAuthorizedKeys'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,username :: (RP.Parsed Basics.Text)
         ,keys :: (RP.Parsed (R.List Basics.Text))
@@ -4361,7 +4416,7 @@ instance (GH.HasField "keys" GH.Slot Session'vmGuestSshAddAuthorizedKeys'params 
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "reset" GH.Slot Session'vmGuestSshAddAuthorizedKeys'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 1 1 0)
-data Session'vmGuestSshAddAuthorizedKeys'results 
+data Session'vmGuestSshAddAuthorizedKeys'results
 type instance (R.ReprFor Session'vmGuestSshAddAuthorizedKeys'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestSshAddAuthorizedKeys'results) where
     typeId  = 11688743231627430520
@@ -4377,7 +4432,7 @@ instance (C.AllocateList Session'vmGuestSshAddAuthorizedKeys'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results))
 data instance C.Parsed Session'vmGuestSshAddAuthorizedKeys'results
-    = Session'vmGuestSshAddAuthorizedKeys'results 
+    = Session'vmGuestSshAddAuthorizedKeys'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results))
@@ -4386,7 +4441,7 @@ instance (C.Parse Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'
     parse raw_ = (Std_.pure Session'vmGuestSshAddAuthorizedKeys'results)
 instance (C.Marshal Session'vmGuestSshAddAuthorizedKeys'results (C.Parsed Session'vmGuestSshAddAuthorizedKeys'results)) where
     marshalInto _raw (Session'vmGuestSshAddAuthorizedKeys'results) = (Std_.pure ())
-data Session'vmScreenshot'params 
+data Session'vmScreenshot'params
 type instance (R.ReprFor Session'vmScreenshot'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmScreenshot'params) where
     typeId  = 12657717666182578431
@@ -4402,7 +4457,7 @@ instance (C.AllocateList Session'vmScreenshot'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmScreenshot'params (C.Parsed Session'vmScreenshot'params))
 data instance C.Parsed Session'vmScreenshot'params
-    = Session'vmScreenshot'params 
+    = Session'vmScreenshot'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
@@ -4421,7 +4476,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmScreenshot'params Std_.Int64) whe
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "sink" GH.Slot Session'vmScreenshot'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmScreenshot'results 
+data Session'vmScreenshot'results
 type instance (R.ReprFor Session'vmScreenshot'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmScreenshot'results) where
     typeId  = 14303358502001445704
@@ -4437,7 +4492,7 @@ instance (C.AllocateList Session'vmScreenshot'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmScreenshot'results (C.Parsed Session'vmScreenshot'results))
 data instance C.Parsed Session'vmScreenshot'results
-    = Session'vmScreenshot'results 
+    = Session'vmScreenshot'results
         {status :: (RP.Parsed ScreenshotStatus)
         ,message :: (RP.Parsed Basics.Text)
         ,bytesTransferred :: (RP.Parsed Std_.Word64)}
@@ -4461,7 +4516,7 @@ instance (GH.HasField "message" GH.Slot Session'vmScreenshot'results Basics.Text
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "bytesTransferred" GH.Slot Session'vmScreenshot'results Std_.Word64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-data Session'diskSourceIdentity'params 
+data Session'diskSourceIdentity'params
 type instance (R.ReprFor Session'diskSourceIdentity'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskSourceIdentity'params) where
     typeId  = 11445011870590745081
@@ -4477,7 +4532,7 @@ instance (C.AllocateList Session'diskSourceIdentity'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskSourceIdentity'params (C.Parsed Session'diskSourceIdentity'params))
 data instance C.Parsed Session'diskSourceIdentity'params
-    = Session'diskSourceIdentity'params 
+    = Session'diskSourceIdentity'params
         {path :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskSourceIdentity'params))
@@ -4491,7 +4546,7 @@ instance (C.Marshal Session'diskSourceIdentity'params (C.Parsed Session'diskSour
         )
 instance (GH.HasField "path" GH.Slot Session'diskSourceIdentity'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskSourceIdentity'results 
+data Session'diskSourceIdentity'results
 type instance (R.ReprFor Session'diskSourceIdentity'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskSourceIdentity'results) where
     typeId  = 17177454531906739253
@@ -4507,7 +4562,7 @@ instance (C.AllocateList Session'diskSourceIdentity'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'diskSourceIdentity'results (C.Parsed Session'diskSourceIdentity'results))
 data instance C.Parsed Session'diskSourceIdentity'results
-    = Session'diskSourceIdentity'results 
+    = Session'diskSourceIdentity'results
         {identity :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskSourceIdentity'results))
@@ -4521,7 +4576,7 @@ instance (C.Marshal Session'diskSourceIdentity'results (C.Parsed Session'diskSou
         )
 instance (GH.HasField "identity" GH.Slot Session'diskSourceIdentity'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'vmReboot'params 
+data Session'vmReboot'params
 type instance (R.ReprFor Session'vmReboot'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmReboot'params) where
     typeId  = 18435643934085084937
@@ -4537,7 +4592,7 @@ instance (C.AllocateList Session'vmReboot'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmReboot'params (C.Parsed Session'vmReboot'params))
 data instance C.Parsed Session'vmReboot'params
-    = Session'vmReboot'params 
+    = Session'vmReboot'params
         {vmId :: (RP.Parsed Std_.Int64)
         ,guestAgent :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
@@ -4556,7 +4611,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmReboot'params Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "guestAgent" GH.Slot Session'vmReboot'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 1 1 0)
-data Session'vmReboot'results 
+data Session'vmReboot'results
 type instance (R.ReprFor Session'vmReboot'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmReboot'results) where
     typeId  = 15299521414497386022
@@ -4572,7 +4627,7 @@ instance (C.AllocateList Session'vmReboot'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'vmReboot'results (C.Parsed Session'vmReboot'results))
 data instance C.Parsed Session'vmReboot'results
-    = Session'vmReboot'results 
+    = Session'vmReboot'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'vmReboot'results))
@@ -4581,7 +4636,132 @@ instance (C.Parse Session'vmReboot'results (C.Parsed Session'vmReboot'results)) 
     parse raw_ = (Std_.pure Session'vmReboot'results)
 instance (C.Marshal Session'vmReboot'results (C.Parsed Session'vmReboot'results)) where
     marshalInto _raw (Session'vmReboot'results) = (Std_.pure ())
-data DiskReader 
+data Session'vmOperation'params
+type instance (R.ReprFor Session'vmOperation'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmOperation'params) where
+    typeId  = 13593260084322776117
+instance (C.TypedStruct Session'vmOperation'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'vmOperation'params) where
+    type AllocHint Session'vmOperation'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmOperation'params (C.Parsed Session'vmOperation'params))
+instance (C.AllocateList Session'vmOperation'params) where
+    type ListAllocHint Session'vmOperation'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmOperation'params (C.Parsed Session'vmOperation'params))
+data instance C.Parsed Session'vmOperation'params
+    = Session'vmOperation'params
+        {authorizations :: (RP.Parsed (R.List VmAuthorization))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmOperation'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmOperation'params))
+instance (C.Parse Session'vmOperation'params (C.Parsed Session'vmOperation'params)) where
+    parse raw_ = (Session'vmOperation'params <$> (GH.parseField #authorizations raw_))
+instance (C.Marshal Session'vmOperation'params (C.Parsed Session'vmOperation'params)) where
+    marshalInto raw_ Session'vmOperation'params{..} = (do
+        (GH.encodeField #authorizations authorizations raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "authorizations" GH.Slot Session'vmOperation'params (R.List VmAuthorization)) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'vmOperation'results
+type instance (R.ReprFor Session'vmOperation'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmOperation'results) where
+    typeId  = 14022956715817594430
+instance (C.TypedStruct Session'vmOperation'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'vmOperation'results) where
+    type AllocHint Session'vmOperation'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmOperation'results (C.Parsed Session'vmOperation'results))
+instance (C.AllocateList Session'vmOperation'results) where
+    type ListAllocHint Session'vmOperation'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmOperation'results (C.Parsed Session'vmOperation'results))
+data instance C.Parsed Session'vmOperation'results
+    = Session'vmOperation'results
+        {session :: (RP.Parsed Session)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmOperation'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmOperation'results))
+instance (C.Parse Session'vmOperation'results (C.Parsed Session'vmOperation'results)) where
+    parse raw_ = (Session'vmOperation'results <$> (GH.parseField #session raw_))
+instance (C.Marshal Session'vmOperation'results (C.Parsed Session'vmOperation'results)) where
+    marshalInto raw_ Session'vmOperation'results{..} = (do
+        (GH.encodeField #session session raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "session" GH.Slot Session'vmOperation'results Session) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'vmDrainStatus'params
+type instance (R.ReprFor Session'vmDrainStatus'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmDrainStatus'params) where
+    typeId  = 17913676246285206352
+instance (C.TypedStruct Session'vmDrainStatus'params) where
+    numStructWords  = 2
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmDrainStatus'params) where
+    type AllocHint Session'vmDrainStatus'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmDrainStatus'params (C.Parsed Session'vmDrainStatus'params))
+instance (C.AllocateList Session'vmDrainStatus'params) where
+    type ListAllocHint Session'vmDrainStatus'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmDrainStatus'params (C.Parsed Session'vmDrainStatus'params))
+data instance C.Parsed Session'vmDrainStatus'params
+    = Session'vmDrainStatus'params
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,lifecycleRevision :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmDrainStatus'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmDrainStatus'params))
+instance (C.Parse Session'vmDrainStatus'params (C.Parsed Session'vmDrainStatus'params)) where
+    parse raw_ = (Session'vmDrainStatus'params <$> (GH.parseField #vmId raw_)
+                                               <*> (GH.parseField #lifecycleRevision raw_))
+instance (C.Marshal Session'vmDrainStatus'params (C.Parsed Session'vmDrainStatus'params)) where
+    marshalInto raw_ Session'vmDrainStatus'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #lifecycleRevision lifecycleRevision raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmDrainStatus'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "lifecycleRevision" GH.Slot Session'vmDrainStatus'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data Session'vmDrainStatus'results
+type instance (R.ReprFor Session'vmDrainStatus'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmDrainStatus'results) where
+    typeId  = 10362294015954228377
+instance (C.TypedStruct Session'vmDrainStatus'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmDrainStatus'results) where
+    type AllocHint Session'vmDrainStatus'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmDrainStatus'results (C.Parsed Session'vmDrainStatus'results))
+instance (C.AllocateList Session'vmDrainStatus'results) where
+    type ListAllocHint Session'vmDrainStatus'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmDrainStatus'results (C.Parsed Session'vmDrainStatus'results))
+data instance C.Parsed Session'vmDrainStatus'results
+    = Session'vmDrainStatus'results
+        {drained :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmDrainStatus'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmDrainStatus'results))
+instance (C.Parse Session'vmDrainStatus'results (C.Parsed Session'vmDrainStatus'results)) where
+    parse raw_ = (Session'vmDrainStatus'results <$> (GH.parseField #drained raw_))
+instance (C.Marshal Session'vmDrainStatus'results (C.Parsed Session'vmDrainStatus'results)) where
+    marshalInto raw_ Session'vmDrainStatus'results{..} = (do
+        (GH.encodeField #drained drained raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "drained" GH.Slot Session'vmDrainStatus'results Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+data DiskReader
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where
     typeId  = 18266150226689627376
@@ -4602,7 +4782,7 @@ instance (GH.HasMethod "pipeInto" DiskReader DiskReader'pipeInto'params DiskRead
     methodByLabel  = (GH.Method 18266150226689627376 0)
 instance (GH.HasMethod "cancel" DiskReader DiskReader'cancel'params DiskReader'cancel'results) where
     methodByLabel  = (GH.Method 18266150226689627376 1)
-data DiskReader'pipeInto'params 
+data DiskReader'pipeInto'params
 type instance (R.ReprFor DiskReader'pipeInto'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskReader'pipeInto'params) where
     typeId  = 10662965049043475550
@@ -4618,7 +4798,7 @@ instance (C.AllocateList DiskReader'pipeInto'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskReader'pipeInto'params (C.Parsed DiskReader'pipeInto'params))
 data instance C.Parsed DiskReader'pipeInto'params
-    = DiskReader'pipeInto'params 
+    = DiskReader'pipeInto'params
         {sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskReader'pipeInto'params))
@@ -4632,7 +4812,7 @@ instance (C.Marshal DiskReader'pipeInto'params (C.Parsed DiskReader'pipeInto'par
         )
 instance (GH.HasField "sink" GH.Slot DiskReader'pipeInto'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
-data DiskReader'pipeInto'results 
+data DiskReader'pipeInto'results
 type instance (R.ReprFor DiskReader'pipeInto'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskReader'pipeInto'results) where
     typeId  = 14293781581944344404
@@ -4648,7 +4828,7 @@ instance (C.AllocateList DiskReader'pipeInto'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'results))
 data instance C.Parsed DiskReader'pipeInto'results
-    = DiskReader'pipeInto'results 
+    = DiskReader'pipeInto'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskReader'pipeInto'results))
@@ -4657,7 +4837,7 @@ instance (C.Parse DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'resu
     parse raw_ = (Std_.pure DiskReader'pipeInto'results)
 instance (C.Marshal DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'results)) where
     marshalInto _raw (DiskReader'pipeInto'results) = (Std_.pure ())
-data DiskReader'cancel'params 
+data DiskReader'cancel'params
 type instance (R.ReprFor DiskReader'cancel'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskReader'cancel'params) where
     typeId  = 16505186430357742365
@@ -4673,7 +4853,7 @@ instance (C.AllocateList DiskReader'cancel'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskReader'cancel'params (C.Parsed DiskReader'cancel'params))
 data instance C.Parsed DiskReader'cancel'params
-    = DiskReader'cancel'params 
+    = DiskReader'cancel'params
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskReader'cancel'params))
@@ -4682,7 +4862,7 @@ instance (C.Parse DiskReader'cancel'params (C.Parsed DiskReader'cancel'params)) 
     parse raw_ = (Std_.pure DiskReader'cancel'params)
 instance (C.Marshal DiskReader'cancel'params (C.Parsed DiskReader'cancel'params)) where
     marshalInto _raw (DiskReader'cancel'params) = (Std_.pure ())
-data DiskReader'cancel'results 
+data DiskReader'cancel'results
 type instance (R.ReprFor DiskReader'cancel'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskReader'cancel'results) where
     typeId  = 14645444459278494587
@@ -4698,7 +4878,7 @@ instance (C.AllocateList DiskReader'cancel'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskReader'cancel'results (C.Parsed DiskReader'cancel'results))
 data instance C.Parsed DiskReader'cancel'results
-    = DiskReader'cancel'results 
+    = DiskReader'cancel'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskReader'cancel'results))
@@ -4707,7 +4887,7 @@ instance (C.Parse DiskReader'cancel'results (C.Parsed DiskReader'cancel'results)
     parse raw_ = (Std_.pure DiskReader'cancel'results)
 instance (C.Marshal DiskReader'cancel'results (C.Parsed DiskReader'cancel'results)) where
     marshalInto _raw (DiskReader'cancel'results) = (Std_.pure ())
-data VmStatusSink 
+data VmStatusSink
 type instance (R.ReprFor VmStatusSink) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId VmStatusSink) where
     typeId  = 16931578229482041897
@@ -4723,7 +4903,7 @@ class (VmStatusSink'server_ s_) where
     vmStatusSink'onSnapshot _ = GH.methodUnimplemented
 instance (GH.HasMethod "onSnapshot" VmStatusSink VmStatusSink'onSnapshot'params VmStatusSink'onSnapshot'results) where
     methodByLabel  = (GH.Method 16931578229482041897 0)
-data VmStatusSink'onSnapshot'params 
+data VmStatusSink'onSnapshot'params
 type instance (R.ReprFor VmStatusSink'onSnapshot'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStatusSink'onSnapshot'params) where
     typeId  = 11931450306569493951
@@ -4739,7 +4919,7 @@ instance (C.AllocateList VmStatusSink'onSnapshot'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStatusSink'onSnapshot'params (C.Parsed VmStatusSink'onSnapshot'params))
 data instance C.Parsed VmStatusSink'onSnapshot'params
-    = VmStatusSink'onSnapshot'params 
+    = VmStatusSink'onSnapshot'params
         {snapshot :: (RP.Parsed VmStatusSnapshot)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStatusSink'onSnapshot'params))
@@ -4753,7 +4933,7 @@ instance (C.Marshal VmStatusSink'onSnapshot'params (C.Parsed VmStatusSink'onSnap
         )
 instance (GH.HasField "snapshot" GH.Slot VmStatusSink'onSnapshot'params VmStatusSnapshot) where
     fieldByLabel  = (GH.ptrField 0)
-data VmStatusSink'onSnapshot'results 
+data VmStatusSink'onSnapshot'results
 type instance (R.ReprFor VmStatusSink'onSnapshot'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStatusSink'onSnapshot'results) where
     typeId  = 9367394179805790926
@@ -4769,7 +4949,7 @@ instance (C.AllocateList VmStatusSink'onSnapshot'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results))
 data instance C.Parsed VmStatusSink'onSnapshot'results
-    = VmStatusSink'onSnapshot'results 
+    = VmStatusSink'onSnapshot'results
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStatusSink'onSnapshot'results))
@@ -4778,7 +4958,7 @@ instance (C.Parse VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnaps
     parse raw_ = (Std_.pure VmStatusSink'onSnapshot'results)
 instance (C.Marshal VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results)) where
     marshalInto _raw (VmStatusSink'onSnapshot'results) = (Std_.pure ())
-data DiskOpResult 
+data DiskOpResult
 type instance (R.ReprFor DiskOpResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskOpResult) where
     typeId  = 12446158261308417967
@@ -4794,7 +4974,7 @@ instance (C.AllocateList DiskOpResult) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskOpResult (C.Parsed DiskOpResult))
 data instance C.Parsed DiskOpResult
-    = DiskOpResult 
+    = DiskOpResult
         {kind :: (RP.Parsed DiskOpKind)
         ,message :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -4813,11 +4993,11 @@ instance (GH.HasField "kind" GH.Slot DiskOpResult DiskOpKind) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "message" GH.Slot DiskOpResult Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data DiskOpKind 
-    = DiskOpKind'success 
-    | DiskOpKind'errorGeneric 
-    | DiskOpKind'errorNotFound 
-    | DiskOpKind'errorFormatUnsupported 
+data DiskOpKind
+    = DiskOpKind'success
+    | DiskOpKind'errorGeneric
+    | DiskOpKind'errorNotFound
+    | DiskOpKind'errorFormatUnsupported
     | DiskOpKind'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -4857,7 +5037,7 @@ instance (C.Parse DiskOpKind DiskOpKind) where
 instance (C.AllocateList DiskOpKind) where
     type ListAllocHint DiskOpKind = Std_.Int
 instance (C.EstimateListAlloc DiskOpKind DiskOpKind)
-data DiskInspectResult 
+data DiskInspectResult
 type instance (R.ReprFor DiskInspectResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskInspectResult) where
     typeId  = 15412532011138905971
@@ -4873,7 +5053,7 @@ instance (C.AllocateList DiskInspectResult) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskInspectResult (C.Parsed DiskInspectResult))
 data instance C.Parsed DiskInspectResult
-    = DiskInspectResult 
+    = DiskInspectResult
         {union' :: (C.Parsed (GH.Which DiskInspectResult))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskInspectResult))
@@ -4909,7 +5089,7 @@ instance (GH.HasVariant "failed" GH.Slot DiskInspectResult Basics.Text) where
     variantByLabel  = (GH.Variant (GH.ptrField 0) 2)
 data instance C.Parsed (GH.Which DiskInspectResult)
     = DiskInspectResult'present (RP.Parsed DiskInspectInfo)
-    | DiskInspectResult'missing 
+    | DiskInspectResult'missing
     | DiskInspectResult'failed (RP.Parsed Basics.Text)
     | DiskInspectResult'unknown' Std_.Word16
     deriving(Generics.Generic)
@@ -4938,7 +5118,7 @@ instance (C.Marshal (GH.Which DiskInspectResult) (C.Parsed (GH.Which DiskInspect
             (GH.encodeVariant #failed arg_ (GH.unionStruct raw_))
         (DiskInspectResult'unknown' tag_) ->
             (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
-data DiskInspectInfo 
+data DiskInspectInfo
 type instance (R.ReprFor DiskInspectInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskInspectInfo) where
     typeId  = 10271191268044001535
@@ -4954,7 +5134,7 @@ instance (C.AllocateList DiskInspectInfo) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskInspectInfo (C.Parsed DiskInspectInfo))
 data instance C.Parsed DiskInspectInfo
-    = DiskInspectInfo 
+    = DiskInspectInfo
         {format :: (RP.Parsed Basics.Text)
         ,virtualSize :: (RP.Parsed Std_.Int64)
         ,actualSize :: (RP.Parsed Std_.Int64)
@@ -4988,7 +5168,7 @@ instance (GH.HasField "hasActualSize" GH.Slot DiskInspectInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 2 1 0)
 instance (GH.HasField "snapshots" GH.Slot DiskInspectInfo (R.List DiskSnapshotInfo)) where
     fieldByLabel  = (GH.ptrField 1)
-data DiskSnapshotInfo 
+data DiskSnapshotInfo
 type instance (R.ReprFor DiskSnapshotInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskSnapshotInfo) where
     typeId  = 10776493868898389048
@@ -5004,7 +5184,7 @@ instance (C.AllocateList DiskSnapshotInfo) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc DiskSnapshotInfo (C.Parsed DiskSnapshotInfo))
 data instance C.Parsed DiskSnapshotInfo
-    = DiskSnapshotInfo 
+    = DiskSnapshotInfo
         {id :: (RP.Parsed Basics.Text)
         ,name :: (RP.Parsed Basics.Text)
         ,size :: (RP.Parsed Std_.Int64)
@@ -5033,7 +5213,7 @@ instance (GH.HasField "size" GH.Slot DiskSnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "hasSize" GH.Slot DiskSnapshotInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 1 1 0)
-data VmSpec 
+data VmSpec
 type instance (R.ReprFor VmSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSpec) where
     typeId  = 13869854766932503674
@@ -5049,7 +5229,7 @@ instance (C.AllocateList VmSpec) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmSpec (C.Parsed VmSpec))
 data instance C.Parsed VmSpec
-    = VmSpec 
+    = VmSpec
         {vmId :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
         ,cpuCount :: (RP.Parsed Std_.Int32)
@@ -5188,7 +5368,7 @@ instance (GH.HasField "balloon" GH.Slot VmSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 40 1 1 1)
 instance (GH.HasField "rng" GH.Slot VmSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 41 1 1 1)
-data VmAudioDeviceSpec 
+data VmAudioDeviceSpec
 type instance (R.ReprFor VmAudioDeviceSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmAudioDeviceSpec) where
     typeId  = 9824235107752412338
@@ -5204,7 +5384,7 @@ instance (C.AllocateList VmAudioDeviceSpec) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmAudioDeviceSpec (C.Parsed VmAudioDeviceSpec))
 data instance C.Parsed VmAudioDeviceSpec
-    = VmAudioDeviceSpec 
+    = VmAudioDeviceSpec
         {audioDeviceId :: (RP.Parsed Std_.Int64)
         ,backend :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioBackend)
         ,options :: (RP.Parsed Basics.Text)
@@ -5233,7 +5413,7 @@ instance (GH.HasField "options" GH.Slot VmAudioDeviceSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "model" GH.Slot VmAudioDeviceSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.AudioDeviceModel) where
     fieldByLabel  = (GH.dataField 16 1 16 0)
-data VmDriveSpec 
+data VmDriveSpec
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where
     typeId  = 13130167343872007904
@@ -5249,7 +5429,7 @@ instance (C.AllocateList VmDriveSpec) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmDriveSpec (C.Parsed VmDriveSpec))
 data instance C.Parsed VmDriveSpec
-    = VmDriveSpec 
+    = VmDriveSpec
         {diskFilePath :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Basics.Text)
         ,ifKind :: (RP.Parsed Basics.Text)
@@ -5298,7 +5478,7 @@ instance (GH.HasField "discard" GH.Slot VmDriveSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
 instance (GH.HasField "driveId" GH.Slot VmDriveSpec Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
-data VmNetIfSpec 
+data VmNetIfSpec
 type instance (R.ReprFor VmNetIfSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmNetIfSpec) where
     typeId  = 11985747815183304231
@@ -5314,7 +5494,7 @@ instance (C.AllocateList VmNetIfSpec) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmNetIfSpec (C.Parsed VmNetIfSpec))
 data instance C.Parsed VmNetIfSpec
-    = VmNetIfSpec 
+    = VmNetIfSpec
         {ifType :: (RP.Parsed Basics.Text)
         ,hostDevice :: (RP.Parsed Basics.Text)
         ,macAddress :: (RP.Parsed Basics.Text)
@@ -5343,7 +5523,7 @@ instance (GH.HasField "macAddress" GH.Slot VmNetIfSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "model" GH.Slot VmNetIfSpec Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetworkDeviceModel) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
-data VmSharedDirSpec 
+data VmSharedDirSpec
 type instance (R.ReprFor VmSharedDirSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmSharedDirSpec) where
     typeId  = 17871272060610999230
@@ -5359,7 +5539,7 @@ instance (C.AllocateList VmSharedDirSpec) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmSharedDirSpec (C.Parsed VmSharedDirSpec))
 data instance C.Parsed VmSharedDirSpec
-    = VmSharedDirSpec 
+    = VmSharedDirSpec
         {hostPath :: (RP.Parsed Basics.Text)
         ,tag :: (RP.Parsed Basics.Text)
         ,cache :: (RP.Parsed Basics.Text)
@@ -5388,7 +5568,7 @@ instance (GH.HasField "cache" GH.Slot VmSharedDirSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "readOnly" GH.Slot VmSharedDirSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
-data VmRuntimeInfo 
+data VmRuntimeInfo
 type instance (R.ReprFor VmRuntimeInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmRuntimeInfo) where
     typeId  = 16495572734220069740
@@ -5404,7 +5584,7 @@ instance (C.AllocateList VmRuntimeInfo) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmRuntimeInfo (C.Parsed VmRuntimeInfo))
 data instance C.Parsed VmRuntimeInfo
-    = VmRuntimeInfo 
+    = VmRuntimeInfo
         {qemuPid :: (RP.Parsed Std_.Int32)
         ,virtiofsdPids :: (RP.Parsed (R.List Std_.Int32))
         ,spicePort :: (RP.Parsed Std_.Int32)
@@ -5443,7 +5623,7 @@ instance (GH.HasField "lifecycleRevision" GH.Slot VmRuntimeInfo Std_.Int64) wher
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "runtimeGeneration" GH.Slot VmRuntimeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
-data VmStartResult 
+data VmStartResult
 type instance (R.ReprFor VmStartResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStartResult) where
     typeId  = 15761967887000627501
@@ -5459,7 +5639,7 @@ instance (C.AllocateList VmStartResult) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStartResult (C.Parsed VmStartResult))
 data instance C.Parsed VmStartResult
-    = VmStartResult 
+    = VmStartResult
         {union' :: (C.Parsed (GH.Which VmStartResult))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStartResult))
@@ -5490,7 +5670,7 @@ instance (GH.HasVariant "vsockCidBusy" GH.Slot VmStartResult ()) where
     variantByLabel  = (GH.Variant GH.voidField 1)
 data instance C.Parsed (GH.Which VmStartResult)
     = VmStartResult'started (RP.Parsed VmRuntimeInfo)
-    | VmStartResult'vsockCidBusy 
+    | VmStartResult'vsockCidBusy
     | VmStartResult'unknown' Std_.Word16
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed (GH.Which VmStartResult)))
@@ -5514,7 +5694,7 @@ instance (C.Marshal (GH.Which VmStartResult) (C.Parsed (GH.Which VmStartResult))
             (GH.encodeVariant #vsockCidBusy () (GH.unionStruct raw_))
         (VmStartResult'unknown' tag_) ->
             (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
-data VmStopResult 
+data VmStopResult
 type instance (R.ReprFor VmStopResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStopResult) where
     typeId  = 17427776312475992219
@@ -5530,7 +5710,7 @@ instance (C.AllocateList VmStopResult) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStopResult (C.Parsed VmStopResult))
 data instance C.Parsed VmStopResult
-    = VmStopResult 
+    = VmStopResult
         {kind :: (RP.Parsed VmStopKind)
         ,message :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -5549,11 +5729,11 @@ instance (GH.HasField "kind" GH.Slot VmStopResult VmStopKind) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "message" GH.Slot VmStopResult Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data VmStopKind 
-    = VmStopKind'stopped 
-    | VmStopKind'alreadyStopped 
-    | VmStopKind'timeout 
-    | VmStopKind'failed 
+data VmStopKind
+    = VmStopKind'stopped
+    | VmStopKind'alreadyStopped
+    | VmStopKind'timeout
+    | VmStopKind'failed
     | VmStopKind'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -5593,7 +5773,7 @@ instance (C.Parse VmStopKind VmStopKind) where
 instance (C.AllocateList VmStopKind) where
     type ListAllocHint VmStopKind = Std_.Int
 instance (C.EstimateListAlloc VmStopKind VmStopKind)
-data VmAgentStatus 
+data VmAgentStatus
 type instance (R.ReprFor VmAgentStatus) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmAgentStatus) where
     typeId  = 13243773639774657792
@@ -5609,7 +5789,7 @@ instance (C.AllocateList VmAgentStatus) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmAgentStatus (C.Parsed VmAgentStatus))
 data instance C.Parsed VmAgentStatus
-    = VmAgentStatus 
+    = VmAgentStatus
         {state :: (RP.Parsed VmAgentState)
         ,qemuPid :: (RP.Parsed Std_.Int32)
         ,lastExitCode :: (RP.Parsed Std_.Int32)}
@@ -5633,11 +5813,11 @@ instance (GH.HasField "qemuPid" GH.Slot VmAgentStatus Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 0 32 0)
 instance (GH.HasField "lastExitCode" GH.Slot VmAgentStatus Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 1 32 0)
-data VmAgentState 
-    = VmAgentState'running 
-    | VmAgentState'stopped 
-    | VmAgentState'errored 
-    | VmAgentState'unknown 
+data VmAgentState
+    = VmAgentState'running
+    | VmAgentState'stopped
+    | VmAgentState'errored
+    | VmAgentState'unknown
     | VmAgentState'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -5677,7 +5857,7 @@ instance (C.Parse VmAgentState VmAgentState) where
 instance (C.AllocateList VmAgentState) where
     type ListAllocHint VmAgentState = Std_.Int
 instance (C.EstimateListAlloc VmAgentState VmAgentState)
-data VmAttachDriveReq 
+data VmAttachDriveReq
 type instance (R.ReprFor VmAttachDriveReq) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmAttachDriveReq) where
     typeId  = 13876782660338277154
@@ -5693,7 +5873,7 @@ instance (C.AllocateList VmAttachDriveReq) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmAttachDriveReq (C.Parsed VmAttachDriveReq))
 data instance C.Parsed VmAttachDriveReq
-    = VmAttachDriveReq 
+    = VmAttachDriveReq
         {vmId :: (RP.Parsed Std_.Int64)
         ,driveId :: (RP.Parsed Std_.Int64)
         ,filePath :: (RP.Parsed Basics.Text)
@@ -5747,7 +5927,7 @@ instance (GH.HasField "cache" GH.Slot VmAttachDriveReq Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "discard" GH.Slot VmAttachDriveReq Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 2 1 0)
-data VmGuestExecReq 
+data VmGuestExecReq
 type instance (R.ReprFor VmGuestExecReq) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmGuestExecReq) where
     typeId  = 11296655065212550067
@@ -5763,7 +5943,7 @@ instance (C.AllocateList VmGuestExecReq) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmGuestExecReq (C.Parsed VmGuestExecReq))
 data instance C.Parsed VmGuestExecReq
-    = VmGuestExecReq 
+    = VmGuestExecReq
         {vmId :: (RP.Parsed Std_.Int64)
         ,path :: (RP.Parsed Basics.Text)
         ,args :: (RP.Parsed (R.List Basics.Text))
@@ -5802,7 +5982,7 @@ instance (GH.HasField "inputData" GH.Slot VmGuestExecReq Basics.Data) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "timeoutSec" GH.Slot VmGuestExecReq Std_.Word32) where
     fieldByLabel  = (GH.dataField 32 1 32 0)
-data VmGuestExecInfo 
+data VmGuestExecInfo
 type instance (R.ReprFor VmGuestExecInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmGuestExecInfo) where
     typeId  = 9696248131774112025
@@ -5818,7 +5998,7 @@ instance (C.AllocateList VmGuestExecInfo) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmGuestExecInfo (C.Parsed VmGuestExecInfo))
 data instance C.Parsed VmGuestExecInfo
-    = VmGuestExecInfo 
+    = VmGuestExecInfo
         {exitCode :: (RP.Parsed Std_.Int32)
         ,hasExit :: (RP.Parsed Std_.Bool)
         ,signal :: (RP.Parsed Std_.Int32)
@@ -5852,7 +6032,7 @@ instance (GH.HasField "stdout" GH.Slot VmGuestExecInfo Basics.Data) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "stderr" GH.Slot VmGuestExecInfo Basics.Data) where
     fieldByLabel  = (GH.ptrField 1)
-data VmStatusSnapshot 
+data VmStatusSnapshot
 type instance (R.ReprFor VmStatusSnapshot) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStatusSnapshot) where
     typeId  = 12776058269055557477
@@ -5868,7 +6048,7 @@ instance (C.AllocateList VmStatusSnapshot) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStatusSnapshot (C.Parsed VmStatusSnapshot))
 data instance C.Parsed VmStatusSnapshot
-    = VmStatusSnapshot 
+    = VmStatusSnapshot
         {snapshotAtMillis :: (RP.Parsed Std_.Int64)
         ,entries :: (RP.Parsed (R.List VmStatusEntry))
         ,nodeStats :: (RP.Parsed NodeStats)}
@@ -5892,7 +6072,7 @@ instance (GH.HasField "entries" GH.Slot VmStatusSnapshot (R.List VmStatusEntry))
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "nodeStats" GH.Slot VmStatusSnapshot NodeStats) where
     fieldByLabel  = (GH.ptrField 1)
-data NodeStats 
+data NodeStats
 type instance (R.ReprFor NodeStats) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeStats) where
     typeId  = 17976094670731628670
@@ -5908,7 +6088,7 @@ instance (C.AllocateList NodeStats) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc NodeStats (C.Parsed NodeStats))
 data instance C.Parsed NodeStats
-    = NodeStats 
+    = NodeStats
         {cpuCount :: (RP.Parsed Std_.Int32)
         ,ramTotal :: (RP.Parsed Std_.Int64)
         ,ramFree :: (RP.Parsed Std_.Int64)
@@ -5967,7 +6147,7 @@ instance (GH.HasField "kernelRelease" GH.Slot NodeStats Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "agentVersion" GH.Slot NodeStats Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data VmStatusEntry 
+data VmStatusEntry
 type instance (R.ReprFor VmStatusEntry) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStatusEntry) where
     typeId  = 18089874872843444784
@@ -5983,7 +6163,7 @@ instance (C.AllocateList VmStatusEntry) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc VmStatusEntry (C.Parsed VmStatusEntry))
 data instance C.Parsed VmStatusEntry
-    = VmStatusEntry 
+    = VmStatusEntry
         {vmId :: (RP.Parsed Std_.Int64)
         ,state :: (RP.Parsed VmAgentState)
         ,qemuPid :: (RP.Parsed Std_.Int32)
@@ -6062,7 +6242,7 @@ instance (GH.HasField "guestAgentMessage" GH.Slot VmStatusEntry Basics.Text) whe
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "netIfsValid" GH.Slot VmStatusEntry Std_.Bool) where
     fieldByLabel  = (GH.dataField 18 1 1 0)
-data GuestNetIf 
+data GuestNetIf
 type instance (R.ReprFor GuestNetIf) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestNetIf) where
     typeId  = 15719728507930151912
@@ -6078,7 +6258,7 @@ instance (C.AllocateList GuestNetIf) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc GuestNetIf (C.Parsed GuestNetIf))
 data instance C.Parsed GuestNetIf
-    = GuestNetIf 
+    = GuestNetIf
         {name :: (RP.Parsed Basics.Text)
         ,hwAddress :: (RP.Parsed Basics.Text)
         ,ipAddresses :: (RP.Parsed (R.List GuestIpAddress))}
@@ -6102,7 +6282,7 @@ instance (GH.HasField "hwAddress" GH.Slot GuestNetIf Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "ipAddresses" GH.Slot GuestNetIf (R.List GuestIpAddress)) where
     fieldByLabel  = (GH.ptrField 2)
-data GuestIpAddress 
+data GuestIpAddress
 type instance (R.ReprFor GuestIpAddress) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestIpAddress) where
     typeId  = 12848223563161887323
@@ -6118,7 +6298,7 @@ instance (C.AllocateList GuestIpAddress) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc GuestIpAddress (C.Parsed GuestIpAddress))
 data instance C.Parsed GuestIpAddress
-    = GuestIpAddress 
+    = GuestIpAddress
         {ipAddress :: (RP.Parsed Basics.Text)
         ,prefix :: (RP.Parsed Std_.Int32)
         ,ipAddrType :: (RP.Parsed Basics.Text)}
@@ -6142,13 +6322,13 @@ instance (GH.HasField "prefix" GH.Slot GuestIpAddress Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 0 32 0)
 instance (GH.HasField "ipAddrType" GH.Slot GuestIpAddress Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-data BalloonStatus 
-    = BalloonStatus'success 
-    | BalloonStatus'notRunning 
-    | BalloonStatus'deviceNotEnabled 
-    | BalloonStatus'driverNotReady 
-    | BalloonStatus'invalidTarget 
-    | BalloonStatus'failed 
+data BalloonStatus
+    = BalloonStatus'success
+    | BalloonStatus'notRunning
+    | BalloonStatus'deviceNotEnabled
+    | BalloonStatus'driverNotReady
+    | BalloonStatus'invalidTarget
+    | BalloonStatus'failed
     | BalloonStatus'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -6196,11 +6376,11 @@ instance (C.Parse BalloonStatus BalloonStatus) where
 instance (C.AllocateList BalloonStatus) where
     type ListAllocHint BalloonStatus = Std_.Int
 instance (C.EstimateListAlloc BalloonStatus BalloonStatus)
-data ScreenshotStatus 
-    = ScreenshotStatus'success 
-    | ScreenshotStatus'notRunning 
-    | ScreenshotStatus'headless 
-    | ScreenshotStatus'failed 
+data ScreenshotStatus
+    = ScreenshotStatus'success
+    | ScreenshotStatus'notRunning
+    | ScreenshotStatus'headless
+    | ScreenshotStatus'failed
     | ScreenshotStatus'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show

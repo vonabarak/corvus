@@ -13,9 +13,17 @@
 -- recording wiring honest.
 module Corvus.TaskRecordingSpec (spec) where
 
+import Control.Concurrent.STM (atomically)
 import Control.Exception (throwIO)
 import Corvus.Action (Action (..), TaskCancelledException (..), runAction, runActionAsSubtask)
+import Corvus.Handlers.Vm (VmReset (..))
+import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..), VmSnapshotRollback (..))
+import Corvus.OperationGuard
+import qualified Corvus.TaskScope as Scope
+import Corvus.Types (ServerState (ssOperations, ssTasks))
+import qualified Data.Text as T
 import Database.Persist (selectList)
+import System.Timeout (timeout)
 import Test.DSL.Core (runDb)
 import Test.Prelude
 
@@ -126,6 +134,30 @@ spec = sequential $ withTestDb $ do
           taskCommand t `shouldBe` "cancel-test"
           taskResult t `shouldBe` TaskCancelled
         Nothing -> fail "expected one Task row, found none"
+
+    testCase "VM snapshots declare their VM before any disk lookup" $ do
+      _ <- withState $ \state -> do
+        actionVmDependencies state (VmSnapshotCreate 42 "snap") `shouldReturn` [42]
+        actionVmDependencies state (VmSnapshotRollback 42 "snap") `shouldReturn` [42]
+        actionVmDependencies state (VmSnapshotDelete 42 "snap") `shouldReturn` [42]
+        pure RespOk
+      pure ()
+
+    testCase "reset bypasses an active VM lease and cancels its owning task tree" $ do
+      ident <- insertVm "reset-preempts" VmRunning
+      _ <- withState $ \state -> do
+        let registry = ssTasks state
+            leases = [(ObjectId VmObject ident, ExclusiveAccess)]
+        atomically $ Scope.declarePlannedTaskVms registry 999 [ident]
+        withOperationLeases (ssOperations state) 1000000 "blocked guest exec" [] leases $ \_ -> do
+          result <- timeout 1000000 $ runAction state "test" (VmReset ident)
+          case result of
+            Just (RespError err) -> err `shouldSatisfy` T.isInfixOf "nodeagent unavailable"
+            other -> expectationFailure ("reset waited for an ordinary lease: " ++ show other)
+          atomically (Scope.taskVms registry 999) `shouldReturn` ([ident], True)
+          atomically (Scope.vmIsRecovering registry ident) `shouldReturn` True
+        pure RespOk
+      pure ()
 
     testCase "nested cancellation unwinds and records both tasks as cancelled" $ do
       _ <- withState (\st -> runAction st "alice" ParentCancelAction)

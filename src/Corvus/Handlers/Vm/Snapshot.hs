@@ -53,6 +53,7 @@ import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Types
   ( ServerState (..)
+  , checkTaskCommit
   , lookupNetAgentMaybe
   , runServerLogging
   )
@@ -74,6 +75,7 @@ data VmSnapshotCreate = VmSnapshotCreate
   }
 
 instance Action VmSnapshotCreate where
+  actionVmDependencies _ a = pure [vscVmId a]
   actionResources state a = vmImageResources state (vscVmId a)
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "vm-snapshot-create"
@@ -87,6 +89,7 @@ data VmSnapshotRollback = VmSnapshotRollback
   }
 
 instance Action VmSnapshotRollback where
+  actionVmDependencies _ a = pure [vsrVmId a]
   actionResources state a = vmImageResources state (vsrVmId a)
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "vm-snapshot-rollback"
@@ -100,6 +103,7 @@ data VmSnapshotDelete = VmSnapshotDelete
   }
 
 instance Action VmSnapshotDelete where
+  actionVmDependencies _ a = pure [vsdVmId a]
   actionResources state a = vmImageResources state (vsdVmId a)
   actionSubsystem _ = SubSnapshot
   actionCommand _ = "vm-snapshot-delete"
@@ -266,7 +270,7 @@ rollbackFromStopped state vmId carrierDiskId carrierSnap = do
   mClaimed <-
     liftIO $
       runSqlPool
-        (claimVmStart vmId VmStopped VmStarting)
+        (checkTaskCommit state >> claimVmStart vmId VmStopped VmStarting)
         (ssDbPool state)
   case mClaimed of
     Nothing ->
@@ -457,7 +461,7 @@ handleVmSnapshotDelete state vmId name = runServerLogging state $ do
                   case result of
                     ImageSuccess -> do
                       liftIO $
-                        runSqlPool (mapM_ delete snapIds) pool
+                        runSqlPool (checkTaskCommit state >> mapM_ delete snapIds) pool
                       logInfoN "vm-snapshot-delete OK"
                       pure RespSnapshotOk
                     ImageFormatNotSupported msg ->

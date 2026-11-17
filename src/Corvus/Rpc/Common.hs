@@ -27,8 +27,9 @@ import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (MethodHandler)
 import qualified Capnp.Rpc.Server as CapnpServer
 import Control.Concurrent (forkIO)
-import Control.Exception (catchJust)
+import Control.Exception (catch, catchJust)
 import Control.Monad (void)
+import Corvus.Cancellation (VmOperationSuperseded (..))
 import Corvus.Handlers.Resolve (ResolveError (..))
 import Corvus.Logging (synchronousException)
 import qualified Corvus.Protocol as P
@@ -104,7 +105,7 @@ handleParsed
   => (pp -> IO pr)
   -> MethodHandler p r
 handleParsed handler param fulfiller =
-  catchJust synchronousException (CapnpServer.handleParsed handler param fulfiller) (\_ -> pure ())
+  catchJust synchronousException (CapnpServer.handleParsed (translateSupersession handler) param fulfiller) (\_ -> pure ())
 
 -- | Asynchronous variant of 'handleParsed': forks the handler in
 -- a fresh 'forkIO' so the calling 'Capnp.Rpc.Server.runServer'
@@ -142,4 +143,11 @@ handleParsedAsync
 handleParsedAsync handler param fulfiller =
   void $
     forkIO $
-      catchJust synchronousException (CapnpServer.handleParsed handler param fulfiller) (\_ -> pure ())
+      catchJust synchronousException (CapnpServer.handleParsed (translateSupersession handler) param fulfiller) (\_ -> pure ())
+
+-- Translate only the known stale-operation rejection; other failures retain
+-- their existing wire and supervision behavior.
+translateSupersession :: (a -> IO b) -> a -> IO b
+translateSupersession handler param =
+  handler param `catch` \VmOperationSuperseded ->
+    throwFailed "VM request superseded by reset"

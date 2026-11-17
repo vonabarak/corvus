@@ -12,7 +12,11 @@
 module Corvus.NodeRoutingSpec (spec) where
 
 import Control.Concurrent.Async (async)
+import Control.Concurrent.STM (atomically, writeTVar)
+import Control.Exception (try)
+import Corvus.Cancellation (TaskCancelledException (..))
 import qualified Corvus.Model as M
+import qualified Corvus.TaskScope as Scope
 import Corvus.Types
   ( NodeConns (..)
   , ServerState (..)
@@ -30,6 +34,7 @@ import Corvus.Types
   , withNodeAgent
   )
 import Data.Maybe (isNothing)
+import qualified Data.Text as T
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (getDbPool, getTempDir)
 import Test.Prelude
@@ -85,6 +90,16 @@ spec = sequential $ withTestDb $ do
         Right _ -> fail "expected Left for node with no live nodeagent"
 
   describe "withNodeAgent" $ do
+    testCase "cancellation takes priority over an unavailable nodeagent" $ do
+      state <- mkState
+      liftIO $ do
+        token <- atomically $ Scope.registerTask (ssTasks state) 123
+        atomically $ writeTVar token True
+        result <- try $ withNodeAgent (state {ssActionRoot = Just (123, False)}) (toSqlKey 999) (\_ -> pure True)
+        case (result :: Either TaskCancelledException (Either T.Text Bool)) of
+          Left TaskCancelledException -> pure ()
+          Right _ -> expectationFailure "cancelled work reported a connection result"
+
     testCase "propagates the lookup error without running the action" $ do
       state <- mkState
       r <- liftIO $ withNodeAgent state (toSqlKey 999 :: M.NodeId) (\_ -> pure True)

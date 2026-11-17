@@ -131,6 +131,7 @@ class TestVmAutostart(SingleNodeCase):
     def _cleanup_silent(self, vm_name: str, disk_name: str) -> None:
         try:
             self.client.vms.get(vm_name).reset()
+            self.wait_for_vm_status(self.client.vms.get(vm_name), "stopped")
         except Exception:
             pass
         try:

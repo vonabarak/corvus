@@ -38,6 +38,8 @@ module Corvus.Types
   , registerTaskThread
   , unregisterTask
   , lookupTaskCancelToken
+  , checkTaskCommit
+  , checkTaskAdmission
   , lookupTaskThread
 
     -- * Socket Buffer Types
@@ -59,13 +61,20 @@ import Control.Concurrent (ThreadId)
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
+import qualified Control.Exception as Cancellation
+import Control.Monad (forM_, when)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
+import Corvus.Cancellation (TaskCancelledException (..))
 import Corvus.Database (DatabaseRuntimeInfo, unknownDatabaseRuntimeInfo)
 import qualified Corvus.Model as M
 import Corvus.NetAgentClient (NetAgentClient)
 import Corvus.NodeAgentClient (NodeAgentClient)
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.OperationGuard (OperationGuard, newOperationGuard)
 import Corvus.Qemu.Config (QemuConfig)
+import Corvus.TaskScope (TaskRegistry, newTaskRegistry)
+import qualified Corvus.TaskScope as TaskScope
 import Corvus.Tls (TlsConfig)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
@@ -76,7 +85,8 @@ import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, getCurrentTime)
-import Database.Persist.Sql (SqlBackend, fromSqlKey)
+import Database.Persist (Filter, get, selectKeysList, updateWhere, (=.), (==.))
+import Database.Persist.Sql (SqlBackend, SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 import Network.Socket (Socket)
 import System.Environment (lookupEnv)
 
@@ -150,20 +160,11 @@ data ServerState = ServerState
   -- 'ssVsockCidLock': allocator + caller persist need to be
   -- atomic so two parallel VM starts don't pick the same port.
   -- See 'Corvus.Node.SpicePort.withAllocatedSpicePort'.
-  , ssTaskCancels :: TVar (Map.Map Int64 (TVar Bool))
-  -- ^ Cooperative cancellation tokens keyed by top-level task id.
-  -- 'TaskManager.cancel' flips the flag 'True'; the action runtime
-  -- threads the same 'TVar' through the task's whole subtask tree
-  -- (subtasks inherit the parent's token), and orchestrator loops
-  -- poll it at step boundaries via 'throwIfCancelled'. Entry is
-  -- created when a top-level task starts and removed when it
-  -- finalises. See "Corvus.Action".
-  , ssTaskThreads :: TVar (Map.Map Int64 ThreadId)
-  -- ^ Worker 'ThreadId' for each top-level task, keyed by task id.
-  -- The hard-cancel fallback: 'TaskManager.cancel' @throwTo@s a
-  -- 'TaskCancelledException' here to interrupt an action blocked in
-  -- an in-flight RPC that no cooperative checkpoint can reach.
-  -- Same lifecycle as 'ssTaskCancels'.
+  , ssActionRoot :: !(Maybe (Int64, Bool))
+  -- ^ Immutable per-action routing context (root task, cancellation cleanup).
+  -- Background monitors must use the unscoped server state.
+  , ssTasks :: !TaskRegistry
+  -- ^ Root cancellation, VM dependencies, worker scopes, and recovery gates.
   , ssReservedRam :: TVar (Map.Map M.NodeId Int64)
   -- ^ Scheduler reservation bookkeeping: RAM (MiB) the
   -- scheduler has handed out for VMs created via 'pickNodeForVm'
@@ -236,9 +237,15 @@ newServerStateWithDatabase pool qemuConfig dbRuntimeInfo = do
   vsockLocks <- newTVarIO Map.empty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO Map.empty
-  taskCancels <- newTVarIO Map.empty
+  tasks <- newTaskRegistry
+  -- A stopping VM cannot be treated as drained after losing the old daemon's
+  -- in-memory worker registry. Recovery requires an explicit reset.
+  recovering <- runSqlPool (selectKeysList [M.VmStatus ==. M.VmStopping] []) pool
+  atomically $ mapM_ (TaskScope.restoreVmRecovery tasks . fromSqlKey) recovering
+  existingVms <- runSqlPool (selectKeysList ([] :: [Filter M.Vm]) []) pool
+  atomically $ mapM_ (TaskScope.restoreVmNodeHistory tasks . fromSqlKey) existingVms
   operations <- newOperationGuard
-  taskThreads <- newTVarIO Map.empty
+
   pure
     ServerState
       { ssStartTime = startTime
@@ -255,9 +262,9 @@ newServerStateWithDatabase pool qemuConfig dbRuntimeInfo = do
       , ssVmStatsSubs = vmStatsSubs
       , ssVsockCidLocks = vsockLocks
       , ssSpicePortLock = spiceLock
-      , ssTaskCancels = taskCancels
+      , ssActionRoot = Nothing
+      , ssTasks = tasks
       , ssOperations = operations
-      , ssTaskThreads = taskThreads
       , ssReservedRam = reservedRam
       , ssTlsConfig = Nothing
       }
@@ -290,10 +297,54 @@ withNodeAgent
   -> (NodeAgentClient -> IO a)
   -> IO (Either Text a)
 withNodeAgent state nid action = do
+  checkNodeCancellation state
   r <- lookupNodeAgent state nid
   case r of
     Left e -> pure (Left e)
-    Right nac -> Right <$> action nac
+    Right nac -> case ssActionRoot state of
+      Nothing -> Right <$> action nac
+      Just (root, cleanup) -> do
+        (vms, cancelled) <- atomically $ do
+          TaskScope.recordTaskNode (ssTasks state) root (fromSqlKey nid)
+          TaskScope.taskVms (ssTasks state) root
+        if cancelled && not cleanup
+          then Cancellation.throwIO TaskCancelledException
+          else do
+            refs <- runSqlPool (mapM (get . toSqlKey) vms) (ssDbPool state)
+            -- Recheck after reading: reset may have advanced the row while the
+            -- lookup waited. Cancelled work must never acquire the new revision.
+            (_, nowCancelled) <- atomically $ TaskScope.taskVms (ssTasks state) root
+            blocked <-
+              atomically $
+                or
+                  <$> mapM
+                    ( \vm -> do
+                        recovering <- TaskScope.vmIsRecovering (ssTasks state) vm
+                        owner <- TaskScope.ownsVmReset (ssTasks state) root vm
+                        pure (recovering && not owner)
+                    )
+                    vms
+            if blocked || (nowCancelled && not cleanup)
+              then Cancellation.throwIO TaskCancelledException
+              else do
+                scoped <- NOA.vmOperationClient nac [(vm, M.vmLifecycleRevision row, M.vmRuntimeGeneration row) | (vm, Just row) <- zip vms refs]
+                checkNodeCancellation state
+                case scoped of
+                  Left err -> pure (Left (T.pack (show err)))
+                  Right client -> do
+                    result <- action client
+                    (_, finishedCancelled) <- atomically $ TaskScope.taskVms (ssTasks state) root
+                    if finishedCancelled && not cleanup
+                      then Cancellation.throwIO TaskCancelledException
+                      else pure (Right result)
+
+-- Cancellation must win over connection and authorization diagnostics.
+checkNodeCancellation :: ServerState -> IO ()
+checkNodeCancellation state = case ssActionRoot state of
+  Just (root, False) -> do
+    (_, cancelled) <- atomically $ TaskScope.taskVms (ssTasks state) root
+    when cancelled $ Cancellation.throwIO TaskCancelledException
+  _ -> pure ()
 
 -- | Look up the netd cap for a node and run an action.
 withNetAgent
@@ -448,38 +499,22 @@ vsockCidLockFor state nid = do
             writeTVar (ssVsockCidLocks state) (Map.insert nid lk m')
             pure lk
 
--- | Create and register a fresh (unset) cancellation token for a
--- top-level task. Call once when the task starts; the action
--- runtime threads the returned 'TVar' through the task's subtask
--- tree. Idempotent-ish: a second call replaces the entry.
+-- | Register once; repeated registration preserves an existing cancellation.
 newTaskCancelToken :: ServerState -> Int64 -> IO (TVar Bool)
-newTaskCancelToken state tid = do
-  tok <- newTVarIO False
-  atomically $ modifyTVar' (ssTaskCancels state) (Map.insert tid tok)
-  pure tok
+newTaskCancelToken state tid = atomically $ TaskScope.registerTask (ssTasks state) tid
 
--- | Record the worker thread for a top-level task (for hard cancel).
 registerTaskThread :: ServerState -> Int64 -> ThreadId -> IO ()
-registerTaskThread state tid th =
-  atomically $ modifyTVar' (ssTaskThreads state) (Map.insert tid th)
+registerTaskThread state tid th = atomically $ TaskScope.registerThread (ssTasks state) tid th
 
--- | Drop a task's cancellation token + thread entry. Called when the
--- task finalises. A no-op for ids that were never registered (e.g.
--- subtasks, which share their parent's token).
+-- | Finishing a root retains its token until all registered scopes have exited.
 unregisterTask :: ServerState -> Int64 -> IO ()
-unregisterTask state tid = atomically $ do
-  modifyTVar' (ssTaskCancels state) (Map.delete tid)
-  modifyTVar' (ssTaskThreads state) (Map.delete tid)
+unregisterTask state tid = atomically $ TaskScope.finishTask (ssTasks state) tid
 
--- | Look up a top-level task's cancellation token, if it is running.
 lookupTaskCancelToken :: ServerState -> Int64 -> IO (Maybe (TVar Bool))
-lookupTaskCancelToken state tid =
-  Map.lookup tid <$> readTVarIO (ssTaskCancels state)
+lookupTaskCancelToken state tid = atomically $ TaskScope.taskToken (ssTasks state) tid
 
--- | Look up a top-level task's worker thread, if it is running.
 lookupTaskThread :: ServerState -> Int64 -> IO (Maybe ThreadId)
-lookupTaskThread state tid =
-  Map.lookup tid <$> readTVarIO (ssTaskThreads state)
+lookupTaskThread state tid = atomically $ TaskScope.taskThread (ssTasks state) tid
 
 --------------------------------------------------------------------------------
 -- Socket Buffer Types
@@ -530,3 +565,40 @@ getDefaultSocketPath = do
   mRuntimeDir <- lookupEnv "XDG_RUNTIME_DIR"
   let baseDir = fromMaybe "/tmp" mRuntimeDir
   pure $ baseDir </> "corvus" </> "corvus.sock"
+
+-- Local commits use the same cancellation/admission check as remote dispatch.
+-- Call inside the transaction after reading the row(s) whose revision guards
+-- the write, so a reset cannot lend its new authority to an old action.
+checkTaskAdmission :: ServerState -> IO ()
+checkTaskAdmission state = case ssActionRoot state of
+  Nothing -> pure ()
+  Just (root, cleanup) -> do
+    denied <- atomically $ do
+      (vms, cancelled) <- TaskScope.taskVms (ssTasks state) root
+      blocked <-
+        or
+          <$> mapM
+            ( \vm -> do
+                recovering <- TaskScope.vmIsRecovering (ssTasks state) vm
+                owner <- TaskScope.ownsVmReset (ssTasks state) root vm
+                pure (recovering && not owner)
+            )
+            vms
+      pure (blocked || (cancelled && not cleanup))
+    when denied $ Cancellation.throwIO TaskCancelledException
+
+-- Hold the existing VM rows through a local publication/deletion transaction.
+-- The no-op conditional update acquires the backend's row/write lock without
+-- inventing an operation epoch. Reset advances these same lifecycle revisions.
+checkTaskCommit :: ServerState -> SqlPersistT IO ()
+checkTaskCommit state = do
+  vms <- liftIO $ case ssActionRoot state of
+    Nothing -> pure []
+    Just (root, _) -> fst <$> atomically (TaskScope.taskVms (ssTasks state) root)
+  forM_ vms $ \vm -> do
+    row <- get (toSqlKey vm)
+    forM_ row $ \observed ->
+      updateWhere
+        [M.VmId ==. toSqlKey vm, M.VmLifecycleRevision ==. M.vmLifecycleRevision observed]
+        [M.VmLifecycleRevision =. M.vmLifecycleRevision observed]
+  liftIO $ checkTaskAdmission state

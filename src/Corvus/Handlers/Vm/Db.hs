@@ -80,19 +80,17 @@ claimVmReset vmId = do
     Just vm -> do
       let oldRevision = vmLifecycleRevision vm
           revision = oldRevision + 1
-      updateWhere
-        [ M.VmId ==. key
-        , M.VmLifecycleRevision ==. oldRevision
-        ]
-        [ M.VmLifecycleRevision =. revision
-        , M.VmStatus =. VmStopping
-        ]
-      mClaimed <- get key
-      pure $ do
-        claimed <- mClaimed
-        if vmLifecycleRevision claimed == revision && vmStatus claimed == VmStopping
-          then Just (revision, vmRuntimeGeneration vm)
-          else Nothing
+      changed <-
+        updateWhereCount
+          [ M.VmId ==. key
+          , M.VmLifecycleRevision ==. oldRevision
+          ]
+          [ M.VmLifecycleRevision =. revision
+          , M.VmStatus =. VmStopping
+          ]
+      if changed == 1
+        then pure (Just (revision, vmRuntimeGeneration vm))
+        else claimVmReset vmId
 
 -- | Claim a fresh runtime from an expected inactive state before any slow
 -- start work begins. Both tokens are

@@ -138,6 +138,7 @@ publishArtifactByClone state srcDiskId name target identity = do
             liftIO $
               runSqlPool
                 ( do
+                    checkTaskCommit state
                     key <-
                       publishImageWithId
                         reservedId

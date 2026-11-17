@@ -45,6 +45,8 @@ import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import Foreign.C.Error (Errno (..), eCONNRESET)
+import GHC.IO.Exception (IOException (ioe_errno))
 import qualified Network.Simple.TCP as TCP
 import Network.Socket (Socket)
 import System.IO.Error (isEOFError)
@@ -172,7 +174,7 @@ runOneConn logger mTlsCfg sock handle = case mTlsCfg of
           Right () -> do
             transport <- Tls.tlsTransport ctx defaultLimit
             handle transport `catch` \(e :: IOError) ->
-              logger (if isEOFError e then LevelDebug else LevelWarn) $
+              logger (if isEOFError e || maybe False ((== eCONNRESET) . Errno) (ioe_errno e) then LevelDebug else LevelWarn) $
                 T.pack ("nodeagent: TLS connection error: " <> show e)
 
 logTlsRejection :: QgaLogger -> String -> String -> IO ()

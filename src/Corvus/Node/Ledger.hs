@@ -24,16 +24,28 @@ module Corvus.Node.Ledger
   , waitForVmStarts
   , fenceVmStop
   , fenceVmReset
+  , VmAuthorization
+  , VmWorker
+  , admitVmRetirement
+  , admitVmWorker
+  , registerVmWorker
+  , checkVmAuthorizations
+  , releaseVmWorker
+  , interruptVmWorkers
+  , vmDrainComplete
   )
 where
 
+import Control.Concurrent (ThreadId, forkIO, myThreadId, throwTo)
 import Control.Concurrent.Async (Async, cancel)
 import Control.Concurrent.MVar (MVar)
-import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
-import Control.Exception (bracket_)
+import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTVar, newTVarIO, readTVar, readTVarIO, stateTVar, writeTVar)
+import Control.Exception (AsyncException (ThreadKilled), bracket_, mask_, throwIO)
+import Control.Monad (forM_, void, when)
 import qualified Corvus.Node.VmSpec as VS
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import System.Process (ProcessHandle)
@@ -118,6 +130,7 @@ data VmLedger = VmLedger
   , vmOperationLocks :: TVar (Map.Map Int64 (MVar ()))
   , vmStarts :: TVar (Map.Map Int64 (Int64, Int64))
   , vmFences :: TVar (Map.Map Int64 VmFence)
+  , vmRpcWorkers :: TVar [VmWorker]
   }
 
 data VmStartAdmission
@@ -126,7 +139,7 @@ data VmStartAdmission
   | VmStartRejected T.Text
 
 newVmLedger :: IO VmLedger
-newVmLedger = VmLedger <$> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO Map.empty
+newVmLedger = VmLedger <$> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO []
 
 readVms :: VmLedger -> STM (Map.Map Int64 VmLiveState)
 readVms = readTVar . vmVar
@@ -270,3 +283,83 @@ withVmStopping live = bracket_ begin end
   where
     begin = atomically $ modifyTVar' (vlsStopState live) (\(n, epoch) -> (n + 1, epoch + 1))
     end = atomically $ modifyTVar' (vlsStopState live) (\(n, epoch) -> (n - 1, epoch))
+
+-- | The existing daemon revision and runtime generation authorize an RPC;
+-- there is deliberately no additional VM operation sequence.
+type VmAuthorization = (Int64, Int64, Maybe Int64)
+
+data VmWorker = VmWorker Bool [VmAuthorization] (TVar Bool) (TVar (Maybe ThreadId))
+
+checkVmAuthorizations :: VmLedger -> [VmAuthorization] -> STM Bool
+checkVmAuthorizations ledger refs = and <$> mapM valid refs
+  where
+    valid (vm, revision, generation) = do
+      fences <- readTVar (vmFences ledger)
+      live <- lookupVm ledger vm
+      generationValid <- case live of
+        Nothing -> pure True
+        Just runtime -> do
+          exited <- readTVar (vlsLastExitCode runtime)
+          let spec = vlsSpec runtime
+          -- Guest poweroff leaves an exited ledger entry for start to retire.
+          -- Admit a newer runtime only after the reaper has confirmed exit.
+          pure $
+            generation == Just (VS.vsRuntimeGeneration spec)
+              || (isJust exited && revision > VS.vsLifecycleRevision spec && isJust generation)
+      let revisionValid = maybe True ((<= revision) . vfHighestRevision) (Map.lookup vm fences)
+      pure (revisionValid && generationValid)
+
+-- Count before the asynchronous handler is forked, including its lock wait.
+admitVmWorker :: VmLedger -> [VmAuthorization] -> STM (Maybe VmWorker)
+admitVmWorker = admitWorker False
+
+-- Retirement owns detached resources and must survive subsequent reset retries.
+-- It remains counted in drain while waiting for old locks and sockets.
+admitVmRetirement :: VmLedger -> [VmAuthorization] -> STM (Maybe VmWorker)
+admitVmRetirement = admitWorker True
+
+admitWorker :: Bool -> VmLedger -> [VmAuthorization] -> STM (Maybe VmWorker)
+admitWorker protected ledger refs = do
+  valid <- checkVmAuthorizations ledger refs
+  if not valid
+    then pure Nothing
+    else do
+      worker <- VmWorker protected refs <$> newTVar False <*> newTVar Nothing
+      modifyTVar' (vmRpcWorkers ledger) (worker :)
+      pure (Just worker)
+
+registerVmWorker :: VmWorker -> IO ()
+registerVmWorker (VmWorker _ _ cancelled thread) = do
+  ident <- myThreadId
+  stopped <- atomically $ writeTVar thread (Just ident) >> readTVar cancelled
+  when stopped $ throwIO ThreadKilled
+
+releaseVmWorker :: VmLedger -> VmWorker -> STM ()
+releaseVmWorker ledger (VmWorker _ _ token _) =
+  modifyTVar' (vmRpcWorkers ledger) (filter (\(VmWorker _ _ other _) -> token /= other))
+
+-- Never join on the reset path. The worker registration survives the signal
+-- until its bracket exits, so drain confirmation cannot mistake cancellation
+-- for completion.
+interruptVmWorkers :: VmLedger -> Int64 -> IO ()
+interruptVmWorkers ledger vm = mask_ $ do
+  threads <- atomically $ do
+    workers <- readTVar (vmRpcWorkers ledger)
+    concat <$> mapM (cancelWorker vm) workers
+  forM_ threads $ \thread -> void $ forkIO (throwTo thread ThreadKilled)
+  where
+    cancelWorker target (VmWorker protected refs token thread)
+      | not protected && any (\(ident, _, _) -> ident == target) refs = do
+          writeTVar token True
+          maybe [] pure <$> readTVar thread
+      | otherwise = pure []
+
+vmDrainComplete :: VmLedger -> Int64 -> Int64 -> STM Bool
+vmDrainComplete ledger vm revision = do
+  fences <- readTVar (vmFences ledger)
+  starts <- readTVar (vmStarts ledger)
+  workers <- readTVar (vmRpcWorkers ledger)
+  live <- lookupVm ledger vm
+  let fenced = maybe False ((== revision) . vfHighestRevision) (Map.lookup vm fences)
+      active (VmWorker _ refs _ _) = any (\(ident, _, _) -> ident == vm) refs
+  pure (fenced && Map.notMember vm starts && not (any active workers) && isNothing live)

@@ -113,6 +113,7 @@ library:
     - Corvus.Node.DiskProgress
     - Corvus.Node.DirectoryCleanup
     - Corvus.OperationGuard
+    - Corvus.TaskScope
     - Corvus.Images
     - Corvus.Images.ApplyIdentity
     - Corvus.Protocol
@@ -138,6 +139,7 @@ library:
     - Corvus.Tls
     - Corvus.Server
     - Corvus.Action
+    - Corvus.Cancellation
     - Corvus.Process
     - Corvus.Handlers
     - Corvus.Handlers.Core

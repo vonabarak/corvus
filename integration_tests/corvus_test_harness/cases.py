@@ -390,6 +390,18 @@ class IntegrationTestCase:
                 mode=mode,
             )
 
+    def wait_for_vm_status(
+        self, vm: SyncVm, status: str, *, timeout_sec: float = 60.0
+    ) -> None:
+        """Wait for lifecycle cleanup before issuing a dependent operation."""
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            actual = vm.show().status
+            if actual == status:
+                return
+            time.sleep(0.1)
+        raise AssertionError(f"VM did not reach {status!r}; last status: {actual!r}")
+
     # ---- Task polling ------------------------------------------------------
 
     def wait_for_task(

@@ -281,6 +281,7 @@ class TestResetUniversal(SingleNodeCase):
         try:
             assert vm.show().status == "stopped"
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             assert vm.show().status == "stopped", (
                 "reset from stopped should be a no-op; status drifted"
             )
@@ -288,6 +289,7 @@ class TestResetUniversal(SingleNodeCase):
             # would fail with "VM is already stopped" if the FSM's
             # catch-all rule were dropped).
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             assert vm.show().status == "stopped"
         finally:
             vm.delete()

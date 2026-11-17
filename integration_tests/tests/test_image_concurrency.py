@@ -46,8 +46,7 @@ class TestImageConcurrency(SingleNodeCase):
             for vm in self.client.vms.list():
                 if prefix in vm.name:
                     cap = self.client.vms.get(vm.id)
-                    cap.reset()
-                    cap.delete()
+                    cap.delete(force=True)
             for template in self.client.templates.list():
                 if prefix in template.name:
                     self.client.templates.get(template.id).delete()
@@ -377,6 +376,60 @@ class TestImageConcurrency(SingleNodeCase):
                 )
                 await upload.abort()
                 await asyncio.wait_for(waiter, timeout=15)
+
+            self.client._rl.run(exercise())
+
+    def test_reset_bake_vm_cancels_build_and_preserves_work(self) -> None:
+        base = self.register_base_images()["corvus-test-vm"]
+        with self._resources() as prefix:
+            self._template(f"{prefix}-template", base)
+
+            async def exercise() -> None:
+                build = asyncio.create_task(
+                    self._build(
+                        self._pipeline(f"{prefix}-output", f"{prefix}-template")
+                    )
+                )
+                try:
+                    shell = await self._ready_vm(f"{prefix}-output")
+                    shell.close()
+                    bake = next(
+                        vm
+                        for vm in await self.client._a.vms.list()
+                        if prefix in vm.name
+                    )
+                    cap = await self.client._a.vms.get(bake.id)
+                    before = await cap.show()
+                    roots = [
+                        task
+                        for task in await self.client._a.tasks.list(result="running")
+                        if task.command == "build" and task.parent_id is None
+                    ]
+                    assert len(roots) == 1
+                    await asyncio.wait_for(cap.reset(), timeout=20)
+                    end = await asyncio.wait_for(build, timeout=30)
+                    assert not any(result.artifact_disk_id for result in end.builds), (
+                        end
+                    )
+                    status = await (await self.client._a.tasks.get(roots[0].id)).show()
+                    assert status.result == "cancelled", status
+                    deadline = time.monotonic() + 30
+                    while (await cap.show()).status != "stopped":
+                        assert time.monotonic() < deadline, "bake reset did not drain"
+                        await asyncio.sleep(0.1)
+                    after = await cap.show()
+                    assert after.drives == before.drives
+                    for drive in after.drives:
+                        if drive.disk_image is not None:
+                            await (
+                                await self.client._a.disks.get(drive.disk_image.id)
+                            ).show()
+                finally:
+                    if not build.done():
+                        for task in await self.client._a.tasks.list(result="running"):
+                            if task.command == "build" and task.parent_id is None:
+                                await self.client._a.tasks.cancel(task.id)
+                        await asyncio.wait_for(build, timeout=30)
 
             self.client._rl.run(exercise())
 

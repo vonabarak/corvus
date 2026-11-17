@@ -35,6 +35,11 @@ import Database.Persist.Sql (runSqlPool)
 
 newtype ApplyAction = ApplyAction {aaConfig :: ApplyConfig}
 instance Action ApplyAction where
+  actionVmDependencies state action =
+    catMaybes
+      <$> mapM
+        (\vm -> resolveByNameFilter state (\name -> [VmName ==. name]) (\node -> [VmNodeId ==. node]) Map.empty (avName vm) (avNode vm))
+        (acVms (aaConfig action))
   actionSubsystem _ = SubApply
   actionCommand _ = "apply"
   actionExecute ctx a = case validateConfig (aaConfig a) of

@@ -17,7 +17,7 @@ module Corvus.Node.Caps.Session.Vm.Startup
   , forkVmReaper
   ) where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIOWithUnmask)
 import Control.Concurrent.STM (atomically, readTVar, readTVarIO, writeTVar)
 import qualified Control.Concurrent.STM
 import qualified Control.Exception as E
@@ -29,6 +29,7 @@ import qualified Control.Monad.Logger
 import Corvus.Logging (synchronousException)
 import Corvus.Node.Caps.Session.Utils
   ( SessionCap (..)
+  , runVmBackground
   , scQgaConns
   , scVmLedger
   , tshow
@@ -75,7 +76,7 @@ stopVmAfterStartFailure sc cfg vmId qemuPidW qemuPh stopRequestedVar virtiofsdEn
 -- release the persistent QGA connection.
 forkVmReaper :: (Show a) => SessionCap -> VS.VmSpec -> System.Process.ProcessHandle -> a -> Control.Concurrent.STM.TVar (Maybe Int) -> Control.Concurrent.STM.TVar Bool -> IO () -> IO () -> IO ()
 forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar retireWorkers respawn =
-  void $ forkIO $ do
+  void $ forkIOWithUnmask $ \unmask -> runVmBackground sc $ unmask $ do
     r <- E.tryJust synchronousException (waitForProcess qemuPh)
     let vmId = VS.vsVmId spec
         code = case r of
@@ -117,7 +118,7 @@ forkVmReaper sc spec qemuPh qemuPidW lastExitVar stopRequestedVar retireWorkers 
             <> tshow qemuPidW
             <> " code="
             <> tshow code
-        withVmOpLock sc vmId $ do
+        withVmOpLock (sc {scVmAuthorizations = []}) vmId $ do
           current <- atomically $ L.lookupVm (scVmLedger sc) vmId
           case current of
             Just live

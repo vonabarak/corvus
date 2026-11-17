@@ -44,6 +44,7 @@ import secrets
 import time
 
 import pytest
+from corvus_client.exceptions import GuestAgentError
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 from corvus_test_harness.vm import _NetIfOptions
 
@@ -254,9 +255,17 @@ class TestComponentRestart(SingleNodeCase):
                 while time.monotonic() < deadline:
                     info = vm.cap.show()
                     if info.status == "running":
-                        last_result = vm.cap.guest_exec(
-                            f"dd if=/dev/vdb bs=1 count={len(marker)} 2>/dev/null"
-                        )
+                        try:
+                            last_result = vm.cap.guest_exec(
+                                f"dd if=/dev/vdb bs=1 count={len(marker)} 2>/dev/null"
+                            )
+                        except GuestAgentError as error:
+                            # The persisted running status can precede the first
+                            # reconciliation snapshot from the restarted agent.
+                            if "unknown vmId" not in str(error):
+                                raise
+                            time.sleep(0.5)
+                            continue
                         if last_result.exit_code == 0 and last_result.stdout == marker:
                             break
                     time.sleep(0.5)

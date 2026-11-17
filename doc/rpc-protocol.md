@@ -499,3 +499,14 @@ permission, corrupt-image, and transport failures abort the import.
 Protocol version 10 replaces the internal download-only observer with
 `DiskProgressSink` (`phase`, `completed`, `total`) and adds it to
 `diskImportFromPeer`. Daemon and nodeagent must be upgraded together.
+
+## Nodeagent protocol 11: emergency reset scopes
+
+Protocol 11 adds `Session.vmOperation`, which returns a session scoped to VM
+identities and their existing `lifecycleRevision`/`runtimeGeneration`, and
+`Session.vmDrainStatus`, which requires an exact reset revision tombstone and
+no pending starts, live runtime, or registered workers. Scoped session requests
+register before asynchronous dispatch and keep authorization on exported disk
+transfer capabilities. A reset interrupts ordinary workers but retains their
+registrations until finalization. There is no additional VM operation epoch.
+The daemon and nodeagent must be upgraded together.

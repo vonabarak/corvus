@@ -202,6 +202,7 @@ class TestApplyUpdate(SingleNodeCase):
                 self.client.apply(yaml.safe_dump(config), wait=True)
             assert self.client.vms.get(original.id).show().id == original.id
             self.client.vms.get(original.id).reset()
+            self.wait_for_vm_status(self.client.vms.get(original.id), "stopped")
             third, _ = self.client.apply(yaml.safe_dump(config), wait=True)
             vm_ids.add(third.vms[0].id)
             assert third.vms[0].id != original.id
@@ -223,8 +224,7 @@ class TestApplyUpdate(SingleNodeCase):
         finally:
             for vm_id in vm_ids:
                 with suppress(CorvusError):
-                    self.client.vms.get(vm_id).reset()
-                    self.client.vms.get(vm_id).delete()
+                    self.client.vms.get(vm_id).delete(force=True)
             for disk_id in disk_ids:
                 with suppress(CorvusError):
                     self.client.disks.get(disk_id).delete()

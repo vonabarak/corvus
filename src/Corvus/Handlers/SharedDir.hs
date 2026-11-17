@@ -69,7 +69,7 @@ handleSharedDirAdd state vmId path tag cache readOnly =
                       , sharedDirCache = cache
                       , sharedDirReadOnly = readOnly
                       }
-              dirId <- runSqlPool (insert sharedDir) pool
+              dirId <- runSqlPool (checkTaskCommit state >> insert sharedDir) pool
               let dirIdInt = fromSqlKey dirId
 
               runServerLogging state $ logInfoN $ "Shared directory added with ID: " <> T.pack (show dirIdInt)
@@ -119,7 +119,7 @@ handleSharedDirRemove state vmId sharedDirId = do
                   pure RespVmMustBeStopped
                 _ -> do
                   -- Delete from database
-                  runSqlPool (delete dirKey) pool
+                  runSqlPool (checkTaskCommit state >> delete dirKey) pool
                   runServerLogging state $ logInfoN "Shared directory removed"
                   pure RespSharedDirOk
 

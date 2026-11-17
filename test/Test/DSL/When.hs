@@ -115,6 +115,7 @@ import qualified Corvus.Model as M
 import Corvus.OperationGuard (newOperationGuard)
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Corvus.TaskScope (newTaskRegistry)
 import Corvus.Types (NodeConns (..), ServerState (..), newAutostartFlags, registerNodeConns)
 import Data.Int (Int64)
 import Data.Pool (Pool)
@@ -144,9 +145,8 @@ createTestServerState pool basePath = do
   vsockLocks <- newTVarIO mempty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO mempty
-  taskCancels <- newTVarIO mempty
+  tasks <- newTaskRegistry
   imageOperations <- newOperationGuard
-  taskThreads <- newTVarIO mempty
   logLevel <- getTestLogLevel
   let state =
         ServerState
@@ -164,9 +164,9 @@ createTestServerState pool basePath = do
           , ssVmStatsSubs = vmStatsSubs
           , ssVsockCidLocks = vsockLocks
           , ssSpicePortLock = spiceLock
-          , ssTaskCancels = taskCancels
+          , ssActionRoot = Nothing
+          , ssTasks = tasks
           , ssOperations = imageOperations
-          , ssTaskThreads = taskThreads
           , ssReservedRam = reservedRam
           , ssTlsConfig = Nothing
           }

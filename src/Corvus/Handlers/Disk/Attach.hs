@@ -26,7 +26,7 @@ import Corvus.Model
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
-import Corvus.Types (ServerState (..), runServerLogging)
+import Corvus.Types (ServerState (..), checkTaskCommit, runServerLogging)
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Database.Persist
@@ -105,16 +105,17 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                       mDriveId <-
                         liftIO $
                           runSqlPool
-                            ( insertUnique
-                                Drive
-                                  { driveVmId = toSqlKey vmId
-                                  , driveDiskImageId = Just (toSqlKey diskId)
-                                  , driveInterface = interface
-                                  , driveMedia = media
-                                  , driveReadOnly = readOnly
-                                  , driveCacheType = cache
-                                  , driveDiscard = discard
-                                  }
+                            ( checkTaskCommit state
+                                >> insertUnique
+                                  Drive
+                                    { driveVmId = toSqlKey vmId
+                                    , driveDiskImageId = Just (toSqlKey diskId)
+                                    , driveInterface = interface
+                                    , driveMedia = media
+                                    , driveReadOnly = readOnly
+                                    , driveCacheType = cache
+                                    , driveDiscard = discard
+                                    }
                             )
                             (ssDbPool state)
                       case mDriveId of
@@ -153,14 +154,14 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                                   discard
                               case outer of
                                 Left err -> do
-                                  liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                                  liftIO $ runSqlPool (checkTaskCommit state >> delete driveId) (ssDbPool state)
                                   pure $ RespError err
                                 Right r -> case r of
                                   Right () -> do
                                     logInfoN "Hot-plug successful"
                                     pure $ RespDiskAttached driveIdInt
                                   Left e -> do
-                                    liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                                    liftIO $ runSqlPool (checkTaskCommit state >> delete driveId) (ssDbPool state)
                                     pure $ RespError $ "vmAttachDrive: " <> T.pack (show e)
                             else do
                               logInfoN "VM is not active, disk attached to database only"
@@ -207,14 +208,14 @@ handleDiskDetach state vmId diskId = runServerLogging state $ do
                     Left err -> pure $ RespError err
                     Right r -> case r of
                       Right () -> do
-                        liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+                        liftIO $ runSqlPool (checkTaskCommit state >> delete driveKey) (ssDbPool state)
                         logInfoN "Hot-unplug successful"
                         pure RespDiskOk
                       Left e ->
                         pure $ RespError $ "vmDetachDrive: " <> T.pack (show e)
             else do
               -- Just remove from database
-              liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+              liftIO $ runSqlPool (checkTaskCommit state >> delete driveKey) (ssDbPool state)
               logInfoN "Drive detached from database"
               pure RespDiskOk
 
@@ -243,6 +244,7 @@ data DiskAttach = DiskAttach
   }
 
 instance Action DiskAttach where
+  actionVmDependencies _ a = pure [datVmId a]
   actionObjectResources state a = objectResources state ExclusiveAccess VmObject (datVmId a)
   actionResources state a = imageResources state (if datReadOnly a then SharedAccess else ExclusiveAccess) (datDiskId a)
   actionSubsystem _ = SubDisk
@@ -256,6 +258,7 @@ data DiskDetachByDisk = DiskDetachByDisk
   }
 
 instance Action DiskDetachByDisk where
+  actionVmDependencies _ a = pure [ddbVmId a]
   actionObjectResources state a = objectResources state ExclusiveAccess VmObject (ddbVmId a)
   actionResources state a = imageResources state ExclusiveAccess (ddbDiskId a)
   actionSubsystem _ = SubDisk

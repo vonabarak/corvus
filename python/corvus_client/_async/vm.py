@@ -175,6 +175,10 @@ class AsyncVm:
         return str(resp.status)
 
     async def reset(self) -> str:
+        """Terminate QEMU and cancel VM tasks; show() stays stopping until drain.
+
+        Mutations are rejected until cleanup completes and status is stopped.
+        """
         resp = await self._cap.reset()
         return str(resp.status)
 

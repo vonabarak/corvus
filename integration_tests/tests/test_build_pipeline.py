@@ -363,8 +363,7 @@ class TestBuildPipeline(SingleNodeCase):
                 assert "bake-marker" in r.stdout, r.stdout
                 verify_vm.stop(wait=True)
             finally:
-                verify_vm.reset()
-                verify_vm.delete()
+                verify_vm.delete(force=True)
 
             # Drop the artifact disk so cleanup is complete.
             self.client.disks.get(artifact_name, by_name=True).delete()

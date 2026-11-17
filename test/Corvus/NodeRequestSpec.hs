@@ -12,8 +12,11 @@ import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.Async (asyncThreadId, cancel, poll, waitCatch, withAsync)
 import Control.Concurrent.MVar (newMVar, readMVar)
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Control.Monad (void)
-import Corvus.Node.Caps.Session (SessionServer (..), newSessionCap)
+import Control.Monad.Logger (LogLevel (..))
+import Corvus.Cancellation (VmOperationSuperseded (..))
+import Corvus.Node.Caps.Session (SessionServer (..), newSessionCap, traceNodeRequest)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
 import qualified Corvus.Node.Ledger as L
 import Corvus.Node.SocketBuffer (newSocketBuffer, writeBuffer)
@@ -23,6 +26,7 @@ import Corvus.NodeAgentClient.Core (remote)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types (SocketBufferHandle (..))
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import Supervisors (withSupervisor)
@@ -44,6 +48,15 @@ instance S.ByteSink'server_ StalledSink where
 
 spec :: Spec
 spec = sequential $ describe "node request isolation" $ do
+  it "logs superseded requests as cancellation while retaining real failure warnings" $ do
+    levels <- newIORef []
+    conns <- newGuestAgentConns (\level _ -> modifyIORef' levels (level :))
+    _ <- E.try @VmOperationSuperseded $ traceNodeRequest conns "test" (\() -> E.throwIO VmOperationSuperseded) ()
+    readIORef levels `shouldReturn` [LevelDebug, LevelDebug]
+    _ <- E.try @IOError $ traceNodeRequest conns "test" (\() -> ioError (userError "failure")) ()
+    observed <- readIORef levels
+    observed `shouldSatisfy` elem LevelWarn
+
   it "preserves a caller deadline across a stalled remote call" $ do
     result <- timeout 100000 (remote (atomically retry :: IO ()))
     result `shouldSatisfy` isNothing

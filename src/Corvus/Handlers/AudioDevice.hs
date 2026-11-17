@@ -12,7 +12,7 @@ module Corvus.Handlers.AudioDevice
 import Corvus.Action (Action (..), ActionContext (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), checkTaskCommit)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -44,7 +44,8 @@ instance Action AudioDeviceRemove where
   actionCommand _ = "remove-audio-device"
   actionEntityId (AudioDeviceRemove vmId _) = Just (fromIntegral vmId)
   actionExecute ctx (AudioDeviceRemove vmId audioId) = do
-    let pool = ssDbPool (acState ctx)
+    let state = acState ctx
+        pool = ssDbPool state
         vmKey = toSqlKey vmId :: VmId
         audioKey = toSqlKey audioId :: AudioDeviceId
     mVm <- runSqlPool (get vmKey) pool
@@ -55,7 +56,7 @@ instance Action AudioDeviceRemove where
         mAudio <- runSqlPool (get audioKey) pool
         case mAudio of
           Just audio | audioDeviceVmId audio == vmKey -> do
-            runSqlPool (delete audioKey) pool
+            runSqlPool (checkTaskCommit state >> delete audioKey) pool
             pure RespAudioDeviceOk
           _ -> pure RespAudioDeviceNotFound
 
@@ -73,14 +74,14 @@ changeAudioDevice state vmId backend mModel options mAudioId =
         Just vm | backend == AudioSpice && vmHeadless vm -> pure (RespError "SPICE audio requires a graphical VM")
         Just _ -> case mAudioId of
           Nothing -> do
-            audioId <- runSqlPool (insert (AudioDevice vmKey backend (fromMaybe AudioVirtioSound mModel) options)) pool
+            audioId <- runSqlPool (checkTaskCommit state >> insert (AudioDevice vmKey backend (fromMaybe AudioVirtioSound mModel) options)) pool
             pure (RespAudioDeviceAdded (fromSqlKey audioId))
           Just audioId -> do
             let audioKey = toSqlKey audioId :: AudioDeviceId
             mAudio <- runSqlPool (get audioKey) pool
             case mAudio of
               Just audio | audioDeviceVmId audio == vmKey -> do
-                runSqlPool (update audioKey ([AudioDeviceBackend =. backend, AudioDeviceOptions =. options] ++ maybe [] (\model -> [AudioDeviceModel =. model]) mModel)) pool
+                runSqlPool (checkTaskCommit state >> update audioKey ([AudioDeviceBackend =. backend, AudioDeviceOptions =. options] ++ maybe [] (\model -> [AudioDeviceModel =. model]) mModel)) pool
                 pure RespAudioDeviceOk
               _ -> pure RespAudioDeviceNotFound
 

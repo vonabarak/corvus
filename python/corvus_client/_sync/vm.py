@@ -171,6 +171,10 @@ class SyncVm(LoopBoundResource):
         return self._rl.run(self._a.pause())
 
     def reset(self) -> str:
+        """Terminate QEMU and cancel VM tasks; show() stays stopping until drain.
+
+        Mutations are rejected until cleanup completes and status is stopped.
+        """
         return self._rl.run(self._a.reset())
 
     def set_balloon(self, *, target_bytes: int) -> None:

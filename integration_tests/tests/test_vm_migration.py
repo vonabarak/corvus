@@ -354,6 +354,7 @@ class TestVmMigration(_MigrationCase):
             )
             assert _qemu_count(self.node_alpha, vm_name) == 0
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             _poll_until(
                 lambda: _qemu_count(self.node_beta, vm_name) == 0,
                 timeout_sec=15.0,
@@ -633,6 +634,7 @@ class TestVmMigration(_MigrationCase):
                 msg=f"qemu for {vm_name!r} did not spawn on alpha",
             )
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             _poll_until(
                 lambda: _qemu_count(self.node_alpha, vm_name) == 0,
                 timeout_sec=15.0,
@@ -669,6 +671,7 @@ class TestVmMigration(_MigrationCase):
                 msg=f"qemu for {vm_name!r} did not spawn on beta",
             )
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             _poll_until(
                 lambda: _qemu_count(self.node_beta, vm_name) == 0,
                 timeout_sec=15.0,
@@ -738,6 +741,7 @@ class TestVmMigration(_MigrationCase):
                 )
                 assert _qemu_count(self.node_alpha, vm_name) == 0
                 vm.reset()
+                self.wait_for_vm_status(vm, "stopped")
                 _poll_until(
                     lambda: _qemu_count(self.node_beta, vm_name) == 0,
                     timeout_sec=15.0,
@@ -824,6 +828,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 f"guest_exec failed after migrate: exit={r.exit_code!r}, stderr={r.stderr!r}"
             )
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             _poll_until(
                 lambda: _qemu_count(self.node_beta, vm_name) == 0,
                 timeout_sec=15.0,
@@ -877,10 +882,11 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 f"VM {vm_name!r} started with guest_agent=True but no vsock_cid was allocated; node kernel may be missing /dev/vhost-vsock"
             )
             # Cleanly stop so we can migrate. Use reset (hard
-            # kill) — reset commits status=stopped synchronously,
+            # kill) — reset terminates QEMU before returning,
             # works from any state, and doesn't depend on the
             # guest acking ACPI.
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             _poll_until(
                 lambda: _qemu_count(self.node_alpha, vm_name) == 0,
                 timeout_sec=15.0,

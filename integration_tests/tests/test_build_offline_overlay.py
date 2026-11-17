@@ -28,8 +28,7 @@ class TestBuildOfflineOverlay(SingleNodeCase):
             for vm in self.client.vms.list():
                 if prefix in vm.name:
                     cap = self.client.vms.get(vm.id)
-                    cap.reset()
-                    cap.delete()
+                    cap.delete(force=True)
             for template in self.client.templates.list():
                 if template.name.startswith(prefix):
                     self.client.templates.get(template.id).delete()

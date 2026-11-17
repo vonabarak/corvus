@@ -312,14 +312,25 @@ doVmStart sc spec = do
           guestAgentSock
           vmRuntimeDir
           savedStateFile
-  live <- spawnQemu spec command virtiofsdEntries swtpmEntry
-  publishStartedVm sc live
-  claimVmVsock sc cfg live
-  startVmBuffers sc cfg live serialSock monitorSock
-  startVmReaper sc live
-  forkStartupCoordinator sc cfg live savedStateFile
-  waitForPausedVm cfg spec
-  pure $ startedResult live
+  E.mask $ \restore -> do
+    live <- spawnQemu spec command virtiofsdEntries swtpmEntry
+    -- Reset can interrupt startup as soon as the runtime is published. Until
+    -- its reaper owns it, every interrupted or failed setup must stop and reap it.
+    restore
+      ( do
+          publishStartedVm sc live
+          claimVmVsock cfg live
+          startVmBuffers sc cfg live serialSock monitorSock
+      )
+      `E.onException` do
+        stopUnwatchedVm sc live
+        _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) (VS.vsVmId spec) (VS.vsLifecycleRevision spec) (VS.vsRuntimeGeneration spec)
+        pure ()
+    startVmReaper sc live
+    restore $ do
+      forkStartupCoordinator sc cfg live savedStateFile
+      waitForPausedVm cfg spec
+      pure $ startedResult live
 
 -- | Build the QEMU process with piped output, cleaning up its helpers if spawn
 -- fails or no PID is returned. The no-PID path also performs a bounded reap.
@@ -440,9 +451,7 @@ publishStartedVm sc live = do
         (VS.vsRuntimeGeneration spec)
         live
   logStartupState sc live (if published then "runtime_published" else "runtime_publish_rejected")
-  unless published $ do
-    stopUnwatchedVm sc live
-    _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision spec) (VS.vsRuntimeGeneration spec)
+  unless published $
     throwFailed ("vmStart rejected by a newer lifecycle fence for vmId " <> tshow vmId)
 
 -- | Stop a process before its reaper is installed, suppressing reboot-quirk
@@ -460,24 +469,16 @@ stopUnwatchedVm sc live = do
   reapVmHelpers live
 
 -- | Confirm QMP readiness and ownership while the caller holds the VSOCK
--- launch lock. On failure, stop QEMU and remove only this runtime generation.
-claimVmVsock :: SessionCap -> QemuConfig -> L.VmLiveState -> IO ()
-claimVmVsock sc cfg live = do
+-- launch lock. The startup owner stops and reaps QEMU if this fails.
+claimVmVsock :: QemuConfig -> L.VmLiveState -> IO ()
+claimVmVsock cfg live = do
   let spec = L.vlsSpec live
       vmId = VS.vsVmId spec
   forM_ (VS.vsVsockCid spec) $ \cid -> do
     ready <- waitForVsockOwnership cfg vmId cid (L.vlsQemuHandle live) (L.vlsStderrTail live) (L.vlsStderrDone live)
     case ready of
       Right () -> pure ()
-      Left reason -> do
-        stopUnwatchedVm sc live
-        _ <-
-          atomically $
-            L.removeVmIfCurrent
-              (scVmLedger sc)
-              vmId
-              (VS.vsLifecycleRevision spec)
-              (VS.vsRuntimeGeneration spec)
+      Left reason ->
         throwFailed ("vmStart failed: " <> reason)
 
 -- | Buffer chardev output until QEMU exits, then unregister the buffers.

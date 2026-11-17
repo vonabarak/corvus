@@ -55,3 +55,10 @@ main = hspec $ do
       atomically $ superviseSTM sup (atomically $ writeTVar started True)
       threadDelay 1000
       readTVarIO started `shouldReturn` False
+    it "finalizes reservations when shutdown rejects admission" $ do
+      sup <- withSupervisor pure
+      started <- newTVarIO False
+      finished <- newEmptyTMVarIO
+      superviseFinally sup (atomically $ writeTVar started True) (atomically $ putTMVar finished ())
+      timeout 1000000 (atomically $ takeTMVar finished) `shouldReturn` Just ()
+      readTVarIO started `shouldReturn` False

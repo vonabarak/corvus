@@ -69,7 +69,7 @@ import Corvus.Node.Image (ImageResult (..))
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Types (ServerState (..), runServerLogging, withNodeAgent)
+import Corvus.Types (ServerState (..), checkTaskCommit, runServerLogging, withNodeAgent)
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
 import qualified Data.Text as T
@@ -167,6 +167,7 @@ tryEnterMigrating state vmId =
   runSqlPool
     ( do
         mVm <- get vmId
+        checkTaskCommit state
         case mVm of
           Nothing -> pure (Left "VM not found")
           Just vm -> case M.vmStatus vm of
@@ -492,6 +493,7 @@ commitMigration ctx vmId destNode plan created origStatus = do
   liftIO $
     runSqlPool
       ( do
+          checkTaskCommit state
           update
             vmId
             [ M.VmStatus =. nextStatus
@@ -626,7 +628,7 @@ rollbackMigrating state vmId hasStateFile = do
               if hasStateFile
                 then next
                 else M.VmStopped
-        runSqlPool (update vmId [M.VmStatus =. target]) (ssDbPool state)
+        runSqlPool (checkTaskCommit state >> updateWhere [M.VmId ==. vmId, M.VmStatus ==. M.VmMigrating, M.VmLifecycleRevision ==. M.vmLifecycleRevision vm] [M.VmStatus =. target]) (ssDbPool state)
       Left _ -> pure ()
     Nothing -> pure ()
 

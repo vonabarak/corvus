@@ -96,6 +96,7 @@ class TestStatusSubscriptionRecovery(SingleNodeCase):
             )
             for _ in range(2):
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 vm.cap.start(wait=False)
                 self._wait(
                     lambda: vm.cap.show().status == "running",

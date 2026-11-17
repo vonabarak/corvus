@@ -8,10 +8,10 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.Async (wait, withAsync)
 import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Concurrent.STM (atomically, check, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
-import Control.Exception (IOException, bracket, finally, try)
+import Control.Exception (AsyncException (..), IOException, bracket, finally, try)
 import Control.Monad (forM_, forever, void, when)
 import Corvus.Model (GraphicsAdapter (..))
-import Corvus.Node.Caps.Session (cleanupDetachedDrive, newSessionCap, withVmOpLock)
+import Corvus.Node.Caps.Session (SessionCap (..), cleanupDetachedDrive, newSessionCap, withVmOpLock)
 import Corvus.Node.Caps.Session.Vm.Lifecycle (handleVmStopGraceful)
 import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper)
 import Corvus.Node.GuestAgent.Connection (newGuestAgentConns)
@@ -54,6 +54,37 @@ spec = sequential $ describe "QEMU startup failures" $ do
     timeout 10000 (atomically $ L.waitForVmStarts ledger 7) `shouldReturn` Nothing
     atomically $ L.clearVmStartReservation ledger 7 1 1
     timeout 1000000 (atomically $ L.waitForVmStarts ledger 7) `shouldReturn` Just ()
+
+  it "rejects stale requests and requires the exact reset fence for drain" $ do
+    ledger <- L.newVmLedger
+    atomically (L.vmDrainComplete ledger 7 2) `shouldReturn` False
+    _ <- atomically $ L.fenceVmReset ledger 7 2
+    atomically (L.checkVmAuthorizations ledger [(7, 1, Nothing)]) `shouldReturn` False
+    atomically (L.checkVmAuthorizations ledger [(7, 2, Nothing)]) `shouldReturn` True
+    atomically (L.vmDrainComplete ledger 7 1) `shouldReturn` False
+    atomically (L.vmDrainComplete ledger 7 2) `shouldReturn` True
+
+  it "counts a cancelled worker before fork until its finalizer releases it" $ do
+    ledger <- L.newVmLedger
+    Just worker <- atomically $ L.admitVmWorker ledger [(7, 1, Nothing)]
+    _ <- atomically $ L.fenceVmReset ledger 7 2
+    L.interruptVmWorkers ledger 7
+    atomically (L.vmDrainComplete ledger 7 2) `shouldReturn` False
+    result <- try $ L.registerVmWorker worker
+    (result :: Either AsyncException ()) `shouldBe` Left ThreadKilled
+    atomically $ L.releaseVmWorker ledger worker
+    atomically (L.vmDrainComplete ledger 7 2) `shouldReturn` True
+
+  it "retains protected retirement across reset retries" $ do
+    ledger <- L.newVmLedger
+    _ <- atomically $ L.fenceVmReset ledger 7 2
+    Just worker <- atomically $ L.admitVmRetirement ledger [(7, 2, Nothing)]
+    _ <- atomically $ L.fenceVmReset ledger 7 3
+    L.interruptVmWorkers ledger 7
+    L.registerVmWorker worker
+    atomically (L.vmDrainComplete ledger 7 3) `shouldReturn` False
+    atomically $ L.releaseVmWorker ledger worker
+    atomically (L.vmDrainComplete ledger 7 3) `shouldReturn` True
 
   it "includes stderr even when the reader finishes after process exit" $ do
     (_, _, Just stderrHandle, process) <-
@@ -178,6 +209,11 @@ spec = sequential $ describe "QEMU startup failures" $ do
       -- A rejected publication must stay owned until its process is reaped.
       owned <- atomically $ L.readVms ledger
       length owned `shouldBe` 1
+      atomically (L.checkVmAuthorizations ledger [(7, 3, Just 3)]) `shouldReturn` False
+      atomically $ writeTVar lastExit (Just 0)
+      atomically (L.checkVmAuthorizations ledger [(7, 3, Just 3)]) `shouldReturn` True
+      atomically (L.checkVmAuthorizations ledger [(7, 1, Just 1)]) `shouldReturn` False
+      atomically (L.checkVmAuthorizations ledger [(7, 3, Nothing)]) `shouldReturn` False
 
   forM_ [False, True] $ \stopping ->
     it (if stopping then "honours a stop requested during reboot-quirk worker retirement" else "fences reboot-quirk health probes before worker retirement without publishing an exit") $
@@ -225,7 +261,7 @@ spec = sequential $ describe "QEMU startup failures" $ do
         resume <- newEmptyMVar
         respawned <- newEmptyMVar
         let retire = putMVar retiring () >> takeMVar resume
-        forkVmReaper sc vmSpec process (0 :: Int) lastExit stopRequested retire (putMVar respawned ())
+        forkVmReaper (sc {scVmAuthorizations = [(7, 1, Just 1)]}) vmSpec process (0 :: Int) lastExit stopRequested retire (putMVar respawned ())
         ( do
             timeout 1000000 (takeMVar retiring) `shouldReturn` Just ()
             readTVarIO startupPending `shouldReturn` True
@@ -239,13 +275,22 @@ spec = sequential $ describe "QEMU startup failures" $ do
             -- and running rather than reporting a spurious stopped transition.
             current <- atomically $ L.lookupVm ledger 7
             (fmap L.vlsLastExitCode current == Just lastExit) `shouldBe` True
-            when stopping $ atomically $ writeTVar stopRequested True
+            when stopping $ atomically $ do
+              writeTVar stopRequested True
+              _ <- L.fenceVmReset ledger 7 2
+              pure ()
           )
           `finally` putMVar resume ()
         if stopping
           then do
             timeout 1000000 (atomically $ readTVar lastExit >>= check . (== Just 0)) `shouldReturn` Just ()
             tryTakeMVar respawned `shouldReturn` Nothing
+            let awaitCleanup = do
+                  events <- readIORef messages
+                  if any (Text.isInfixOf "event=release_complete") events
+                    then pure ()
+                    else threadDelay 1000 >> awaitCleanup
+            timeout 1000000 awaitCleanup `shouldReturn` Just ()
           else timeout 1000000 (takeMVar respawned) `shouldReturn` Just ()
 
   forM_ [True, False] $ \exits ->

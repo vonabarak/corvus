@@ -4,7 +4,9 @@ module Corvus.OperationGuardSpec (spec) where
 
 import Control.Concurrent (forkFinally, forkIO, killThread)
 import Control.Concurrent.MVar
+import Control.Concurrent.STM
 import Control.Exception (SomeException, throwIO, try)
+import Control.Monad (when)
 import Corvus.OperationGuard
 import Data.Either (isLeft)
 import System.Timeout (timeout)
@@ -12,6 +14,39 @@ import Test.Hspec
 
 spec :: Spec
 spec = describe "operation resource leases" $ do
+  it "cancels queued work without releasing its blocker or dispatching its body" $ do
+    guard <- newOperationGuard
+    cancelled <- newTVarIO False
+    entered <- newEmptyMVar
+    done <- newEmptyMVar
+    dispatched <- newTVarIO False
+    let resources = [(ObjectId VmObject 1, ExclusiveAccess)]
+        checkpoint = readTVar cancelled >>= \requested -> when requested (throwSTM (userError "cancelled"))
+    withOperationLeases guard 1000000 "holder" [] resources $ \_ -> do
+      _ <-
+        forkFinally
+          ( do
+              putMVar entered ()
+              withOperationLeasesWithBudgetChecked guard checkpoint 60000000 60000000 "waiter" [] resources $ \_ ->
+                atomically (writeTVar dispatched True)
+          )
+          (putMVar done)
+      takeMVar entered
+      atomically (writeTVar cancelled True)
+      outcome <- timeout 1000000 (takeMVar done)
+      case outcome of
+        Just (Left err) -> show err `shouldContain` "cancelled"
+        other -> expectationFailure (show other)
+      readTVarIO dispatched `shouldReturn` False
+      blocked <- try $ withOperationLeases guard 10000 "probe" [] resources (const (pure ()))
+      (blocked :: Either OperationLeaseTimeout ()) `shouldSatisfy` isLeft
+    withOperationLeases guard 1000000 "next" [] resources (const (pure ()))
+  it "checks cancellation even when inherited leases cover the request" $ do
+    guard <- newOperationGuard
+    let resources = [(ObjectId VmObject 1, ExclusiveAccess)]
+    withOperationLeases guard 1000000 "parent" [] resources $ \held -> do
+      outcome <- try $ withOperationLeasesWithBudgetChecked guard (throwSTM (userError "cancelled")) 1000000 1000000 "child" held resources (const (expectationFailure "cancelled child dispatched"))
+      (outcome :: Either IOError ()) `shouldSatisfy` isLeft
   it "reports the original budget while enforcing the remaining wait" $ do
     guard <- newOperationGuard
     let resources = [(ImageFamily "output", ExclusiveAccess)]

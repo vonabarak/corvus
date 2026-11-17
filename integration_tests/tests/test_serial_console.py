@@ -143,6 +143,7 @@ class TestSerialConsole(SingleNodeCase):
                 _drain_until(second, marker, timeout=10.0)
                 started = time.monotonic()
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 assert time.monotonic() - started < 65.0
 
     def test_late_attach_filters_window_queries(self) -> None:

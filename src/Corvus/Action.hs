@@ -13,6 +13,7 @@ module Corvus.Action
   ( -- * Context
     ActionContext (..)
   , withContextOperationLeases
+  , associateVmDependencies
   , executeWithOperationLeases
   , pinNode
   , nodeNameResources
@@ -62,10 +63,11 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent (forkIO, myThreadId)
-import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Exception (Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException, fromException, throwIO, try, tryJust)
-import Control.Monad (when)
+import Control.Concurrent.STM (STM, atomically, modifyTVar', readTVar, readTVarIO, throwSTM)
+import Control.Exception (SomeException, bracket_, fromException, mask, throwIO, try, tryJust)
+import Control.Monad (unless, when)
 import Control.Monad.Logger (logInfoN)
+import Corvus.Cancellation (TaskCancelledException (..))
 import Corvus.DiskSelector (publicationSelector)
 import Corvus.Handlers.Disk.Db (getBackingChainIds)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase)
@@ -76,6 +78,7 @@ import qualified Corvus.Model as M
 import Corvus.OperationGuard
 import Corvus.Protocol
 import Corvus.Rpc.Streams (callSink)
+import qualified Corvus.TaskScope as TaskScope
 import Corvus.Types
 import Corvus.Wire.Enums (toCapnpTaskResult)
 import Data.Int (Int64)
@@ -144,17 +147,6 @@ mkActionContext state taskId clientName =
     , acRootTaskId = taskId
     }
 
--- | Exception used to interrupt a cancelled task — thrown by
--- cooperative checkpoints ('throwIfCancelled') and by the hard
--- 'TaskManager.cancel' @throwTo@. 'runAndFinalizeResult' catches
--- it and finalises the task as 'TaskCancelled'.
-data TaskCancelledException = TaskCancelledException
-  deriving stock (Show)
-
-instance Exception TaskCancelledException where
-  toException = asyncExceptionToException
-  fromException = asyncExceptionFromException
-
 -- | Has cancellation been requested for this action's task tree?
 -- Resolves the token from the registry by the root task id, so it
 -- is correct for subtasks too.
@@ -209,6 +201,29 @@ class Action a where
       Just k -> do
         old <- maybe (pure []) (objectResources state ExclusiveAccess k . fromIntegral) (actionEntityId action)
         pure $ old ++ [(ObjectName k Nothing name, ExclusiveAccess) | k `elem` [TemplateObject, SshKeyObject, NodeObject], Just name <- [actionEntityName action]]
+
+  -- | Declare existing VM targets before preparation or resource acquisition.
+  -- Composite actions override this to include work planned for later phases.
+  actionVmDependencies :: ServerState -> a -> IO [Int64]
+  actionVmDependencies state action
+    | actionSubsystem action `elem` [SubVm, SubSharedDir, SubMigration] = pure [fromIntegral key | Just key <- [actionEntityId action]]
+    | actionSubsystem action `elem` [SubDisk, SubSnapshot]
+    , Just key <- actionEntityId action =
+        runSqlPool
+          (map (fromSqlKey . driveVmId . entityVal) <$> selectList [DriveDiskImageId ==. Just (toSqlKey (fromIntegral key))] [])
+          (ssDbPool state)
+    | otherwise = pure []
+
+  -- | Emergency admission happens before preparation and lease acquisition.
+  actionEmergencyVm :: a -> Maybe Int64
+  actionEmergencyVm _ = Nothing
+
+  actionBypassLeases :: a -> Bool
+  actionBypassLeases _ = False
+
+  -- | Forced deletion resets and drains before discovering its disk leases.
+  actionBeforeResources :: ActionContext -> a -> IO (Maybe Response)
+  actionBeforeResources _ _ = pure Nothing
 
   actionSubsystem :: a -> TaskSubsystem
 
@@ -340,23 +355,28 @@ runActionAsSubtask parentCtx action = do
 -- daemon-internal work.
 createTaskRecord :: (Action a) => ServerState -> Text -> a -> Maybe TaskId -> IO TaskId
 createTaskRecord state clientName action mParent = do
+  dependencies <- if Data.Maybe.isNothing mParent then actionVmDependencies state action else pure []
   now <- getCurrentTime
-  runSqlPool
-    ( insert
-        Task
-          { taskParent = mParent
-          , taskStartedAt = now
-          , taskFinishedAt = Nothing
-          , taskSubsystem = actionSubsystem action
-          , taskEntityId = actionEntityId action
-          , taskEntityName = actionEntityName action
-          , taskCommand = actionCommand action
-          , taskResult = TaskRunning
-          , taskMessage = Nothing
-          , taskClientName = clientName
-          }
-    )
-    (ssDbPool state)
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskParent = mParent
+            , taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = actionSubsystem action
+            , taskEntityId = actionEntityId action
+            , taskEntityName = actionEntityName action
+            , taskCommand = actionCommand action
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            , taskClientName = clientName
+            }
+      )
+      (ssDbPool state)
+  when (Data.Maybe.isNothing mParent) $ do
+    atomically $ TaskScope.declarePlannedTaskVms (ssTasks state) (fromSqlKey taskKey) dependencies
+  pure taskKey
 
 -- | Execute an action and update its task record. Returns the response.
 runAndFinalize :: (Action a) => ServerState -> ActionContext -> a -> IO Response
@@ -372,10 +392,10 @@ data ActionFailure = ActionCancelled | ActionFailed Response
 -- | Execute an action and update its task record.
 -- Returns Left on exception, Right on normal completion.
 runAndFinalizeResult :: (Action a) => ServerState -> ActionContext -> a -> IO (Either ActionFailure Response)
-runAndFinalizeResult state ctx action = do
+runAndFinalizeResult state ctx action = mask $ \restore -> do
   let taskKey = acTaskId ctx
       pool = ssDbPool state
-  result <- try (executeWithOperationLeases ctx action)
+  result <- try (restore (executeWithOperationLeases ctx action))
   finishTime <- getCurrentTime
   -- Was cancellation requested for this task tree? Read BEFORE
   -- unregistering, since the top-level task's token is dropped by
@@ -698,10 +718,16 @@ withPreparedOperationLeases ctx prepare operation = do
       loop = do
         throwIfCancelled ctx
         (prepared, resources) <- prepare
+        atomically $
+          TaskScope.associateTaskVms
+            (ssTasks (acState ctx))
+            (fromSqlKey (acRootTaskId ctx))
+            [vm | (ObjectId VmObject vm, _) <- resources]
         now <- getMonotonicTimeNSec
         when (now >= deadline) $ throwIO (OperationLeaseTimeout "Timed out preparing operation resources")
-        result <- withOperationLeasesWithBudget
+        result <- withOperationLeasesWithBudgetChecked
           (ssOperations (acState ctx))
+          (checkActionCancellation ctx)
           60000000
           (fromIntegral ((deadline - now) `div` 1000))
           ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))))
@@ -709,24 +735,65 @@ withPreparedOperationLeases ctx prepare operation = do
           resources
           $ \leases -> do
             (current, required) <- prepare
+            throwIfCancelled ctx
             if current /= prepared || Map.fromListWith max required /= Map.fromListWith max resources
               then pure Nothing
               else Just <$> operation (ctx {acOperationLeases = leases}) prepared
         maybe loop pure result
   loop
 
+-- Check inside the lease acquisition transaction so cancellation wakes waiters.
+checkActionCancellation :: ActionContext -> STM ()
+checkActionCancellation ctx = unless (acIgnoreCancellation ctx) $ do
+  mToken <- TaskScope.taskToken (ssTasks (acState ctx)) (fromSqlKey (acRootTaskId ctx))
+  case mToken of
+    Nothing -> pure ()
+    Just token -> do
+      cancelled <- readTVar token
+      when cancelled $ throwSTM TaskCancelledException
+
+-- | Register planned or newly allocated VM targets against the entire root.
+-- New identities must be associated before their creation transaction commits.
+associateVmDependencies :: ActionContext -> [Int64] -> IO ()
+associateVmDependencies ctx = atomically . TaskScope.associateTaskVms (ssTasks (acState ctx)) (fromSqlKey (acRootTaskId ctx))
+
 executeWithOperationLeases :: (Action a) => ActionContext -> a -> IO Response
-executeWithOperationLeases ctx action = do
-  prepared <- actionPrepare (acState ctx) action
-  case prepared of
-    Left response -> pure response
-    Right pinned -> withPreparedOperationLeases
-      ctx
-      ( do
-          resources <- (++) <$> actionResources (acState ctx) pinned <*> actionObjectResources (acState ctx) pinned
-          pure ((), resources)
-      )
-      $ \leased () -> actionExecute leased pinned
+executeWithOperationLeases original action = TaskScope.withTaskScope (ssTasks state) root $ do
+  throwIfCancelled ctx
+  let execute = do
+        dependencies <- actionVmDependencies state action
+        associateVmDependencies ctx dependencies
+        before <- actionBeforeResources ctx action
+        case before of
+          Just response -> pure response
+          Nothing -> do
+            prepared <- actionPrepare state action
+            case prepared of
+              Left response -> pure response
+              Right pinned
+                | actionBypassLeases pinned -> actionExecute ctx pinned
+                | otherwise -> withPreparedOperationLeases
+                    ctx
+                    ( do
+                        resources <- (++) <$> actionResources state pinned <*> actionObjectResources state pinned
+                        pure ((), resources)
+                    )
+                    $ \leased () -> actionExecute leased pinned
+  case actionEmergencyVm action of
+    Nothing -> execute
+    Just vm -> do
+      owned <- atomically $ TaskScope.ownsVmReset (ssTasks state) root vm
+      if owned
+        then execute
+        else
+          bracket_
+            (atomically $ TaskScope.beginVmReset (ssTasks state) root vm)
+            (atomically $ TaskScope.finishVmReset (ssTasks state) root vm)
+            execute
+  where
+    root = fromSqlKey (acRootTaskId original)
+    state = (acState original) {ssActionRoot = Just (root, acIgnoreCancellation original)}
+    ctx = original {acState = state}
 
 -- | Both the stable row identity and its current uniqueness namespace are
 -- protected. This also makes deletes conflict with references to the row.
@@ -756,8 +823,10 @@ vmImageResources state vmId = do
 
 withContextOperationLeases :: ActionContext -> [(OperationResource, ResourceAccess)] -> (ActionContext -> IO a) -> IO a
 withContextOperationLeases ctx resources operation =
-  withOperationLeases
+  withOperationLeasesWithBudgetChecked
     (ssOperations (acState ctx))
+    (checkActionCancellation ctx)
+    60000000
     60000000
     ("task " <> T.pack (show (fromSqlKey (acTaskId ctx))))
     (acOperationLeases ctx)

@@ -9,6 +9,7 @@ module Corvus.OperationGuard
   , newOperationGuard
   , withOperationLeases
   , withOperationLeasesWithBudget
+  , withOperationLeasesWithBudgetChecked
   ) where
 
 import Control.Concurrent.STM
@@ -57,7 +58,16 @@ withOperationLeases guard timeoutMicros = withOperationLeasesWithBudget guard ti
 -- stale-resource retry has already consumed part of it. Both durations are in
 -- microseconds; only the remaining duration controls the actual wait.
 withOperationLeasesWithBudget :: OperationGuard -> Int -> Int -> Text -> [OperationLease] -> [(OperationResource, ResourceAccess)] -> ([OperationLease] -> IO a) -> IO a
-withOperationLeasesWithBudget (OperationGuard var) budgetMicros remainingMicros owner inherited resources operation = mask $ \restore -> do
+withOperationLeasesWithBudget guard = withOperationLeasesWithBudgetChecked guard (pure ())
+
+-- | The checkpoint participates in the acquisition transaction, so changing
+-- cancellation state wakes queued work even while its blockers remain active.
+-- It is checked again before dispatch, including when inherited leases cover
+-- the entire request. Cancellation never releases another operation's leases.
+withOperationLeasesWithBudgetChecked :: OperationGuard -> STM () -> Int -> Int -> Text -> [OperationLease] -> [(OperationResource, ResourceAccess)] -> ([OperationLease] -> IO a) -> IO a
+withOperationLeasesWithBudgetChecked (OperationGuard var) checkpoint budgetMicros remainingMicros owner inherited resources operation = mask $ \restore -> do
+  atomically checkpoint
+  let dispatch leases = atomically checkpoint >> restore (operation leases)
   Registry _ live _ <- readTVarIO var
   let liveIds = [i | Entry i _ _ <- live]
       validInherited = [lease | lease@(OperationLease i _) <- inherited, i `elem` liveIds]
@@ -67,7 +77,7 @@ withOperationLeasesWithBudget (OperationGuard var) budgetMicros remainingMicros 
   when (any (\(key, mode) -> Map.lookup key held == Just SharedAccess && mode == ExclusiveAccess) (Map.toList requested)) $
     throwIO (OperationLeaseTimeout "Cannot upgrade a shared resource lease; request exclusive access together with the initial resources")
   if Map.null requested
-    then restore (operation validInherited)
+    then dispatch validInherited
     else do
       expired <- registerDelay remainingMicros
       ident <- atomically $ do
@@ -79,6 +89,7 @@ withOperationLeasesWithBudget (OperationGuard var) budgetMicros remainingMicros 
             writeTVar var (Registry next (filter (\(Entry i _ _) -> i /= ident) active) (filter (\(Entry i _ _) -> i /= ident) waiting))
           acquire = do
             outcome <- atomically $ do
+              checkpoint
               Registry next active waiting <- readTVar var
               let earlier = takeWhile (\(Entry i _ _) -> i /= ident) waiting
                   blockers = [label | Entry i label rs <- active, i `notElem` inheritedIds, conflicts requested rs]
@@ -94,7 +105,7 @@ withOperationLeasesWithBudget (OperationGuard var) budgetMicros remainingMicros 
                     else retry
 
             maybe (pure ()) (throwIO . OperationLeaseTimeout) outcome
-      bracket (acquire `onException` remove) (const remove) $ \() -> restore (operation (OperationLease ident requested : validInherited))
+      bracket (acquire `onException` remove) (const remove) $ \() -> dispatch (OperationLease ident requested : validInherited)
 
 describe :: ResourceAccess -> OperationResource -> Text
 describe mode resource =

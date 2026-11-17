@@ -112,6 +112,7 @@ class TestVmStartFailures(SingleNodeCase):
                     operation()
 
             vm.reset()
+            self.wait_for_vm_status(vm, "stopped")
             assert vm.show().status == "stopped"
             vm.edit(ram=268435456)
             vm.start(wait=True)
@@ -119,6 +120,7 @@ class TestVmStartFailures(SingleNodeCase):
         finally:
             try:
                 vm.reset()
+                self.wait_for_vm_status(vm, "stopped")
             except Exception:
                 pass
             try:
@@ -177,6 +179,7 @@ class TestVmStartFailures(SingleNodeCase):
         finally:
             try:
                 vm.reset()
+                self.wait_for_vm_status(vm, "stopped")
             except Exception:
                 pass
             try:

@@ -138,32 +138,53 @@ unfenced hard stop if the timeout expires or the requested timeout is zero.
 After the nodeagent confirms that QEMU has exited, the daemon writes
 `stopped`.
 
-`reset` is stronger: it is both forced termination and an ordering barrier.
-It is the operation to use when an in-flight start must be cancelled safely.
+`reset` is an emergency operation. It bypasses ordinary VM leases, cancels
+all running and planned task trees that depend on the VM, and rejects new
+mutating work while recovery is in progress. Read-only inspection remains
+available. The reset task tree is exempt, so forced deletion can reset first
+and acquire its deletion leases afterwards.
 
 The reset flow is:
 
-1. The daemon conditionally increments `lifecycleRevision` and writes
-   `stopping`. It deliberately retains `runtimeGeneration` while the old
-   runtime may still exist.
-2. The daemon sends `vmStopHard(vmId, lifecycleRevision,
-   hasLifecycleFence=true)`.
-3. The nodeagent atomically advances the VM's revision high-water mark, clears
-   any start reservation, and removes any published runtime from its live
-   ledger. A revision lower than its high-water mark is rejected.
-4. If a runtime was present, the nodeagent suppresses automatic respawn and
-   terminates QEMU and all of its helpers. No live process is also a successful
-   result: the new high-water mark is still retained as a tombstone.
-5. Only after the nodeagent reports `stopped` or `already stopped` does the
-   daemon conditionally complete the same revision, write `stopped`, clear the
-   runtime generation, health check, SPICE port, error fields, and guest IP
-   observations, and release managed TAPs.
-6. Resetting `saved` or `migrating` state also asks the nodeagent to remove the
-   saved-state file.
+1. Before waiting for any ordinary resource, the daemon closes VM admission
+   and requests cancellation of dependent root tasks, including their children
+   and later build/apply phases. Cancellation does not release their leases or
+   worker registrations: those remain until actual cleanup completes.
+2. The daemon conditionally increments `lifecycleRevision` and writes
+   `stopping`, retaining `runtimeGeneration` while the old runtime may exist.
+3. It sends fenced `vmStopHard` to the source and every participating node,
+   including migration destinations and hosts holding transfer capabilities.
+   Each node advances its revision high-water mark, invalidates pending starts,
+   and interrupts registered old RPC workers, including workers queued on locks.
+4. The node terminates QEMU and helpers with bounded termination waits. It
+   retires the old guest-agent connection without waiting for workers holding
+   its lock. A counted retirement worker owns subsequent cleanup. The live
+   ledger entry remains until cleanup finishes. Missing QEMU is also a valid
+   termination result; the revision tombstone remains.
+5. Reset returns after termination confirmation, reporting `stopped`. Worker
+   drain continues separately; VM inspection can still show `stopping` and
+   mutators remain blocked during this interval. A concurrent reset is rejected
+   while the termination attempt is active; an explicit retry is allowed once
+   that attempt ends, including after failure.
+6. A watcher requires drain confirmation from the original node capabilities
+   and all cancelled daemon task trees. It then removes saved-state files on
+   participating hosts and releases managed TAPs, then conditionally commits
+   `stopped`, clears runtime fields, and reopens mutation admission. Delayed results from
+   another revision cannot complete this reset.
 
-If the nodeagent cannot be reached or termination cannot be confirmed, reset
-does not claim success. The row remains `stopping`, making the uncertainty
-visible instead of recording `stopped` while a process might still run.
+A failed termination, failed cleanup, disconnected agent, or missing drain
+registry leaves recovery closed. The durable row stays `stopping`; after daemon
+restart an explicit reset must establish drain again. Since participating-host
+history is lost on restart, recovery retries conservatively contact all nodes.
+Old scoped RPCs and transfer capabilities retain their original lifecycle
+revision and runtime generation and cannot acquire fresh authorization.
+
+`vm delete --force` performs the same emergency reset before acquiring VM or
+disk leases. It waits up to 60 seconds for drain while retaining the recovery
+gate through deletion. If drain cannot be proved, it reports that the VM was
+stopped but not deleted and preserves the VM and disks. Resetting a bake VM
+also cancels its build; build cleanup preserves the explicitly reset VM and
+its artifacts, and cancelled builds cannot publish an image.
 
 The `hasLifecycleFence` flag exists because Cap'n Proto scalar fields do not
 express an optional integer directly in this RPC. `true` means that the
@@ -199,8 +220,8 @@ The fence also covers three narrower timings:
   clears the reservation and the start cannot publish.
 - If reset arrives after QEMU is spawned but before publication, publication
   fails and the start path tears the process and helpers down.
-- If QEMU is already published, reset detaches it from the ledger and kills
-  it normally.
+- If QEMU is already published, reset kills QEMU and retains its ledger entry
+  until its workers and connections have drained.
 
 The tombstone must live in the process-wide nodeagent ledger rather than an
 RPC session. Reconnects create new sessions; putting the high-water mark in a
@@ -222,13 +243,14 @@ identifies the runtime that produced the observation.
 
 ## Scope and limitations
 
-The current mechanism is intentionally a start/reset fence:
+The mechanism combines lifecycle fencing with task-tree recovery admission:
 
-- It orders fresh starts and resets and rejects stale process creation at the
+- It orders fresh starts and resets and rejects stale scoped VM work at the
   nodeagent boundary.
 - It filters asynchronous runtime observations by revision and generation.
-- It does not make ordinary stop, pause, save, snapshot rollback, migration,
-  or multi-step build workflows into durable transactions.
+- Ordinary stop, pause, save, migration, disk, and build work participate in
+  cancellation and recovery admission; this does not make whole workflows
+  durable transactions.
 - It does not persist a complete composite-operation journal in the VM row.
 
 Durable recovery context for composite operations—operation kind, phase,

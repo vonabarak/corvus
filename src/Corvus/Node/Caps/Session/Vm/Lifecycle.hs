@@ -34,7 +34,7 @@ module Corvus.Node.Caps.Session.Vm.Lifecycle
 
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (forkIOWithUnmask, threadDelay)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
@@ -43,12 +43,14 @@ import Corvus.Node.Caps.Session.Utils
   ( SessionCap (..)
   , agentQemuConfig
   , pollForExit
+  , runVmBackground
   , scQgaConns
   , scVmLedger
   , tshow
   , withVmOpLock
   )
 import qualified Corvus.Node.GuestAgent as NGA
+import qualified Corvus.Node.GuestAgent.Connection as QGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.Runtime as NR
@@ -173,7 +175,7 @@ stopGraceful sc vmId timeoutSec = do
               }
 
 -- | Hard stop: SIGTERM-then-SIGKILL QEMU + every virtiofsd
--- helper. Drops the ledger entry.
+-- helper. Reset retires workers and removes the ledger entry asynchronously.
 handleVmStopHard
   :: SessionCap -> Int64 -> Maybe Int64 -> IO (CGNA.Parsed CGNA.Session'vmStopHard'results)
 handleVmStopHard sc vmId mRevision = do
@@ -188,6 +190,9 @@ stopHard sc vmId mRevision = do
   mLive <- case fenced of
     Left reason -> throwFailed ("vmStopHard rejected for vmId " <> tshow vmId <> ": " <> reason)
     Right live -> pure live
+  case mRevision of
+    Just _ -> L.interruptVmWorkers (scVmLedger sc) vmId
+    Nothing -> pure ()
   case mLive of
     Nothing -> do
       atomically $ L.waitForVmStarts (scVmLedger sc) vmId
@@ -226,19 +231,31 @@ stopHard sc vmId mRevision = do
       exited <- pollForExit (L.vlsLastExitCode live) 5
       unless exited $ throwFailed "QEMU exit was not confirmed; runtime retained"
       atomically $ L.waitForVmStarts (scVmLedger sc) vmId
-      withVmOpLock sc vmId $ do
-        current <- atomically $ L.lookupVm (scVmLedger sc) vmId
-        case current of
-          Just runtime
-            | VS.vsRuntimeGeneration (L.vlsSpec runtime) /= VS.vsRuntimeGeneration (L.vlsSpec live)
-                || L.vlsQemuPid runtime /= L.vlsQemuPid live ->
-                throwFailed "Hard stop was superseded; runtime retained"
-          _ -> do
-            reapVmHelpers live
+      -- Helpers are part of termination. Worker joins, QGA socket closure
+      -- and operation-lock retirement are part of drain and may take longer.
+      reapVmHelpers live
+      let cleanup = withVmOpLock sc vmId $ do
             L.stopVmWorkers live
             NGA.releaseConn (scQgaConns sc) vmId
             _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec live)) (VS.vsRuntimeGeneration (L.vlsSpec live))
             pure ()
+      case mRevision of
+        Nothing -> cleanup
+        Just revision -> E.mask_ $ do
+          let removeRetired runtime = do
+                _ <- atomically $ L.removeVmIfCurrent (scVmLedger sc) vmId (VS.vsLifecycleRevision (L.vlsSpec runtime)) (VS.vsRuntimeGeneration (L.vlsSpec runtime))
+                pure ()
+          admitted <- atomically $ L.admitVmRetirement (scVmLedger sc) [(vmId, revision, Just (VS.vsRuntimeGeneration (L.vlsSpec live)))]
+          case admitted of
+            Nothing -> throwFailed "Reset retirement was superseded"
+            Just worker -> do
+              closeRetired <-
+                QGA.retireConn (scQgaConns sc) vmId
+                  `E.onException` atomically (L.releaseVmWorker (scVmLedger sc) worker)
+              _ <- forkIOWithUnmask $ \unmask ->
+                runVmBackground sc (unmask (L.registerVmWorker worker >> withVmOpLock (sc {scVmAuthorizations = []}) vmId (L.stopVmWorkers live >> closeRetired >> removeRetired live)))
+                  `E.finally` atomically (L.releaseVmWorker (scVmLedger sc) worker)
+              pure ()
       pure
         CGNA.Session'vmStopHard'results
           { CGNA.result = encodeVmStopResult VS.VmStopStopped ""

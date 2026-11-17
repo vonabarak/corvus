@@ -146,8 +146,7 @@ class TestApply(SingleNodeCase):
             for name in (vm1_name, vm2_name):
                 try:
                     v = self.client.vms.get(name, by_name=True)
-                    v.reset()
-                    v.delete()
+                    v.delete(force=True)
                 except Exception:
                     pass
             try:
@@ -227,8 +226,7 @@ class TestApply(SingleNodeCase):
         finally:
             try:
                 v = self.client.vms.get(vm_name, by_name=True)
-                v.reset()
-                v.delete()
+                v.delete(force=True)
             except Exception:
                 pass
             try:
@@ -322,8 +320,7 @@ class TestApply(SingleNodeCase):
         finally:
             try:
                 v = self.client.vms.get(vm_name, by_name=True)
-                v.reset()
-                v.delete()
+                v.delete(force=True)
             except Exception:
                 pass
             try:
@@ -429,8 +426,7 @@ class TestApply(SingleNodeCase):
         finally:
             try:
                 v = self.client.vms.get(vm_name, by_name=True)
-                v.reset()
-                v.delete()
+                v.delete(force=True)
             except Exception:
                 pass
 

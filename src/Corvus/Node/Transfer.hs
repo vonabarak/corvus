@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -173,7 +174,8 @@ redeemReader (TokenRegistry mv) token =
 -- streams its contents through a caller-supplied 'ByteSink' when
 -- @pipeInto@ is invoked. Closing is idempotent.
 data FileReader = FileReader
-  { frFinished :: TVar Bool
+  { frGuard :: forall a. IO a -> IO a
+  , frFinished :: TVar Bool
   , frWorker :: TVar (Maybe ThreadId)
   , frStarted :: TVar Bool
   , frCancelled :: TVar Bool
@@ -186,7 +188,7 @@ instance SomeServer FileReader
 
 instance CGNA.DiskReader'server_ FileReader where
   diskReader'pipeInto fr =
-    handleParsedAsync $ \CGNA.DiskReader'pipeInto'params {CGNA.sink = sink} -> E.mask $ \restore -> do
+    handleParsedAsync $ \CGNA.DiskReader'pipeInto'params {CGNA.sink = sink} -> frGuard fr $ E.mask $ \restore -> do
       worker <- myThreadId
       admitted <- atomically $ do
         started <- readTVar (frStarted fr)
@@ -217,7 +219,7 @@ newFileReader path = do
   started <- newTVarIO False
   cancelled <- newTVarIO False
   finished <- newTVarIO False
-  pure FileReader {frHandle = mv, frWorker = worker, frStarted = started, frCancelled = cancelled, frFinished = finished}
+  pure FileReader {frGuard = id, frHandle = mv, frWorker = worker, frStarted = started, frCancelled = cancelled, frFinished = finished}
 
 closeReader :: FileReader -> IO ()
 closeReader fr = flip E.finally (atomically $ writeTVar (frFinished fr) True) $
@@ -254,7 +256,8 @@ boundedTransfer action = timeout 60000000 action >>= maybe (ioError (userError "
 -- | A 'ByteSink' server impl that writes bytes received over
 -- 'write' into a local file handle and flushes and closes on 'end'.
 data FileWriterSink = FileWriterSink
-  { fwsBytesWritten :: TVar Int64
+  { fwsGuard :: forall a. IO a -> IO a
+  , fwsBytesWritten :: TVar Int64
   , fwsFinished :: TVar Bool
   , fwsHandle :: !(MVar (Maybe Handle))
   , fwsOnClose :: !(IO ())
@@ -266,12 +269,12 @@ instance SomeServer FileWriterSink
 instance CGS.ByteSink'server_ FileWriterSink where
   byteSink'write fws =
     handleParsed $ \CGS.ByteSink'write'params {CGS.chunk = chunk} -> do
-      boundedTransfer (writeChunk fws chunk) `E.onException` void (timeout 1000000 (abortWriter fws))
+      fwsGuard fws $ boundedTransfer (writeChunk fws chunk) `E.onException` void (timeout 1000000 (abortWriter fws))
       pure CGS.ByteSink'write'results
 
   byteSink'end fws =
     handleParsed $ \_ -> do
-      boundedTransfer (closeWriter fws)
+      fwsGuard fws $ boundedTransfer (closeWriter fws)
       pure CGS.ByteSink'end'results
 
   byteSink'abort fws = handleParsed $ \_ -> do
@@ -313,7 +316,8 @@ newFileWriterSinkWithHandle h onClose onAbort = do
   bytes <- newTVarIO 0
   let fws =
         FileWriterSink
-          { fwsBytesWritten = bytes
+          { fwsGuard = id
+          , fwsBytesWritten = bytes
           , fwsFinished = finished
           , fwsHandle = hv
           , fwsOnClose = onClose

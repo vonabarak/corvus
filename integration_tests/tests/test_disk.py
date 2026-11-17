@@ -506,6 +506,7 @@ class TestDisk(SingleNodeCase):
                 assert any(d.id == drive_id for d in details.drives)
 
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 vm.cap.detach_disk(drive_id)
                 assert all(d.id != drive_id for d in vm.cap.show().drives)
         finally:
@@ -555,6 +556,7 @@ class TestDisk(SingleNodeCase):
 
                 # The empty tray persists across a reboot.
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 vm.cap.start(wait=True)
                 drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
                 assert drive.media == "cdrom"
@@ -563,6 +565,7 @@ class TestDisk(SingleNodeCase):
                 # A medialess drive detaches cleanly once the VM is
                 # stopped (IDE cdroms are not hot-pluggable).
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 vm.cap.detach_disk(drive_id)
                 assert all(d.id != drive_id for d in vm.cap.show().drives)
         finally:
@@ -621,6 +624,7 @@ class TestDisk(SingleNodeCase):
 
                 # The new media persists across a reboot.
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 vm.cap.start(wait=True)
                 drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
                 assert drive.media == "cdrom"
@@ -629,6 +633,7 @@ class TestDisk(SingleNodeCase):
 
                 # Detach the drive (stopped) so cleanup reaps nothing.
                 vm.cap.reset()
+                self.wait_for_vm_status(vm.cap, "stopped")
                 vm.cap.detach_disk(drive_id)
                 assert all(d.id != drive_id for d in vm.cap.show().drives)
         finally:

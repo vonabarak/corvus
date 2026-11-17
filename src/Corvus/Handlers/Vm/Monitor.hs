@@ -39,7 +39,7 @@ import qualified Corvus.NetAgentClient.Spec as Spec
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNetAgent, withVmNodeAgent)
-import Corvus.Types (ServerState, lookupNetAgentMaybe, runServerLogging, ssDbPool, ssQemuConfig)
+import Corvus.Types (ServerState, lookupNetAgentMaybe, runServerLogging, ssActionRoot, ssDbPool, ssQemuConfig)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
@@ -137,7 +137,8 @@ data ExitOutcome
 -- and by 'reattachVmMonitors' for each VM the daemon finds already
 -- running when it (re)connects to the agent.
 attachVmMonitor :: ServerState -> Int64 -> IO ()
-attachVmMonitor state vmId = do
+attachVmMonitor taskState vmId = do
+  let state = taskState {ssActionRoot = Nothing}
   -- Capture ownership before forking: the thread may not run until after a
   -- stop/migrate/start has already replaced the runtime it was attached for.
   observed <- runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)

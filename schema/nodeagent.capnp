@@ -59,7 +59,20 @@ struct AgentInfo {
 # guest-agent, status, and inter-agent transfer operations.
 # ---------------------------------------------------------------------
 
+struct VmAuthorization {
+  vmId @0 :Int64;
+  lifecycleRevision @1 :Int64;
+  runtimeGeneration @2 :Int64;
+  hasRuntimeGeneration @3 :Bool;
+}
+
 interface Session {
+  # Internal capability bound to the calling task's VM revisions. Every RPC
+  # through it is tracked before dispatch and rejected after reset fencing.
+  vmOperation @61 (authorizations :List(VmAuthorization)) -> (session :Session);
+  # A missing tombstone (including after agent restart) is not drain proof.
+  vmDrainStatus @62 (vmId :Int64, lifecycleRevision :Int64) -> (drained :Bool);
+
   # Capture into an agent-owned temporary file and stream PNG to the caller.
   vmScreenshot @58 (vmId :Int64, sink :Streams.ByteSink) -> (status :ScreenshotStatus, message :Text, bytesTransferred :UInt64);
   # End-to-end check that the session cap is live after `session(owner)`.

@@ -63,8 +63,7 @@ def _drop_build_orphans(client: Client) -> None:
         if v.name.startswith("__build_"):
             try:
                 cap = client.vms.get(v.name, by_name=True)
-                cap.reset()
-                cap.delete()
+                cap.delete(force=True)
             except Exception:
                 pass
 

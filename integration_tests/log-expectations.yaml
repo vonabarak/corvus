@@ -306,6 +306,18 @@ classes:
         corvus.log:
           warnings: 0
           errors: 0
+  TestGuestExecPreemption:
+    nodes:
+      single:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
   TestGuestExecRejections:
     nodes:
       single:

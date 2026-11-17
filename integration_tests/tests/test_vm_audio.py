@@ -93,6 +93,7 @@ class TestVmAudio(SingleNodeCase):
                 if vm is not None:
                     with suppress(Exception):
                         vm.reset()
+                        self.wait_for_vm_status(vm, "stopped")
                     with suppress(Exception):
                         vm.delete()
                 with suppress(Exception):

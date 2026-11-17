@@ -69,6 +69,13 @@ data BuildPipelineAction = BuildPipelineAction
 instance Action BuildPipelineAction where
   actionSubsystem _ = SubBuild
   actionCommand _ = "build"
+  actionVmDependencies state action =
+    case decodeEither' (TE.encodeUtf8 (buildYaml action)) of
+      Left _ -> pure []
+      Right config -> concat <$> mapM dependencies (pcSteps config)
+    where
+      dependencies (PipelineApply config) = actionVmDependencies state (ApplyAction config)
+      dependencies _ = pure []
   actionExecute ctx action =
     runBuildPipeline ctx (buildSink action) (buildYaml action)
 

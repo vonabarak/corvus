@@ -12,6 +12,7 @@ module Corvus.Node.GuestAgent.Connection
   , withDiscardedConn
   , invalidateConn
   , releaseConn
+  , retireConn
   , syncGuest
   )
 where
@@ -20,6 +21,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
 import Control.Exception (Exception, SomeAsyncException, SomeException, catch, evaluate, finally, fromException, mask, mask_, onException, throwIO, try)
+import Control.Monad (join)
 import Control.Monad.Logger (LogLevel (..))
 import Corvus.Node.GuestAgent.Transport (QgaLogger, QgaSocket (..), closeQga, logQga, logQgaEvent, newQgaSocket, recvQga, sendQga)
 import Corvus.Node.Runtime (getGuestAgentSocket)
@@ -273,7 +275,12 @@ closeMaybe reason (Just sock) = closeQga reason sock
 -- | Drop the map entry before waiting for its holder, avoiding a race where a
 -- concurrently completing operation reinstates a socket for a retired VM.
 releaseConn :: (HasCallStack) => GuestAgentConns -> Int64 -> IO ()
-releaseConn cache vmId = mask_ $ do
+releaseConn cache vmId = join (retireConn cache vmId)
+
+-- | Remove the cached slot immediately. Closing its socket may wait for an
+-- old holder and belongs to the drain worker, not emergency termination.
+retireConn :: (HasCallStack) => GuestAgentConns -> Int64 -> IO (IO ())
+retireConn cache vmId = mask_ $ do
   let connsVar = guestAgentSlots cache
   lifecycleEvent cache vmId "release_start" ("caller=" <> tshow (prettyCallStack callStack))
   mConnection <- atomically $ do
@@ -281,17 +288,18 @@ releaseConn cache vmId = mask_ $ do
     case Map.lookup vmId conns of
       Nothing -> pure Nothing
       Just connection -> writeTVar connsVar (Map.delete vmId conns) >> pure (Just connection)
-  case mConnection of
-    Nothing -> pure ()
-    Just slot -> do
-      slotIdentity <- hashStableName <$> (evaluate slot >>= makeStableName)
-      lifecycleEvent cache vmId "release_lock_wait" ("slot_identity=" <> tshow slotIdentity)
-      cached <- takeMVar slot
-      ( lifecycleEvent cache vmId "release_lock_acquired" ("slot_identity=" <> tshow slotIdentity)
-          `finally` closeMaybe "lifecycle_release" cached
-        )
-        `finally` putMVar slot Nothing
-  lifecycleEvent cache vmId "release_complete" ""
+  pure $ do
+    case mConnection of
+      Nothing -> pure ()
+      Just slot -> do
+        slotIdentity <- hashStableName <$> (evaluate slot >>= makeStableName)
+        lifecycleEvent cache vmId "release_lock_wait" ("slot_identity=" <> tshow slotIdentity)
+        cached <- takeMVar slot
+        ( lifecycleEvent cache vmId "release_lock_acquired" ("slot_identity=" <> tshow slotIdentity)
+            `finally` closeMaybe "lifecycle_release" cached
+          )
+          `finally` putMVar slot Nothing
+    lifecycleEvent cache vmId "release_complete" ""
 
 -- | Slot identity is the lifecycle token: a removed or replaced entry is retired.
 -- Old waiters retain their slot, but must never reconnect to a new VM runtime.

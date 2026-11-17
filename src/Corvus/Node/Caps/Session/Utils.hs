@@ -53,18 +53,28 @@ module Corvus.Node.Caps.Session.Utils
   , newSessionCap
   , withVmOpLock
   , vmOpLockFor
+  , withVmWorker
+  , superviseVmWorker
+  , runVmBackground
+  , authorizeVmOperation
+  , vmDrainStatus
+  , handleVmRequest
   )
 where
 
+import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
+import qualified Capnp.Repr as R
 import Capnp.Rpc (throwFailed)
-import Control.Concurrent (MVar, myThreadId, newMVar, threadDelay, withMVar)
+import Capnp.Rpc.Server (MethodHandler)
+import Control.Concurrent (MVar, forkIO, myThreadId, newMVar, threadDelay, withMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad (void)
+import Control.Monad (unless, void)
 import Control.Monad.Logger (LogLevel (..), logDebugN, runStderrLoggingT)
-import Corvus.Logging (exceptionCategory)
+import Corvus.Cancellation (VmOperationSuperseded (..))
+import Corvus.Logging (exceptionCategory, synchronousException)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.GuestAgent as NGA
 import Corvus.Node.GuestAgent.Connection (GuestAgentConns (..))
@@ -77,6 +87,7 @@ import Corvus.Node.SocketBuffer (flushBuffer)
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
 import Data.Int (Int64)
@@ -87,7 +98,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime, getMonotonicTimeNSec)
-import Supervisors (Supervisor)
+import Supervisors (Supervisor, superviseFinally)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Timeout (timeout)
 
@@ -477,6 +488,7 @@ data SessionCap = SessionCap
   -- or read-only calls. 'vmStopHard' deliberately does NOT take
   -- this lock — it must be able to interrupt a stuck graceful
   -- stop. See 'withVmOpLock'.
+  , scVmAuthorizations :: ![L.VmAuthorization]
   , scVsockLaunchLock :: !(MVar ())
   -- ^ Process-wide gate for the host's vhost-vsock CID namespace.
   }
@@ -507,6 +519,7 @@ newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tls
       , scTransferTokens = tokens
       , scTlsConfig = tlsCfg
       , scVmOpLocks = vmOpLocks
+      , scVmAuthorizations = []
       , scVsockLaunchLock = vsockLaunchLock
       }
 
@@ -518,7 +531,9 @@ newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tls
 withVmOpLock :: SessionCap -> Int64 -> IO a -> IO a
 withVmOpLock sc vid act = do
   lk <- vmOpLockFor sc vid
-  withMVar lk (const act)
+  withMVar lk $ \_ -> do
+    valid <- atomically $ L.checkVmAuthorizations (scVmLedger sc) (scVmAuthorizations sc)
+    if valid then act else E.throwIO VmOperationSuperseded
 
 vmOpLockFor :: SessionCap -> Int64 -> IO (MVar ())
 vmOpLockFor sc vid = do
@@ -552,7 +567,9 @@ traceNodeRequest conns name handler params = E.mask $ \restore -> do
     restore (handler params) `E.catch` \(err :: E.SomeException) -> do
       case E.fromException err :: Maybe E.SomeAsyncException of
         Just _ -> finish LevelDebug "cancelled"
-        Nothing -> finish LevelWarn ("error category=" <> exceptionCategory err)
+        Nothing -> case E.fromException err :: Maybe VmOperationSuperseded of
+          Just _ -> finish LevelDebug "cancelled"
+          Nothing -> finish LevelWarn ("error category=" <> exceptionCategory err)
       E.throwIO err
   finish LevelDebug "success"
   pure result
@@ -574,3 +591,78 @@ encodeDiskInspectResult result =
         Right Nothing -> CGNA.DiskInspectResult'missing
         Right (Just info) -> CGNA.DiskInspectResult'present (encodeDiskInspectInfo info)
     }
+
+-- | Register a request before forking, including time queued on VM/QGA locks.
+-- Reset can cancel it, but only the worker's finalizer removes its scope.
+handleVmRequest
+  :: (C.Parse p pp, C.Parse r pr, R.IsStruct r)
+  => SessionCap
+  -> (pp -> IO pr)
+  -> MethodHandler p r
+handleVmRequest sc handler params fulfiller
+  | null (scVmAuthorizations sc) = handleParsedAsync handler params fulfiller
+  | otherwise = E.mask $ \restore -> do
+      admitted <- atomically $ L.admitVmWorker (scVmLedger sc) (scVmAuthorizations sc)
+      case admitted of
+        Nothing -> handleParsed (\_ -> throwFailed "VM request superseded by reset") params fulfiller
+        Just worker -> do
+          let release = atomically (L.releaseVmWorker (scVmLedger sc) worker)
+          _ <-
+            forkIO (restore (handleParsed (\parsed -> L.registerVmWorker worker >> handler parsed) params fulfiller) `E.finally` release)
+              `E.onException` release
+          pure ()
+
+-- Child capabilities retain the authorization of the request that created
+-- them. A capability redeemed later cannot pick up a newer VM revision.
+withVmWorker :: SessionCap -> IO a -> IO a
+withVmWorker sc action
+  | null (scVmAuthorizations sc) = action
+  | otherwise = E.mask $ \restore -> do
+      admitted <- atomically $ L.admitVmWorker (scVmLedger sc) (scVmAuthorizations sc)
+      case admitted of
+        Nothing -> E.throwIO VmOperationSuperseded
+        Just worker ->
+          restore (L.registerVmWorker worker >> action)
+            `E.finally` atomically (L.releaseVmWorker (scVmLedger sc) worker)
+
+-- Register before scheduling so reset drain includes queued deferred work.
+superviseVmWorker :: SessionCap -> IO () -> IO ()
+superviseVmWorker sc action = E.mask $ \restore -> do
+  admitted <- atomically $ L.admitVmWorker (scVmLedger sc) (scVmAuthorizations sc)
+  case admitted of
+    Nothing -> pure ()
+    Just worker -> do
+      let release = atomically $ L.releaseVmWorker (scVmLedger sc) worker
+          run =
+            restore (L.registerVmWorker worker >> action)
+              `E.catch` (\VmOperationSuperseded -> pure ())
+      superviseFinally (scSup sc) (E.catchJust resetInterruption run (const (pure ()))) release `E.onException` release
+  where
+    resetInterruption E.ThreadKilled = Just ()
+    resetInterruption _ = Nothing
+
+-- Bind a session to the revisions observed by its owning daemon task.
+authorizeVmOperation :: SessionCap -> [CGNA.Parsed CGNA.VmAuthorization] -> IO SessionCap
+authorizeVmOperation sc refs = do
+  let decode CGNA.VmAuthorization {CGNA.vmId = vm, CGNA.lifecycleRevision = revision, CGNA.runtimeGeneration = generation, CGNA.hasRuntimeGeneration = hasGeneration} =
+        (vm, revision, if hasGeneration then Just generation else Nothing)
+      authorizations = map decode refs
+  valid <- atomically $ L.checkVmAuthorizations (scVmLedger sc) authorizations
+  unless valid $ E.throwIO VmOperationSuperseded
+  pure sc {scVmAuthorizations = authorizations}
+
+vmDrainStatus :: SessionCap -> CGNA.Parsed CGNA.Session'vmDrainStatus'params -> IO (CGNA.Parsed CGNA.Session'vmDrainStatus'results)
+vmDrainStatus sc CGNA.Session'vmDrainStatus'params {CGNA.vmId = vm, CGNA.lifecycleRevision = revision} = do
+  drained <- atomically $ L.vmDrainComplete (scVmLedger sc) vm revision
+  pure CGNA.Session'vmDrainStatus'results {CGNA.drained = drained}
+
+-- Background owners have no RPC promise to consume synchronous failures.
+runVmBackground :: SessionCap -> IO () -> IO ()
+runVmBackground sc action = E.catchJust synchronousException action $ \err ->
+  let level = case E.fromException err :: Maybe VmOperationSuperseded of
+        Just _ -> LevelDebug
+        Nothing -> LevelWarn
+   in guestAgentLogger
+        (scQgaConns sc)
+        level
+        ("[nodeagent] background worker ended category=" <> exceptionCategory err)

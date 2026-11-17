@@ -116,6 +116,7 @@ class TestTemplates(SingleNodeCase):
                 vm.stop(wait=True)
             finally:
                 vm.reset()  # idempotent hard-stop
+                self.wait_for_vm_status(vm, "stopped")
                 vm.delete()
         finally:
             tpl.delete()

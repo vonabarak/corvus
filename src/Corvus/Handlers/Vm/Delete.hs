@@ -8,6 +8,7 @@ module Corvus.Handlers.Vm.Delete
   )
 where
 
+import Control.Concurrent.STM (atomically)
 import Control.Monad (filterM, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logWarnN)
@@ -20,6 +21,7 @@ import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
+import qualified Corvus.TaskScope as TaskScope
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (mapMaybe)
@@ -27,16 +29,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (SqlPersistT, runSqlPool)
+import System.Timeout (timeout)
 
 handleVmDelete :: ActionContext -> Int64 -> Bool -> Bool -> IO Response
-handleVmDelete ctx vmId keepDisks force = do
-  resetResponse <-
-    if force
-      then runActionAsSubtask ctx (VmReset vmId)
-      else pure (RespVmStateChanged VmStopped)
-  case resetResponse of
-    RespVmStateChanged VmStopped -> deleteStoppedVm ctx vmId keepDisks
-    _ -> pure resetResponse
+handleVmDelete ctx vmId keepDisks _force = deleteStoppedVm ctx vmId keepDisks
 
 -- | Delete a VM that is known to be stopped. Re-fetching after a forced
 -- reset also prevents a concurrent start from deleting a live VM.
@@ -98,7 +94,7 @@ deleteStoppedVm ctx vmId keepDisks = do
                   then pure []
                   else runSqlPool (getEphemeralAttachedDisks vmId) (ssDbPool state)
               -- Delete VM and its associations (drives, netifs, etc.)
-              runSqlPool (deleteVm vmId) (ssDbPool state)
+              runSqlPool (checkTaskCommit state >> deleteVm vmId) (ssDbPool state)
               -- Reap each ephemeral disk as a subtask.
               mapM_ (runActionAsSubtask ctx . DiskDelete) disksToDelete
               -- Route with the retained node ID: the VM row no longer exists.
@@ -182,6 +178,21 @@ data VmDelete = VmDelete
   }
 
 instance Action VmDelete where
+  actionEmergencyVm a = if vdelForce a then Just (vdelVmId a) else Nothing
+  actionBeforeResources ctx a
+    | not (vdelForce a) = pure Nothing
+    | otherwise = do
+        response <- runActionAsSubtask ctx (VmReset (vdelVmId a))
+        case response of
+          RespVmStateChanged VmStopped -> do
+            drained <-
+              timeout 60000000 $
+                atomically $
+                  TaskScope.waitVmResetDrained (ssTasks (acState ctx)) (fromSqlKey (acRootTaskId ctx)) (vdelVmId a)
+            pure $ case drained of
+              Just () -> Nothing
+              Nothing -> Just (RespError "VM stopped but not deleted: cancelled workers are still draining; VM and disks were preserved")
+          _ -> pure (Just response)
   actionResources state a = do
     drives <- runSqlPool (selectList [DriveVmId ==. toSqlKey (vdelVmId a)] []) (ssDbPool state)
     concat

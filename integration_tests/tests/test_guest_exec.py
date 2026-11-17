@@ -47,9 +47,11 @@ What's NOT covered here:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 import subprocess
+import time
 
 import pytest
 from corvus_client.exceptions import GuestAgentNotEnabled, VmNotRunning
@@ -178,3 +180,65 @@ class TestGuestExecRejections(SingleNodeCase):
             # fail at the QGA-enabled check.
             with pytest.raises(GuestAgentNotEnabled):
                 vm.cap.guest_exec("echo hi")
+
+
+class TestGuestExecPreemption(SingleNodeCase):
+    @pytest.mark.parametrize("force_delete", [False, True])
+    def test_emergency_operation_preempts_running_guest_exec(
+        self, force_delete: bool
+    ) -> None:
+        """Reset and forced deletion bypass the lease held by guest-exec."""
+        with Vm(self) as vm:
+            vm_id = vm.cap.show().id
+
+            async def exercise() -> None:
+                cap = await self.client._a.vms.get(vm_id)
+                command = asyncio.create_task(cap.guest_exec("/bin/sleep 300"))
+                try:
+                    deadline = time.monotonic() + 15
+                    while True:
+                        tasks = await self.client._a.tasks.list(result="running")
+                        active = [
+                            task
+                            for task in tasks
+                            if task.command == "guest-exec"
+                            and task.entity is not None
+                            and task.entity.id == vm_id
+                        ]
+                        if active:
+                            break
+                        assert time.monotonic() < deadline, (
+                            "guest-exec was not admitted"
+                        )
+                        await asyncio.sleep(0.05)
+                    started = time.monotonic()
+                    if force_delete:
+                        await asyncio.wait_for(cap.delete(force=True), timeout=65)
+                    else:
+                        assert (
+                            await asyncio.wait_for(cap.reset(), timeout=20) == "stopped"
+                        )
+                    assert time.monotonic() - started < (65 if force_delete else 20)
+                    result = await asyncio.wait_for(
+                        asyncio.gather(command, return_exceptions=True), timeout=20
+                    )
+                    assert isinstance(result[0], Exception), result
+                    task = await self.client._a.tasks.get(active[0].id)
+                    assert (await task.show()).result == "cancelled"
+                    if force_delete:
+                        assert all(
+                            v.id != vm_id for v in await self.client._a.vms.list()
+                        )
+                    else:
+                        deadline = time.monotonic() + 20
+                        while (await cap.show()).status != "stopped":
+                            assert time.monotonic() < deadline, "reset did not drain"
+                            await asyncio.sleep(0.05)
+                        await cap.start(wait=True)
+                        assert (await cap.guest_exec("/bin/true")).exit_code == 0
+                finally:
+                    if not command.done():
+                        command.cancel()
+                    await asyncio.gather(command, return_exceptions=True)
+
+            self.client._rl.run(exercise())

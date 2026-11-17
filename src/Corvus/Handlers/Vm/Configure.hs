@@ -30,7 +30,7 @@ import Database.Persist
 import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 handleVmCreate
-  :: ServerState
+  :: ActionContext
   -> Text
   -- ^ name
   -> Text
@@ -54,7 +54,7 @@ handleVmCreate
   -> Bool
   -> Int
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng startupTimeoutSec =
+handleVmCreate ctx name nodeRefText cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 audioDevices graphicsAdapter vsock balloon rng startupTimeoutSec =
   case validateStartupTimeoutSec startupTimeoutSec >> validateName "VM" name >> either (Left . T.pack) (const (Right ())) (validateRam ram) >> mapM_ (validateAudioOptions . (\(_, _, options) -> options)) audioDevices >> validateBackends of
     Left err -> pure $ RespError err
     Right () -> do
@@ -78,19 +78,19 @@ handleVmCreate state name nodeRefText cpuCount ram description headless guestAge
             -- shortcut for that VM.
             eVmId <-
               if not vsock
-                then Right <$> runSqlPool (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng startupTimeoutSec) pool
+                then Right <$> runSqlPool (createVm ctx name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng startupTimeoutSec) pool
                 else do
                   r <-
                     withAllocatedVsockCid state nodeKey $ \cid ->
                       runSqlPool
-                        (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng startupTimeoutSec)
+                        (createVm ctx name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter (Just cid) vsock balloon rng startupTimeoutSec)
                         pool
                   case r of
                     Right vmId -> pure (Right vmId)
                     Left _ -> do
                       vmId <-
                         runSqlPool
-                          (createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng startupTimeoutSec)
+                          (createVm ctx name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter Nothing vsock balloon rng startupTimeoutSec)
                           pool
                       pure (Right vmId)
             case eVmId of
@@ -124,6 +124,7 @@ handleVmCreate state name nodeRefText cpuCount ram description headless guestAge
             Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
             Right nidRaw -> placeOn (M.toSqlKey nidRaw)
   where
+    state = acState ctx
     validateBackends
       | headless && any (\(backend, _, _) -> backend == AudioSpice) audioDevices = Left "SPICE audio requires a graphical VM"
       | otherwise = Right ()
@@ -196,23 +197,24 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit m
                       Left err -> pure (RespError err)
                       Right () -> do
                         runSqlPool
-                          ( editVm
-                              vmId
-                              mCpus
-                              mRam
-                              mDesc
-                              mHeadless
-                              mGuestAgent
-                              mTpm
-                              mCloudInit
-                              mAutostart
-                              mRebootQuirk
-                              mCpuModel
-                              mGraphicsAdapter
-                              mVsock
-                              mBalloon
-                              mRng
-                              mStartupTimeoutSec
+                          ( checkTaskCommit state
+                              >> editVm
+                                vmId
+                                mCpus
+                                mRam
+                                mDesc
+                                mHeadless
+                                mGuestAgent
+                                mTpm
+                                mCloudInit
+                                mAutostart
+                                mRebootQuirk
+                                mCpuModel
+                                mGraphicsAdapter
+                                mVsock
+                                mBalloon
+                                mRng
+                                mStartupTimeoutSec
                           )
                           (ssDbPool state)
                         pure RespVmEdited
@@ -230,7 +232,8 @@ vmHasRamSnapshots vmId = do
 -- 'handleVmCreate' is responsible for resolving the node ref
 -- (or deferring to the scheduler) before invoking this.
 createVm
-  :: Text
+  :: ActionContext
+  -> Text
   -> M.NodeId
   -> Int
   -> Int64
@@ -251,7 +254,7 @@ createVm
   -> Bool
   -> Int
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng startupTimeoutSec = do
+createVm ctx name nodeKey cpuCount ram description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel graphicsAdapter vsockCid vsock balloon rng startupTimeoutSec = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -282,7 +285,10 @@ createVm name nodeKey cpuCount ram description headless guestAgent tpm cloudInit
           , vmCpuModel = cpuModel
           , vmGraphicsAdapter = graphicsAdapter
           }
+  liftIO $ throwIfCancelled ctx
   key <- insert vm
+  liftIO $ associateVmDependencies ctx [fromSqlKey key]
+  liftIO $ throwIfCancelled ctx
   pure $ fromSqlKey key
 
 -- | Edit VM properties. Only updates fields that are Just.
@@ -363,7 +369,7 @@ instance Action VmCreate where
   actionEntityName = Just . vcrName
   actionExecute ctx a =
     handleVmCreate
-      (acState ctx)
+      ctx
       (vcrName a)
       (vcrNodeRef a)
       (vcrCpuCount a)

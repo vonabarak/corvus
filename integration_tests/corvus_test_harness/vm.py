@@ -232,9 +232,7 @@ class Vm:
         # Idempotent, best-effort cleanup. Mirror of
         # `Topology.finalize` (`topology.py:111`).
         if self._cap is not None:
-            # Use `reset` rather than `stop` for teardown: it's a
-            # hard kill (`Handlers/Vm.hs:handleVmReset` SIGTERMs
-            # qemu and synchronously sets status=stopped) and works
+            # Forced deletion resets first, then waits for worker drain. It works
             # from any state — paused, stopping, error, even an
             # already-stopped VM. `stop` would hang for up to 5 min
             # on a VM that ignored ACPI shutdown (e.g. one without
@@ -243,11 +241,7 @@ class Vm:
             # graceful shutdown path call `vm.stop` themselves; the
             # __exit__ just guarantees the VM goes away.
             try:
-                self._cap.reset()
-            except Exception:
-                pass
-            try:
-                self._cap.delete()
+                self._cap.delete(force=True)
             except Exception:
                 pass
             self._cap = None

@@ -2,9 +2,12 @@
 
 module Corvus.BakeVmCleanupSpec (spec) where
 
+import Control.Concurrent.STM (atomically)
 import Corvus.Action
 import Corvus.Handlers.Build.CleanupBakeVm (cleanupBakeVm)
 import qualified Corvus.Model as M
+import Corvus.TaskScope (restoreVmRecovery)
+import Corvus.Types (ServerState (ssTasks))
 import Database.Persist (count, get, (==.))
 import Test.DSL.Core (runDb)
 import Test.Prelude
@@ -57,6 +60,20 @@ spec = sequential $ withTestDb $ do
           stops `shouldBe` 0
     )
     [M.VmSaved, M.VmError]
+  testCase "preserves a bake VM and its disks during explicit reset recovery" $ do
+    ident <- insertVm "bake-reset" M.VmStopping
+    disk <- insertDiskImage "bake-artifact" FormatRaw
+    _ <- attachDriveFull ident disk InterfaceVirtio Nothing False CacheWriteback False
+    _ <- withState $ \state -> do
+      atomically $ restoreVmRecovery (ssTasks state) ident
+      runAction state "test" (Cleanup ident)
+    remaining <- runDb $ get (M.toSqlKey ident :: M.VmId)
+    image <- runDb $ get (M.toSqlKey disk :: M.DiskImageId)
+    drives <- runDb $ count [M.DriveVmId ==. M.toSqlKey ident]
+    liftIO $ do
+      fmap M.vmName remaining `shouldBe` Just "bake-reset"
+      fmap M.diskImageName image `shouldBe` Just "bake-artifact"
+      drives `shouldBe` 1
   testCase "already missing bake VM cleanup succeeds without child tasks" $ do
     _ <- withState (\state -> runAction state "test" (Cleanup 999))
     responseIs (== RespVmDeleted)

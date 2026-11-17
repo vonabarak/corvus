@@ -21,7 +21,7 @@ import qualified Corvus.Handlers.Network.Ipam as Ipam
 import Corvus.Model (NetInterfaceType (..), Network (..), NetworkDeviceModel, NetworkInterface (..), TaskSubsystem (..), Vm (..), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), checkTaskCommit)
 import Corvus.Utils.Network (generateMacAddress)
 import Data.Int (Int64)
 import Data.Maybe (mapMaybe)
@@ -65,7 +65,7 @@ handleNetIfAdd state vmId ifaceType model hostDevice mMacAddress mNetworkId = do
         mac <- case mMacAddress of
           Just m | not (T.null m) -> pure m
           _ -> generateMacAddress
-        result <- runSqlPool (addNetIf vmId actualType model hostDevice mac networkKey) (ssDbPool state)
+        result <- runSqlPool (checkTaskCommit state >> addNetIf vmId actualType model hostDevice mac networkKey) (ssDbPool state)
         case result of
           Nothing -> pure RespVmNotFound
           Just (Left err) -> pure $ RespError err
@@ -85,7 +85,7 @@ handleNetIfAdd state vmId ifaceType model hostDevice mMacAddress mNetworkId = do
 -- | Remove a network interface from a VM
 handleNetIfRemove :: ServerState -> Int64 -> Int64 -> IO Response
 handleNetIfRemove state vmId netIfId = do
-  result <- runSqlPool (removeNetIf vmId netIfId) (ssDbPool state)
+  result <- runSqlPool (checkTaskCommit state >> removeNetIf vmId netIfId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
     Just False -> pure RespNetIfNotFound
@@ -296,7 +296,8 @@ instance Action NetIfEdit where
   actionCommand _ = "edit-netif"
   actionEntityId = Just . fromIntegral . nieVmId
   actionExecute ctx a = do
-    let pool = ssDbPool (acState ctx)
+    let state = acState ctx
+        pool = ssDbPool state
         vmKey = toSqlKey (nieVmId a) :: VmId
         nicKey = toSqlKey (nieNetIfId a) :: M.NetworkInterfaceId
     mVm <- runSqlPool (get vmKey) pool
@@ -307,7 +308,7 @@ instance Action NetIfEdit where
         mNic <- runSqlPool (get nicKey) pool
         case mNic of
           Just nic | networkInterfaceVmId nic == vmKey -> do
-            runSqlPool (update nicKey [M.NetworkInterfaceModel =. nieModel a]) pool
+            runSqlPool (checkTaskCommit state >> update nicKey [M.NetworkInterfaceModel =. nieModel a]) pool
             pure RespOk
           _ -> pure RespNetIfNotFound
 

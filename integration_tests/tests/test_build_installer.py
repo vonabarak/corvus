@@ -258,5 +258,4 @@ class TestBuildInstaller(SingleNodeCase):
             assert marker_uuid.encode() in decoded, decoded[:256]
             verify_vm.stop(wait=True)
         finally:
-            verify_vm.reset()
-            verify_vm.delete()
+            verify_vm.delete(force=True)

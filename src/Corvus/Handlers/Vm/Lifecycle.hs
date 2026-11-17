@@ -9,6 +9,10 @@ module Corvus.Handlers.Vm.Lifecycle
   )
 where
 
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.STM (atomically)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Action
@@ -16,16 +20,21 @@ import Corvus.Handlers.Vm.Db
 import Corvus.Handlers.Vm.Monitor (releaseManagedTaps)
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
+import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
+import qualified Corvus.TaskScope as TaskScope
 import Corvus.Types
+import Data.Either (lefts, rights)
 import Data.Int (Int64)
+import Data.List (nub)
+import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import Database.Persist
-import Database.Persist.Sql (runSqlPool)
+import Database.Persist.Sql (runSqlPool, updateWhereCount)
 
 handleVmStopValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
 handleVmStopValidate state vmId = do
@@ -127,7 +136,7 @@ handleVmPause state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
-    Just (_, currentStatus) ->
+    Just (vm, currentStatus) ->
       case validateTransition currentStatus ActionPause of
         Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
         Right _ -> do
@@ -143,8 +152,12 @@ handleVmPause state vmId = runServerLogging state $ do
                 pure $ RespInvalidTransition currentStatus ("vmPause: " <> T.pack (show e))
               Right () -> do
                 logInfoN $ "VM " <> T.pack (show vmId) <> " paused"
-                liftIO $ runSqlPool (setVmStatus vmId VmPaused) (ssDbPool state)
-                pure $ RespVmStateChanged VmPaused
+                updated <-
+                  liftIO $
+                    runSqlPool
+                      (updateWhereCount [VmId ==. toSqlKey vmId, VmLifecycleRevision ==. vmLifecycleRevision vm, VmRuntimeGeneration ==. vmRuntimeGeneration vm, M.VmStatus ==. currentStatus] [M.VmStatus =. VmPaused])
+                      (ssDbPool state)
+                pure $ if updated == 1 then RespVmStateChanged VmPaused else RespError "Pause was superseded by reset"
 
 -- | Validate that a VM can be saved. Returns the current status, or
 -- an error response. The status is forwarded to 'handleVmSaveExecute'
@@ -209,27 +222,22 @@ handleVmSaveExecute state vmId = runServerLogging state $ do
 --
 -- Goes through 'validateTransition' so the FSM is the single
 -- source of truth ('ActionReset' always returns 'Right VmStopped').
--- The per-from-state cancel side-effect dispatch lives here:
+-- Admission advances the lifecycle revision and sets 'VmStopping', retaining
+-- the runtime generation until termination is confirmed. Every reset fences
+-- the nodeagent and calls 'NOA.vmStopHard', including from 'VmStopped' and
+-- 'VmError', to invalidate pending starts even when no runtime is published.
+-- Live QEMU processes are terminated with SIGTERM then SIGKILL if needed;
+-- an in-flight save aborts when its QEMU process dies.
 --
---   * 'VmRunning' / 'VmStarting' / 'VmStopping' / 'VmPaused' /
---     'VmLoading' — SIGTERM-then-SIGKILL QEMU via 'NOA.vmStopHard'.
---   * 'VmSaved' — drop the state file via 'NOA.deleteSavedState';
---     no QEMU to kill.
---   * 'VmSaving' — kill QEMU (in-flight QMP @migrate@ aborts when
---     the process dies). The save executor observes the agent RPC
---     failure and skips its own status flip (the row is already
---     VmStopped by the time the executor returns).
---   * 'VmMigrating' — kill QEMU on the source if any (the agent's
---     vmStopHard is idempotent), drop the state file. Partial
---     destination-side artifacts get cleaned up on the next
---     migrate attempt; doing it now would require cross-node
---     orchestration that the FSM lock no longer holds.
---   * 'VmStopped' / 'VmError' — DB write only; idempotent.
+-- After drain, remove saved-state files on all participating hosts, including
+-- partial destination-side migration state and state left by a failed reset.
 --
--- The status is committed first so the monitor thread observes
--- 'VmStopped' and skips its own reconciliation.
-handleVmReset :: ServerState -> Int64 -> IO Response
-handleVmReset state vmId = runServerLogging state $ do
+-- Return after confirmed termination. Commit 'VmStopped' after drain and cleanup,
+-- guarded by the lifecycle revision so stale completions cannot overwrite a
+-- newer operation. Failures record an error for the matching runtime instead
+-- of claiming that it stopped. Release managed TAPs before the stopped commit.
+handleVmReset :: ActionContext -> Int64 -> IO Response
+handleVmReset ctx vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
@@ -239,39 +247,86 @@ handleVmReset state vmId = runServerLogging state $ do
         mClaim <- liftIO $ runSqlPool (claimVmReset vmId) (ssDbPool state)
         case mClaim of
           Nothing -> pure $ RespInvalidTransition (vmStatus vm) "VM lifecycle changed while reset was being admitted"
-          Just (revision, generation) -> do
-            let fromStatus = vmStatus vm
-                failReset message = do
-                  _ <- liftIO $ runSqlPool (completeVmStop vmId revision generation (Just message)) (ssDbPool state)
+          Just (revision, _generation) -> do
+            liftIO $ atomically $ TaskScope.recordVmResetRevision (ssTasks state) (fromSqlKey (acRootTaskId ctx)) vmId revision
+            let failReset message = do
+                  liftIO $
+                    runSqlPool
+                      (updateWhere [VmId ==. toSqlKey vmId, VmLifecycleRevision ==. revision] [VmErrorMessage =. Just message])
+                      (ssDbPool state)
                   pure $ RespError message
             -- First fence the nodeagent, including the no-live-process case:
             -- this is what invalidates a start still between helper spawn and
             -- ledger publication. Do not claim stopped on transport failure.
-            outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId (Just revision)
-            case outer of
-              Left err -> failReset ("nodeagent unavailable during reset: " <> err)
-              Right (Left e) -> failReset ("vmStopHard: " <> T.pack (show e))
-              Right (Right res)
-                | NOA.vsrKind res `elem` [NOA.VmStopStopped, NOA.VmStopAlreadyStopped] -> do
-                    cleanup <-
-                      if fromStatus `elem` [VmSaved, VmMigrating]
-                        then liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.deleteSavedState nac (vmName vm)
-                        else pure (Right (Right ()))
-                    case cleanup of
-                      Left err -> failReset ("deleteSavedState: " <> err)
-                      Right (Left err) -> failReset ("deleteSavedState: " <> T.pack (show err))
-                      Right (Right ()) -> do
-                        completed <- liftIO $ runSqlPool (completeVmReset vmId revision) (ssDbPool state)
-                        if completed
-                          then do
-                            liftIO $ releaseManagedTaps state vmId
-                            pure $ RespVmStateChanged VmStopped
-                          else do
-                            mCurrent <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-                            pure $ case mCurrent of
-                              Nothing -> RespVmNotFound
-                              Just (_, status) -> RespInvalidTransition status "VM lifecycle operation was superseded"
-                | otherwise -> failReset ("vmStopHard: " <> NOA.vsrMessage res)
+            agents <- liftIO $ resetAgents state vmId vm
+            let clients = rights agents
+            results <- liftIO $ mapConcurrently (\nac -> NOA.vmStopHard nac vmId (Just revision)) clients
+            case lefts agents of
+              err : _ -> failReset ("nodeagent unavailable during reset: " <> err)
+              [] -> case sequence results of
+                Left e -> failReset ("vmStopHard: " <> T.pack (show e))
+                Right stopped
+                  | all (\res -> NOA.vsrKind res `elem` [NOA.VmStopStopped, NOA.VmStopAlreadyStopped]) stopped -> do
+                      liftIO $ watchResetDrain ctx state vmId revision (vmName vm) clients
+                      pure $ RespVmStateChanged VmStopped
+                  | otherwise -> failReset "vmStopHard did not confirm termination on every participating node"
+  where
+    -- Emergency RPCs must retain the reset fence even while the old runtime
+    -- remains in the ledger. Ordinary requests use revision-scoped clients.
+    state = (acState ctx) {ssActionRoot = Nothing}
+
+-- Source plus every host used by this VM's task trees, including migration
+-- destinations and transfer capabilities. After daemon restart the old host
+-- registry is lost: conservatively fence all nodes for a persisted recovery.
+resetAgents :: ServerState -> Int64 -> Vm -> IO [Either T.Text NOA.NodeAgentClient]
+resetAgents state vmId vm = do
+  touched <- atomically $ TaskScope.vmOperationNodes (ssTasks state) vmId
+  recoveringNodes <-
+    if vmStatus vm == VmStopping || isNothing touched
+      then runSqlPool (selectKeysList [] []) (ssDbPool state)
+      else pure []
+  mapM
+    (lookupNodeAgent state)
+    (nub (vmNodeId vm : maybe [] (map toSqlKey) touched ++ recoveringNodes))
+
+-- Keep the original nodeagent capability. A disconnected/restarted agent or
+-- a missing tombstone is not proof that this attempt's workers have drained.
+watchResetDrain :: ActionContext -> ServerState -> Int64 -> Int64 -> T.Text -> [NOA.NodeAgentClient] -> IO ()
+watchResetDrain ctx state vmId revision vmNameToClean clients = do
+  _ <- forkIO $ do
+    let root = fromSqlKey (acRootTaskId ctx)
+        cleanSavedState nac = do
+          scoped <- NOA.vmOperationClient nac [(vmId, revision, Nothing)]
+          case scoped of
+            Left err -> pure (Left err)
+            Right client -> NOA.deleteSavedState client vmNameToClean
+        loop = do
+          current <- atomically $ TaskScope.vmResetRevisionMatches (ssTasks state) root vmId revision
+          when current $ do
+            results <- mapConcurrently (\nac -> NOA.vmDrainStatus nac vmId revision) clients
+            case sequence results of
+              Right drained | and drained -> do
+                atomically $ TaskScope.waitVmTasks (ssTasks state) root vmId
+                -- Clean every participating host only after old transfers and
+                -- migration workers have stopped writing saved state.
+                TaskScope.withVmResetFinalization (ssTasks state) root vmId revision $ do
+                  cleanup <- mapConcurrently cleanSavedState clients
+                  case sequence cleanup of
+                    Left err ->
+                      runSqlPool
+                        (updateWhere [VmId ==. toSqlKey vmId, VmLifecycleRevision ==. revision] [VmErrorMessage =. Just ("deleteSavedState: " <> T.pack (show err))])
+                        (ssDbPool state)
+                    Right _ -> do
+                      -- Keep Stopping durable until both registries have drained.
+                      releaseManagedTaps state vmId
+                      completed <- runSqlPool (completeVmReset vmId revision) (ssDbPool state)
+                      when completed $
+                        atomically $
+                          TaskScope.confirmVmRevisionDrain (ssTasks state) root vmId revision
+              Right _ -> threadDelay 200000 >> loop
+              Left _ -> pure ()
+    loop
+  pure ()
 
 newtype VmPause = VmPause {vpVmId :: Int64}
 
@@ -300,7 +355,9 @@ instance Action VmReset where
   actionSubsystem _ = SubVm
   actionCommand _ = "reset"
   actionEntityId = Just . fromIntegral . vrstVmId
-  actionExecute ctx a = handleVmReset (acState ctx) (vrstVmId a)
+  actionEmergencyVm = Just . vrstVmId
+  actionBypassLeases _ = True
+  actionExecute ctx a = handleVmReset ctx (vrstVmId a)
 
 -- Complex handlers with validate/execute split
 

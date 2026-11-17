@@ -6,7 +6,8 @@ module Corvus.Logging (synchronousException, subscriberFailureLevel, exceptionCa
 import qualified Capnp as C
 import qualified Capnp.Gen.Capnp.Rpc as Rpc
 import qualified Control.Exception as E
-import Control.Monad.Logger (LogLevel (..), logWarnN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logDebugN, logWarnN, runStderrLoggingT)
+import Corvus.Cancellation (VmOperationSuperseded (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Typeable (typeOf)
@@ -33,4 +34,4 @@ exceptionCategory e@(E.SomeException cause) = case E.fromException e :: Maybe IO
 -- | Report unexpected supervised failures through the service logger.
 withRpcSupervisor :: Text -> (Supervisor -> IO a) -> IO a
 withRpcSupervisor label = withSupervisorReporting $ \e ->
-  runStderrLoggingT $ logWarnN (label <> T.pack ": supervised worker failed: " <> exceptionCategory e)
+  runStderrLoggingT $ (case E.fromException e :: Maybe VmOperationSuperseded of Just _ -> logDebugN; Nothing -> logWarnN) (label <> T.pack ": supervised worker failed: " <> exceptionCategory e)

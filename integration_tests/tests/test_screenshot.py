@@ -56,8 +56,7 @@ class TestScreenshot(OneDaemonTwoNodesCase):
                     with pytest.raises(FileExistsError):
                         vm.screenshot_to_file(path)
                 finally:
-                    vm.reset()
-                    vm.delete()
+                    vm.delete(force=True)
             vm = client.vms.create("screenshot-headless", headless=True)
             try:
                 with pytest.raises(VmHeadless):

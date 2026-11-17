@@ -63,8 +63,7 @@ integration-tests-clean:
 	if [ -n "$$names" ]; then \
 	  echo "$$names" | while read -r n; do \
 	    echo "deleting VM $$n"; \
-	    crv vm reset "$$n" 2>/dev/null || true; \
-	    crv vm delete "$$n" || true; \
+	    crv vm delete "$$n" --force || true; \
 	  done; \
 	else \
 	  echo "no corvus-it-* VMs"; \

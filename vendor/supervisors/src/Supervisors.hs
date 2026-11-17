@@ -8,6 +8,7 @@ module Supervisors
   , withSupervisor
   , withSupervisorReporting
   , supervise
+  , superviseFinally
   , superviseSTM
   ) where
 
@@ -60,14 +61,22 @@ shutdown Supervisor {children, stopped} = do
 -- | Admit a worker atomically with its start gate. A concurrent shutdown either
 -- owns and joins it, or prevents its body from starting at all.
 supervise :: Supervisor -> IO () -> IO ()
-supervise sup@Supervisor {children, stopped} task = mask_ $ do
+supervise sup task = superviseFinally sup task (pure ())
+
+-- | Always finalize a reservation, including when shutdown rejects admission.
+superviseFinally :: Supervisor -> IO () -> IO () -> IO ()
+superviseFinally sup@Supervisor {children, stopped} task cleanup = mask_ $ do
   gate <- newEmptyTMVarIO
   done <- newEmptyTMVarIO
   tid <- forkIOWithUnmask $ \unmask -> do
     me <- myThreadId
-    let finish = atomically $ do
-          modifyTVar' children (Map.delete me)
-          putTMVar done ()
+    let finish =
+          cleanup
+            `finally` atomically
+              ( do
+                  modifyTVar' children (Map.delete me)
+                  putTMVar done ()
+              )
         run = do
           admitted <- atomically $ takeTMVar gate
           when admitted (unmask task)

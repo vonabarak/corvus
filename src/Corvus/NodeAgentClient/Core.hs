@@ -11,6 +11,8 @@ module Corvus.NodeAgentClient.Core
   , NodeAgentError (..)
   , withNodeAgentClient
   , sessionPing
+  , vmOperationClient
+  , vmDrainStatus
   , agentDefaultBasePath
   , remote
   , remoteWithin
@@ -34,6 +36,8 @@ import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import Data.Function ((&))
 import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.Int (Int64)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
 import qualified Network.Socket as NS
 import Supervisors (Supervisor)
@@ -249,3 +253,24 @@ synchronousException :: E.SomeException -> Maybe E.SomeException
 synchronousException err = case E.fromException err :: Maybe E.SomeAsyncException of
   Just _ -> Nothing
   Nothing -> Just err
+
+-- | Bind the internal capability to existing VM fence values, captured before
+-- dispatch. A delayed call through this capability cannot obtain newer rights.
+vmOperationClient :: NodeAgentClient -> [(Int64, Int64, Maybe Int64)] -> IO (Either NodeAgentError NodeAgentClient)
+vmOperationClient nac refs = remoteWithin 10 $ do
+  let encode (vm, revision, generation) =
+        CGNA.VmAuthorization
+          { CGNA.vmId = vm
+          , CGNA.lifecycleRevision = revision
+          , CGNA.runtimeGeneration = fromMaybe 0 generation
+          , CGNA.hasRuntimeGeneration = isJust generation
+          }
+  CGNA.Session'vmOperation'results {CGNA.session = session} <-
+    callOn #vmOperation CGNA.Session'vmOperation'params {CGNA.authorizations = map encode refs} (nacSession nac)
+  pure nac {nacSession = session}
+
+vmDrainStatus :: NodeAgentClient -> Int64 -> Int64 -> IO (Either NodeAgentError Bool)
+vmDrainStatus nac vm revision = remoteWithin 5 $ do
+  CGNA.Session'vmDrainStatus'results drained <-
+    callOn #vmDrainStatus CGNA.Session'vmDrainStatus'params {CGNA.vmId = vm, CGNA.lifecycleRevision = revision} (nacSession nac)
+  pure drained

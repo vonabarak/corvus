@@ -8,11 +8,14 @@ module Corvus.Handlers.Build.CleanupBakeVm
   )
 where
 
+import Control.Concurrent.STM (atomically)
+import Control.Monad (unless)
 import Corvus.Action
 import Corvus.Handlers.Vm (VmDelete (..), VmStop (..))
 import Corvus.Model (TaskSubsystem (..), VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol (Response (..))
+import qualified Corvus.TaskScope as TaskScope
 import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import Data.Word (Word32)
@@ -42,22 +45,26 @@ cleanupBakeVm context vmIdLong = do
         -- the build's inherited shared lease, while ephemeral disks need
         -- exclusive access before they can be reaped.
         pure ((), disks ++ vm)
-  withPreparedOperationLeases ctx prepare $ \locked () -> do
-    existing <- runSqlPool (get (toSqlKey vmIdLong)) (ssDbPool state)
-    case existing of
-      Nothing -> pure ()
-      Just vm -> do
-        if M.vmStatus vm `elem` [VmStopped, VmSaved, VmError]
-          then pure ()
-          else do
-            stopped <- runActionAsSubtask locked (StopBakeVm vmIdLong (if cancelled then 0 else 300))
-            case stopped of
-              RespVmStateChanged VmStopped -> pure ()
-              _ -> ioError (userError ("stop bake VM: " ++ show stopped))
-        result <- runActionAsSubtask locked (VmDelete vmIdLong False False)
-        case result of
-          RespVmDeleted -> pure ()
-          _ -> ioError (userError ("delete bake VM: " ++ show result))
+  recovering <- atomically $ TaskScope.vmIsRecovering (ssTasks state) vmIdLong
+  -- An explicit reset transfers ownership to the operator. In particular,
+  -- cancellation cleanup must not delete that VM or its attached artifacts.
+  unless recovering $ do
+    withPreparedOperationLeases ctx prepare $ \locked () -> do
+      existing <- runSqlPool (get (toSqlKey vmIdLong)) (ssDbPool state)
+      case existing of
+        Nothing -> pure ()
+        Just vm -> do
+          if M.vmStatus vm `elem` [VmStopped, VmSaved, VmError]
+            then pure ()
+            else do
+              stopped <- runActionAsSubtask locked (StopBakeVm vmIdLong (if cancelled then 0 else 300))
+              case stopped of
+                RespVmStateChanged VmStopped -> pure ()
+                _ -> ioError (userError ("stop bake VM: " ++ show stopped))
+          result <- runActionAsSubtask locked (VmDelete vmIdLong False False)
+          case result of
+            RespVmDeleted -> pure ()
+            _ -> ioError (userError ("delete bake VM: " ++ show result))
 
 -- A guest can shut itself down between inspection and stop dispatch. Keep
 -- public VmStop strict while making this private cleanup action idempotent.

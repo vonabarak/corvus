@@ -82,7 +82,9 @@ spawnAllNodeSupervisors state = do
 -- The returned 'Async' is what the daemon (or @crv node delete@)
 -- cancels to tear everything down for this node.
 spawnNodeSupervisor :: ServerState -> Entity M.Node -> IO (Async ())
-spawnNodeSupervisor state (Entity nodeKey node) = do
+spawnNodeSupervisor taskState (Entity nodeKey node) = do
+  -- A supervisor outlives node add/edit and must reconcile after that task exits.
+  let state = taskState {ssActionRoot = Nothing}
   sup <- async (runNodeSupervisor state nodeKey node)
   (vmAS, netAS) <- newAutostartFlags
   registerNodeConns

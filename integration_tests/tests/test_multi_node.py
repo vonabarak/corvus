@@ -156,6 +156,7 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
                 # graceful stop would block 300 s on ACPI without
                 # a guest OS to ack the powerdown.
                 alpha_vm.reset()
+                self.wait_for_vm_status(alpha_vm, "stopped")
                 _poll_until(
                     lambda: _qemu_count(self.node_alpha, "mn-alpha-vm") == 0,
                     timeout_sec=15.0,
@@ -188,6 +189,7 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
                     "qemu for 'mn-beta-vm' leaked onto alpha"
                 )
                 beta_vm.reset()
+                self.wait_for_vm_status(beta_vm, "stopped")
                 _poll_until(
                     lambda: _qemu_count(self.node_beta, "mn-beta-vm") == 0,
                     timeout_sec=15.0,
