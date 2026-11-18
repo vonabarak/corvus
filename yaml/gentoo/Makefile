@@ -149,8 +149,7 @@ plan: bundle
 test:
 	PYTHONPATH=../../python $(PYTHON) -m pytest ../../python/tests/corvus_image_builder
 ifeq ($(IMAGE),rescue)
-SOURCE_IMAGE ?=
 OUTPUT_DIR ?= build/gentoo-rescue
 export:
-	PYTHONPATH=../../python $(PYTHON) rescue/export.py "$(SOURCE_IMAGE)" "$(OUTPUT_DIR)"
+	$(PYTHON) rescue/export.py "$(OUTPUT_DIR)"
 endif

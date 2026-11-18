@@ -25,26 +25,47 @@ POLICY = (
     'CFLAGS="${COMMON_FLAGS}"\n'
     'CXXFLAGS="${COMMON_FLAGS}"\n'
     'USE="dbus wifi"\n'
+    'QEMU_SOFTMMU_TARGETS=""\n'
+    'QEMU_USER_TARGETS=""\n'
 )
 USE = (
     "sys-kernel/gentoo-kernel-bin -initramfs\n"
     "sys-kernel/linux-firmware -savedconfig\n"
     "sys-kernel/installkernel -dracut -grub -systemd\n"
     "sys-kernel/dracut systemd\n"
-    "sys-fs/squashfs-tools zstd xattr\n"
+    "sys-fs/squashfs-tools lzma zstd xattr\n"
+    "app-misc/yq yq-symlink\n"
+    "net-analyzer/mtr ncurses -gtk -gui\n"
     "sys-fs/lvm2 lvm -systemd -udev\n"
+    "sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes\n"
+    "app-emulation/qemu -accessibility -gtk -sdl -sdl-image -doc -vnc -oss\n"
+    "net-analyzer/nmap -zenmap\n"
+    "net-fs/samba client ads acl ldap python winbind -addc -cups -regedit\n"
+    "net-fs/cifs-utils ads\n"
+    "net-libs/ngtcp2 gnutls\n"
+    "net-dns/bind gssapi\n"
+    "sys-libs/tdb python\n"
+    "sys-libs/tevent python\n"
+    "sys-apps/lshw -gtk\n"
+    "sys-fs/multipath-tools systemd\n"
+)
+GCC_RUNTIME = (
+    "libgcc_s.so.1",
+    "libstdc++.so.6",
+    "libatomic.so.1",
+    "libgomp.so.1",
 )
 ATOMS = (
     "sys-kernel/gentoo-kernel-bin",
     "sys-kernel/linux-firmware",
     "sys-kernel/dracut",
-    "sys-fs/squashfs-tools",
     "sys-fs/growpart",
     "sys-fs/e2fsprogs",
     "sys-fs/btrfs-progs",
     "sys-fs/xfsprogs",
     "sys-fs/f2fs-tools",
     "sys-fs/dosfstools",
+    "sys-fs/exfatprogs",
     "sys-fs/ntfs3g",
     "sys-fs/cryptsetup",
     "sys-fs/mdadm",
@@ -52,7 +73,6 @@ ATOMS = (
     "sys-block/thin-provisioning-tools",
     "sys-apps/gptfdisk",
     "sys-block/parted",
-    "sys-apps/util-linux",
     "sys-fs/ddrescue",
     "app-admin/testdisk",
     "sys-apps/smartmontools",
@@ -63,6 +83,7 @@ ATOMS = (
     "sys-apps/ethtool",
     "net-misc/iputils",
     "net-analyzer/tcpdump",
+    "net-analyzer/mtr",
     "net-misc/curl",
     "net-misc/wget",
     "net-misc/rsync",
@@ -71,10 +92,41 @@ ATOMS = (
     "net-wireless/iw",
     "net-wireless/wpa_supplicant",
     "app-editors/vim",
+    "app-misc/mc",
+    "sys-process/htop",
+    "sys-process/lsof",
+    "dev-debug/strace",
+    "app-misc/jq",
+    "app-misc/yq",
+    "app-misc/tmux",
+    "sys-fs/ncdu",
     "app-arch/tar",
+    "app-arch/rar",
     "app-arch/xz-utils",
     "app-arch/zstd",
     "app-arch/unzip",
+    "sys-boot/grub",
+    "app-backup/fsarchiver",
+    "app-backup/borgbackup",
+    "net-misc/rclone",
+    "sys-fs/xfsdump",
+    "app-emulation/qemu",
+    "sys-fs/multipath-tools",
+    "net-misc/socat",
+    "net-misc/iperf:3",
+    "net-analyzer/nmap",
+    "net-fs/samba",
+    "net-fs/cifs-utils",
+    "net-dns/bind",
+    "sys-apps/dmidecode",
+    "sys-fs/lsscsi",
+    "sys-apps/sg3_utils",
+    "sys-apps/hdparm",
+    "sys-apps/lshw",
+    "sys-apps/hwinfo",
+    "sys-apps/ipmitool",
+    "sys-apps/memtester",
+    "net-dialup/picocom",
 )
 RUNTIME_FILES = {
     "etc/systemd/system/rescue-grow.service": (
@@ -110,19 +162,39 @@ RUNTIME_FILES = {
         "[Install]\n"
         "WantedBy=local-fs.target\n"
     ),
-    "etc/systemd/network/20-wired.network": (
-            "[Match]\n"
-            "Name=en* eth*\n"
-            "Type=ether\n"
-            "\n"
-            "[Network]\n"
-            "DHCP=yes\n"
-        ),
+    "etc/systemd/system/rescue-network-state.service": (
+        "[Unit]\n"
+        "Description=Prepare persistent network and SSH state\n"
+        "Requires=rescue-home.service\n"
+        "After=rescue-home.service\n"
+        "Before=NetworkManager.service sshd.service\n"
+        "[Service]\n"
+        "Type=oneshot\n"
+        "RemainAfterExit=yes\n"
+        "ExecStart=/usr/local/sbin/rescue-network-state\n"
+    ),
+    "usr/local/sbin/rescue-network-state": (
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "install -d -m 700 /root/.config/NetworkManager/system-connections /root/.ssh/host-keys\n"
+        "mountpoint -q /etc/NetworkManager/system-connections || "
+        "mount --bind /root/.config/NetworkManager/system-connections /etc/NetworkManager/system-connections\n"
+        "for type in ed25519 rsa ecdsa; do\n"
+        "  key=/root/.ssh/host-keys/ssh_host_${type}_key\n"
+        '  test -f "$key" || ssh-keygen -q -t "$type" -N \'\' -f "$key"\n'
+        "done\n"
+    ),
+    "etc/ssh/sshd_config.d/10-rescue-hostkeys.conf": (
+        "HostKey /root/.ssh/host-keys/ssh_host_ed25519_key\n"
+        "HostKey /root/.ssh/host-keys/ssh_host_rsa_key\n"
+        "HostKey /root/.ssh/host-keys/ssh_host_ecdsa_key\n"
+        "PermitRootLogin prohibit-password\n"
+    ),
     "etc/motd": (
         "Gentoo rescue: local root console, volatile system, persistent /root when usable.\n"
         "Only rescue storage is mounted and expanded automatically. Other disks, swap, RAID and LVM require manual activation.\n"
         "Update kernel, initramfs and squashfs offline to preserve /root. Back up /root before reflashing.\n"
-        "Wired DHCP is enabled. Wi-Fi: iw, wpa_supplicant. SSH: ssh-keygen -A; systemctl unmask sshd; systemctl start sshd\n"
+        "Wired DHCP and SSH are enabled. Configure Wi-Fi using nmcli.\n"
         "For SSH login, install an authorized key in /root/.ssh/authorized_keys first.\n"
     ),
 }
@@ -208,21 +280,58 @@ class RescueDiskStage(GentooStage):
 class RescuePackagesStage(GlibcPackageInstallStage):
     """Bootstrap glibc and install stable rescue packages and distribution kernel."""
 
+    bootstrap_atoms = (
+        "sys-apps/baselayout",
+        "app-alternatives/awk",
+        "app-alternatives/bzip2",
+        "app-alternatives/gzip",
+        "app-alternatives/sh",
+        "app-alternatives/tar",
+        "app-shells/bash:0",
+        "sys-apps/coreutils",
+        "sys-apps/findutils",
+        "sys-apps/gawk",
+        "sys-apps/grep",
+        "sys-apps/kmod",
+        "sys-apps/sed",
+        "sys-apps/shadow",
+        "sys-apps/systemd",
+        "sys-apps/util-linux",
+        "sys-libs/glibc",
+        "sys-libs/pam",
+    )
+
     atoms = (
+        *bootstrap_atoms,
         *ATOMS,
-        "app-emulation/qemu-guest-agent",
+        "app-arch/bzip2",
+        "app-arch/gzip",
         "mail-mta/msmtp",
+        "net-mail/mailbase",
         "app-admin/sudo",
+        "sys-apps/diffutils",
+        "sys-apps/file",
+        "sys-apps/kbd",
+        "sys-apps/less",
+        "sys-apps/man-pages",
+        "sys-apps/net-tools",
+        "sys-apps/which",
         "sys-boot/efibootmgr",
+        "sys-devel/binutils",
+        "sys-devel/patch",
+        "sys-process/procps",
+        "sys-process/psmisc",
         "net-fs/nfs-utils",
         "app-shells/bash-completion",
+        "virtual/man",
     )
 
     def execute(self, context: BuildContext) -> None:
+        self.packages(context, ("sys-fs/squashfs-tools",), native=True)
         super().execute(context)
         PortageBackend(context.runner, context.root).install(
             InstallRequest(
-                ("@world", "@system", *ATOMS),
+                self.atoms,
                 context.root,
                 self.settings.use_binary,
                 self.settings.fetch_binary,
@@ -237,6 +346,25 @@ class RescuePackagesStage(GlibcPackageInstallStage):
         with (context.root / "etc/portage/make.conf").open("a") as stream:
             stream.write(POLICY)
         write(context.root / "etc/portage/package.use/zz-rescue", USE)
+
+    def install_system(self, context: BuildContext) -> None:
+        # Gentoo packages can assume GCC's shared libraries are available
+        # through @system without declaring a dependency on the compiler.
+        for soname in GCC_RUNTIME:
+            source = Path(
+                subprocess.check_output(
+                    ["gcc", f"-print-file-name={soname}"], text=True
+                ).strip()
+            )
+            if not source.is_absolute() or not source.is_file():
+                raise RuntimeError(f"Bake VM GCC runtime is missing: {soname}")
+            shutil.copy2(source, context.root / "usr/lib64" / soname)
+        license_dir = context.root / "usr/share/licenses/gcc-runtime"
+        license_dir.mkdir(parents=True, exist_ok=True)
+        repository = Path(str(context.artifacts["repository"]))
+        for name in ("GPL-3", "gcc-runtime-library-exception-3.1"):
+            shutil.copyfile(repository / "licenses" / name, license_dir / name)
+        super().install_system(context)
 
 
 class RescueRuntimeStage(GentooStage):
@@ -262,6 +390,19 @@ class RescueRuntimeStage(GentooStage):
         root = context.root
         for path, content in RUNTIME_FILES.items():
             write(root / path, content)
+        (root / "usr/local/sbin/rescue-network-state").chmod(0o755)
+        (root / "etc/NetworkManager/system-connections").mkdir(
+            parents=True, exist_ok=True
+        )
+        for service in ("NetworkManager", "sshd"):
+            write(
+                root / f"etc/systemd/system/{service}.service.d/rescue.conf",
+                (
+                    "[Unit]\n"
+                    "Requires=rescue-network-state.service\n"
+                    "After=rescue-network-state.service\n"
+                ),
+            )
         for path, content in (
             ("etc/fstab", ""),
             ("etc/crypttab", ""),
@@ -287,6 +428,7 @@ class RescueRuntimeStage(GentooStage):
         link(root / "etc/resolv.conf", "/run/systemd/resolve/stub-resolv.conf")
         (root / "usr/lib/locale").mkdir(parents=True, exist_ok=True)
         self.chroot_string(context, "localedef -i C -f UTF-8 C.UTF-8")
+        self.chroot_string(context, "localedef -i en_US -f UTF-8 en_US.UTF-8")
         for name in ("home", "grow"):
             destination = root / f"usr/local/sbin/rescue-{name}"
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -305,7 +447,6 @@ class RescueRuntimeStage(GentooStage):
                 ),
             )
         for name in (
-            "sshd.service",
             "sshd.socket",
             "sshd-vsock.socket",
             "sshd-unix-local.socket",
@@ -317,11 +458,18 @@ class RescueRuntimeStage(GentooStage):
             "mdmonitor.service",
             "mdadm-last-resort@.service",
             "udisks2.service",
+            "multipathd.service",
+            "multipathd.socket",
+            "named.service",
+            "samba.service",
+            "smb.service",
+            "nmb.service",
+            "winbind.service",
         ):
             self.command(context, "systemctl", f"--root={root!s}", "mask", str(name))
         for name in ("systemd-gpt-auto-generator", "systemd-ssh-generator"):
             link(root / "etc/systemd/system-generators" / name, "/dev/null")
-        for pattern in ("*md-raid*", "*mdadm*", "*lvm*"):
+        for pattern in ("*md-raid*", "*mdadm*", "*lvm*", "56-multipath.rules"):
             for rule in (root / "usr/lib/udev/rules.d").glob(pattern):
                 link(root / "etc/udev/rules.d" / rule.name, "/dev/null")
         self.command(
@@ -329,7 +477,8 @@ class RescueRuntimeStage(GentooStage):
             "systemctl",
             f"--root={root!s}",
             "enable",
-            "systemd-networkd.service",
+            "NetworkManager.service",
+            "sshd.service",
             "systemd-resolved.service",
             "serial-getty@ttyS0.service",
             "rescue-home.service",
@@ -363,12 +512,18 @@ class RescueKernelStage(GentooStage):
         for option in [
             "BLK_DEV_INITRD",
             "BLK_DEV_LOOP",
+            "BLK_DEV_NBD",
+            "CIFS",
+            "DM_MULTIPATH",
+            "CHR_DEV_SG",
+            "IPMI_HANDLER",
+            "IPMI_DEVICE_INTERFACE",
             "DEVTMPFS",
             "EXT4_FS",
             "OVERLAY_FS",
             "TMPFS",
             "SQUASHFS",
-            "SQUASHFS_ZSTD",
+            "SQUASHFS_XZ",
             "EFI",
             "EFI_PARTITION",
             "USB_XHCI_HCD",
@@ -410,7 +565,7 @@ class RescueKernelStage(GentooStage):
                 'hostonly_cmdline="no"\n'
                 'use_fstab="no"\n'
                 'add_dracutmodules+=" systemd systemd-initrd kernel-modules corvus-rescue shutdown "\n'
-                'omit_dracutmodules+=" lvm mdraid dmraid crypt resume network network-manager systemd-networkd "\n'
+                'omit_dracutmodules+=" lvm mdraid dmraid multipath crypt resume network network-manager systemd-networkd "\n'
                 'filesystems+=" ext4 squashfs overlay "\n'
                 'add_drivers+=" xhci_pci usb_storage uas ahci nvme sd_mod virtio_pci virtio_blk virtio_scsi usbhid hid_generic "\n'
             ),
@@ -500,6 +655,44 @@ class RescueCleanupStage(FinalizeStage):
     requires = frozenset({"kernel"})
     produces = frozenset({"clean-root"})
 
+    def clean(self, context: BuildContext) -> None:
+        super().clean(context)
+        root = context.root
+        kernel = str(context.artifacts["kernel"])
+        validate_kernel(kernel)
+        for relative in (
+            "usr/src",
+            "usr/include",
+            "usr/libexec/gcc",
+            "var/db/pkg",
+            f"usr/lib/modules/{kernel}/build",
+            f"usr/lib/modules/{kernel}/source",
+        ):
+            remove(root, relative)
+        # Gentoo stores versioned GCC drivers outside /usr/bin and exposes
+        # them through gcc-config links. The GCC library tree also contains
+        # shared runtimes, so only remove its private header directories.
+        for path in root.glob("usr/*-linux-gnu/gcc-bin"):
+            remove(root, str(path.relative_to(root)))
+        for version in root.glob("usr/lib/gcc/*/*"):
+            for suffix in (
+                "include",
+                "include-fixed",
+                "finclude",
+                "install-tools",
+                "plugin/include",
+            ):
+                path = version / suffix
+                remove(root, str(path.relative_to(root)))
+        compiler = re.compile(
+            r"(?:[\w.]+(?:-[\w.]+)*-linux-gnu-)?"
+            r"(?:cc|c89|c99|c\+\+|cpp|g\+\+|gfortran|gcov|gcc(?:-(?:ar|nm|ranlib))?)"
+            r"(?:-\d[\d.]*)?"
+        )
+        for path in (root / "usr/bin").iterdir():
+            if compiler.fullmatch(path.name):
+                remove(root, str(path.relative_to(root)))
+
     def execute(self, context: BuildContext) -> None:
         self.reset_identity(context)
         mounts = context.artifacts.get("chroot-mounts")
@@ -523,29 +716,22 @@ class RescuePackStage(GentooStage):
         root = context.root
         media = Path(str(context.artifacts["media"]))
         kernel = str(context.artifacts["kernel"])
-        for directory in ("boot", "rescue", "home/root"):
-            (media / directory).mkdir(parents=True, exist_ok=True)
-        (media / "home/root").chmod(0o700)
-        shutil.copyfile(root / f"boot/vmlinuz-{kernel}", media / "boot/vmlinuz")
-        shutil.copyfile(
-            root / f"boot/initramfs-{kernel}.img", media / "boot/initramfs.img"
-        )
+        media.chmod(0o700)
+        shutil.copyfile(root / f"boot/vmlinuz-{kernel}", media / "vmlinuz")
+        shutil.copyfile(root / f"boot/initramfs-{kernel}.img", media / "initramfs.img")
         mounts = Mounts(self, context)
         view = root / "run/rescue-source"
-        output = root / "run/rescue-output"
+        squashfs = media / "root.squashfs"
         try:
             mounts.bind(root, view)
-            mounts.bind(media / "rescue", output)
-            self.chroot(
+            self.command(
                 context,
                 "mksquashfs",
-                "/run/rescue-source",
-                "/run/rescue-output/root.squashfs",
+                str(view),
+                str(squashfs),
                 "-noappend",
                 "-comp",
-                "zstd",
-                "-Xcompression-level",
-                "15",
+                "xz",
                 "-b",
                 "1M",
                 "-mem",
@@ -562,12 +748,10 @@ class RescuePackStage(GentooStage):
                 ".rescue-media/*",
                 ".rescue-esp/*",
             )
-            self.chroot_string(
-                context, "unsquashfs -s /run/rescue-output/root.squashfs"
-            )
+            self.command(context, "unsquashfs", "-s", str(squashfs))
         finally:
             mounts.close()
-        names = ("boot/vmlinuz", "boot/initramfs.img", "rescue/root.squashfs")
+        names = ("vmlinuz", "initramfs.img", "root.squashfs")
         checksums = []
         for name in names:
             with (media / name).open("rb") as stream:
@@ -575,7 +759,8 @@ class RescuePackStage(GentooStage):
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(chunk)
                 checksums.append(f"{digest.hexdigest()}  {name}\n")
-        write(media / "rescue/SHA256SUMS", "".join(checksums))
+        write(media / "SHA256SUMS", "".join(checksums))
+        self.command(context, "df", "-h", str(media))
         context.artifacts["payload"] = media
 
 
@@ -621,8 +806,13 @@ class RescueBootloaderStage(GentooStage):
         ).strip()
         if not re.fullmatch(r"[0-9a-fA-F-]+", uuid):
             raise ValueError("Invalid carrier UUID")
+        boot = (
+            f"        linux /vmlinuz root=rescue:UUID={uuid} ro fsck.mode=skip rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 vt.color=0x02 console=tty0 console=ttyS0,115200n8\n"
+            "        initrd /initramfs.img\n"
+        )
+        config = esp / "grub/grub.cfg"
         write(
-            esp / "grub/grub.cfg",
+            config,
             (
                 f"set timeout=300\n"
                 f"set default=0\n"
@@ -632,12 +822,32 @@ class RescueBootloaderStage(GentooStage):
                 f"serial --unit=0 --speed=115200\n"
                 f"terminal_input console serial\n"
                 f"terminal_output console serial\n"
-                f"menuentry 'Gentoo rescue' {{\n"
-                f"    search --no-floppy --fs-uuid --set=root {uuid}\n"
-                f"    linux /boot/vmlinuz root=rescue:UUID={uuid} ro fsck.mode=skip rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 vt.color=0x02 console=tty0 console=ttyS0,115200n8\n"
-                f"    initrd /boot/initramfs.img\n"
-                f"}}\n"
+                "menuentry 'Gentoo rescue' {\n"
+                f"    if search --no-floppy --fs-uuid --set=root {uuid}; then\n"
+                f"{boot}"
+                "    fi\n"
+                "}\n"
+                "menuentry 'Gentoo rescue (verify boot files)' {\n"
+                "    echo 'Checking boot files against SHA256SUMS...'\n"
+                "    set verified=0\n"
+                "    insmod hashsum\n"
+                "    insmod gcry_sha256\n"
+                f"    if search --no-floppy --fs-uuid --set=root {uuid}; then\n"
+                "        if test -s /SHA256SUMS; then\n"
+                '            if hashsum --hash sha256 --check /SHA256SUMS --keep-going --prefix "($root)"; then\n'
+                "                set verified=1\n"
+                "            fi\n"
+                "        fi\n"
+                "    fi\n"
+                '    if test "$verified" = 1; then\n'
+                f"{boot}"
+                "    else\n"
+                "        echo 'Boot file verification failed. Boot canceled.'\n"
+                "        sleep --interruptible 10\n"
+                "    fi\n"
+                "}\n"
             ),
         )
+        self.command(context, "grub-script-check", str(config))
         self.command_string(context, "sync")
         context.artifacts["image"] = self.settings.disk

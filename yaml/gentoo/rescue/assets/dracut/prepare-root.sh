@@ -11,8 +11,8 @@ if [ "$(blockdev --getro "$device")" != 0 ] || \
     ! timeout 20 mount -t ext4 -o rw,noatime "$device" "$media"; then
     timeout 20 mount -t ext4 -o ro,noload,noatime "$device" "$media"
 fi
-test -f "$media/rescue/root.squashfs"
-loop=$(losetup --find --show --read-only "$media/rescue/root.squashfs")
+test -f "$media/root.squashfs"
+loop=$(losetup --find --show --read-only "$media/root.squashfs")
 printf '%s\n' "$loop" > /run/initramfs/rescue-loop
 mount -t squashfs -o ro "$loop" "$lower"
 mount -t tmpfs -o mode=0755 tmpfs "$overlay"

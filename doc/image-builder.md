@@ -44,7 +44,6 @@ split by responsibility:
 | [`bootloader.py`](../python/corvus_image_builder/gentoo/bootloader.py) | BIOS and UEFI GRUB installation |
 | [`builders.py`](../python/corvus_image_builder/gentoo/builders.py) | Reusable glibc builder preparation and verified musl stage3 bootstrap |
 | [`cloudinit.py`](../python/corvus_image_builder/gentoo/cloudinit.py) | Cloud-init configuration on existing headless images |
-| [`export.py`](../python/corvus_image_builder/gentoo/export.py) | Rescue payload verification and compact media export |
 | [`finalize.py`](../python/corvus_image_builder/gentoo/finalize.py) | Identity removal and image cleanup |
 
 The exported file-writing, symlink, and guarded removal helpers live in
@@ -451,12 +450,19 @@ a 32 GiB helper. The 2 GiB raw disk contains BIOS and removable UEFI bootloaders
 a 64 MiB ESP, and an ext4 carrier holding the kernel, initramfs, compressed
 root, checksums, and persistent home. It does not contain an unpacked OS.
 Distribution-kernel and dracut checks replace the VM-specific kernel stage.
-Cleanup precedes SquashFS generation; publication follows bootloader verification.
+The rescue package stages select the base system and rescue utilities explicitly.
+Portage resolves build dependencies against the helper VM, which also supplies
+GCC's shared runtime libraries.
+After initramfs generation, rescue cleanup removes kernel sources, the installed
+package database, development headers, and GCC executables while retaining
+shared runtimes and kernel modules. The helper VM installs and runs the
+SquashFS tools. Publication follows bootloader verification.
 All mounts are owned resources. Failed builds retain their workspace for inspection.
 
 The Python bundle performs all build orchestration. Existing home/growth and
 dracut shell assets remain runtime inputs; legacy build scripts are not uploaded.
-The existing rescue export command remains applicable to the published raw image:
-`sudo make -C yaml/gentoo export IMAGE=rescue SOURCE_IMAGE=/path/to/image.raw`.
+The standalone [export script](../yaml/gentoo/rescue/export.py) uses the first
+node returned by `crv node list`. On that node, run
+`sudo make -C yaml/gentoo export IMAGE=rescue` to export `gentoo-rescue:latest`.
 See [rescue operations and acceptance tests](../yaml/gentoo/rescue/README.md) for BIOS/UEFI,
 read-only media, persistence, growth, and offline update verification.

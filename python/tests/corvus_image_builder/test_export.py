@@ -1,12 +1,18 @@
 """Exercise rescue export ordering, geometry, and failure cleanup without loop devices."""
 
+import json
+import runpy
 import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-from corvus_image_builder.gentoo.export import export_rescue_image
+
+EXPORT = runpy.run_path(
+    str(Path(__file__).resolve().parents[3] / "yaml/gentoo/rescue/export.py")
+)
 
 
 @pytest.mark.parametrize("bad_checksum", [False, True])
@@ -39,7 +45,33 @@ def test_rescue_export_uses_private_copy_and_cleans_up(
 
     def run(
         argv: Sequence[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[bytes]:
+    ) -> subprocess.CompletedProcess[str | bytes]:
+        if argv[0] == "test-crv":
+            if list(argv[1:]) == ["node", "list", "-o", "json"]:
+                return subprocess.CompletedProcess(
+                    argv,
+                    0,
+                    json.dumps(
+                        [{"id": 1, "name": "local"}, {"id": 2, "name": "remote"}]
+                    ),
+                )
+            assert list(argv[1:]) == [
+                "disk",
+                "show",
+                "gentoo-rescue:latest",
+                "-o",
+                "json",
+            ]
+            placements = [
+                {
+                    "node": {"id": 2, "name": "remote"},
+                    "file_path": str(output / "other.raw"),
+                },
+                {"node": {"id": 1, "name": "local"}, "file_path": str(source)},
+            ]
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps({"placements": placements})
+            )
         commands.append(tuple(argv))
         if argv[0] == "sha256sum" and bad_checksum:
             raise subprocess.CalledProcessError(1, argv)
@@ -50,16 +82,18 @@ def test_rescue_export_uses_private_copy_and_cleans_up(
         return subprocess.CompletedProcess(argv, 0)
 
     monkeypatch.setattr("os.geteuid", lambda: 0)
+    monkeypatch.setenv("CRV", "test-crv")
+    monkeypatch.setattr(sys, "argv", ["export.py", str(output)])
     lookup = Mock(side_effect=read)
     monkeypatch.setattr(subprocess, "check_output", lookup)
     monkeypatch.setattr(subprocess, "run", run)
     if bad_checksum:
-        with pytest.raises(subprocess.CalledProcessError):
-            export_rescue_image(source, output)
+        with pytest.raises(SystemExit, match="1"):
+            EXPORT["main"]()
         assert not (output / "gentoo-rescue.img").exists()
         assert commands[-1] == ("losetup", "-d", "/dev/loop1")
     else:
-        export_rescue_image(source, output)
+        EXPORT["main"]()
         assert (output / "gentoo-rescue.img").read_bytes() == b"original image"
         assert (output / "gentoo-rescue-update.tar").read_bytes() == b"update"
         partitioning = next(command for command in commands if command[0] == "sgdisk")
@@ -69,3 +103,15 @@ def test_rescue_export_uses_private_copy_and_cleans_up(
     assert source.read_bytes() == b"original image"
     assert "--read-only" in lookup.call_args_list[0].args[0]
     assert not list(output.glob(".export-*"))
+
+
+def test_export_fails_without_registered_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
+    lookup = Mock(return_value=subprocess.CompletedProcess([], 0, "[]"))
+    monkeypatch.setenv("CRV", "test-crv")
+    monkeypatch.setattr(subprocess, "run", lookup)
+
+    with pytest.raises(ValueError, match="No Corvus nodes are registered"):
+        EXPORT["find_source"]()
+
+    assert lookup.call_count == 1
+    assert lookup.call_args.args[0] == ["test-crv", "node", "list", "-o", "json"]

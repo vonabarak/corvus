@@ -108,6 +108,8 @@ class PackageInstallStage(GentooStage):
 class GlibcPackageInstallStage(PackageInstallStage):
     """Bootstrap glibc/systemd, then restore full util-linux and PAM support."""
 
+    bootstrap_atoms: tuple[str, ...] = ("@system",)
+
     def install_system(self, context: BuildContext) -> None:
         override = Path("/etc/portage/package.use/zz-corvus-python-bootstrap")
         if override.exists():
@@ -117,7 +119,7 @@ class GlibcPackageInstallStage(PackageInstallStage):
             "sys-libs/pam -systemd\n"
         ))
         try:
-            self.packages(context, ("@system",))
+            self.packages(context, self.bootstrap_atoms)
         finally:
             override.unlink()
         self.packages(context, ("sys-apps/util-linux", "sys-libs/pam"))
