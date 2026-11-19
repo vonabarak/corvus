@@ -374,8 +374,13 @@ def test_openrc_configuration(tmp_path: Path) -> None:
     stage = OpenRCConfigurationStage(
         Settings(tmp_path, tmp_path, tmp_path, libc="musl", init="openrc")
     )
-    stage.execute(context)
+    with patch("subprocess.check_output", side_effect=["1234-ABCD\n", "root-uuid\n"]):
+        stage.execute(context)
     stage.verify(context)
+    assert (tmp_path / "etc/fstab").read_text().splitlines() == [
+        "UUID=root-uuid / ext4 defaults,noatime 0 1",
+        "UUID=1234-ABCD /boot/efi vfat defaults,umask=0077 0 2",
+    ]
     assert (tmp_path / "etc/resolv.conf").is_file()
     assert not (tmp_path / "etc/resolv.conf").is_symlink()
     assert 'clock_hctosys="NO"' in (tmp_path / "etc/conf.d/hwclock").read_text()

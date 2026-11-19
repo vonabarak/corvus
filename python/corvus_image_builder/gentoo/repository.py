@@ -36,7 +36,8 @@ class RepositoryStage(GentooStage):
                 f"\n"
                 f'DISTDIR="{self.settings.cache}/distfiles"\n'
                 f'PKGDIR="{self.settings.cache}/packages/{self.settings.variant}"\n'
-                f'FEATURES="-userfetch -userpriv -getbinpkg -binpkg-request-signature -binpkg-ignore-signature"\n'
+                # The signed rsync quarantine commit must preserve snapshot ownership.
+                f'FEATURES="-userfetch -userpriv -usersync -getbinpkg -binpkg-request-signature -binpkg-ignore-signature"\n'
                 f'GPG_VERIFY_USER_DROP=""\n'
                 f'GPG_VERIFY_GROUP_DROP=""\n'
             )

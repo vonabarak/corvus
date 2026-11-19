@@ -1,8 +1,11 @@
 """Configure services and locales for musl/OpenRC images."""
 
+import subprocess
+
 from ..core import BuildContext
 from ._files import write
 from .base import GentooStage
+from .disk import partition_device
 
 
 class OpenRCConfigurationStage(GentooStage):
@@ -16,11 +19,26 @@ class OpenRCConfigurationStage(GentooStage):
 
     def execute(self, context: BuildContext) -> None:
         root = context.root
+        # The builder and the attached image use the same filesystem labels.
+        esp_uuid, root_uuid = (
+            subprocess.check_output(
+                [
+                    "blkid",
+                    "-s",
+                    "UUID",
+                    "-o",
+                    "value",
+                    str(partition_device(self.settings.disk, number)),
+                ],
+                text=True,
+            ).strip()
+            for number in (2, 3)
+        )
         write(
             root / "etc/fstab",
             (
-                "LABEL=corvus-root / ext4 defaults,noatime 0 1\n"
-                "LABEL=CORVUS-EFI /boot/efi vfat defaults,umask=0077 0 2\n"
+                f"UUID={root_uuid} / ext4 defaults,noatime 0 1\n"
+                f"UUID={esp_uuid} /boot/efi vfat defaults,umask=0077 0 2\n"
             ),
         )
         write(root / "etc/conf.d/hostname", f'hostname="{self.settings.name}"\n')
