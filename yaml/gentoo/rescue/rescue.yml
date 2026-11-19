@@ -64,18 +64,10 @@ pipeline:
         from: ./build.pyz
         to: /run/rescue.pyz
         mode: '0644'
-    - file:
-        from: ./assets/home.sh
-        to: /run/rescue-assets/home.sh
-        mode: '0755'
-    - file:
-        from: ./assets/grow.sh
-        to: /run/rescue-assets/grow.sh
-        mode: '0755'
     - directory:
-        from: ./assets/dracut
-        to: /run/rescue-assets/dracut
-        mode: '0755'
+        from: ./assets
+        to: /run/rescue-assets
+        mode: '0644'
     - shell:
         inline: python3 /run/rescue.pyz
         timeoutSec: 28800

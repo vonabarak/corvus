@@ -1,117 +1,142 @@
-"""Exercise rescue export ordering, geometry, and failure cleanup without loop devices."""
+"""Exercise the rescue exporter without a live Corvus daemon."""
 
-import json
+import hashlib
 import runpy
-import subprocess
-import sys
-from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from corvus_client import GuestAgentError
+from corvus_client.types import GuestExecResult
 
 EXPORT = runpy.run_path(
     str(Path(__file__).resolve().parents[3] / "yaml/gentoo/rescue/export.py")
 )
 
 
-@pytest.mark.parametrize("bad_checksum", [False, True])
-def test_rescue_export_uses_private_copy_and_cleans_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_checksum: bool
+@pytest.fixture
+def corvus() -> tuple[Mock, Mock, Mock]:
+    client = Mock()
+    node = SimpleNamespace(id=1, name="first")
+    client.nodes.list.return_value = [node, SimpleNamespace(id=2, name="second")]
+    client.disks.get.return_value.show.return_value = SimpleNamespace(
+        id=42, ephemeral=False, placements=[SimpleNamespace(node=node)]
+    )
+    template = client.templates.get.return_value
+    template.show.return_value.drives = []
+    vm = template.instantiate.return_value
+    vm.guest_exec.return_value = GuestExecResult(0, "", "")
+    return client, template, vm
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "readiness", "mount", "download", "checksum"]
+)
+def test_export(
+    tmp_path: Path, corvus: tuple[Mock, Mock, Mock], failure: str | None
 ) -> None:
-    source = tmp_path / "source.raw"
-    source.write_bytes(b"original image")
-    output = tmp_path / "output"
-    commands: list[tuple[str, ...]] = []
-    geometry = iter([100000, 10000, 10000])
-    loops = iter(["/dev/loop1", "/dev/loop2"])
+    client, template, vm = corvus
+    files = EXPORT["FILES"]
+    manifest = "".join(
+        f"{hashlib.sha256(name.encode()).hexdigest()}  {name}\n" for name in files[:-1]
+    )
+    expected = {name: name.encode() for name in files[:-1]}
+    expected["SHA256SUMS"] = manifest.encode()
+    if failure:
+        for name in files:
+            (tmp_path / name).write_bytes(b"previous")
 
-    def read(argv: Sequence[str], **kwargs: object) -> str:
-        if argv[0] == "losetup":
-            return next(loops)
-        if argv[0] == "blkid":
-            return "rescue-data" if "LABEL" in argv else "partition-guid"
-        if argv[0] == "dumpe2fs":
-            blocks = next(geometry)
-            return (
-                f"Block count: {blocks}\n"
-                f"Block size: 4096\n"
+    def download(source: str, target: Path) -> None:
+        assert source == f"{EXPORT['MOUNT']}/{target.name}"
+        if failure == "download":
+            raise OSError("interrupted")
+        data = expected[target.name]
+        target.write_bytes(
+            b"corrupt" if failure == "checksum" and target.name == files[0] else data
+        )
+
+    vm.download_to_file.side_effect = download
+    if failure == "readiness":
+        vm.guest_exec.side_effect = [
+            GuestAgentError("booting"),
+            GuestAgentError("booting"),
+        ]
+    elif failure == "mount":
+        vm.guest_exec.side_effect = [
+            GuestExecResult(0, "", ""),
+            GuestExecResult(1, "", "bad disk"),
+        ]
+
+    if failure:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                "time.monotonic",
+                Mock(side_effect=[0, 121]) if failure == "readiness" else lambda: 0,
             )
-        if argv[0] == "lsblk":
-            return "1054720"
-        if argv[0] == "blockdev":
-            return "8388608"
-        raise AssertionError(argv)
-
-    def run(
-        argv: Sequence[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str | bytes]:
-        if argv[0] == "test-crv":
-            if list(argv[1:]) == ["node", "list", "-o", "json"]:
-                return subprocess.CompletedProcess(
-                    argv,
-                    0,
-                    json.dumps(
-                        [{"id": 1, "name": "local"}, {"id": 2, "name": "remote"}]
-                    ),
-                )
-            assert list(argv[1:]) == [
-                "disk",
-                "show",
-                "gentoo-rescue:latest",
-                "-o",
-                "json",
-            ]
-            placements = [
-                {
-                    "node": {"id": 2, "name": "remote"},
-                    "file_path": str(output / "other.raw"),
-                },
-                {"node": {"id": 1, "name": "local"}, "file_path": str(source)},
-            ]
-            return subprocess.CompletedProcess(
-                argv, 0, json.dumps({"placements": placements})
-            )
-        commands.append(tuple(argv))
-        if argv[0] == "sha256sum" and bad_checksum:
-            raise subprocess.CalledProcessError(1, argv)
-        if argv[0] == "cp":
-            Path(argv[-1]).write_bytes(source.read_bytes())
-        if argv[0] == "tar":
-            Path(argv[argv.index("-cf") + 1]).write_bytes(b"update")
-        return subprocess.CompletedProcess(argv, 0)
-
-    monkeypatch.setattr("os.geteuid", lambda: 0)
-    monkeypatch.setenv("CRV", "test-crv")
-    monkeypatch.setattr(sys, "argv", ["export.py", str(output)])
-    lookup = Mock(side_effect=read)
-    monkeypatch.setattr(subprocess, "check_output", lookup)
-    monkeypatch.setattr(subprocess, "run", run)
-    if bad_checksum:
-        with pytest.raises(SystemExit, match="1"):
-            EXPORT["main"]()
-        assert not (output / "gentoo-rescue.img").exists()
-        assert commands[-1] == ("losetup", "-d", "/dev/loop1")
+            with pytest.raises((ValueError, OSError)):
+                EXPORT["export_rescue_image"](client, tmp_path)
+        assert all((tmp_path / name).read_bytes() == b"previous" for name in files)
     else:
-        EXPORT["main"]()
-        assert (output / "gentoo-rescue.img").read_bytes() == b"original image"
-        assert (output / "gentoo-rescue-update.tar").read_bytes() == b"update"
-        partitioning = next(command for command in commands if command[0] == "sgdisk")
-        assert "--partition-guid=3:partition-guid" in partitioning
-        assert partitioning[-1] == "/dev/loop2"
-        assert ("resize2fs", "/dev/loop2p3", "26384") in commands
-    assert source.read_bytes() == b"original image"
-    assert "--read-only" in lookup.call_args_list[0].args[0]
-    assert not list(output.glob(".export-*"))
+        EXPORT["export_rescue_image"](client, tmp_path)
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == expected
+
+    client.disks.get.assert_called_once_with("gentoo-rescue:latest")
+    client.templates.get.assert_called_once_with("gentoo-musl-openrc-headless")
+    assert template.instantiate.call_args.kwargs == {"node": "first"}
+    assert [call[0] for call in vm.method_calls][:2] == ["attach_disk", "start"]
+    vm.attach_disk.assert_called_once_with(42, interface="virtio", read_only=True)
+    vm.stop.assert_called_once_with(wait=True, timeout_sec=30)
+    vm.delete.assert_called_once_with(force=False)
+    if failure not in {"readiness", "mount"}:
+        assert vm.guest_exec.call_args.args == (f"umount {EXPORT['MOUNT']}",)
+    assert not list(tmp_path.glob(".export-*"))
 
 
-def test_export_fails_without_registered_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
-    lookup = Mock(return_value=subprocess.CompletedProcess([], 0, "[]"))
-    monkeypatch.setenv("CRV", "test-crv")
-    monkeypatch.setattr(subprocess, "run", lookup)
+@pytest.mark.parametrize("empty", [True, False])
+def test_export_requires_first_node_placement(
+    tmp_path: Path, corvus: tuple[Mock, Mock, Mock], empty: bool
+) -> None:
+    client, template, _ = corvus
+    nodes = client.nodes.list.return_value
+    if empty:
+        nodes.clear()
+    else:
+        client.disks.get.return_value.show.return_value.placements[0].node = nodes[1]
 
-    with pytest.raises(ValueError, match="No Corvus nodes are registered"):
-        EXPORT["find_source"]()
+    with pytest.raises(
+        ValueError, match=r"No Corvus nodes|no placement on the first node"
+    ):
+        EXPORT["export_rescue_image"](client, tmp_path)
 
-    assert lookup.call_count == 1
-    assert lookup.call_args.args[0] == ["test-crv", "node", "list", "-o", "json"]
+    template.instantiate.assert_not_called()
+
+
+def test_export_forces_cleanup_after_start_failure(
+    tmp_path: Path, corvus: tuple[Mock, Mock, Mock]
+) -> None:
+    client, _, vm = corvus
+    vm.start.side_effect = GuestAgentError("start failed")
+    vm.stop.side_effect = GuestAgentError("stop failed")
+
+    with pytest.raises(GuestAgentError, match="start failed"):
+        EXPORT["export_rescue_image"](client, tmp_path)
+
+    vm.delete.assert_called_once_with(force=True)
+    vm.download_to_file.assert_not_called()
+    assert not list(tmp_path.iterdir())
+
+
+def test_export_reports_missing_helper_placement(
+    tmp_path: Path, corvus: tuple[Mock, Mock, Mock]
+) -> None:
+    client, template, _ = corvus
+    helper = SimpleNamespace(id=27, name="helper-boot", placements=[])
+    template.show.return_value.drives = [SimpleNamespace(disk_image=helper)]
+    rescue = client.disks.get.return_value
+    client.disks.get.side_effect = [rescue, Mock(**{"show.return_value": helper})]
+
+    with pytest.raises(ValueError, match=r"helper-boot .* has no registered placement"):
+        EXPORT["export_rescue_image"](client, tmp_path)
+
+    template.instantiate.assert_not_called()

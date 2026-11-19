@@ -1,0 +1,8 @@
+ACCEPT_KEYWORDS="amd64"
+GENTOO_MIRRORS="https://distfiles.gentoo.org"
+COMMON_FLAGS="-O2 -pipe -march=x86-64 -mtune=generic"
+CFLAGS="${COMMON_FLAGS}"
+CXXFLAGS="${COMMON_FLAGS}"
+USE="dbus wifi"
+QEMU_SOFTMMU_TARGETS=""
+QEMU_USER_TARGETS=""

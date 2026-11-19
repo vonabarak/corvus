@@ -338,6 +338,8 @@ python3 yaml/gentoo/bundle.py yaml/gentoo/my-flavor/build.py yaml/gentoo/my-flav
 Here `my-flavor/build.py` is the new script you create. Bundle creation is deterministic
 for identical source files; complete image builds depend on repository state,
 packages, and build timestamps and are not guaranteed byte-for-byte reproducible.
+Use `--include-module filename.py` for each sibling Python module the recipe
+imports. These modules are included only in the bundle that names them.
 
 
 ## Integration-test images
@@ -461,8 +463,10 @@ All mounts are owned resources. Failed builds retain their workspace for inspect
 
 The Python bundle performs all build orchestration. Existing home/growth and
 dracut shell assets remain runtime inputs; legacy build scripts are not uploaded.
-The standalone [export script](../yaml/gentoo/rescue/export.py) uses the first
-node returned by `crv node list`. On that node, run
-`sudo make -C yaml/gentoo export IMAGE=rescue` to export `gentoo-rescue:latest`.
+The standalone [export script](../yaml/gentoo/rescue/export.py) uses a temporary
+`gentoo-musl-openrc-headless` VM on the first Corvus node. Run
+`make -C yaml/gentoo export IMAGE=rescue` with the Python client installed
+to download the four verified payload and checksum files from
+`gentoo-rescue:latest` through QGA.
 See [rescue operations and acceptance tests](../yaml/gentoo/rescue/README.md) for BIOS/UEFI,
 read-only media, persistence, growth, and offline update verification.

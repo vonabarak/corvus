@@ -1,0 +1,19 @@
+sys-kernel/gentoo-kernel-bin -initramfs
+sys-kernel/linux-firmware -savedconfig
+sys-kernel/installkernel -dracut -grub -systemd
+sys-kernel/dracut systemd
+sys-fs/squashfs-tools lzma zstd xattr
+app-misc/yq yq-symlink
+net-analyzer/mtr ncurses -gtk -gui
+sys-fs/lvm2 lvm -systemd -udev
+sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes
+app-emulation/qemu -accessibility -gtk -sdl -sdl-image -doc -vnc -oss
+net-analyzer/nmap -zenmap
+net-fs/samba client ads acl ldap python winbind -addc -cups -regedit
+net-fs/cifs-utils ads
+net-libs/ngtcp2 gnutls
+net-dns/bind gssapi
+sys-libs/tdb python
+sys-libs/tevent python
+sys-apps/lshw -gtk
+sys-fs/multipath-tools systemd

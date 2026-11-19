@@ -1,179 +1,188 @@
-"""Export compact rescue installation media without modifying the source disk."""
+"""Download and verify Gentoo rescue payloads through a temporary Corvus VM."""
 
 import argparse
-import json
+import fcntl
+import hashlib
 import os
 import re
-import shutil
-import subprocess
 import tempfile
+import time
+import uuid
 from pathlib import Path
 
+import capnp
+from corvus_client import Client, CorvusError, GuestAgentError, InvalidTransition
+from corvus_client._sync.vm import SyncVm
 
-def query_corvus(*args: str) -> str:
-    result = subprocess.run(
-        [os.environ.get("CRV", "crv"), *args, "-o", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
+IMAGE = "gentoo-rescue:latest"
+TEMPLATE = "gentoo-musl-openrc-headless"
+PAYLOADS = ("vmlinuz", "initramfs.img", "root.squashfs")
+MANIFEST = "SHA256SUMS"
+FILES = (*PAYLOADS, MANIFEST)
+MOUNT = "/run/corvus-rescue-export"
+MOUNT_COMMAND = (
+    f"\n"
+    f"set -eu\n"
+    f"partition=\n"
+    f"for entry in /sys/class/block/vd*3; do\n"
+    f'    [ -f "$entry/partition" ] || continue\n'
+    f'    [ "$(cat "$entry/partition")" = 3 ] || continue\n'
+    f"    disk=${{entry%3}}\n"
+    f'    [ "$(cat "$disk/ro")" = 1 ] || continue\n'
+    f"    device=/dev/${{entry##*/}}\n"
+    f'    [ "$(blkid -p -s TYPE -o value "$device")" = ext4 ] || continue\n'
+    f'    [ "$(blkid -p -s LABEL -o value "$device")" = rescue-data ] || continue\n'
+    f'    if [ -n "$partition" ]; then\n'
+    f"        echo 'Multiple read-only rescue-data partitions' >&2\n"
+    f"        exit 1\n"
+    f"    fi\n"
+    f"    partition=$device\n"
+    f"done\n"
+    f'if [ -z "$partition" ]; then\n'
+    f"    echo 'No read-only ext4 rescue-data partition 3 found' >&2\n"
+    f"    exit 1\n"
+    f"fi\n"
+    f"mkdir -p {MOUNT}\n"
+    f'mount -t ext4 -o ro,noload,nodev,nosuid,noexec "$partition" {MOUNT}\n'
+)
+
+
+def connect() -> Client:
+    if socket := os.environ.get("CORVUS_SOCKET"):
+        return Client(unix_socket=socket)
+    return Client(
+        host=os.environ.get("CORVUS_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CORVUS_PORT", "9876")),
     )
-    if result.returncode:
+
+
+def guest_command(vm: SyncVm, command: str, operation: str) -> None:
+    result = vm.guest_exec(command)
+    if result.exit_code:
         detail = result.stderr.strip() or result.stdout.strip()
-        raise ValueError(f"Corvus {' '.join(args)} failed: {detail}")
-    return result.stdout
+        raise ValueError(f"{operation} failed (exit {result.exit_code}): {detail}")
 
 
-def find_source() -> Path:
-    nodes = json.loads(query_corvus("node", "list"))
+def wait_for_guest(vm: SyncVm) -> None:
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            guest_command(vm, "true", "QGA readiness check")
+            return
+        except (GuestAgentError, InvalidTransition) as exc:
+            if time.monotonic() >= deadline:
+                raise ValueError(f"QGA did not become ready: {exc}") from exc
+            time.sleep(1)
+
+
+def verify_payloads(work: Path) -> None:
+    checksums: dict[str, str] = {}
+    for line in (work / MANIFEST).read_text(encoding="ascii").splitlines():
+        match = re.fullmatch(r"([0-9a-fA-F]{64}) [ *](.+)", line)
+        if match is None or match[2] not in PAYLOADS or match[2] in checksums:
+            raise ValueError(f"Invalid {MANIFEST} entry: {line!r}")
+        checksums[match[2]] = match[1].lower()
+    if checksums.keys() != set(PAYLOADS):
+        raise ValueError(f"{MANIFEST} must cover all three rescue payloads")
+    for name, expected in checksums.items():
+        digest = hashlib.sha256()
+        with (work / name).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected:
+            raise ValueError(f"Checksum mismatch for {name}")
+
+
+def download_payloads(client: Client, work: Path) -> None:
+    nodes = client.nodes.list()
     if not nodes:
         raise ValueError("No Corvus nodes are registered")
     node = nodes[0]
+    image = client.disks.get(IMAGE).show()
+    if image.ephemeral:
+        raise ValueError(f"{IMAGE} must be a persistent published image")
+    if not any(placement.node.id == node.id for placement in image.placements):
+        raise ValueError(f"{IMAGE} has no placement on the first node, {node.name}")
 
-    image = "gentoo-rescue:latest"
-    placements = json.loads(query_corvus("disk", "show", image))["placements"]
-    placement = next(
-        (item for item in placements if item["node"]["id"] == node["id"]), None
-    )
-    if placement is None:
-        raise ValueError(
-            f"{image} has no placement on the first Corvus node, {node['name']}"
-        )
-
-    source = Path(placement["file_path"])
-    if not source.is_file():
-        raise ValueError(f"Run the export on {node['name']}, where {source} is stored")
-    return source
-
-
-def export_rescue_image(source: Path, output: Path) -> None:
-    """Verify rescue payloads, export an update tar, and shrink a private raw copy.
-
-    Root and Linux loop/filesystem tools are required. Outputs are prepared in
-    the destination filesystem and published with atomic individual renames.
-    Cleanup never removes a work directory while it remains mounted.
-    """
-    source = source.resolve(strict=True)
-    output = output.resolve()
-    if os.geteuid() != 0:
-        raise ValueError("Rescue export requires root")
-    if not source.is_file() or source == output / "gentoo-rescue.img":
-        raise ValueError("Expected a source image distinct from the output")
-    output.mkdir(parents=True, exist_ok=True)
-    environment = dict(os.environ, LC_ALL="C")
-
-    def run(*argv: str, allowed: tuple[int, ...] = (0,)) -> None:
-        result = subprocess.run(argv, env=environment, check=False)
-        if result.returncode not in allowed:
-            raise subprocess.CalledProcessError(result.returncode, argv)
-
-    def read(*argv: str) -> str:
-        return subprocess.check_output(argv, env=environment, text=True).strip()
-
-    loop = ""
-    mounted = False
-    # Deliberately do not auto-delete work files if unmount/detach fails.
-    work = Path(tempfile.mkdtemp(prefix=".export-", dir=output))
-    media = work / "media"
-    media.mkdir()
+    name = f"gentoo-rescue-export-{uuid.uuid4().hex}"
+    template = client.templates.get(TEMPLATE)
+    for drive in template.show().drives:
+        if drive.disk_image is None:
+            continue
+        backing = client.disks.get(drive.disk_image.id).show()
+        if not backing.placements:
+            raise ValueError(
+                f"Template {TEMPLATE} disk {backing.name} (ID {backing.id}) "
+                "has no registered placement. Restore or rebuild the helper image."
+            )
+    vm = template.instantiate(name, node=node.name)
+    started = mounted = False
+    failure: BaseException | None = None
     try:
-        loop = read(
-            "losetup", "--find", "--show", "--partscan", "--read-only", str(source)
-        )
-        run("udevadm", "settle", "--timeout=30")
-        partition = loop + "p3"
-        if read("blkid", "-s", "LABEL", "-o", "value", partition) != "rescue-data":
-            raise ValueError("Source is not a rescue disk")
-        run("mount", "-t", "ext4", "-o", "ro,noload", partition, str(media))
+        vm.attach_disk(image.id, interface="virtio", read_only=True)
+        started = True
+        vm.start(wait=True)
+        wait_for_guest(vm)
+        guest_command(vm, MOUNT_COMMAND, "Mounting rescue data")
         mounted = True
-        subprocess.run(
-            ["sha256sum", "--strict", "-c", "SHA256SUMS"],
-            cwd=media,
-            env=environment,
-            check=True,
-        )
-        run(
-            "tar",
-            "-C",
-            str(media),
-            "-cf",
-            str(work / "gentoo-rescue-update.tar"),
-            "vmlinuz",
-            "initramfs.img",
-            "root.squashfs",
-            "SHA256SUMS",
-        )
-        run("umount", str(media))
-        mounted = False
-        run("losetup", "-d", loop)
-        loop = ""
-        image = work / "gentoo-rescue.img"
-        run("cp", "--reflink=auto", "--sparse=always", str(source), str(image))
-        loop = read("losetup", "--find", "--show", "--partscan", str(image))
-        run("udevadm", "settle", "--timeout=30")
-        partition = loop + "p3"
-        run("e2fsck", "-pf", partition, allowed=(0, 1))
-
-        def geometry() -> tuple[int, int]:
-            info = read("dumpe2fs", "-h", partition)
-            count = re.search(r"^Block count:\s+(\d+)$", info, re.MULTILINE)
-            size = re.search(r"^Block size:\s+(\d+)$", info, re.MULTILINE)
-            if count is None or size is None:
-                raise ValueError("Cannot read ext4 geometry")
-            return int(count[1]), int(size[1])
-
-        capacity, blocksize = geometry()
-        previous = capacity + 1
-        while True:
-            run("resize2fs", "-M", partition)
-            blocks, blocksize = geometry()
-            if blocks > previous:
-                raise ValueError("Filesystem unexpectedly grew during shrinking")
-            if blocks == previous:
-                break
-            previous = blocks
-        blocks = min(capacity, blocks + 67108864 // blocksize)
-        run("resize2fs", partition, str(blocks))
-        start = int(read("lsblk", "-ndo", "START", partition))
-        guid = read("blkid", "-s", "PART_ENTRY_UUID", "-o", "value", "-p", partition)
-        last = int(read("blockdev", "--getsz", loop)) - 34
-        end = min(
-            last, ((start * 512 + blocks * blocksize + 1048575) // 1048576) * 2048 - 1
-        )
-        run(
-            "sgdisk",
-            "--delete=3",
-            f"--new=3:{start}:{end}",
-            "--typecode=3:8300",
-            "--change-name=3:rescue-data",
-            f"--partition-guid=3:{guid}",
-            loop,
-        )
-        run("losetup", "-d", loop)
-        loop = ""
-        size = ((end + 34 + 2047) // 2048) * 1048576
-        run("truncate", "-s", str(size), str(image))
-        run("sgdisk", "--move-second-header", str(image))
-        run("sgdisk", "--verify", str(image))
-        image.replace(output / image.name)
-        archive = work / "gentoo-rescue-update.tar"
-        archive.replace(output / archive.name)
+        for filename in FILES:
+            vm.download_to_file(f"{MOUNT}/{filename}", work / filename)
+        verify_payloads(work)
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
+        errors = []
         if mounted:
-            run("umount", str(media))
-        if loop:
-            run("losetup", "-d", loop)
-        shutil.rmtree(work)
+            try:
+                guest_command(vm, f"umount {MOUNT}", "Unmounting rescue data")
+            except Exception as exc:
+                errors.append(str(exc))
+        force = False
+        if started:
+            try:
+                vm.stop(wait=True, timeout_sec=30)
+            except Exception:
+                force = True
+        try:
+            vm.delete(force=force)
+        except Exception as exc:
+            errors.append(f"Deleting VM failed: {exc}")
+        if errors:
+            detail = f"Cleanup of {name} failed: " + ", ".join(errors)
+            if failure is None:
+                raise ValueError(detail)
+            raise ValueError(
+                f"{failure}\n"
+                f"{detail}"
+            ) from failure
+
+
+def export_rescue_image(client: Client, output: Path) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".export-", dir=output) as directory:
+        work = Path(directory)
+        download_payloads(client, work)
+        directory_fd = os.open(output, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(directory_fd, fcntl.LOCK_EX)
+            for name in FILES:
+                if (output / name).is_dir():
+                    raise IsADirectoryError(output / name)
+            for name in FILES:
+                (work / name).replace(output / name)
+        finally:
+            os.close(directory_fd)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     arguments = parser.parse_args()
-    if os.geteuid() != 0:
-        parser.exit(1, "Rescue export requires root\n")
     try:
-        export_rescue_image(find_source(), arguments.output)
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        with connect() as client:
+            export_rescue_image(client, arguments.output)
+    except (OSError, ValueError, CorvusError, capnp.KjException) as exc:
         parser.exit(1, f"Rescue export failed: {exc}\n")
 
 

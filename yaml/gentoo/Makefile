@@ -143,7 +143,7 @@ PYTHON ?= python3
 SCRIPTS := $(wildcard $(IMAGE)/build*.py)
 .PHONY: bundle plan test export
 bundle:
-	$(foreach script,$(SCRIPTS),$(PYTHON) bundle.py $(script) $(script:.py=.pyz);)
+	$(foreach script,$(SCRIPTS),$(PYTHON) bundle.py $(script) $(script:.py=.pyz) $(if $(filter rescue/build.py,$(script)),--include-module rescue_stages.py);)
 plan: bundle
 	$(foreach script,$(SCRIPTS),IMAGE_BUILD_PLAN=1 $(PYTHON) $(script:.py=.pyz);)
 test:

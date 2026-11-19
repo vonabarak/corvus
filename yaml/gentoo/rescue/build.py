@@ -7,7 +7,7 @@ from corvus_image_builder.gentoo import (
     Settings,
     WorkspaceStage,
 )
-from corvus_image_builder.gentoo.rescue import (
+from rescue_stages import (
     RescueBootloaderStage,
     RescueCleanupStage,
     RescueDiskStage,

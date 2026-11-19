@@ -33,6 +33,13 @@ and a generic, non-hostonly dracut initramfs. It does not use the VM-only kernel
 used by other Corvus Gentoo images. The recipe checks required hardware options,
 boot drivers, and squashfs/OverlayFS support before publication.
 
+`build.py` composes the stages in `rescue_stages.py` with the shared builder
+stages. The bundle includes the recipe-local module. The YAML uploads
+`assets/` as a directory. Files under `assets/root/` mirror their destinations
+in the target root filesystem. The other asset directories hold shared
+systemd drop-ins, Portage policy, and the GRUB template. The build fills in
+the carrier UUID in that template and generates the payload checksum manifest.
+
 ## Rescue utilities
 
 The image includes BIOS and UEFI GRUB repair tools, FSArchiver, Borg, rclone,
@@ -129,35 +136,39 @@ Requires x86-64, BIOS or UEFI with Secure Boot disabled. Start with 4 GiB RAM;
 no persistent system overlay. Initial installation replaces the stick; subsequent
 updates replace the three payload files and their checksums offline.
 
-## Export and write a USB stick
+## Export rescue payloads
 
-Run the export on the first node returned by `crv node list`. That node must
-store `gentoo-rescue:latest`. The script uses `crv` to find the registered image
-and writes a compact copy and update archive.
-Root needs access to Corvus and the local image file. Install util-linux,
-e2fsprogs, gptfdisk, coreutils, tar and udev on the export host.
+Run this command with the Corvus Python client installed in the selected Python
+environment and with access to the Corvus daemon.
 
 ```sh
-sudo make -C yaml/gentoo export IMAGE=rescue
+make -C yaml/gentoo export IMAGE=rescue
 ```
 
-Set `CRV=/path/to/crv` if the CLI is outside root's PATH.
+Use `PYTHON=/absolute/path/to/python` to select an environment.
+Set `CORVUS_SOCKET` for a Unix socket or `CORVUS_HOST` and `CORVUS_PORT` for
+TCP. TCP uses the Python client's default TLS configuration.
 
-Outputs are `yaml/gentoo/build/gentoo-rescue/gentoo-rescue.img` and
-`gentoo-rescue-update.tar`. The export checks the payload hashes, shrinks ext4
-leaving only 64 MiB above its minimum size, and relocates the backup GPT after truncation.
-Shrinking repeats until ext4's minimum size stops decreasing.
-The archive contains the three payloads and `SHA256SUMS`. It excludes
-home files, GRUB and the ESP. `OUTPUT_DIR=/absolute/path` overrides the output directory.
+The first Corvus node must have the published `gentoo-rescue:latest` image
+and be able to instantiate the `gentoo-musl-openrc-headless` template.
+The exporter attaches the rescue image read-only to a temporary VM, downloads
+and verifies the four files, and deletes the VM. It writes `vmlinuz`,
+`initramfs.img`, `root.squashfs`, and `SHA256SUMS` to
+`yaml/gentoo/build/gentoo-rescue/`. Set `OUTPUT_DIR=/absolute/path` to
+override the destination.
 
-Use an unmounted USB stick larger than the compact image. Replace `/dev/sdX`
-with the **whole USB device**; this destroys its contents:
+## Initial USB installation
+
+Use the registered raw image for a new USB stick. Obtain its path on the node
+from `crv disk show gentoo-rescue:latest`. Run these commands with access to
+that raw file. Replace `/path/to/registered-rescue.raw` with its path and
+`/dev/sdX` with the **whole unmounted USB device**. Writing destroys the
+contents of the USB device.
 
 ```sh
-sudo dd if=yaml/gentoo/build/gentoo-rescue/gentoo-rescue.img of=/dev/sdX bs=4M conv=fsync status=progress
-sync
-sudo cmp -n "$(stat -c %s yaml/gentoo/build/gentoo-rescue/gentoo-rescue.img)" \
-  yaml/gentoo/build/gentoo-rescue/gentoo-rescue.img /dev/sdX
+image=/path/to/registered-rescue.raw
+sudo dd if="$image" of=/dev/sdX bs=4M conv=fsync status=progress
+sudo cmp -n "$(stat -c %s "$image")" "$image" /dev/sdX
 ```
 
 The first writable boot expands storage to use the remaining device capacity.
@@ -167,24 +178,22 @@ the contents of the old home directory directly into the new ext4 partition root
 ## Offline payload updates
 
 If the existing GRUB menu checks a separate SquashFS checksum, back up home and
-reflash with the compact image to install the updated menu. The update archive
-only replaces files on the ext4 partition.
+reflash with the registered raw image to install the updated menu.
 
 Boot another OS, unmount the rescue system, and mount its ext4 partition at
 `/mnt/rescue`. Do not update the squashfs backing a running rescue session.
-Keep a backup of the previous payloads. Extract and verify on another filesystem,
-then stage the payloads and checksum manifest before renaming them:
+Keep a backup of the previous payloads. Verify the exported files on another
+filesystem, then stage them and the checksum manifest before renaming them.
 
 ```sh
-mkdir update
-tar -xf gentoo-rescue-update.tar -C update
-(cd update && sha256sum -c SHA256SUMS) || exit 1
+update=yaml/gentoo/build/gentoo-rescue
+(cd "$update" && sha256sum -c SHA256SUMS) || exit 1
 for path in vmlinuz initramfs.img root.squashfs SHA256SUMS; do
-  sudo cp "update/$path" "/mnt/rescue/$path.new" || exit 1
+  sudo cp "$update/$path" "/mnt/rescue/$path.new" || exit 1
 done
 # Check the copies before replacing any active filename.
 for path in vmlinuz initramfs.img root.squashfs SHA256SUMS; do
-  sudo cmp "update/$path" "/mnt/rescue/$path.new" || exit 1
+  sudo cmp "$update/$path" "/mnt/rescue/$path.new" || exit 1
 done
 sync
 for path in vmlinuz initramfs.img root.squashfs SHA256SUMS; do

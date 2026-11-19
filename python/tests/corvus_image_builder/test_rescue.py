@@ -1,30 +1,35 @@
 """Check rescue media boundaries and standalone recipe contracts."""
 
-import os
+import importlib
 import runpy
 import shutil
 import subprocess
-import sys
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, patch
 
 import pytest
 from corvus_image_builder.core import BuildContext, BuildManager, CommandRunner
 from corvus_image_builder.gentoo import Settings
 from corvus_image_builder.gentoo.packages import GlibcPackageInstallStage
-from corvus_image_builder.gentoo.rescue import (
-    GCC_RUNTIME,
-    RescueBootloaderStage,
-    RescueCleanupStage,
-    RescuePackagesStage,
-)
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
+RECIPE = ROOT / "yaml/gentoo/rescue"
 
 
-def test_rescue_bootstrap_copies_runtime_from_builder(tmp_path: Path) -> None:
+@pytest.fixture
+def rescue(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    monkeypatch.syspath_prepend(str(RECIPE))
+    module = importlib.import_module("rescue_stages")
+    monkeypatch.setattr(module, "ASSETS", RECIPE / "assets")
+    return module
+
+
+def test_rescue_bootstrap_copies_runtime_from_builder(
+    tmp_path: Path, rescue: ModuleType
+) -> None:
     root = tmp_path / "root"
     repository = tmp_path / "gentoo"
     (root / "usr/lib64").mkdir(parents=True)
@@ -32,14 +37,14 @@ def test_rescue_bootstrap_copies_runtime_from_builder(tmp_path: Path) -> None:
     licenses.mkdir(parents=True)
     for name in ("GPL-3", "gcc-runtime-library-exception-3.1"):
         (licenses / name).write_text(name)
-    for soname in GCC_RUNTIME:
+    for soname in rescue.GCC_RUNTIME:
         library = tmp_path / f"{soname}.0"
         library.write_text(soname)
         (tmp_path / soname).symlink_to(library)
     context = BuildContext(
         root, Mock(spec=CommandRunner), artifacts={"repository": repository}
     )
-    stage = RescuePackagesStage(Settings(Path("/dev/vdb"), tmp_path, None))
+    stage = rescue.RescuePackagesStage(Settings(Path("/dev/vdb"), tmp_path, None))
 
     def gcc_lookup(argv: list[str], *, text: bool) -> str:
         assert text and argv[0] == "gcc"
@@ -51,7 +56,7 @@ def test_rescue_bootstrap_copies_runtime_from_builder(tmp_path: Path) -> None:
     ):
         stage.install_system(context)
     install.assert_called_once_with(context)
-    for soname in GCC_RUNTIME:
+    for soname in rescue.GCC_RUNTIME:
         library = root / "usr/lib64" / soname
         assert library.read_text() == soname and not library.is_symlink()
     assert (root / "usr/share/licenses/gcc-runtime/GPL-3").is_file()
@@ -59,8 +64,8 @@ def test_rescue_bootstrap_copies_runtime_from_builder(tmp_path: Path) -> None:
     assert set(stage.bootstrap_atoms) <= set(stage.atoms)
 
 
-def test_rescue_plan_and_recipe(tmp_path: Path) -> None:
-    script = runpy.run_path(str(ROOT / "yaml/gentoo/rescue/build.py"))
+def test_rescue_plan_and_recipe(tmp_path: Path, rescue: ModuleType) -> None:
+    script = runpy.run_path(str(RECIPE / "build.py"))
     context = BuildContext(tmp_path)
     names = BuildManager().plan(
         script["build_recipe"](Settings(Path("/dev/vdb"), tmp_path, None)), context
@@ -70,29 +75,32 @@ def test_rescue_plan_and_recipe(tmp_path: Path) -> None:
         < names.index("RescuePackStage")
         < names.index("RescueBootloaderStage")
     )
-    recipe = yaml.safe_load((ROOT / "yaml/gentoo/rescue/rescue.yml").read_text())
+    recipe = yaml.safe_load((RECIPE / "rescue.yml").read_text())
     build = recipe["pipeline"][1]["build"]
     assert build["target"]["format"] == "raw"
     assert build["target"]["size"] == "2G"
     files = [p["file"]["from"] for p in build["provisioners"] if "file" in p]
-    assert len(files) == 3
+    assert files == ["./build.pyz"]
     directories = [p["directory"] for p in build["provisioners"] if "directory" in p]
     assert directories == [
         {
-            "from": "./assets/dracut",
-            "to": "/run/rescue-assets/dracut",
-            "mode": "0755",
+            "from": "./assets",
+            "to": "/run/rescue-assets",
+            "mode": "0644",
         }
     ]
-    assert (ROOT / "yaml/gentoo/rescue" / directories[0]["from"]).is_dir()
-    assert not any(name.endswith(("build.sh", "lib.sh", "kernel.sh")) for name in files)
-    for name in files[1:]:
-        assert (ROOT / "yaml/gentoo/rescue" / name).is_file()
+    assert (RECIPE / directories[0]["from"]).is_dir()
+    repository = rescue.RescueRepositoryStage(
+        Settings(Path("/dev/vdb"), tmp_path, None)
+    )
+    repository.validate(context)
     assert not (tmp_path / "etc").exists()
 
 
 @pytest.mark.parametrize("uuid", ["abcd-1234", "bad;reboot"])
-def test_rescue_grub_uses_validated_carrier_uuid(tmp_path: Path, uuid: str) -> None:
+def test_rescue_grub_uses_validated_carrier_uuid(
+    tmp_path: Path, uuid: str, rescue: ModuleType
+) -> None:
     esp = tmp_path / "esp"
     loader = esp / "EFI/BOOT/BOOTX64.EFI"
     loader.parent.mkdir(parents=True)
@@ -102,7 +110,7 @@ def test_rescue_grub_uses_validated_carrier_uuid(tmp_path: Path, uuid: str) -> N
         Mock(spec=CommandRunner),
         artifacts={"esp": esp, "carrier-partition": "/dev/vdb3"},
     )
-    stage = RescueBootloaderStage(Settings(Path("/dev/vdb"), tmp_path, None))
+    stage = rescue.RescueBootloaderStage(Settings(Path("/dev/vdb"), tmp_path, None))
     with patch("subprocess.check_output", return_value=uuid):
         if ";" in uuid:
             with pytest.raises(ValueError, match="UUID"):
@@ -123,11 +131,11 @@ def test_rescue_grub_uses_validated_carrier_uuid(tmp_path: Path, uuid: str) -> N
     assert context.artifacts["image"] == Path("/dev/vdb")
 
 
-def test_cleanup_does_not_publish_image(tmp_path: Path) -> None:
+def test_cleanup_does_not_publish_image(tmp_path: Path, rescue: ModuleType) -> None:
     context = BuildContext(
         tmp_path, Mock(spec=CommandRunner), artifacts={"kernel": "6.12-gentoo"}
     )
-    stage = RescueCleanupStage(Settings(Path("/dev/vdb"), tmp_path, None))
+    stage = rescue.RescueCleanupStage(Settings(Path("/dev/vdb"), tmp_path, None))
     residue = (
         "usr/src/linux/Makefile",
         "usr/include/stdio.h",
@@ -162,16 +170,21 @@ def test_cleanup_does_not_publish_image(tmp_path: Path) -> None:
     assert not any((modules / name).is_symlink() for name in ("build", "source"))
 
 
-def test_rescue_bundle_plans_outside_repository(tmp_path: Path) -> None:
-    bundler = runpy.run_path(str(ROOT / "yaml/gentoo/bundle.py"))["bundle"]
-    archive = tmp_path / "rescue.pyz"
-    bundler(ROOT / "yaml/gentoo/rescue/build.py", archive)
-    result = subprocess.run(
-        [sys.executable, "-I", str(archive)],
-        cwd=tmp_path,
-        env={**os.environ, "IMAGE_BUILD_PLAN": "1"},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "RescueBootloaderStage" in result.stdout
+def test_rescue_assets_are_validated_and_installed(
+    tmp_path: Path, rescue: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(Path("/dev/vdb"), tmp_path, None)
+    context = BuildContext(tmp_path, Mock(spec=CommandRunner))
+    stage = rescue.RescueRuntimeStage(settings)
+    stage.execute(context)
+    for name, mode in (
+        ("usr/local/sbin/rescue-home", 0o755),
+        ("usr/local/sbin/rescue-network-state", 0o755),
+        ("etc/systemd/system/rescue-home.service", 0o644),
+    ):
+        installed = tmp_path / name
+        assert installed.read_bytes() == (RECIPE / "assets/root" / name).read_bytes()
+        assert installed.stat().st_mode & 0o777 == mode
+    monkeypatch.setattr(rescue, "ASSETS", tmp_path / "absent-assets")
+    with pytest.raises(ValueError, match="Missing rescue asset"):
+        rescue.RescueRepositoryStage(settings).validate(context)

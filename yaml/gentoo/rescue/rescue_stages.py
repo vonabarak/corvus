@@ -8,47 +8,16 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..core import BuildContext
-from ..portage import InstallRequest, PortageBackend
-from ._files import link, remove, write
-from ._validation import validate_disk, validate_kernel
-from .base import GentooStage
-from .finalize import FinalizeStage
-from .mounts import Mounts
-from .packages import GlibcPackageInstallStage
-from .repository import RepositoryStage
+from corvus_image_builder.core import BuildContext
+from corvus_image_builder.gentoo._files import link, remove, write
+from corvus_image_builder.gentoo._validation import validate_disk, validate_kernel
+from corvus_image_builder.gentoo.base import GentooStage
+from corvus_image_builder.gentoo.finalize import FinalizeStage
+from corvus_image_builder.gentoo.mounts import Mounts
+from corvus_image_builder.gentoo.packages import GlibcPackageInstallStage
+from corvus_image_builder.gentoo.repository import RepositoryStage
+from corvus_image_builder.portage import InstallRequest, PortageBackend
 
-POLICY = (
-    'ACCEPT_KEYWORDS="amd64"\n'
-    'GENTOO_MIRRORS="https://distfiles.gentoo.org"\n'
-    'COMMON_FLAGS="-O2 -pipe -march=x86-64 -mtune=generic"\n'
-    'CFLAGS="${COMMON_FLAGS}"\n'
-    'CXXFLAGS="${COMMON_FLAGS}"\n'
-    'USE="dbus wifi"\n'
-    'QEMU_SOFTMMU_TARGETS=""\n'
-    'QEMU_USER_TARGETS=""\n'
-)
-USE = (
-    "sys-kernel/gentoo-kernel-bin -initramfs\n"
-    "sys-kernel/linux-firmware -savedconfig\n"
-    "sys-kernel/installkernel -dracut -grub -systemd\n"
-    "sys-kernel/dracut systemd\n"
-    "sys-fs/squashfs-tools lzma zstd xattr\n"
-    "app-misc/yq yq-symlink\n"
-    "net-analyzer/mtr ncurses -gtk -gui\n"
-    "sys-fs/lvm2 lvm -systemd -udev\n"
-    "sys-boot/grub grub_platforms_pc grub_platforms_efi-64 -mount -nls -fonts -themes\n"
-    "app-emulation/qemu -accessibility -gtk -sdl -sdl-image -doc -vnc -oss\n"
-    "net-analyzer/nmap -zenmap\n"
-    "net-fs/samba client ads acl ldap python winbind -addc -cups -regedit\n"
-    "net-fs/cifs-utils ads\n"
-    "net-libs/ngtcp2 gnutls\n"
-    "net-dns/bind gssapi\n"
-    "sys-libs/tdb python\n"
-    "sys-libs/tevent python\n"
-    "sys-apps/lshw -gtk\n"
-    "sys-fs/multipath-tools systemd\n"
-)
 GCC_RUNTIME = (
     "libgcc_s.so.1",
     "libstdc++.so.6",
@@ -128,82 +97,62 @@ ATOMS = (
     "sys-apps/memtester",
     "net-dialup/picocom",
 )
-RUNTIME_FILES = {
-    "etc/systemd/system/rescue-grow.service": (
-        "[Unit]\n"
-        "Description=Expand the rescue storage partition when space is available\n"
-        "DefaultDependencies=no\n"
-        "Before=rescue-home.service\n"
-        "After=systemd-udev-trigger.service\n"
-        "Conflicts=shutdown.target\n"
-        "Before=shutdown.target\n"
-        "\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        "ExecStart=/usr/local/sbin/rescue-grow\n"
-        "TimeoutStartSec=120\n"
-    ),
-    "etc/systemd/system/rescue-home.service": (
-        "[Unit]\n"
-        "Description=Persistent rescue home with empty RAM fallback\n"
-        "DefaultDependencies=no\n"
-        "Wants=rescue-grow.service\n"
-        "After=systemd-udev-trigger.service systemd-remount-fs.service rescue-grow.service\n"
-        "Before=local-fs.target systemd-user-sessions.service getty.target\n"
-        "Conflicts=shutdown.target\n"
-        "Before=shutdown.target\n"
-        "\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        "RemainAfterExit=yes\n"
-        "ExecStart=/usr/local/sbin/rescue-home\n"
-        "TimeoutStartSec=45\n"
-        "\n"
-        "[Install]\n"
-        "WantedBy=local-fs.target\n"
-    ),
-    "etc/systemd/system/rescue-network-state.service": (
-        "[Unit]\n"
-        "Description=Prepare persistent network and SSH state\n"
-        "Requires=rescue-home.service\n"
-        "After=rescue-home.service\n"
-        "Before=NetworkManager.service sshd.service\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        "RemainAfterExit=yes\n"
-        "ExecStart=/usr/local/sbin/rescue-network-state\n"
-    ),
-    "usr/local/sbin/rescue-network-state": (
-        "#!/bin/sh\n"
-        "set -eu\n"
-        "install -d -m 700 /root/.config/NetworkManager/system-connections /root/.ssh/host-keys\n"
-        "mountpoint -q /etc/NetworkManager/system-connections || "
-        "mount --bind /root/.config/NetworkManager/system-connections /etc/NetworkManager/system-connections\n"
-        "for type in ed25519 rsa ecdsa; do\n"
-        "  key=/root/.ssh/host-keys/ssh_host_${type}_key\n"
-        '  test -f "$key" || ssh-keygen -q -t "$type" -N \'\' -f "$key"\n'
-        "done\n"
-    ),
-    "etc/ssh/sshd_config.d/10-rescue-hostkeys.conf": (
-        "HostKey /root/.ssh/host-keys/ssh_host_ed25519_key\n"
-        "HostKey /root/.ssh/host-keys/ssh_host_rsa_key\n"
-        "HostKey /root/.ssh/host-keys/ssh_host_ecdsa_key\n"
-        "PermitRootLogin prohibit-password\n"
-    ),
-    "etc/motd": (
-        "Gentoo rescue: local root console, volatile system, persistent /root when usable.\n"
-        "Only rescue storage is mounted and expanded automatically. Other disks, swap, RAID and LVM require manual activation.\n"
-        "Update kernel, initramfs and squashfs offline to preserve /root. Back up /root before reflashing.\n"
-        "Wired DHCP and SSH are enabled. Configure Wi-Fi using nmcli.\n"
-        "For SSH login, install an authorized key in /root/.ssh/authorized_keys first.\n"
-    ),
-}
-
 ASSETS = Path("/run/rescue-assets")
+
+RUNTIME_PATHS = (
+    "etc/systemd/system/rescue-grow.service",
+    "etc/systemd/system/rescue-home.service",
+    "etc/systemd/system/rescue-network-state.service",
+    "usr/local/sbin/rescue-network-state",
+    "etc/ssh/sshd_config.d/10-rescue-hostkeys.conf",
+    "etc/motd",
+    "etc/fstab",
+    "etc/crypttab",
+    "etc/hostname",
+    "etc/locale.conf",
+    "etc/hosts",
+    "etc/lvm/lvm.conf",
+    "etc/mdadm.conf",
+    "usr/local/sbin/rescue-home",
+    "usr/local/sbin/rescue-grow",
+)
+KERNEL_PATHS = (
+    "etc/dracut.conf.d/90-rescue.conf",
+    "usr/lib/dracut/modules.d/91corvus-rescue/generator.sh",
+    "usr/lib/dracut/modules.d/91corvus-rescue/module-setup.sh",
+    "usr/lib/dracut/modules.d/91corvus-rescue/parse-rescue.sh",
+    "usr/lib/dracut/modules.d/91corvus-rescue/prepare-root.sh",
+    "usr/lib/dracut/modules.d/91corvus-rescue/shutdown.sh",
+)
+
+
+def install_asset(source: str, destination: Path, mode: int = 0o644) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ASSETS / source, destination)
+    destination.chmod(mode)
+
+
+def install_portage_policy(root: Path) -> None:
+    with (root / "etc/portage/make.conf").open("ab") as stream:
+        stream.write((ASSETS / "portage/make.conf.fragment").read_bytes())
+    install_asset("portage/package.use", root / "etc/portage/package.use/zz-rescue")
 
 
 class RescueRepositoryStage(RepositoryStage):
     """Sync verified repositories and select stable generic rescue packages."""
+
+    def validate(self, context: BuildContext) -> None:
+        super().validate(context)
+        for name in (
+            *(f"root/{path}" for path in (*RUNTIME_PATHS, *KERNEL_PATHS)),
+            "portage/make.conf.fragment",
+            "portage/package.use",
+            "systemd/network.conf",
+            "systemd/autologin.conf",
+            "grub/grub.cfg.in",
+        ):
+            if not (ASSETS / name).is_file():
+                raise ValueError(f"Missing rescue asset: {name}")
 
     def execute(self, context: BuildContext) -> None:
         for directory in ("package.accept_keywords", "package.unmask"):
@@ -214,9 +163,7 @@ class RescueRepositoryStage(RepositoryStage):
             "../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/no-multilib/systemd",
         )
         super().execute(context)
-        with Path("/etc/portage/make.conf").open("a") as stream:
-            stream.write(POLICY)
-        write(Path("/etc/portage/package.use/zz-rescue"), USE)
+        install_portage_policy(Path("/"))
         os.environ["ACCEPT_KEYWORDS"] = "amd64"
 
 
@@ -343,9 +290,7 @@ class RescuePackagesStage(GlibcPackageInstallStage):
                 binpkg_changed_deps=True,
             )
         )
-        with (context.root / "etc/portage/make.conf").open("a") as stream:
-            stream.write(POLICY)
-        write(context.root / "etc/portage/package.use/zz-rescue", USE)
+        install_portage_policy(context.root)
 
     def install_system(self, context: BuildContext) -> None:
         # Gentoo packages can assume GCC's shared libraries are available
@@ -373,55 +318,19 @@ class RescueRuntimeStage(GentooStage):
     requires = frozenset({"system", "interfaces"})
     produces = frozenset({"configured"})
 
-    def validate(self, context: BuildContext) -> None:
-        for name in (
-            "home.sh",
-            "grow.sh",
-            "dracut/module-setup.sh",
-            "dracut/parse-rescue.sh",
-            "dracut/generator.sh",
-            "dracut/prepare-root.sh",
-            "dracut/shutdown.sh",
-        ):
-            if not (ASSETS / name).is_file():
-                raise ValueError(f"Missing rescue asset: {name}")
-
     def execute(self, context: BuildContext) -> None:
         root = context.root
-        for path, content in RUNTIME_FILES.items():
-            write(root / path, content)
-        (root / "usr/local/sbin/rescue-network-state").chmod(0o755)
+        for path in RUNTIME_PATHS:
+            mode = 0o755 if path.startswith("usr/local/sbin/") else 0o644
+            install_asset(f"root/{path}", root / path, mode)
         (root / "etc/NetworkManager/system-connections").mkdir(
             parents=True, exist_ok=True
         )
         for service in ("NetworkManager", "sshd"):
-            write(
+            install_asset(
+                "systemd/network.conf",
                 root / f"etc/systemd/system/{service}.service.d/rescue.conf",
-                (
-                    "[Unit]\n"
-                    "Requires=rescue-network-state.service\n"
-                    "After=rescue-network-state.service\n"
-                ),
             )
-        for path, content in (
-            ("etc/fstab", ""),
-            ("etc/crypttab", ""),
-            ("etc/hostname", "gentoo-rescue\n"),
-            ("etc/locale.conf", "LANG=C.UTF-8\n"),
-            ("etc/hosts", (
-                "127.0.0.1 localhost\n"
-                "::1 localhost\n"
-            )),
-            (
-                "etc/lvm/lvm.conf",
-                (
-                    "global { event_activation = 0 }\n"
-                    "activation { auto_activation_volume_list = [] }\n"
-                ),
-            ),
-            ("etc/mdadm.conf", "AUTO -all\n"),
-        ):
-            write(root / path, content)
         (root / "root").mkdir(exist_ok=True)
         (root / "root").chmod(0o700)
         link(root / "etc/localtime", "../usr/share/zoneinfo/UTC")
@@ -429,22 +338,10 @@ class RescueRuntimeStage(GentooStage):
         (root / "usr/lib/locale").mkdir(parents=True, exist_ok=True)
         self.chroot_string(context, "localedef -i C -f UTF-8 C.UTF-8")
         self.chroot_string(context, "localedef -i en_US -f UTF-8 en_US.UTF-8")
-        for name in ("home", "grow"):
-            destination = root / f"usr/local/sbin/rescue-{name}"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ASSETS / f"{name}.sh", destination)
-            destination.chmod(0o755)
         for name in ("getty@", "serial-getty@"):
-            write(
+            install_asset(
+                "systemd/autologin.conf",
                 root / f"etc/systemd/system/{name}.service.d/autologin.conf",
-                (
-                    "[Unit]\n"
-                    "Requires=rescue-home.service\n"
-                    "After=rescue-home.service\n"
-                    "[Service]\n"
-                    "ExecStart=\n"
-                    "ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n"
-                ),
             )
         for name in (
             "sshd.socket",
@@ -551,25 +448,9 @@ class RescueKernelStage(GentooStage):
                 root / f"usr/src/linux-{kernel}/arch/x86/boot/bzImage", image
             )
         self.chroot_string(context, f"depmod -a {kernel}")
-        shutil.copytree(
-            ASSETS / "dracut",
-            root / "usr/lib/dracut/modules.d/91corvus-rescue",
-            dirs_exist_ok=True,
-        )
-        for asset in (root / "usr/lib/dracut/modules.d/91corvus-rescue").iterdir():
-            asset.chmod(0o755)
-        write(
-            root / "etc/dracut.conf.d/90-rescue.conf",
-            (
-                'hostonly="no"\n'
-                'hostonly_cmdline="no"\n'
-                'use_fstab="no"\n'
-                'add_dracutmodules+=" systemd systemd-initrd kernel-modules corvus-rescue shutdown "\n'
-                'omit_dracutmodules+=" lvm mdraid dmraid multipath crypt resume network network-manager systemd-networkd "\n'
-                'filesystems+=" ext4 squashfs overlay "\n'
-                'add_drivers+=" xhci_pci usb_storage uas ahci nvme sd_mod virtio_pci virtio_blk virtio_scsi usbhid hid_generic "\n'
-            ),
-        )
+        for path in KERNEL_PATHS:
+            mode = 0o755 if path.endswith(".sh") else 0o644
+            install_asset(f"root/{path}", root / path, mode)
         archive = f"/boot/initramfs-{kernel}.img"
         self.chroot(
             context,
@@ -806,48 +687,11 @@ class RescueBootloaderStage(GentooStage):
         ).strip()
         if not re.fullmatch(r"[0-9a-fA-F-]+", uuid):
             raise ValueError("Invalid carrier UUID")
-        boot = (
-            f"        linux /vmlinuz root=rescue:UUID={uuid} ro fsck.mode=skip rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 vt.color=0x02 console=tty0 console=ttyS0,115200n8\n"
-            "        initrd /initramfs.img\n"
-        )
         config = esp / "grub/grub.cfg"
-        write(
-            config,
-            (
-                f"set timeout=300\n"
-                f"set default=0\n"
-                f"insmod part_gpt\n"
-                f"insmod ext2\n"
-                f"insmod search_fs_uuid\n"
-                f"serial --unit=0 --speed=115200\n"
-                f"terminal_input console serial\n"
-                f"terminal_output console serial\n"
-                "menuentry 'Gentoo rescue' {\n"
-                f"    if search --no-floppy --fs-uuid --set=root {uuid}; then\n"
-                f"{boot}"
-                "    fi\n"
-                "}\n"
-                "menuentry 'Gentoo rescue (verify boot files)' {\n"
-                "    echo 'Checking boot files against SHA256SUMS...'\n"
-                "    set verified=0\n"
-                "    insmod hashsum\n"
-                "    insmod gcry_sha256\n"
-                f"    if search --no-floppy --fs-uuid --set=root {uuid}; then\n"
-                "        if test -s /SHA256SUMS; then\n"
-                '            if hashsum --hash sha256 --check /SHA256SUMS --keep-going --prefix "($root)"; then\n'
-                "                set verified=1\n"
-                "            fi\n"
-                "        fi\n"
-                "    fi\n"
-                '    if test "$verified" = 1; then\n'
-                f"{boot}"
-                "    else\n"
-                "        echo 'Boot file verification failed. Boot canceled.'\n"
-                "        sleep --interruptible 10\n"
-                "    fi\n"
-                "}\n"
-            ),
-        )
+        template = (ASSETS / "grub/grub.cfg.in").read_text(encoding="utf-8")
+        if "@CARRIER_UUID@" not in template:
+            raise ValueError("Missing carrier UUID placeholder in GRUB template")
+        write(config, template.replace("@CARRIER_UUID@", uuid))
         self.command(context, "grub-script-check", str(config))
         self.command_string(context, "sync")
         context.artifacts["image"] = self.settings.disk
