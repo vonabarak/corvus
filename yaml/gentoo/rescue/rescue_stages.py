@@ -25,6 +25,14 @@ GCC_RUNTIME = (
     "libgomp.so.1",
 )
 ATOMS = (
+    "media-fonts/terminus-font",
+    "app-misc/cmatrix",
+    "app-misc/neofetch",
+    "app-text/tree",
+    "app-admin/lnav",
+    "sys-apps/ripgrep",
+    "app-shells/fzf",
+    "sys-libs/gpm",
     "sys-kernel/gentoo-kernel-bin",
     "sys-kernel/linux-firmware",
     "sys-kernel/dracut",
@@ -100,6 +108,8 @@ ATOMS = (
 ASSETS = Path("/run/rescue-assets")
 
 RUNTIME_PATHS = (
+    "etc/vconsole.conf",
+    "etc/tmux.conf",
     "etc/systemd/system/rescue-grow.service",
     "etc/systemd/system/rescue-home.service",
     "etc/systemd/system/rescue-network-state.service",
@@ -320,6 +330,8 @@ class RescueRuntimeStage(GentooStage):
 
     def execute(self, context: BuildContext) -> None:
         root = context.root
+        if not (root / "usr/share/consolefonts/ter-v16n.psf.gz").is_file():
+            raise RuntimeError("Terminus console font ter-v16n is missing")
         for path in RUNTIME_PATHS:
             mode = 0o755 if path.startswith("usr/local/sbin/") else 0o644
             install_asset(f"root/{path}", root / path, mode)
@@ -375,6 +387,7 @@ class RescueRuntimeStage(GentooStage):
             f"--root={root!s}",
             "enable",
             "NetworkManager.service",
+            "gpm.service",
             "sshd.service",
             "systemd-resolved.service",
             "serial-getty@ttyS0.service",
@@ -426,6 +439,7 @@ class RescueKernelStage(GentooStage):
             "USB_XHCI_HCD",
             "USB_STORAGE",
             "USB_UAS",
+            "INPUT_MOUSEDEV",
             "HID_GENERIC",
             "USB_HID",
             "SATA_AHCI",

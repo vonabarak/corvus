@@ -17,3 +17,4 @@ sys-libs/tdb python
 sys-libs/tevent python
 sys-apps/lshw -gtk
 sys-fs/multipath-tools systemd
+media-fonts/terminus-font psf -X -otf -pcf-8bit -pcf-unicode

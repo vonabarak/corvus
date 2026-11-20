@@ -176,10 +176,15 @@ def test_rescue_assets_are_validated_and_installed(
     settings = Settings(Path("/dev/vdb"), tmp_path, None)
     context = BuildContext(tmp_path, Mock(spec=CommandRunner))
     stage = rescue.RescueRuntimeStage(settings)
+    font = tmp_path / "usr/share/consolefonts/ter-v16n.psf.gz"
+    font.parent.mkdir(parents=True)
+    font.touch()
     stage.execute(context)
     for name, mode in (
         ("usr/local/sbin/rescue-home", 0o755),
         ("usr/local/sbin/rescue-network-state", 0o755),
+        ("etc/tmux.conf", 0o644),
+        ("etc/vconsole.conf", 0o644),
         ("etc/systemd/system/rescue-home.service", 0o644),
     ):
         installed = tmp_path / name

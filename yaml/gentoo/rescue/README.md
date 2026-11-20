@@ -111,6 +111,16 @@ persist under `/root/.ssh/host-keys` and are generated on first boot.
 The default locale is `C.UTF-8`, and `en_US.UTF-8` is available for SSH clients
 that forward their locale settings.
 
+Local Linux virtual consoles use the Terminus font. Logins open a plain shell.
+Run `neofetch` to display system information or `tmux` to start a tmux session.
+The system-wide tmux configuration starts CMatrix after 10 minutes of
+inactivity in an attached session. Press any key to return to the session.
+
+GPM starts at boot. With a supported mouse, drag with the left button to
+select text and middle-click to paste on a Linux virtual console. The image
+also includes `tree`, `lnav`, `rg`, and `fzf` for browsing directories, reading
+logs, searching text, and fuzzy selection.
+
 NetworkManager provides wired DHCP and automatically reconnects saved Wi-Fi
 profiles. To connect and save a Wi-Fi network without a GUI:
 
