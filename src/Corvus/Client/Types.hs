@@ -302,6 +302,7 @@ data Command
     NodeDrain !Text
   | -- | Delete a node (nodeRef)
     NodeDelete !Text
+  | NodeForget !Text !Bool !Bool
   | -- Cloud-init config commands
 
     -- | Set cloud-init config from YAML file. Nothing opens $EDITOR on a skeleton.

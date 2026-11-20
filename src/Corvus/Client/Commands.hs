@@ -300,6 +300,7 @@ runCommand opts = do
       NodeEdit nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled ->
         CmdNode.handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled
       NodeDrain nRef -> CmdNode.handleNodeDrain fmt conn nRef
+      NodeForget nRef dryRun confirmed -> CmdNode.handleNodeForget fmt conn nRef dryRun confirmed
       NodeDelete nRef -> CmdNode.handleNodeDelete fmt conn nRef
       -- Cloud-init config
       CloudInitGenerate vmRef -> handleCloudInitGenerate fmt conn vmRef

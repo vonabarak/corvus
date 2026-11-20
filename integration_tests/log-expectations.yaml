@@ -492,6 +492,28 @@ classes:
         corvus.log:
           warnings: 0
           errors: 0
+  TestNodeForget:
+    nodes:
+      alpha:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 4
+          errors: 0
+      beta:
+        corvus-netd.log:
+          warnings: 0
+          errors: 0
+        corvus-nodeagent.log:
+          warnings: 0
+          errors: 0
+        corvus.log:
+          warnings: 0
+          errors: 0
   TestNodes:
     nodes:
       single:

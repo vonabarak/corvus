@@ -19,9 +19,11 @@ import Corvus.Handlers.Node
   , NodeDelete (..)
   , NodeDrain (..)
   , NodeEdit (..)
+  , NodeForget (..)
   , handleNodeList
   , handleNodePing
   , handleNodeShow
+  , nodeForgetPreview
   )
 import qualified Corvus.Handlers.Resolve as Resolve
 import Corvus.Protocol (Response (..))
@@ -30,7 +32,7 @@ import Corvus.Types (ServerState (..))
 import Corvus.Wire.Enums (fromCapnpNodeAdminState)
 import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.Errors (WireError)
-import Corvus.Wire.Node (toCapnpNodeDetails, toCapnpNodeInfo)
+import Corvus.Wire.Node (toCapnpNodeDetails, toCapnpNodeForgetImpact, toCapnpNodeInfo)
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Supervisors (Supervisor)
@@ -136,6 +138,18 @@ instance CGNode.Node'server_ NodeCap where
     case resp of
       RespNodeEdited -> pure CGNode.Node'drain'results
       _ -> throwError resp
+
+  node'forgetPreview (NodeCap st eid _) = handleParsed $ \_ -> do
+    result <- nodeForgetPreview st eid
+    case result of
+      Right impact -> pure (CGNode.Node'forgetPreview'results (toCapnpNodeForgetImpact impact))
+      Left err -> throwError err
+
+  node'forget (NodeCap st eid cn) = handleParsed $ \(CGNode.Node'forget'params confirmed) -> do
+    result <- runAction st cn (NodeForget eid confirmed)
+    case result of
+      RespNodeForgotten impact warnings -> pure (CGNode.Node'forget'results (toCapnpNodeForgetImpact impact) warnings)
+      _ -> throwError result
 
   node'delete (NodeCap st eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (NodeDelete eid)

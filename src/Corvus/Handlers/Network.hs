@@ -23,6 +23,7 @@ module Corvus.Handlers.Network
 
     -- * Shared helpers (used by NetIf + NodeSupervisor)
   , pushNetworkToAllMembers
+  , pushNetworkToAllMembersWithWarnings
   , autostartNetworksOnNode
   )
 where
@@ -604,7 +605,10 @@ autostartClientName = "system-autostart"
 -- apply), 'handleNetworkAttachNode' / 'handleNetworkDetachNode' (peer
 -- set changed), and the NodeSupervisor reconnect path (slice 8).
 pushNetworkToAllMembers :: ServerState -> M.NetworkId -> IO (Either Text ())
-pushNetworkToAllMembers state networkKey = do
+pushNetworkToAllMembers state = pushNetworkToAllMembersWithWarnings state (runServerLogging state . logWarnN)
+
+pushNetworkToAllMembersWithWarnings :: ServerState -> (Text -> IO ()) -> M.NetworkId -> IO (Either Text ())
+pushNetworkToAllMembersWithWarnings state warn networkKey = do
   let pool = ssDbPool state
   mNetwork <- runSqlPool (get networkKey) pool
   case mNetwork of
@@ -647,22 +651,20 @@ pushNetworkToAllMembers state networkKey = do
               forM_ peerSpecs $ \(pid, espec) ->
                 case espec of
                   Left err ->
-                    runServerLogging state $
-                      logWarnN $
-                        "peer spec for node "
-                          <> T.pack (show (fromSqlKey pid))
-                          <> ": "
-                          <> err
+                    warn $
+                      "peer spec for node "
+                        <> T.pack (show (fromSqlKey pid))
+                        <> ": "
+                        <> err
                   Right ps -> do
                     r <- pushOne pid ps
                     case r of
                       Left err ->
-                        runServerLogging state $
-                          logWarnN $
-                            "applyNetwork on peer "
-                              <> T.pack (show (fromSqlKey pid))
-                              <> " failed: "
-                              <> err
+                        warn $
+                          "applyNetwork on peer "
+                            <> T.pack (show (fromSqlKey pid))
+                            <> " failed: "
+                            <> err
                       Right () -> pure ()
               pure ownerRes
   where

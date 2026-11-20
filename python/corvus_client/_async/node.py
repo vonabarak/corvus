@@ -145,3 +145,23 @@ class AsyncNode:
         disk-image placement still references it.
         """
         await self._cap.delete()
+
+    async def forget_preview(self) -> t.NodeForgetImpact:
+        """Preview the records affected by forgetting this node."""
+        return _forget_impact((await self._cap.forgetPreview()).impact)
+
+    async def forget(self, *, confirmed_fenced: bool) -> t.NodeForgetResult:
+        """Remove a permanently unavailable node after fencing the host."""
+        result = await self._cap.forget(confirmedFenced=confirmed_fenced)
+        return t.NodeForgetResult(_forget_impact(result.impact), list(result.warnings))
+
+
+def _forget_impact(impact: capnp.lib.capnp._DynamicStructReader) -> t.NodeForgetImpact:
+    return t.NodeForgetImpact(
+        vms=[conv.named_ref(r) for r in impact.vms],
+        owned_networks=[conv.named_ref(r) for r in impact.ownedNetworks],
+        peer_networks=[conv.named_ref(r) for r in impact.peerNetworks],
+        disk_images=[conv.named_ref(r) for r in impact.diskImages],
+        zero_copy_images=[conv.named_ref(r) for r in impact.zeroCopyImages],
+        blocking_vms=[conv.named_ref(r) for r in impact.blockingVms],
+    )

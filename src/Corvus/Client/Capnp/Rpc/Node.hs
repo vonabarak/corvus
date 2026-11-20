@@ -15,6 +15,7 @@ module Corvus.Client.Capnp.Rpc.Node
   , rpcNodeEdit
   , rpcNodeDrain
   , rpcNodeDelete
+  , rpcNodeForget
 
     -- * Helpers
   , getNodeClient
@@ -26,6 +27,7 @@ import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Node as CGNode
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model (NodeAdminState (..))
+import Corvus.Protocol (NodeForgetImpact)
 import qualified Corvus.Protocol.Node as PNode
 import Corvus.Wire.Common (EntityRef, toCapnpEntityRef)
 import Corvus.Wire.Enums (toCapnpNodeAdminState)
@@ -173,3 +175,14 @@ getNodeClient conn ref = do
   CGNode.NodeManager'get'results {CGNode.node = nClient} <-
     callOn #get CGNode.NodeManager'get'params {CGNode.ref = toCapnpEntityRef ref} mgr
   pure nClient
+
+rpcNodeForget :: CapnpConnection -> EntityRef -> Bool -> Bool -> IO (NodeForgetImpact, [Text])
+rpcNodeForget conn ref dryRun confirmed = do
+  client <- getNodeClient conn ref
+  if dryRun
+    then do
+      CGNode.Node'forgetPreview'results impact <- callOn #forgetPreview CGNode.Node'forgetPreview'params client
+      pure (WNode.fromCapnpNodeForgetImpact impact, [])
+    else do
+      CGNode.Node'forget'results impact warnings <- callOn #forget (CGNode.Node'forget'params confirmed) client
+      pure (WNode.fromCapnpNodeForgetImpact impact, warnings)

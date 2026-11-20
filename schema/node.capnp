@@ -130,4 +130,15 @@ interface Node {
   delete @3 () -> ();
   # Read-only probe through the daemon supervisor's existing session.
   ping @4 () -> (reachable :Bool, message :Text);
+  forgetPreview @5 () -> (impact :NodeForgetImpact);
+  forget @6 (confirmedFenced :Bool) -> (impact :NodeForgetImpact, warnings :List(Text));
+}
+
+struct NodeForgetImpact {
+  vms @0 :List(Common.NamedRef);
+  ownedNetworks @1 :List(Common.NamedRef);
+  peerNetworks @2 :List(Common.NamedRef);
+  diskImages @3 :List(Common.NamedRef);
+  zeroCopyImages @4 :List(Common.NamedRef);
+  blockingVms @5 :List(Common.NamedRef);
 }

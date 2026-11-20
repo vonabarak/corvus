@@ -25,6 +25,8 @@ instance Action DiskRegisterPlacement where
   actionSubsystem _ = SubDisk
   actionCommand _ = "registerPlacement"
   actionEntityId (DiskRegisterPlacement imageId _ _) = Just (fromIntegral imageId)
+  actionObjectResources state (DiskRegisterPlacement _ nodeId path) =
+    nodePathResources state nodeId (Just path)
   actionExecute ctx (DiskRegisterPlacement imageId nodeId path) = do
     let state = acState ctx
         key = toSqlKey imageId

@@ -89,3 +89,9 @@ class SyncNode(LoopBoundResource):
 
     def delete(self) -> None:
         return self._rl.run(self._a.delete())
+
+    def forget_preview(self) -> t.NodeForgetImpact:
+        return self._rl.run(self._a.forget_preview())
+
+    def forget(self, *, confirmed_fenced: bool) -> t.NodeForgetResult:
+        return self._rl.run(self._a.forget(confirmed_fenced=confirmed_fenced))

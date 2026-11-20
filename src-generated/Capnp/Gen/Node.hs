@@ -672,9 +672,11 @@ instance (GH.Export Node) where
                                                                       ,(GH.toUntypedMethodHandler ((node'edit) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'drain) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'delete) s_))
-                                                                      ,(GH.toUntypedMethodHandler ((node'ping) s_))] [])
+                                                                      ,(GH.toUntypedMethodHandler ((node'ping) s_))
+                                                                      ,(GH.toUntypedMethodHandler ((node'forgetPreview) s_))
+                                                                      ,(GH.toUntypedMethodHandler ((node'forget) s_))] [])
 class (Node'server_ s_) where
-    {-# MINIMAL node'show,node'edit,node'drain,node'delete,node'ping #-}
+    {-# MINIMAL node'show,node'edit,node'drain,node'delete,node'ping,node'forgetPreview,node'forget #-}
     node'show :: s_ -> (GH.MethodHandler Node'show'params Node'show'results)
     node'show _ = GH.methodUnimplemented
     node'edit :: s_ -> (GH.MethodHandler Node'edit'params Node'edit'results)
@@ -685,6 +687,10 @@ class (Node'server_ s_) where
     node'delete _ = GH.methodUnimplemented
     node'ping :: s_ -> (GH.MethodHandler Node'ping'params Node'ping'results)
     node'ping _ = GH.methodUnimplemented
+    node'forgetPreview :: s_ -> (GH.MethodHandler Node'forgetPreview'params Node'forgetPreview'results)
+    node'forgetPreview _ = GH.methodUnimplemented
+    node'forget :: s_ -> (GH.MethodHandler Node'forget'params Node'forget'results)
+    node'forget _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Node Node'show'params Node'show'results) where
     methodByLabel  = (GH.Method 9857192839459206243 0)
 instance (GH.HasMethod "edit" Node Node'edit'params Node'edit'results) where
@@ -695,6 +701,10 @@ instance (GH.HasMethod "delete" Node Node'delete'params Node'delete'results) whe
     methodByLabel  = (GH.Method 9857192839459206243 3)
 instance (GH.HasMethod "ping" Node Node'ping'params Node'ping'results) where
     methodByLabel  = (GH.Method 9857192839459206243 4)
+instance (GH.HasMethod "forgetPreview" Node Node'forgetPreview'params Node'forgetPreview'results) where
+    methodByLabel  = (GH.Method 9857192839459206243 5)
+instance (GH.HasMethod "forget" Node Node'forget'params Node'forget'results) where
+    methodByLabel  = (GH.Method 9857192839459206243 6)
 data Node'show'params 
 type instance (R.ReprFor Node'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Node'show'params) where
@@ -965,3 +975,178 @@ instance (GH.HasField "reachable" GH.Slot Node'ping'results Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
 instance (GH.HasField "message" GH.Slot Node'ping'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+data Node'forgetPreview'params
+type instance (R.ReprFor Node'forgetPreview'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'forgetPreview'params) where
+    typeId  = 12167167573151867566
+instance (C.TypedStruct Node'forgetPreview'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Node'forgetPreview'params) where
+    type AllocHint Node'forgetPreview'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Node'forgetPreview'params (C.Parsed Node'forgetPreview'params))
+instance (C.AllocateList Node'forgetPreview'params) where
+    type ListAllocHint Node'forgetPreview'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Node'forgetPreview'params (C.Parsed Node'forgetPreview'params))
+data instance C.Parsed Node'forgetPreview'params
+    = Node'forgetPreview'params
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Node'forgetPreview'params))
+deriving instance (Std_.Eq (C.Parsed Node'forgetPreview'params))
+instance (C.Parse Node'forgetPreview'params (C.Parsed Node'forgetPreview'params)) where
+    parse raw_ = (Std_.pure Node'forgetPreview'params)
+instance (C.Marshal Node'forgetPreview'params (C.Parsed Node'forgetPreview'params)) where
+    marshalInto _raw (Node'forgetPreview'params) = (Std_.pure ())
+data Node'forgetPreview'results
+type instance (R.ReprFor Node'forgetPreview'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'forgetPreview'results) where
+    typeId  = 17782757569508364239
+instance (C.TypedStruct Node'forgetPreview'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Node'forgetPreview'results) where
+    type AllocHint Node'forgetPreview'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Node'forgetPreview'results (C.Parsed Node'forgetPreview'results))
+instance (C.AllocateList Node'forgetPreview'results) where
+    type ListAllocHint Node'forgetPreview'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Node'forgetPreview'results (C.Parsed Node'forgetPreview'results))
+data instance C.Parsed Node'forgetPreview'results
+    = Node'forgetPreview'results
+        {impact :: (RP.Parsed NodeForgetImpact)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Node'forgetPreview'results))
+deriving instance (Std_.Eq (C.Parsed Node'forgetPreview'results))
+instance (C.Parse Node'forgetPreview'results (C.Parsed Node'forgetPreview'results)) where
+    parse raw_ = (Node'forgetPreview'results <$> (GH.parseField #impact raw_))
+instance (C.Marshal Node'forgetPreview'results (C.Parsed Node'forgetPreview'results)) where
+    marshalInto raw_ Node'forgetPreview'results{..} = (do
+        (GH.encodeField #impact impact raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "impact" GH.Slot Node'forgetPreview'results NodeForgetImpact) where
+    fieldByLabel  = (GH.ptrField 0)
+data Node'forget'params
+type instance (R.ReprFor Node'forget'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'forget'params) where
+    typeId  = 12004556832178257166
+instance (C.TypedStruct Node'forget'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Node'forget'params) where
+    type AllocHint Node'forget'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Node'forget'params (C.Parsed Node'forget'params))
+instance (C.AllocateList Node'forget'params) where
+    type ListAllocHint Node'forget'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Node'forget'params (C.Parsed Node'forget'params))
+data instance C.Parsed Node'forget'params
+    = Node'forget'params
+        {confirmedFenced :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Node'forget'params))
+deriving instance (Std_.Eq (C.Parsed Node'forget'params))
+instance (C.Parse Node'forget'params (C.Parsed Node'forget'params)) where
+    parse raw_ = (Node'forget'params <$> (GH.parseField #confirmedFenced raw_))
+instance (C.Marshal Node'forget'params (C.Parsed Node'forget'params)) where
+    marshalInto raw_ Node'forget'params{..} = (do
+        (GH.encodeField #confirmedFenced confirmedFenced raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "confirmedFenced" GH.Slot Node'forget'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+data Node'forget'results
+type instance (R.ReprFor Node'forget'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'forget'results) where
+    typeId  = 16961206961452051899
+instance (C.TypedStruct Node'forget'results) where
+    numStructWords  = 0
+    numStructPtrs  = 2
+instance (C.Allocate Node'forget'results) where
+    type AllocHint Node'forget'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Node'forget'results (C.Parsed Node'forget'results))
+instance (C.AllocateList Node'forget'results) where
+    type ListAllocHint Node'forget'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Node'forget'results (C.Parsed Node'forget'results))
+data instance C.Parsed Node'forget'results
+    = Node'forget'results
+        {impact :: (RP.Parsed NodeForgetImpact)
+        ,warnings :: (RP.Parsed (R.List Basics.Text))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Node'forget'results))
+deriving instance (Std_.Eq (C.Parsed Node'forget'results))
+instance (C.Parse Node'forget'results (C.Parsed Node'forget'results)) where
+    parse raw_ = (Node'forget'results <$> (GH.parseField #impact raw_)
+                                      <*> (GH.parseField #warnings raw_))
+instance (C.Marshal Node'forget'results (C.Parsed Node'forget'results)) where
+    marshalInto raw_ Node'forget'results{..} = (do
+        (GH.encodeField #impact impact raw_)
+        (GH.encodeField #warnings warnings raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "impact" GH.Slot Node'forget'results NodeForgetImpact) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "warnings" GH.Slot Node'forget'results (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 1)
+data NodeForgetImpact
+type instance (R.ReprFor NodeForgetImpact) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId NodeForgetImpact) where
+    typeId  = 14268147642470330390
+instance (C.TypedStruct NodeForgetImpact) where
+    numStructWords  = 0
+    numStructPtrs  = 6
+instance (C.Allocate NodeForgetImpact) where
+    type AllocHint NodeForgetImpact = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc NodeForgetImpact (C.Parsed NodeForgetImpact))
+instance (C.AllocateList NodeForgetImpact) where
+    type ListAllocHint NodeForgetImpact = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc NodeForgetImpact (C.Parsed NodeForgetImpact))
+data instance C.Parsed NodeForgetImpact
+    = NodeForgetImpact
+        {vms :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef))
+        ,ownedNetworks :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef))
+        ,peerNetworks :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef))
+        ,diskImages :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef))
+        ,zeroCopyImages :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef))
+        ,blockingVms :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed NodeForgetImpact))
+deriving instance (Std_.Eq (C.Parsed NodeForgetImpact))
+instance (C.Parse NodeForgetImpact (C.Parsed NodeForgetImpact)) where
+    parse raw_ = (NodeForgetImpact <$> (GH.parseField #vms raw_)
+                                   <*> (GH.parseField #ownedNetworks raw_)
+                                   <*> (GH.parseField #peerNetworks raw_)
+                                   <*> (GH.parseField #diskImages raw_)
+                                   <*> (GH.parseField #zeroCopyImages raw_)
+                                   <*> (GH.parseField #blockingVms raw_))
+instance (C.Marshal NodeForgetImpact (C.Parsed NodeForgetImpact)) where
+    marshalInto raw_ NodeForgetImpact{..} = (do
+        (GH.encodeField #vms vms raw_)
+        (GH.encodeField #ownedNetworks ownedNetworks raw_)
+        (GH.encodeField #peerNetworks peerNetworks raw_)
+        (GH.encodeField #diskImages diskImages raw_)
+        (GH.encodeField #zeroCopyImages zeroCopyImages raw_)
+        (GH.encodeField #blockingVms blockingVms raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vms" GH.Slot NodeForgetImpact (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "ownedNetworks" GH.Slot NodeForgetImpact (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "peerNetworks" GH.Slot NodeForgetImpact (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "diskImages" GH.Slot NodeForgetImpact (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)) where
+    fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "zeroCopyImages" GH.Slot NodeForgetImpact (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)) where
+    fieldByLabel  = (GH.ptrField 4)
+instance (GH.HasField "blockingVms" GH.Slot NodeForgetImpact (R.List Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)) where
+    fieldByLabel  = (GH.ptrField 5)

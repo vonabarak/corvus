@@ -167,6 +167,16 @@ nodeCommandParser =
           "drain"
           (info nodeDrainCommand (progDesc "Stop the scheduler from picking this node"))
         <> command
+          "forget"
+          ( info
+              ( NodeForget
+                  <$> argument (T.pack <$> str) (metavar "NODE")
+                  <*> switch (long "dry-run" <> help "Preview the impact")
+                  <*> switch (long "confirm-fenced" <> help "Confirm the host is powered off or isolated")
+              )
+              (progDesc "Remove a permanently unavailable host")
+          )
+        <> command
           "delete"
           (info nodeDeleteCommand (progDesc "Remove a node (refuses while in use)"))
     )

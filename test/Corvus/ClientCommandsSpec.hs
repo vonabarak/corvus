@@ -321,6 +321,8 @@ cases =
   , (NodeShow "fixture", resource "nodes" "Node" "show", "fixture")
   , (NodeEdit "fixture" (Just "new") (Just "host") (Just 1234) (Just 1235) (Just "/vms") (Just Nothing) (Just "maintenance") (Just False), resource "nodes" "Node" "edit", "updated")
   , (NodeDrain "fixture", resource "nodes" "Node" "drain", "draining")
+  , (NodeForget "fixture" True False, resource "nodes" "Node" "forgetPreview", "Node forget preview")
+  , (NodeForget "fixture" False True, resource "nodes" "Node" "forget", "fixture warning")
   , (NodeDelete "fixture", resource "nodes" "Node" "delete", "deleted")
   , (CloudInitGenerate "fixture", vm "cloudInit", "generated")
   , (CloudInitShow "fixture", ["Daemon.cloudInit", "CloudInitManager.get"], "fixture")

@@ -40,6 +40,7 @@ import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.Node.StatusFreshness (newStatusFreshness, waitForStaleStatus)
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.OperationGuard (ObjectKind (NetworkObject, NodeObject), OperationResource (ObjectId), ResourceAccess (ExclusiveAccess, SharedAccess), withOperationLeases)
 import qualified Corvus.Tls as Tls
 import Corvus.Types
   ( NodeConns (..)
@@ -54,7 +55,7 @@ import Corvus.Types
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Database.Persist (Entity (..), selectList, (==.))
+import Database.Persist (Entity (..), get, selectList, (<-.), (==.))
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
 import GHC.Clock (getMonotonicTime)
 import System.Posix.User (getRealUserID)
@@ -210,10 +211,7 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
                 <> nodeLabel
                 <> " nodeagent dial succeeded, owner="
                 <> NOA.nacOwner noac
-          atomically $
-            modifyTVar' (ssAgents state) $ \m -> case Map.lookup nodeKey m of
-              Nothing -> m
-              Just nc -> Map.insert nodeKey nc {ncNodeAgent = Just noac} m
+          publishAgentSession state nodeKey $ \nc -> nc {ncNodeAgent = Just noac}
           holdNodeAgentConnection state nodeKey nodeLabel noac
             `E.finally` clearNodeConn state nodeKey
           -- Both registration failure and stale status must back off before redial.
@@ -309,10 +307,7 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = do
             <> nodeLabel
             <> " netd dial succeeded, owner="
             <> NA.nacOwner nac
-      atomically $
-        modifyTVar' (ssAgents state) $ \m -> case Map.lookup nodeKey m of
-          Nothing -> m
-          Just nc -> Map.insert nodeKey nc {ncNetAgent = Just nac} m
+      publishAgentSession state nodeKey $ \nc -> nc {ncNetAgent = Just nac}
       (`E.finally` clearNetConn state nodeKey) $ restore $ do
         reapplyRunningNetworks state nodeKey nodeLabel nac
         -- First-connect-only per-node network autostart. Mirrors
@@ -338,6 +333,17 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = do
         blockUntilShutdownOrNetdDead state nodeLabel nac
       pure (Right ())
 
+-- Publishing a session and forgetting its node must be mutually exclusive.
+publishAgentSession :: ServerState -> M.NodeId -> (NodeConns -> NodeConns) -> IO ()
+publishAgentSession state nodeKey update =
+  withOperationLeases
+    (ssOperations state)
+    60000000
+    "agent connection"
+    []
+    [(ObjectId NodeObject (fromSqlKey nodeKey), SharedAccess)]
+    $ \_ -> atomically $ modifyTVar' (ssAgents state) (Map.adjust update nodeKey)
+
 -- | Re-apply every running network this node participates in (as
 -- owner or peer). The agent is stateless, so this rebuilds its
 -- kernel-side ledger from the daemon's DB intent: bridge, VXLAN
@@ -347,14 +353,18 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = do
 reapplyRunningNetworks
   :: ServerState -> M.NodeId -> T.Text -> NA.NetAgentClient -> IO ()
 reapplyRunningNetworks state nodeKey nodeLabel nac = do
-  (targets, skippedPeerRows) <- loadReapplyTargets
-  -- If any peer rows referenced networks that no longer exist, warn but
-  -- continue with what we have. The supervisor will re-apply on next connect.
-  when skippedPeerRows $
-    runFilteredLogging (ssLogLevel state) $
-      logWarnN $
-        "node " <> nodeLabel <> " peer network row(s) disappeared from DB; skipping"
-  forM_ targets $ \(role, Entity nwKey nw) -> reapplyOne role nwKey nw
+  targets <- loadReapplyTargets
+  forM_ targets $ \(role, Entity nwKey _) ->
+    withOperationLeases
+      (ssOperations state)
+      60000000
+      "netd reconnect"
+      []
+      [(ObjectId NetworkObject (fromSqlKey nwKey), ExclusiveAccess)]
+      $ \_ -> do
+        current <- runSqlPool (get nwKey) (ssDbPool state)
+        forM_ current $ \network ->
+          when (M.networkRunning network) (reapplyOne role nwKey network)
   where
     -- Load owner and peer targets together, preserving the existing
     -- best-effort treatment of peer rows whose network vanished mid-read.
@@ -368,15 +378,13 @@ reapplyRunningNetworks state nodeKey nodeLabel nac = do
           )
           pool
       peerRows <- runSqlPool peerNetworksFor pool
-      let nwMap = Map.fromList [(enw, nw) | Entity enw nw <- ownedRows]
-          owned = [(PS.RoleOwner, e) | e <- ownedRows]
-          peered =
-            [ (PS.RolePeer, Entity (M.networkPeerNetworkId (entityVal e)) nw)
-            | e <- peerRows
-            , let k = M.networkPeerNetworkId (entityVal e)
-            , Just nw <- [Map.lookup k nwMap]
-            ]
-      pure (owned <> peered, length peered < length peerRows)
+      peerNetworks <-
+        runSqlPool
+          (selectList [M.NetworkId <-. map (M.networkPeerNetworkId . entityVal) peerRows, M.NetworkRunning ==. True] [])
+          pool
+      pure $
+        [(PS.RoleOwner, e) | e <- ownedRows]
+          ++ [(PS.RolePeer, e) | e <- peerNetworks]
 
     peerNetworksFor :: SqlPersistT IO [Entity M.NetworkPeer]
     peerNetworksFor = do

@@ -265,6 +265,8 @@ commands =
   , (["node", "edit", "host", "--name", "new", "--host", "10.0.0.2", "--node-agent-port", "1111", "--net-agent-port", "2222", "--base-path", "/images", "--description", "server", "--admin-state", "maintenance", "--netd-disabled", "true"], NodeEdit "host" (Just "new") (Just "10.0.0.2") (Just 1111) (Just 2222) (Just "/images") (Just (Just "server")) (Just "maintenance") (Just True))
   , (["node", "edit", "host", "--description", ""], NodeEdit "host" Nothing Nothing Nothing Nothing Nothing (Just Nothing) Nothing Nothing)
   , (["node", "drain", "host"], NodeDrain "host")
+  , (["node", "forget", "host", "--dry-run"], NodeForget "host" True False)
+  , (["node", "forget", "host", "--confirm-fenced"], NodeForget "host" False True)
   , (["node", "delete", "host"], NodeDelete "host")
   , (["cloud-init", "generate", "web"], CloudInitGenerate "web")
   , (["cloud-init", "set", "web"], CloudInitSet "web" Nothing)

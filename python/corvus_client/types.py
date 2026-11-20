@@ -351,6 +351,22 @@ class VmSnapshotInfo:
 
 
 @dataclass(frozen=True)
+class NodeForgetImpact:
+    vms: list[NamedRef]
+    owned_networks: list[NamedRef]
+    peer_networks: list[NamedRef]
+    disk_images: list[NamedRef]
+    zero_copy_images: list[NamedRef]
+    blocking_vms: list[NamedRef]
+
+
+@dataclass(frozen=True)
+class NodeForgetResult:
+    impact: NodeForgetImpact
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
 class NodePingResult:
     """Reachability through the daemon's current nodeagent session."""
 

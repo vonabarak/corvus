@@ -275,6 +275,15 @@ withMockTransport tcp action = hSilence [stderr] $ withSystemTempDirectory "corv
   setReply f "Node.show" (\(_ :: C.Parsed GNode.Node'show'params) -> pure sampleNode'show'results)
   setReply f "Node.edit" (\(_ :: C.Parsed GNode.Node'edit'params) -> pure sampleNode'edit'results)
   setReply f "Node.drain" (\(_ :: C.Parsed GNode.Node'drain'params) -> pure sampleNode'drain'results)
+  let forgetImpact = GNode.NodeForgetImpact [GCommon.NamedRef 42 "fixture"] [] [] [] [] []
+  setReply f "Node.forgetPreview" (\(_ :: C.Parsed GNode.Node'forgetPreview'params) -> pure (GNode.Node'forgetPreview'results forgetImpact))
+  setReply
+    f
+    "Node.forget"
+    ( \(GNode.Node'forget'params confirmed) -> do
+        confirmed `shouldBe` True
+        pure (GNode.Node'forget'results forgetImpact ["fixture warning"])
+    )
   setReply f "Node.delete" (\(_ :: C.Parsed GNode.Node'delete'params) -> pure sampleNode'delete'results)
   setReply f "SshKeyManager.list" (\(_ :: C.Parsed GSshkey.SshKeyManager'list'params) -> pure sampleSshKeyManager'list'results)
   setReply f "SshKeyManager.get" (\(_ :: C.Parsed GSshkey.SshKeyManager'get'params) -> pure (GSshkey.SshKeyManager'get'results {GSshkey.key = capSshKey}))
@@ -446,6 +455,8 @@ instance GNode.Node'server_ Mock where
   node'show (Mock f) = handleParsed (respond f "Node.show")
   node'edit (Mock f) = handleParsed (respond f "Node.edit")
   node'drain (Mock f) = handleParsed (respond f "Node.drain")
+  node'forgetPreview (Mock f) = handleParsed (respond f "Node.forgetPreview")
+  node'forget (Mock f) = handleParsed (respond f "Node.forget")
   node'delete (Mock f) = handleParsed (respond f "Node.delete")
 
 instance GSshkey.SshKeyManager'server_ Mock where

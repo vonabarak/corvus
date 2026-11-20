@@ -12,6 +12,8 @@ module Corvus.Handlers.Node
   ( -- * Action types
     NodeAdd (..)
   , NodeDelete (..)
+  , NodeForget (..)
+  , nodeForgetPreview
   , NodeEdit (..)
   , NodeDrain (..)
 
@@ -28,9 +30,13 @@ import qualified Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Action
+import Corvus.Handlers.Network (pushNetworkToAllMembersWithWarnings)
 import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Vm.Delete (deleteVm)
 import Corvus.Model (Node (..))
 import qualified Corvus.Model as M
+import qualified Corvus.NetAgentClient as Net
+import Corvus.NetAgentClient.Spec (corvusBridgeName)
 import qualified Corvus.NodeAgentClient as NAC
 import Corvus.NodeSupervisor (spawnNodeSupervisor)
 import Corvus.Protocol
@@ -38,11 +44,14 @@ import qualified Corvus.Tls as Tls
 import Corvus.Types
   ( NodeConns (..)
   , ServerState (..)
+  , checkTaskCommit
   , lookupNodeAgent
   , removeNodeConns
   , runServerLogging
   , ssTlsConfig
+  , withNetAgent
   )
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe
@@ -50,7 +59,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 import qualified Database.Persist.Sql
 import System.Posix.User (getRealUserID)
 import System.Timeout (timeout)
@@ -198,7 +207,8 @@ handleNodeDelete state nodeId = runServerLogging state $ do
       vmCount <- liftIO $ runSqlPool (count [M.VmNodeId ==. key]) pool
       netCount <- liftIO $ runSqlPool (count [M.NetworkNodeId ==. key]) pool
       diskCount <- liftIO $ runSqlPool (count [M.DiskImageNodeNodeId ==. key]) pool
-      let total = vmCount + netCount + diskCount
+      peerCount <- liftIO $ runSqlPool (count [M.NetworkPeerNodeId ==. key]) pool
+      let total = vmCount + netCount + diskCount + peerCount
       if total > 0
         then do
           let msg =
@@ -210,7 +220,9 @@ handleNodeDelete state nodeId = runServerLogging state $ do
                   <> T.pack (show netCount)
                   <> " network(s), "
                   <> T.pack (show diskCount)
-                  <> " disk placement(s). Delete them first."
+                  <> " disk placement(s), "
+                  <> T.pack (show peerCount)
+                  <> " peer membership(s). Remove them first."
           logWarnN msg
           pure $ RespNodeInUse msg
         else do
@@ -568,3 +580,146 @@ handleNodePing state nodeId = do
             Nothing -> (False, "Nodeagent ping timed out")
             Just (Left err) -> (False, T.pack (show err))
             Just (Right ()) -> (True, "Nodeagent reachable")
+
+data NodeForget = NodeForget Int64 Bool
+
+instance Action NodeForget where
+  actionSubsystem _ = M.SubNode
+  actionCommand _ = "forget"
+  actionEntityId (NodeForget ident _) = Just (fromIntegral ident)
+  actionVmDependencies state (NodeForget ident _) =
+    runSqlPool (map fromSqlKey <$> selectKeysList [M.VmNodeId ==. toSqlKey ident] []) (ssDbPool state)
+  actionResources state (NodeForget ident _) = do
+    result <- nodeForgetPreview state ident
+    case result of
+      Left _ -> pure []
+      Right impact -> do
+        vms <- concat <$> mapM (objectResources state ExclusiveAccess VmObject . nrId) (nfiVms impact)
+        nets <- concat <$> mapM (objectResources state ExclusiveAccess NetworkObject . nrId) (nfiOwnedNetworks impact ++ nfiPeerNetworks impact)
+        disks <- concat <$> mapM (imageResources state ExclusiveAccess . nrId) (nfiDiskImages impact)
+        pure (vms ++ nets ++ disks)
+  actionExecute ctx (NodeForget ident confirmed)
+    | confirmed = forgetNode ctx ident
+    | otherwise = pure (RespError "Confirm that the host is fenced before forgetting it")
+
+nodeForgetPreview :: ServerState -> Int64 -> IO (Either Response NodeForgetImpact)
+nodeForgetPreview state ident = runSqlPool (loadForgetImpact (toSqlKey ident)) (ssDbPool state)
+
+loadForgetImpact :: M.NodeId -> SqlPersistT IO (Either Response NodeForgetImpact)
+loadForgetImpact key = do
+  node <- get key
+  case node of
+    Nothing -> pure (Left RespNodeNotFound)
+    Just _ -> do
+      vms <- selectList [M.VmNodeId ==. key] [Asc M.VmId]
+      owned <- selectList [M.NetworkNodeId ==. key] [Asc M.NetworkId]
+      memberships <- selectList [M.NetworkPeerNodeId ==. key] [Asc M.NetworkPeerNetworkId]
+      peers <- selectList [M.NetworkId <-. map (M.networkPeerNetworkId . entityVal) memberships] [Asc M.NetworkId]
+      placements <- selectList [M.DiskImageNodeNodeId ==. key] [Asc M.DiskImageNodeDiskImageId]
+      let imageIds = map (M.diskImageNodeDiskImageId . entityVal) placements
+      images <- selectList [M.DiskImageId <-. imageIds] [Asc M.DiskImageId]
+      replicas <- selectList [M.DiskImageNodeDiskImageId <-. imageIds, M.DiskImageNodeNodeId !=. key] []
+      nics <- selectList [M.NetworkInterfaceNetworkId <-. map (Just . entityKey) owned] []
+      blockers <- selectList [M.VmId <-. map (M.networkInterfaceVmId . entityVal) nics, M.VmNodeId !=. key] [Asc M.VmId]
+      let vmRef (Entity k vm) = NamedRef (fromSqlKey k) (M.vmName vm)
+          networkRef (Entity k network) = NamedRef (fromSqlKey k) (M.networkName network)
+          imageRef (Entity k image) = NamedRef (fromSqlKey k) (M.diskImageName image)
+          replicated = Map.fromList [(M.diskImageNodeDiskImageId row, ()) | Entity _ row <- replicas]
+      pure $
+        Right $
+          NodeForgetImpact
+            (map vmRef vms)
+            (map networkRef owned)
+            (map networkRef peers)
+            (map imageRef images)
+            (map imageRef (filter (\row -> Map.notMember (entityKey row) replicated) images))
+            (map vmRef blockers)
+
+forgetNode :: ActionContext -> Int64 -> IO Response
+forgetNode ctx ident = do
+  planned <- nodeForgetPreview state ident
+  case planned of
+    Left err -> pure err
+    Right impact
+      | not (null (nfiBlockingVms impact)) ->
+          pure $
+            RespNodeInUse $
+              "Networks owned by this node: "
+                <> names (nfiOwnedNetworks impact)
+                <> ". Still used by surviving VMs: "
+                <> names (nfiBlockingVms impact)
+      | otherwise -> do
+          connected <- nodeConnected
+          if connected
+            then pure (RespError "An agent session is still connected to this node")
+            else do
+              failures <- concat <$> mapM teardownPeers (nfiOwnedNetworks impact)
+              if null failures
+                then commitForget impact
+                else pure (RespError (T.intercalate "\n" failures))
+  where
+    state = acState ctx
+    key = toSqlKey ident
+    pool = ssDbPool state
+    names = T.intercalate ", " . map nrName
+
+    nodeConnected = do
+      conns <- Map.lookup key <$> readTVarIO (ssAgents state)
+      pure $ maybe False (\c -> Data.Maybe.isJust (ncNodeAgent c) || Data.Maybe.isJust (ncNetAgent c)) conns
+
+    teardownPeers ref = do
+      peers <- runSqlPool (selectList [M.NetworkPeerNetworkId ==. toSqlKey (nrId ref), M.NetworkPeerNodeId !=. key] []) pool
+      fmap concat $ Control.Monad.forM peers $ \(Entity _ peer) -> do
+        throwIfCancelled ctx
+        let peerId = M.networkPeerNodeId peer
+        result <- timeout 10000000 $ withNetAgent state peerId $ \agent ->
+          Net.deleteNetwork agent (corvusBridgeName (nrId ref))
+        case result of
+          Just (Right (Right ())) -> pure []
+          _ -> do
+            label <- runSqlPool (get peerId) pool
+            pure ["Failed to tear down network " <> nrName ref <> " on peer " <> maybe (T.pack (show (fromSqlKey peerId))) nodeName label]
+
+    commitForget impact = do
+      committed <-
+        runSqlPool
+          ( do
+              checkTaskCommit state
+              current <- loadForgetImpact key
+              connected <- liftIO nodeConnected
+              case current of
+                Right fresh | fresh == impact && not connected -> do
+                  mapM_ (deleteVm . nrId) (nfiVms impact)
+                  deleteWhere [M.DiskImageNodeNodeId ==. key]
+                  deleteWhere [M.NetworkPeerNodeId ==. key]
+                  Control.Monad.forM_ (nfiOwnedNetworks impact) $ \ref -> do
+                    let networkKey = toSqlKey (nrId ref)
+                    deleteWhere [M.NetworkPeerNetworkId ==. networkKey]
+                    delete networkKey
+                  delete key
+                  pure True
+                _ -> pure False
+          )
+          pool
+      if committed
+        then do
+          cancelNodeSupervisor state key
+          warnings <- concat <$> mapM refreshNetwork (nfiPeerNetworks impact)
+          pure (RespNodeForgotten impact warnings)
+        else pure (RespError "Node connectivity or dependencies changed during forget. Review and retry")
+
+    refreshNetwork ref = do
+      let networkKey = toSqlKey (nrId ref)
+      network <- runSqlPool (get networkKey) pool
+      if maybe False M.networkRunning network
+        then do
+          warnings <- newIORef []
+          let recordWarning err = modifyIORef' warnings (("Failed to refresh network " <> nrName ref <> ": " <> err) :)
+          result <- timeout 10000000 (pushNetworkToAllMembersWithWarnings state recordWarning networkKey)
+          peerWarnings <- reverse <$> readIORef warnings
+          pure $
+            peerWarnings <> case result of
+              Just (Right ()) -> []
+              Just (Left err) -> ["Failed to refresh network " <> nrName ref <> ": " <> err]
+              Nothing -> ["Timed out refreshing network " <> nrName ref]
+        else pure []

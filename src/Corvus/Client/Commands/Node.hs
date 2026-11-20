@@ -10,6 +10,7 @@ module Corvus.Client.Commands.Node
   , handleNodeEdit
   , handleNodeDrain
   , handleNodeDelete
+  , handleNodeForget
   )
 where
 
@@ -21,9 +22,10 @@ import Corvus.Client.Output
 import Corvus.Client.Output.Columns (nodeColumns)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NodeAdminState)
-import Corvus.Protocol (NodeDetails (..))
+import Corvus.Protocol (NamedRef (..), NodeDetails (..), NodeForgetImpact (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
+import qualified Data.Aeson.Key as Key
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -220,5 +222,27 @@ handleNodeDelete fmt conn nRef = do
       pure False
 
 --------------------------------------------------------------------------------
--- Table for `crv node list`
+-- handleNodeForget
 --------------------------------------------------------------------------------
+
+handleNodeForget :: OutputFormat -> CapnpConnection -> Text -> Bool -> Bool -> IO Bool
+handleNodeForget fmt conn ref dryRun confirmed = do
+  result <- try @SomeException (CR.rpcNodeForget conn (entityRefFromText ref) dryRun confirmed)
+  case result of
+    Left err -> do
+      emitRpcError fmt err $ putStrLn ("Failed to forget node: " ++ show err)
+      pure False
+    Right (impact, warnings) -> do
+      let fields =
+            [ ("vms", nfiVms impact)
+            , ("owned_networks", nfiOwnedNetworks impact)
+            , ("peer_networks", nfiPeerNetworks impact)
+            , ("disk_images", nfiDiskImages impact)
+            , ("zero_copy_images", nfiZeroCopyImages impact)
+            , ("blocking_vms", nfiBlockingVms impact)
+            ]
+      emitOkWith fmt (("warnings", toJSON warnings) : [(key, toJSON refs) | (key, refs) <- fields]) $ do
+        putStrLn (if dryRun then "Node forget preview" else "Node forgotten")
+        mapM_ (\(key, refs) -> putStrLn (Key.toString key ++ ": " ++ T.unpack (T.intercalate ", " (map nrName refs)))) fields
+        mapM_ (putStrLn . T.unpack) warnings
+      pure True

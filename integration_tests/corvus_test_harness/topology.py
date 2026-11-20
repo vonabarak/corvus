@@ -277,6 +277,17 @@ class Topology:
         # (see corvus_test_harness.cases.IntegrationTestCase).
         self.finalize(leak_on_failure=exc_type is not None)
 
+    def fence_node(self, node: TestNode) -> None:
+        """Export the service journals before permanently powering off a test node."""
+        logs.collect_node_logs(
+            self.crv,
+            self.log_directory / node.name,
+            node.name,
+            self._log_nodes[node.name],
+        )
+        self.crv.run("vm", "reset", node.name)
+        del self._log_nodes[node.name]
+
     def finalize(self, *, leak_on_failure: bool) -> None:
         """Tear down clients, relays, and nodes.
 

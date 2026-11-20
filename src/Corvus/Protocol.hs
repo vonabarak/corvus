@@ -17,7 +17,8 @@
 -- 'Corvus.Rpc.Common.capnpRefToRef' translates that into a 'Ref'.
 module Corvus.Protocol
   ( -- * Server-side response sum
-    Response (..)
+    NodeForgetImpact (..)
+  , Response (..)
 
     -- * Daemon status
   , StatusInfo (..)
@@ -308,7 +309,8 @@ data Response
   | -- | Node created successfully
     RespNodeCreated !Int64
   | -- | Node deleted successfully
-    RespNodeDeleted
+    RespNodeForgotten NodeForgetImpact [Text]
+  | RespNodeDeleted
   | -- | Node edited successfully
     RespNodeEdited
   | -- | Node not found
@@ -316,3 +318,13 @@ data Response
   | -- | Node is still referenced by VMs / networks / disks
     RespNodeInUse !Text
   deriving stock (Eq, Show, Generic)
+
+data NodeForgetImpact = NodeForgetImpact
+  { nfiVms :: [NamedRef]
+  , nfiOwnedNetworks :: [NamedRef]
+  , nfiPeerNetworks :: [NamedRef]
+  , nfiDiskImages :: [NamedRef]
+  , nfiZeroCopyImages :: [NamedRef]
+  , nfiBlockingVms :: [NamedRef]
+  }
+  deriving stock (Show, Eq)

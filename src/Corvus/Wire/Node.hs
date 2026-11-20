@@ -6,13 +6,17 @@ module Corvus.Wire.Node
   ( toCapnpNodeInfo
   , fromCapnpNodeInfo
   , toCapnpNodeDetails
+  , toCapnpNodeForgetImpact
+  , fromCapnpNodeForgetImpact
   , fromCapnpNodeDetails
   )
 where
 
 import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Node as CGNode
+import Corvus.Protocol (NodeForgetImpact (..))
 import qualified Corvus.Protocol.Node as P
+import Corvus.Wire.Common (fromCapnpNamedRef, toCapnpNamedRef)
 import Corvus.Wire.Enums (fromCapnpNodeAdminState, toCapnpNodeAdminState)
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
@@ -153,3 +157,24 @@ emptyToNothing :: Text -> Maybe Text
 emptyToNothing t
   | t == mempty = Nothing
   | otherwise = Just t
+
+toCapnpNodeForgetImpact :: NodeForgetImpact -> C.Parsed CGNode.NodeForgetImpact
+toCapnpNodeForgetImpact NodeForgetImpact {..} =
+  CGNode.NodeForgetImpact
+    { CGNode.vms = map toCapnpNamedRef nfiVms
+    , CGNode.ownedNetworks = map toCapnpNamedRef nfiOwnedNetworks
+    , CGNode.peerNetworks = map toCapnpNamedRef nfiPeerNetworks
+    , CGNode.diskImages = map toCapnpNamedRef nfiDiskImages
+    , CGNode.zeroCopyImages = map toCapnpNamedRef nfiZeroCopyImages
+    , CGNode.blockingVms = map toCapnpNamedRef nfiBlockingVms
+    }
+
+fromCapnpNodeForgetImpact :: C.Parsed CGNode.NodeForgetImpact -> NodeForgetImpact
+fromCapnpNodeForgetImpact CGNode.NodeForgetImpact {..} =
+  NodeForgetImpact
+    (map fromCapnpNamedRef vms)
+    (map fromCapnpNamedRef ownedNetworks)
+    (map fromCapnpNamedRef peerNetworks)
+    (map fromCapnpNamedRef diskImages)
+    (map fromCapnpNamedRef zeroCopyImages)
+    (map fromCapnpNamedRef blockingVms)

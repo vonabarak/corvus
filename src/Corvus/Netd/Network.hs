@@ -72,6 +72,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Word (Word32)
+import System.Directory (doesDirectoryExist)
 
 -- | The 'L.NetworkLedger' specialised for our spec/live types.
 type Ledger = L.NetworkLedger NetworkSpec NetworkLiveState
@@ -166,17 +167,10 @@ applyNetwork ledger spec = E.try @NetworkError $ do
 
 deleteNetwork :: Ledger -> T.Text -> IO (Either NetworkError ())
 deleteNetwork ledger name = E.try @NetworkError $ do
-  mEntry <-
-    atomically $ do
-      m <- L.readNetworks ledger
-      case Map.lookup name m of
-        Nothing -> pure Nothing
-        Just entry -> do
-          L.removeNetwork ledger name
-          pure (Just entry)
-  case mEntry of
-    Nothing -> pure ()
-    Just (spec, state) -> teardown spec state
+  mEntry <- atomically $ Map.lookup name <$> L.readNetworks ledger
+  for_ mEntry $ \(spec, state) -> do
+    teardown spec state
+    atomically $ L.removeNetwork ledger name
 
 listNetworks :: Ledger -> IO [NetworkInfo]
 listNetworks ledger = do
@@ -379,9 +373,18 @@ teardown spec state = do
   for_ (lsDnsmasq state) Dn.stopDnsmasq
   for_ (lsNatHandle state) (ignoreNft <=< Nft.deleteRule)
   case nsOverlay spec of
-    OverlayVxlan v -> void (IpLink.bridgeDel (vxlanIfaceName (vsVni v)))
+    OverlayVxlan v -> deleteLinkIfPresent (vxlanIfaceName (vsVni v))
     OverlayNone -> pure ()
-  void (bridgeDel (nsName spec))
+  deleteLinkIfPresent (nsName spec)
+
+deleteLinkIfPresent :: T.Text -> IO ()
+deleteLinkIfPresent name = do
+  result <- bridgeDel name
+  case result of
+    Right () -> pure ()
+    Left err -> do
+      present <- doesDirectoryExist ("/sys/class/net/" <> T.unpack name)
+      when present (unwrapIp (Left err))
 
 -- ---------------------------------------------------------------------------
 -- Overlay (VXLAN) reconciliation
@@ -427,11 +430,11 @@ reconcileOverlay oldSpec newSpec = case (nsOverlay oldSpec, nsOverlay newSpec) o
   (OverlayNone, OverlayNone) -> pure ()
   (OverlayNone, OverlayVxlan _) -> applyOverlayCreate newSpec
   (OverlayVxlan v, OverlayNone) ->
-    void (IpLink.bridgeDel (vxlanIfaceName (vsVni v)))
+    deleteLinkIfPresent (vxlanIfaceName (vsVni v))
   (OverlayVxlan vOld, OverlayVxlan vNew)
     | vsVni vOld /= vsVni vNew || vsLocalIp vOld /= vsLocalIp vNew -> do
         -- VNI or local-ip changed: blow it away and recreate.
-        void (IpLink.bridgeDel (vxlanIfaceName (vsVni vOld)))
+        deleteLinkIfPresent (vxlanIfaceName (vsVni vOld))
         applyOverlayCreate newSpec
     | otherwise -> reconcileFlood (vxlanIfaceName (vsVni vNew)) (vsPeerIps vNew)
 
@@ -449,7 +452,7 @@ reconcileFlood dev desired = do
       toAdd = Set.difference target currentFlood
       toRemove = Set.difference currentFlood target
   mapM_ (unwrapIp <=< fdbAppend floodMac dev) (Set.toList toAdd)
-  mapM_ (ignoreIp <=< fdbDel floodMac dev) (Set.toList toRemove)
+  mapM_ (unwrapIp <=< fdbDel floodMac dev) (Set.toList toRemove)
 
 -- ---------------------------------------------------------------------------
 -- Helpers

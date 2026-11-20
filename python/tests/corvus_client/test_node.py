@@ -15,6 +15,8 @@ through the second node).
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -331,3 +333,47 @@ def test_node_ping_reports_unavailable_and_deleted_nodes(daemon_socket: Path) ->
             await node.ping()
 
     run(go)
+
+
+def test_node_forget_rolls_back_when_node_delete_fails(daemon_socket: Path) -> None:
+    async def go(c: AsyncClient) -> None:
+        node = await c.nodes.create("forget-rollback", "127.0.0.2", base_path="/tmp")
+        try:
+            await c.networks.create("rollback-net", "", node="forget-rollback")
+            with sqlite3.connect(daemon_socket.parent / "corvus.db") as db:
+                db.execute(
+                    "\n"
+                    "                    CREATE TRIGGER reject_forget BEFORE DELETE ON node\n"
+                    "                    WHEN OLD.name = 'forget-rollback'\n"
+                    "                    BEGIN SELECT RAISE(ABORT, 'forced forget rollback'); END\n"
+                    "                    "
+                )
+            try:
+                with pytest.raises(ServerError, match="forced forget rollback"):
+                    await node.forget(confirmed_fenced=True)
+                preview = await node.forget_preview()
+                assert [ref.name for ref in preview.owned_networks] == ["rollback-net"]
+            finally:
+                with sqlite3.connect(daemon_socket.parent / "corvus.db") as db:
+                    db.execute("DROP TRIGGER reject_forget")
+        finally:
+            await node.forget(confirmed_fenced=True)
+
+    with_client(daemon_socket)(go)
+
+
+def test_node_forget_races_with_network_creation(daemon_socket: Path) -> None:
+    async def go(c: AsyncClient) -> None:
+        name = "forget-race"
+        node = await c.nodes.create(name, "127.0.0.2", base_path="/tmp")
+        result, network = await asyncio.gather(
+            node.forget(confirmed_fenced=True),
+            c.networks.create("racing-net", "", node=name),
+            return_exceptions=True,
+        )
+        assert not isinstance(result, BaseException), result
+        if not isinstance(network, BaseException):
+            assert [ref.name for ref in result.impact.owned_networks] == ["racing-net"]
+        assert all(row.name != "racing-net" for row in await c.networks.list())
+
+    with_client(daemon_socket)(go)

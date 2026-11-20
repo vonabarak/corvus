@@ -302,3 +302,24 @@ Cap'n Proto schema additions for multi-node:
   * **Heterogeneous agent versions**. `Node.agent_version` is
     recorded but the daemon doesn't yet refuse a mismatched
     agent.
+
+## Remove a permanently unavailable node
+
+Run `crv node forget <NODE> --dry-run` to see what Corvus would remove,
+which disk images would lose their last copy, and which VMs on other nodes
+still use networks owned by the lost node. Move or remove those NICs first.
+
+Power off or isolate the host so its VMs and network services cannot
+resume on the cluster. Then run `crv node forget <NODE> --confirm-fenced`.
+Corvus removes the node, its VM configuration, local disk placements, and
+network memberships. Files and runtime state on the unavailable host remain
+there. Clean or rebuild the host before putting it back into service.
+
+For an owned network, surviving peers must acknowledge teardown. If a
+peer is unavailable, restore its netd session and retry. Read the result
+for warnings about refreshing networks that remain on other nodes.
+Those members reapply their current configuration on netd reconnect.
+
+Images with zero copies retain their metadata. Use
+`crv disk register-placement` for recovered copies, or use `crv disk delete`
+after removing references to the image.
