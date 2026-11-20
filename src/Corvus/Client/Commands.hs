@@ -297,9 +297,9 @@ runCommand opts = do
         CmdNode.handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc adminState netdDisabled
       NodeList -> CmdNode.handleNodeList fmt tableOpts conn
       NodeShow nRef -> CmdNode.handleNodeShow fmt conn nRef
-      NodeEdit nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled ->
-        CmdNode.handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled
-      NodeDrain nRef -> CmdNode.handleNodeDrain fmt conn nRef
+      NodeEdit nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mNetdDisabled ->
+        CmdNode.handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mNetdDisabled
+      NodeSetState nRef desired -> CmdNode.handleNodeSetState fmt conn nRef desired
       NodeForget nRef dryRun confirmed -> CmdNode.handleNodeForget fmt conn nRef dryRun confirmed
       NodeDelete nRef -> CmdNode.handleNodeDelete fmt conn nRef
       -- Cloud-init config

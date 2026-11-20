@@ -758,8 +758,8 @@ instance (C.AllocateList TaskResult) where
 instance (C.EstimateListAlloc TaskResult TaskResult)
 data NodeAdminState 
     = NodeAdminState'online 
-    | NodeAdminState'draining 
     | NodeAdminState'maintenance 
+    | NodeAdminState'offline
     | NodeAdminState'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -772,17 +772,17 @@ instance (Std_.Enum NodeAdminState) where
         0 ->
             NodeAdminState'online
         1 ->
-            NodeAdminState'draining
-        2 ->
             NodeAdminState'maintenance
+        2 ->
+            NodeAdminState'offline
         tag_ ->
             (NodeAdminState'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
         (NodeAdminState'online) ->
             0
-        (NodeAdminState'draining) ->
-            1
         (NodeAdminState'maintenance) ->
+            1
+        (NodeAdminState'offline) ->
             2
         (NodeAdminState'unknown' tag_) ->
             (Std_.fromIntegral tag_)

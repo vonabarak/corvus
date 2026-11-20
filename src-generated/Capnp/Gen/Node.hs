@@ -382,8 +382,6 @@ data instance C.Parsed NodeEditParams
         ,basePath :: (RP.Parsed Basics.Text)
         ,hasDescription :: (RP.Parsed Std_.Bool)
         ,description :: (RP.Parsed Basics.Text)
-        ,hasAdminState :: (RP.Parsed Std_.Bool)
-        ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)
         ,hasNetdDisabled :: (RP.Parsed Std_.Bool)
         ,netdDisabled :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
@@ -402,8 +400,6 @@ instance (C.Parse NodeEditParams (C.Parsed NodeEditParams)) where
                                  <*> (GH.parseField #basePath raw_)
                                  <*> (GH.parseField #hasDescription raw_)
                                  <*> (GH.parseField #description raw_)
-                                 <*> (GH.parseField #hasAdminState raw_)
-                                 <*> (GH.parseField #adminState raw_)
                                  <*> (GH.parseField #hasNetdDisabled raw_)
                                  <*> (GH.parseField #netdDisabled raw_))
 instance (C.Marshal NodeEditParams (C.Parsed NodeEditParams)) where
@@ -420,8 +416,6 @@ instance (C.Marshal NodeEditParams (C.Parsed NodeEditParams)) where
         (GH.encodeField #basePath basePath raw_)
         (GH.encodeField #hasDescription hasDescription raw_)
         (GH.encodeField #description description raw_)
-        (GH.encodeField #hasAdminState hasAdminState raw_)
-        (GH.encodeField #adminState adminState raw_)
         (GH.encodeField #hasNetdDisabled hasNetdDisabled raw_)
         (GH.encodeField #netdDisabled netdDisabled raw_)
         (Std_.pure ())
@@ -450,14 +444,10 @@ instance (GH.HasField "hasDescription" GH.Slot NodeEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 5 0 1 0)
 instance (GH.HasField "description" GH.Slot NodeEditParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
-instance (GH.HasField "hasAdminState" GH.Slot NodeEditParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 6 0 1 0)
-instance (GH.HasField "adminState" GH.Slot NodeEditParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState) where
-    fieldByLabel  = (GH.dataField 16 0 16 0)
 instance (GH.HasField "hasNetdDisabled" GH.Slot NodeEditParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 7 0 1 0)
+    fieldByLabel  = (GH.dataField 6 0 1 0)
 instance (GH.HasField "netdDisabled" GH.Slot NodeEditParams Std_.Bool) where
-    fieldByLabel  = (GH.dataField 8 0 1 0)
+    fieldByLabel  = (GH.dataField 7 0 1 0)
 data NodeManager 
 type instance (R.ReprFor NodeManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId NodeManager) where
@@ -670,19 +660,19 @@ instance (GH.Export Node) where
     type Server Node = Node'server_
     methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(Node)) [(GH.toUntypedMethodHandler ((node'show) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'edit) s_))
-                                                                      ,(GH.toUntypedMethodHandler ((node'drain) s_))
+                                                                      ,(GH.toUntypedMethodHandler ((node'setState) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'delete) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'ping) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'forgetPreview) s_))
                                                                       ,(GH.toUntypedMethodHandler ((node'forget) s_))] [])
 class (Node'server_ s_) where
-    {-# MINIMAL node'show,node'edit,node'drain,node'delete,node'ping,node'forgetPreview,node'forget #-}
+    {-# MINIMAL node'show,node'edit,node'setState,node'delete,node'ping,node'forgetPreview,node'forget #-}
     node'show :: s_ -> (GH.MethodHandler Node'show'params Node'show'results)
     node'show _ = GH.methodUnimplemented
     node'edit :: s_ -> (GH.MethodHandler Node'edit'params Node'edit'results)
     node'edit _ = GH.methodUnimplemented
-    node'drain :: s_ -> (GH.MethodHandler Node'drain'params Node'drain'results)
-    node'drain _ = GH.methodUnimplemented
+    node'setState :: s_ -> (GH.MethodHandler Node'setState'params Node'setState'results)
+    node'setState _ = GH.methodUnimplemented
     node'delete :: s_ -> (GH.MethodHandler Node'delete'params Node'delete'results)
     node'delete _ = GH.methodUnimplemented
     node'ping :: s_ -> (GH.MethodHandler Node'ping'params Node'ping'results)
@@ -695,7 +685,7 @@ instance (GH.HasMethod "show" Node Node'show'params Node'show'results) where
     methodByLabel  = (GH.Method 9857192839459206243 0)
 instance (GH.HasMethod "edit" Node Node'edit'params Node'edit'results) where
     methodByLabel  = (GH.Method 9857192839459206243 1)
-instance (GH.HasMethod "drain" Node Node'drain'params Node'drain'results) where
+instance (GH.HasMethod "setState" Node Node'setState'params Node'setState'results) where
     methodByLabel  = (GH.Method 9857192839459206243 2)
 instance (GH.HasMethod "delete" Node Node'delete'params Node'delete'results) where
     methodByLabel  = (GH.Method 9857192839459206243 3)
@@ -815,56 +805,66 @@ instance (C.Parse Node'edit'results (C.Parsed Node'edit'results)) where
     parse raw_ = (Std_.pure Node'edit'results)
 instance (C.Marshal Node'edit'results (C.Parsed Node'edit'results)) where
     marshalInto _raw (Node'edit'results) = (Std_.pure ())
-data Node'drain'params 
-type instance (R.ReprFor Node'drain'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Node'drain'params) where
+data Node'setState'params
+type instance (R.ReprFor Node'setState'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'setState'params) where
     typeId  = 13753470049033962609
-instance (C.TypedStruct Node'drain'params) where
-    numStructWords  = 0
+instance (C.TypedStruct Node'setState'params) where
+    numStructWords  = 1
     numStructPtrs  = 0
-instance (C.Allocate Node'drain'params) where
-    type AllocHint Node'drain'params = ()
+instance (C.Allocate Node'setState'params) where
+    type AllocHint Node'setState'params = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc Node'drain'params (C.Parsed Node'drain'params))
-instance (C.AllocateList Node'drain'params) where
-    type ListAllocHint Node'drain'params = Std_.Int
+instance (C.EstimateAlloc Node'setState'params (C.Parsed Node'setState'params))
+instance (C.AllocateList Node'setState'params) where
+    type ListAllocHint Node'setState'params = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Node'drain'params (C.Parsed Node'drain'params))
-data instance C.Parsed Node'drain'params
-    = Node'drain'params 
-        {}
+instance (C.EstimateListAlloc Node'setState'params (C.Parsed Node'setState'params))
+data instance C.Parsed Node'setState'params
+    = Node'setState'params
+        {hasState :: (RP.Parsed Std_.Bool)
+        ,state :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Node'drain'params))
-deriving instance (Std_.Eq (C.Parsed Node'drain'params))
-instance (C.Parse Node'drain'params (C.Parsed Node'drain'params)) where
-    parse raw_ = (Std_.pure Node'drain'params)
-instance (C.Marshal Node'drain'params (C.Parsed Node'drain'params)) where
-    marshalInto _raw (Node'drain'params) = (Std_.pure ())
-data Node'drain'results 
-type instance (R.ReprFor Node'drain'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Node'drain'results) where
+deriving instance (Std_.Show (C.Parsed Node'setState'params))
+deriving instance (Std_.Eq (C.Parsed Node'setState'params))
+instance (C.Parse Node'setState'params (C.Parsed Node'setState'params)) where
+    parse raw_ = (Node'setState'params <$> (GH.parseField #hasState raw_)
+                                       <*> (GH.parseField #state raw_))
+instance (C.Marshal Node'setState'params (C.Parsed Node'setState'params)) where
+    marshalInto raw_ Node'setState'params{..} = (do
+        (GH.encodeField #hasState hasState raw_)
+        (GH.encodeField #state state raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "hasState" GH.Slot Node'setState'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+instance (GH.HasField "state" GH.Slot Node'setState'params Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState) where
+    fieldByLabel  = (GH.dataField 16 0 16 0)
+data Node'setState'results
+type instance (R.ReprFor Node'setState'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Node'setState'results) where
     typeId  = 9681010458543830079
-instance (C.TypedStruct Node'drain'results) where
+instance (C.TypedStruct Node'setState'results) where
     numStructWords  = 0
     numStructPtrs  = 0
-instance (C.Allocate Node'drain'results) where
-    type AllocHint Node'drain'results = ()
+instance (C.Allocate Node'setState'results) where
+    type AllocHint Node'setState'results = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc Node'drain'results (C.Parsed Node'drain'results))
-instance (C.AllocateList Node'drain'results) where
-    type ListAllocHint Node'drain'results = Std_.Int
+instance (C.EstimateAlloc Node'setState'results (C.Parsed Node'setState'results))
+instance (C.AllocateList Node'setState'results) where
+    type ListAllocHint Node'setState'results = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Node'drain'results (C.Parsed Node'drain'results))
-data instance C.Parsed Node'drain'results
-    = Node'drain'results 
+instance (C.EstimateListAlloc Node'setState'results (C.Parsed Node'setState'results))
+data instance C.Parsed Node'setState'results
+    = Node'setState'results
         {}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Node'drain'results))
-deriving instance (Std_.Eq (C.Parsed Node'drain'results))
-instance (C.Parse Node'drain'results (C.Parsed Node'drain'results)) where
-    parse raw_ = (Std_.pure Node'drain'results)
-instance (C.Marshal Node'drain'results (C.Parsed Node'drain'results)) where
-    marshalInto _raw (Node'drain'results) = (Std_.pure ())
+deriving instance (Std_.Show (C.Parsed Node'setState'results))
+deriving instance (Std_.Eq (C.Parsed Node'setState'results))
+instance (C.Parse Node'setState'results (C.Parsed Node'setState'results)) where
+    parse raw_ = (Std_.pure Node'setState'results)
+instance (C.Marshal Node'setState'results (C.Parsed Node'setState'results)) where
+    marshalInto _raw (Node'setState'results) = (Std_.pure ())
 data Node'delete'params 
 type instance (R.ReprFor Node'delete'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Node'delete'params) where

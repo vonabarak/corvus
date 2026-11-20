@@ -101,6 +101,10 @@ handleNetworkCreate state name nodeRefText subnet dhcp nat autostart dnsServers 
       let pool = ssDbPool state
       mNode <- runSqlPool (get nodeKey) pool
       case mNode of
+        Nothing -> pure RespNodeNotFound
+        Just n
+          | M.nodeAdminState n /= M.NodeOnline ->
+              pure $ RespNetworkError ("Node '" <> M.nodeName n <> "' is " <> M.enumToText (M.nodeAdminState n))
         Just n
           | M.nodeNetdDisabled n ->
               pure $

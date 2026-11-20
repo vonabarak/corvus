@@ -13,13 +13,14 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Node as CGNode
 import Capnp.Rpc.Server (SomeServer)
+import Control.Monad (unless)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Node
   ( NodeAdd (..)
   , NodeDelete (..)
-  , NodeDrain (..)
   , NodeEdit (..)
   , NodeForget (..)
+  , NodeSetState (..)
   , handleNodeList
   , handleNodePing
   , handleNodeShow
@@ -108,10 +109,6 @@ instance CGNode.Node'server_ NodeCap where
 
   node'edit (NodeCap st eid cn) =
     handleParsed $ \CGNode.Node'edit'params {params = CGNode.NodeEditParams {..}} -> do
-      mAdminSt <-
-        if hasAdminState
-          then Just <$> failOnEnum (fromCapnpNodeAdminState adminState)
-          else pure Nothing
       let descUpdate
             | not hasDescription = Nothing
             | T.null description = Just Nothing
@@ -125,7 +122,6 @@ instance CGNode.Node'server_ NodeCap where
               , nedNetAgentPort = if hasNetAgentPort then Just (fromIntegral netAgentPort) else Nothing
               , nedBasePath = if hasBasePath then Just basePath else Nothing
               , nedDescription = descUpdate
-              , nedAdminState = mAdminSt
               , nedNetdDisabled = if hasNetdDisabled then Just netdDisabled else Nothing
               }
       resp <- runAction st cn act
@@ -133,10 +129,12 @@ instance CGNode.Node'server_ NodeCap where
         RespNodeEdited -> pure CGNode.Node'edit'results
         _ -> throwError resp
 
-  node'drain (NodeCap st eid cn) = handleParsed $ \_ -> do
-    resp <- runAction st cn (NodeDrain eid)
+  node'setState (NodeCap st eid cn) = handleParsed $ \CGNode.Node'setState'params {hasState = present, state = desired} -> do
+    unless present $ throwError (RespError "Node state is required")
+    target <- failOnEnum (fromCapnpNodeAdminState desired)
+    resp <- runAction st cn (NodeSetState eid target)
     case resp of
-      RespNodeEdited -> pure CGNode.Node'drain'results
+      RespNodeEdited -> pure CGNode.Node'setState'results
       _ -> throwError resp
 
   node'forgetPreview (NodeCap st eid _) = handleParsed $ \_ -> do

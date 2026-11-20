@@ -55,9 +55,9 @@ class AsyncNodeManager:
         ``host`` is the IPv4 / IPv6 / hostname the daemon will dial.
         ``node_agent_port`` defaults to 9878 (corvus-nodeagent);
         ``net_agent_port`` defaults to 9877 (corvus-netd). The
-        daemon spawns the per-node reconnect supervisor as soon as
-        this RPC returns successfully — the new node is live without
-        a daemon restart.
+        daemon starts a reconnect supervisor for an online or
+        maintenance node. An offline node requires a base path and
+        starts connecting when its state changes.
         """
         mgr = await self._ensure()
         params = _schema.node.NodeAddParams.new_message()
@@ -97,7 +97,6 @@ class AsyncNode:
         net_agent_port: int | None = None,
         base_path: str | None = None,
         description: str | None = None,
-        admin_state: str | None = None,
         netd_disabled: bool | None = None,
     ) -> None:
         """Mutate a subset of fields. Pass ``None`` (the default) to
@@ -128,17 +127,14 @@ class AsyncNode:
         if description is not None:
             params.hasDescription = True
             params.description = description
-        if admin_state is not None:
-            params.hasAdminState = True
-            params.adminState = admin_state
         if netd_disabled is not None:
             params.hasNetdDisabled = True
             params.netdDisabled = netd_disabled
         await self._cap.edit(params=params)
 
-    async def drain(self) -> None:
-        """Shortcut for ``edit(admin_state='draining')``."""
-        await self._cap.drain()
+    async def set_state(self, state: str) -> None:
+        """Set the administrative state to online, maintenance, or offline."""
+        await self._cap.setState(hasState=True, state=state)
 
     async def delete(self) -> None:
         """Remove the node. Refuses while any VM, network, or

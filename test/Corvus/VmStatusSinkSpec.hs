@@ -3,15 +3,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Unit coverage for the 'applyNodeStats' auto-drain gate.
+-- | Unit coverage for the 'applyNodeStats' automatic maintenance gate.
 --
 -- A nodeagent reports its baked git-short-hash as
 -- 'NodeStats.agentVersion'. The daemon compares it to its own
 -- 'NS.agentVersion'; on mismatch the node is flipped to
--- 'NodeDraining' so the scheduler skips it but live state
+-- 'NodeMaintenance' so the scheduler skips it but live state
 -- survives. The historical implementation re-fired that flip on
 -- every push (~10 s), so an operator's manual
--- @crv node edit --admin-state online@ silently reverted on the
+-- @crv node set-state <NODE> online@ silently reverted on the
 -- next snapshot.
 --
 -- The fix in 'applyNodeStats' captures the previously-stored
@@ -21,7 +21,7 @@
 -- That way a manual flip-back is sticky against repeated
 -- pushes from the same agent build, but a genuine agent rebuild
 -- (different hash, still mismatched) still triggers a fresh
--- auto-drain so operators don't miss the warning.
+-- automatic maintenance so operators don't miss the warning.
 module Corvus.VmStatusSinkSpec (spec) where
 
 import qualified Capnp as C
@@ -207,13 +207,13 @@ spec = sequential $ withTestDb $ do
         fmap M.vmStatus current `shouldBe` Just VmStarting
         fmap M.vmHealthcheck current `shouldBe` Just (M.vmHealthcheck vm)
 
-  describe "applyNodeStats version-mismatch auto-drain" $ do
-    testCase "first mismatched push flips an online node to draining" $ do
+  describe "applyNodeStats version-mismatch automatic maintenance" $ do
+    testCase "first mismatched push flips an online node to maintenance" $ do
       state <- mkState
       let badVer = "wrong-hash"
       callApply state badVer 1000
       (adminState, storedVer) <- readNodeState
-      liftIO $ adminState `shouldBe` M.NodeDraining
+      liftIO $ adminState `shouldBe` M.NodeMaintenance
       liftIO $ storedVer `shouldBe` Just badVer
 
     testCase
@@ -221,21 +221,21 @@ spec = sequential $ withTestDb $ do
       $ do
         state <- mkState
         let badVer = "wrong-hash"
-        -- 1. First push triggers auto-drain.
+        -- 1. First push triggers automatic maintenance.
         callApply state badVer 1000
         (admin1, _) <- readNodeState
-        liftIO $ admin1 `shouldBe` M.NodeDraining
+        liftIO $ admin1 `shouldBe` M.NodeMaintenance
         -- 2. Operator flips back to online (simulates
-        --    'crv node edit --admin-state online').
+        --    'crv node set-state <NODE> online').
         setNodeOnline
         -- 3. Next push from the same agent build must NOT
-        --    re-drain — this is the Fix 1 invariant.
+        --    restore maintenance — this is the Fix 1 invariant.
         callApply state badVer 2000
         (admin2, _) <- readNodeState
         liftIO $ admin2 `shouldBe` M.NodeOnline
 
     testCase
-      "a genuinely new mismatch (agent rebuilt to different hash) re-fires auto-drain"
+      "a genuinely new mismatch (agent rebuilt to different hash) re-fires automatic maintenance"
       $ do
         state <- mkState
         callApply state "wrong-hash-v1" 1000
@@ -243,10 +243,17 @@ spec = sequential $ withTestDb $ do
         -- Different mismatched hash → fresh transition → fire.
         callApply state "wrong-hash-v2" 2000
         (adminState, storedVer) <- readNodeState
-        liftIO $ adminState `shouldBe` M.NodeDraining
+        liftIO $ adminState `shouldBe` M.NodeMaintenance
         liftIO $ storedVer `shouldBe` Just "wrong-hash-v2"
 
-    testCase "a matching agent version never drains" $ do
+    testCase "a mismatched push cannot change an offline node" $ do
+      state <- mkState
+      runDb $ update testNodeId [M.NodeAdminState =. M.NodeOffline]
+      callApply state "wrong-hash" 1000
+      (adminState, _) <- readNodeState
+      liftIO $ adminState `shouldBe` M.NodeOffline
+
+    testCase "a matching agent version keeps the node online" $ do
       state <- mkState
       callApply state NS.agentVersion 1000
       (adminState, storedVer) <- readNodeState

@@ -572,12 +572,12 @@ instance PersistFieldSql TaskResult where
 -- of whether its agents are currently reachable.
 --
 --   * 'NodeOnline' — eligible for the scheduler's pick-a-node pass.
---   * 'NodeDraining' — existing VMs keep running but no new VMs land here.
---   * 'NodeMaintenance' — operator hint that the node is intentionally
---     down; suppresses "agent unreachable" alerting when added.
+--   * 'NodeOffline' — disconnected and excluded from placement.
+--   * 'NodeMaintenance' — connected for management and evacuation,
+--     with new placements disabled.
 data NodeAdminState
   = NodeOnline
-  | NodeDraining
+  | NodeOffline
   | NodeMaintenance
   deriving stock (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
@@ -585,7 +585,7 @@ instance EnumText NodeAdminState where
   enumTypeName = "NodeAdminState"
   enumMapping =
     [ (NodeOnline, "online")
-    , (NodeDraining, "draining")
+    , (NodeOffline, "offline")
     , (NodeMaintenance, "maintenance")
     ]
 

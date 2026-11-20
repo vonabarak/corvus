@@ -26,7 +26,7 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, race_, withAsync)
-import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import Control.Concurrent.STM (atomically, modifyTVar', newEmptyTMVarIO, putTMVar, readTVarIO, takeTMVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Logger (logInfoN, logWarnN)
@@ -72,7 +72,7 @@ spawnAllNodeSupervisors state = do
   runFilteredLogging (ssLogLevel state) $
     logInfoN $
       "Spawning supervisors for " <> T.pack (show (length nodes)) <> " node(s)"
-  mapM (spawnNodeSupervisor state) nodes
+  mapM (spawnNodeSupervisor state) (filter ((/= M.NodeOffline) . M.nodeAdminState . entityVal) nodes)
 
 -- | Fork one reconnect-loop supervisor for a single 'Node' row.
 -- The supervisor maintains two parallel connect-and-hold async
@@ -86,18 +86,21 @@ spawnNodeSupervisor :: ServerState -> Entity M.Node -> IO (Async ())
 spawnNodeSupervisor taskState (Entity nodeKey node) = do
   -- A supervisor outlives node add/edit and must reconcile after that task exits.
   let state = taskState {ssActionRoot = Nothing}
-  sup <- async (runNodeSupervisor state nodeKey node)
-  (vmAS, netAS) <- newAutostartFlags
+  ready <- newEmptyTMVarIO
+  previous <- Map.lookup nodeKey <$> readTVarIO (ssAgents state)
+  (vmAS, netAS) <- maybe newAutostartFlags (\nc -> pure (ncVmAutostartFired nc, ncNetAutostartFired nc)) previous
+  sup <- async (atomically (takeTMVar ready) >> runNodeSupervisor state nodeKey node)
   registerNodeConns
     state
     nodeKey
     NodeConns
       { ncNodeAgent = Nothing
       , ncNetAgent = Nothing
-      , ncSupervisor = sup
+      , ncSupervisor = Just sup
       , ncVmAutostartFired = vmAS
       , ncNetAutostartFired = netAS
       }
+  atomically $ putTMVar ready ()
   pure sup
 
 -- | Per-node supervisor body: fan out two reconnect loops, one

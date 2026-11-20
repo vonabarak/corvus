@@ -68,7 +68,6 @@ class SyncNode(LoopBoundResource):
         net_agent_port: int | None = None,
         base_path: str | None = None,
         description: str | None = None,
-        admin_state: str | None = None,
         netd_disabled: bool | None = None,
     ) -> None:
         return self._rl.run(
@@ -79,13 +78,12 @@ class SyncNode(LoopBoundResource):
                 net_agent_port=net_agent_port,
                 base_path=base_path,
                 description=description,
-                admin_state=admin_state,
                 netd_disabled=netd_disabled,
             )
         )
 
-    def drain(self) -> None:
-        return self._rl.run(self._a.drain())
+    def set_state(self, state: str) -> None:
+        return self._rl.run(self._a.set_state(state))
 
     def delete(self) -> None:
         return self._rl.run(self._a.delete())

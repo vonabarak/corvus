@@ -274,7 +274,7 @@ withMockTransport tcp action = hSilence [stderr] $ withSystemTempDirectory "corv
   setReply f "NodeManager.create" (\(_ :: C.Parsed GNode.NodeManager'create'params) -> pure (GNode.NodeManager'create'results {GNode.node = capNode}))
   setReply f "Node.show" (\(_ :: C.Parsed GNode.Node'show'params) -> pure sampleNode'show'results)
   setReply f "Node.edit" (\(_ :: C.Parsed GNode.Node'edit'params) -> pure sampleNode'edit'results)
-  setReply f "Node.drain" (\(_ :: C.Parsed GNode.Node'drain'params) -> pure sampleNode'drain'results)
+  setReply f "Node.setState" (\(_ :: C.Parsed GNode.Node'setState'params) -> pure sampleNode'setState'results)
   let forgetImpact = GNode.NodeForgetImpact [GCommon.NamedRef 42 "fixture"] [] [] [] [] []
   setReply f "Node.forgetPreview" (\(_ :: C.Parsed GNode.Node'forgetPreview'params) -> pure (GNode.Node'forgetPreview'results forgetImpact))
   setReply
@@ -454,7 +454,7 @@ instance GNode.Node'server_ Mock where
   node'ping (Mock f) = handleParsed (respond f "Node.ping")
   node'show (Mock f) = handleParsed (respond f "Node.show")
   node'edit (Mock f) = handleParsed (respond f "Node.edit")
-  node'drain (Mock f) = handleParsed (respond f "Node.drain")
+  node'setState (Mock f) = handleParsed (respond f "Node.setState")
   node'forgetPreview (Mock f) = handleParsed (respond f "Node.forgetPreview")
   node'forget (Mock f) = handleParsed (respond f "Node.forget")
   node'delete (Mock f) = handleParsed (respond f "Node.delete")
@@ -663,8 +663,8 @@ sampleNetworkManager'list'results = GNetwork.NetworkManager'list'results {GNetwo
 sampleNode'delete'results :: C.Parsed GNode.Node'delete'results
 sampleNode'delete'results = GNode.Node'delete'results
 
-sampleNode'drain'results :: C.Parsed GNode.Node'drain'results
-sampleNode'drain'results = GNode.Node'drain'results
+sampleNode'setState'results :: C.Parsed GNode.Node'setState'results
+sampleNode'setState'results = GNode.Node'setState'results
 
 sampleNode'edit'results :: C.Parsed GNode.Node'edit'results
 sampleNode'edit'results = GNode.Node'edit'results

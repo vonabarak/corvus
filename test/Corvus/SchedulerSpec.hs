@@ -111,10 +111,10 @@ spec = sequential $ withTestDb $ do
         Left _ -> pure ()
         Right k -> fail $ "expected Left, got node " <> show (fromSqlKey k)
 
-    testCase "errors when every node is in admin state Draining" $ do
+    testCase "errors when every node is in admin state Maintenance" $ do
       clearNodes
-      _ <- insertNode "drain-a" NodeDraining (Just 17179869184) Nothing Nothing
-      _ <- insertNode "drain-b" NodeMaintenance (Just 17179869184) Nothing Nothing
+      _ <- insertNode "maintenance-a" NodeMaintenance (Just 17179869184) Nothing Nothing
+      _ <- insertNode "maintenance-b" NodeMaintenance (Just 17179869184) Nothing Nothing
       state <- mkState
       r <- liftIO $ pickNodeForVm state 536870912
       liftIO $ case r of
@@ -197,7 +197,7 @@ spec = sequential $ withTestDb $ do
   describe "pickNodeForDisk" $ do
     testCase "errors when no node is online" $ do
       clearNodes
-      _ <- insertNode "draining" NodeDraining Nothing Nothing Nothing
+      _ <- insertNode "maintenance" NodeMaintenance Nothing Nothing Nothing
       state <- mkState
       r <- liftIO $ pickNodeForDisk state
       liftIO $ case r of

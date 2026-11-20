@@ -481,6 +481,12 @@ configuration does not govern this operation. VM and guest-agent errors retain
 their existing wire codes; invalid usernames and empty assignments use
 `internal_error`.
 
+Protocol version 12 adds the administrative `offline` state and replaces
+`Node.drain()` and the administrative-state fields in `Node.edit` with
+`Node.setState(hasState, state)`. Callers must set `hasState` explicitly.
+`NodeAdminState` and `NodeEditParams` use consecutive ordinals after the
+removals. Deploy clients and the daemon with matching schemas.
+
 Protocol version 8 adds read-only `Node.ping() -> (reachable, message)`. It probes
 the daemon supervisor's existing nodeagent session with a two-second deadline;
 it does not dial a new connection or create tasks or resources.

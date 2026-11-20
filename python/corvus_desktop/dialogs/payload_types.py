@@ -60,7 +60,6 @@ class NodeEditPayload(TypedDict, total=False):
     net_agent_port: int
     base_path: str
     description: str
-    admin_state: str
     netd_disabled: bool
 
 

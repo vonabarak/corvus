@@ -98,7 +98,8 @@ def test_node_edit_renames_and_updates_admin_state(daemon_socket: Path) -> None:
         n = await c.nodes.create(
             "edit-me", "10.0.0.50", node_agent_port=19000, net_agent_port=19001
         )
-        await n.edit(description="annotated", admin_state="maintenance")
+        await n.edit(description="annotated")
+        await n.set_state("maintenance")
         details = await n.show()
         assert details.description == "annotated"
         assert details.admin_state == "maintenance"
@@ -118,17 +119,22 @@ def test_node_edit_renames_and_updates_admin_state(daemon_socket: Path) -> None:
     run(go)
 
 
-def test_node_drain_marks_admin_state(daemon_socket: Path) -> None:
-    """`drain` is the shortcut for admin_state='draining'."""
+def test_node_set_state(daemon_socket: Path) -> None:
+    """set_state changes the administrative state."""
     run = with_client(daemon_socket)
 
     async def go(c: AsyncClient) -> None:
         n = await c.nodes.create(
-            "drain-me", "10.0.0.51", node_agent_port=19002, net_agent_port=19003
+            "state-test", "10.0.0.51", node_agent_port=19002, net_agent_port=19003
         )
-        await n.drain()
-        details = await n.show()
-        assert details.admin_state == "draining"
+        await n.set_state("maintenance")
+        assert (await n.show()).admin_state == "maintenance"
+        await n.set_state("offline")
+        await n.set_state("offline")
+        assert (await n.show()).admin_state == "offline"
+        assert not (await n.ping()).reachable
+        await n.set_state("online")
+        assert (await n.show()).admin_state == "online"
         await n.delete()
 
     run(go)

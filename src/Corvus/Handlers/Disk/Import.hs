@@ -107,6 +107,9 @@ handleDiskImportCopy identity ctx progress sink name source mDestPath mFormatStr
           pure $ RespError err
         Right safeName -> do
           let placeOn nid = do
+                blocked <- liftIO $ nodePlacementError state nid
+                maybe (placeAvailable nid) (pure . RespError) blocked
+              placeAvailable nid = do
                 basePath <- liftIO $ nodeBasePathFor state nid
 
                 -- Detect format
@@ -424,6 +427,8 @@ data DiskImportAction = DiskImportAction
   }
 
 instance Action DiskImportAction where
+  actionPrepare state a = fmap (fmap (\node -> a {diaNodeRef = node})) (pinNode state (diaNodeRef a) (pickNodeForDisk state))
+  actionObjectResources state a = nodePathResources state (read (T.unpack (diaNodeRef a))) (diaDestPath a)
   actionSubsystem _ = SubDisk
   actionCommand _ = "import"
   actionEntityName = Just . diaName

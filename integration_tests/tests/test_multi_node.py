@@ -20,8 +20,10 @@ the daemon is supposed to guarantee.
 
 from __future__ import annotations
 
+import shlex
 import time
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 
 import pytest
 from corvus_client import Client, ServerError
@@ -361,12 +363,12 @@ class TestNetdReachability(OneDaemonTwoNodesCase):
 
 class TestAdminStateStickiness(OneDaemonTwoNodesCase):
     """Regression guard for the "admin state silently reverts to
-    draining" bug.
+    maintenance" bug.
 
     The user-visible bug fires when the agent's git-short-hash
     differs from the daemon's; the daemon then re-fires
     ``refuseMismatchedAgent`` on every ~10 s push, undoing the
-    operator's manual ``--admin-state online``. In an
+    operator's manual ``node set-state <NODE> online``. In an
     integration-test build the agent and daemon ship from the
     same source so versions always match — but the same
     stickiness property must still hold for the operator-facing
@@ -394,15 +396,13 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
             None,
         )
         if existing is None:
-            remote = client.nodes.create(
+            client.nodes.create(
                 beta_name,
                 beta_ip,
                 node_agent_port=9878,
                 net_agent_port=9877,
                 description="admin-state stickiness test",
             )
-        else:
-            remote = client.nodes.get(beta_name, by_name=True)
         _wait_for_node_field(
             client,
             beta_name,
@@ -414,33 +414,29 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
         finally:
             # Leave the node online + registered for any later
             # test that piggybacks on the same class topology.
-            try:
-                client.nodes.get(beta_name).edit(admin_state="online")
-            except Exception:
-                pass
-            try:
-                remote.delete()
-            except Exception:
-                pass
+            with suppress(Exception):
+                current = case.client_alpha.nodes.get(beta_name)
+                current.set_state("online")
+                current.delete()
 
     def test_admin_state_online_is_sticky_across_pushes(self) -> None:
-        """Flip beta to draining, then back to online; assert
+        """Flip beta to maintenance, then back to online; assert
         ``admin_state`` stays ``online`` across ~30 s of agent
         pushes (3+ push cycles at the default 10 s cadence)."""
         client = self.client_alpha
         beta_name = self.node_beta.short_name
 
         node = client.nodes.get(beta_name)
-        node.drain()
-        assert node.show().admin_state == "draining"
+        node.set_state("maintenance")
+        assert node.show().admin_state == "maintenance"
 
-        node.edit(admin_state="online")
+        node.set_state("online")
         assert node.show().admin_state == "online"
 
         # Wait across multiple push cycles. The agent pushes
         # NodeStats every ~10 s; 35 s covers three cycles plus
         # slack for cold start. Without Fix 1 a version mismatch
-        # would silently flip back to draining here; without the
+        # would silently flip back to maintenance here; without the
         # broader stickiness guarantee, ANY future regression
         # introducing an automatic revert would also surface.
         deadline = time.monotonic() + 35.0
@@ -453,3 +449,121 @@ class TestAdminStateStickiness(OneDaemonTwoNodesCase):
             )
             time.sleep(2.0)
         assert last_state == "online"
+
+    def test_offline_suspends_agent_reconnects_and_placement(self) -> None:
+        host = self.node_alpha
+        beta = self.node_beta.short_name
+        client = self.client_alpha
+        node = client.nodes.get(beta)
+        node.set_state("online")
+        _wait_for_node_field(client, beta, lambda d: d.netd_connected, timeout_sec=30)
+        vm = client.vms.create("offline-kept-vm", node=beta, vsock=False)
+        vm_id = vm.show().id
+        disk = client.disks.create("offline-kept-disk", 1048576, node=beta)
+        disk_id = disk.show().id
+        network = client.networks.create("offline-kept-net", "10.83.41.0/24", node=beta)
+        network_id = network.show().id
+
+        def journal_after_now() -> str:
+            result = host.run(
+                "sudo journalctl -u corvus.service -n 0 --show-cursor --no-pager"
+            )
+            cursor = result.stdout.decode().split("-- cursor: ", 1)[1].strip()
+            return f"sudo journalctl -u corvus.service --no-pager --after-cursor={shlex.quote(cursor)}"
+
+        def assert_no_dials(journal: str) -> None:
+            time.sleep(11)
+            output = host.run(journal).stdout.decode()
+            for message in ("supervisor starting", "nodeagent dial", "netd dial"):
+                assert f"node {beta} {message}" not in output, output
+
+        try:
+            assert node.ping().reachable
+            node.set_state("offline")
+            node.set_state("offline")
+            journal = journal_after_now()
+            assert not node.ping().reachable
+            assert "offline" in node.ping().message
+            assert not node.show().netd_connected
+            assert vm.show().id == vm_id
+            assert disk.show().id == disk_id
+            assert network.show().id == network_id
+            for action in (
+                lambda: client.vms.create("offline-rejected-vm", node=beta),
+                lambda: client.disks.create("offline-rejected-disk", 1024, node=beta),
+                lambda: client.networks.create(
+                    "offline-rejected-net", "10.83.42.0/24", node=beta
+                ),
+            ):
+                with pytest.raises(ServerError, match="offline"):
+                    action()
+            scheduled = client.vms.create("offline-scheduled-elsewhere", vsock=False)
+            try:
+                assert scheduled.show().node.name == host.short_name
+            finally:
+                scheduled.delete()
+            assert_no_dials(journal)
+
+            journal = journal_after_now()
+            host.run("sudo systemctl restart corvus.service")
+            host._client = None
+            with suppress(Exception):
+                client.close()
+            assert_no_dials(journal)
+            client = self.client_alpha
+            node = client.nodes.get(beta)
+            assert node.show().admin_state == "offline"
+
+            node.set_state("maintenance")
+            _wait_for_node_field(
+                client,
+                beta,
+                lambda d: d.netd_connected and node.ping().reachable,
+                timeout_sec=30,
+            )
+            assert client.vms.get(vm_id).show().id == vm_id
+            assert client.disks.get(disk_id).show().id == disk_id
+            assert client.networks.get(network_id).show().id == network_id
+            with pytest.raises(ServerError, match="maintenance"):
+                client.vms.create("maintenance-rejected-vm", node=beta)
+            node.set_state("online")
+            client.vms.create("online-accepted-vm", node=beta, vsock=False).delete()
+        finally:
+            client = self.client_alpha
+            client.nodes.get(beta).set_state("online")
+            client.vms.get(vm_id).delete()
+            client.disks.get(disk_id).delete()
+            client.networks.get(network_id).delete()
+
+    def test_offline_stops_retries_to_unreachable_node(self) -> None:
+        name = "offline-retry-test"
+        host = self.node_alpha
+        node = self.client_alpha.nodes.create(
+            name, "127.0.0.1", node_agent_port=1, net_agent_port=2, base_path="/tmp"
+        )
+        journal = (
+            "sudo journalctl -u corvus.service --no-pager "
+            f"--grep='node {name} (nodeagent|netd) dial failed'"
+        )
+
+        def retry_log() -> bytes:
+            return host.run(journal, check=False).stdout
+
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                output = retry_log()
+                if b"nodeagent dial failed" in output and b"netd dial failed" in output:
+                    break
+                time.sleep(0.25)
+            else:
+                pytest.fail(
+                    f"Both agents should attempt reconnects while online: {output!r}"
+                )
+
+            node.set_state("offline")
+            stopped = retry_log()
+            time.sleep(11)
+            assert retry_log() == stopped
+        finally:
+            node.delete()

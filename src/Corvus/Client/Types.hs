@@ -296,10 +296,10 @@ data Command
     NodeList
   | -- | Show node details (nodeRef)
     NodeShow !Text
-  | -- | Edit node properties (nodeRef, name, host, nodeAgentPort, netAgentPort, basePath, description, adminState, netdDisabled).
-    NodeEdit !Text !(Maybe Text) !(Maybe Text) !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe (Maybe Text)) !(Maybe Text) !(Maybe Bool)
-  | -- | Mark a node as draining (nodeRef)
-    NodeDrain !Text
+  | -- | Edit node properties (nodeRef, name, host, nodeAgentPort, netAgentPort, basePath, description, netdDisabled).
+    NodeEdit !Text !(Maybe Text) !(Maybe Text) !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe (Maybe Text)) !(Maybe Bool)
+  | -- | Set the administrative state of a node
+    NodeSetState !Text !Text
   | -- | Delete a node (nodeRef)
     NodeDelete !Text
   | NodeForget !Text !Bool !Bool

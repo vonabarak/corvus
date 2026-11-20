@@ -15,6 +15,7 @@ module Corvus.Action
   , withContextOperationLeases
   , associateVmDependencies
   , executeWithOperationLeases
+  , nodePlacementError
   , pinNode
   , nodeNameResources
   , nodePathResources
@@ -835,6 +836,16 @@ withContextOperationLeases ctx resources operation =
     (acOperationLeases ctx)
     resources
     $ \leases -> operation (ctx {acOperationLeases = leases})
+
+-- | Check whether a node can accept new placements while holding its lease.
+nodePlacementError :: ServerState -> NodeId -> IO (Maybe Text)
+nodePlacementError state key = do
+  row <- runSqlPool (get key) (ssDbPool state)
+  pure $ case row of
+    Nothing -> Just "Placement node does not exist"
+    Just node
+      | nodeAdminState node == NodeOnline -> Nothing
+      | otherwise -> Just ("Node '" <> nodeName node <> "' is " <> enumToText (nodeAdminState node))
 
 -- | Canonicalize aliases and choose automatic placement once, before locking.
 pinNode :: ServerState -> Text -> IO (Either Text NodeId) -> IO (Either Response Text)

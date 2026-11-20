@@ -7,7 +7,6 @@ from typing import cast
 from corvus_client.types import NodeDetails
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QLineEdit,
     QSpinBox,
@@ -16,8 +15,6 @@ from PySide6.QtWidgets import (
 
 from .form_dialog import FormDialog, FormPayload
 from .payload_types import NodeEditPayload
-
-_ADMIN_STATES = ("online", "draining", "maintenance")
 
 
 class NodeEditDialog(FormDialog):
@@ -36,10 +33,6 @@ class NodeEditDialog(FormDialog):
         self._net_port.setValue(node.net_agent_port)
         self._base_path = QLineEdit(node.base_path or "")
         self._description = QLineEdit(node.description or "")
-        self._admin_state = QComboBox()
-        for s in _ADMIN_STATES:
-            self._admin_state.addItem(s)
-        self._admin_state.setCurrentText(node.admin_state)
         self._netd_disabled = QCheckBox()
         self._netd_disabled.setChecked(node.netd_disabled)
         super().__init__(f"Edit {node.name}", save_label="Save", parent=parent)
@@ -51,7 +44,6 @@ class NodeEditDialog(FormDialog):
         form.addRow("Net-agent port:", self._net_port)
         form.addRow("Base path:", self._base_path)
         form.addRow("Description:", self._description)
-        form.addRow("Admin state:", self._admin_state)
         form.addRow("netd disabled:", self._netd_disabled)
 
     def result_payload(self) -> FormPayload | None:
@@ -68,8 +60,6 @@ class NodeEditDialog(FormDialog):
             payload["base_path"] = self._base_path.text()
         if self._description.text() != (self._original.description or ""):
             payload["description"] = self._description.text()
-        if self._admin_state.currentText() != self._original.admin_state:
-            payload["admin_state"] = self._admin_state.currentText()
         if self._netd_disabled.isChecked() != self._original.netd_disabled:
             payload["netd_disabled"] = self._netd_disabled.isChecked()
         if not payload:

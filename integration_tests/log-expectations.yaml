@@ -44,8 +44,11 @@ classes:
           warnings: 0
           errors: 0
         corvus.log:
-          warnings: 0
+          warnings: 1
           errors: 0
+          variable_warnings:
+          - regex: 'node offline-retry-test (nodeagent|netd) dial failed:'
+            count: 1
       beta:
         corvus-netd.log:
           warnings: 0

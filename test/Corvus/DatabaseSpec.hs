@@ -196,6 +196,19 @@ spec = do
         result <- runDatabaseMigrations (envDatabaseConfig env) (TestDb.tePool env)
         result `shouldBe` Right (SchemaAlreadyCurrent currentSchemaVersion)
 
+    it "upgrades stored draining nodes to maintenance" $
+      withIsolatedTestDb $ \env -> do
+        let pool = TestDb.tePool env
+        runSqlPool
+          ( do
+              rawExecute "UPDATE node SET admin_state = 'draining'" []
+              writeSchemaVersion 15
+          )
+          pool
+        runDatabaseMigrations (envDatabaseConfig env) pool `shouldReturn` Right (SchemaMigrated 15 16)
+        states <- runSqlPool (rawSql "SELECT admin_state FROM node" []) pool
+        states `shouldBe` [Single ("maintenance" :: T.Text)]
+
     it "fails when the stored version is newer" $
       withIsolatedTestDb $ \env -> do
         runSqlPool (writeSchemaVersion (currentSchemaVersion + 1)) (TestDb.tePool env)

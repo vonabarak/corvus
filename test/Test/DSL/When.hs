@@ -186,7 +186,7 @@ createTestServerState pool basePath = do
     NodeConns
       { ncNodeAgent = Nothing
       , ncNetAgent = Nothing
-      , ncSupervisor = stubSup
+      , ncSupervisor = Just stubSup
       , ncVmAutostartFired = vmAS
       , ncNetAutostartFired = netAS
       }
@@ -454,7 +454,6 @@ whenNodeEditNetdDisabled nodeId disabled =
               , nedNetAgentPort = Nothing
               , nedBasePath = Nothing
               , nedDescription = Nothing
-              , nedAdminState = Nothing
               , nedNetdDisabled = Just disabled
               }
           )

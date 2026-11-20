@@ -500,7 +500,7 @@ applyNodeStats state nid stats snapMs = do
   -- mismatch (agent rebuilt to a different but still-skewed
   -- hash) from an already-known one (operator just flipped
   -- admin state back to 'online' without rebuilding). Without
-  -- this guard the auto-drain would silently re-fire on every
+  -- this guard the automatic maintenance transition would silently re-fire on every
   -- ~10 s push and undo the manual edit.
   prevAgentVersion <- do
     mPrev <- runSqlPool (get nid) (ssDbPool state)
@@ -528,11 +528,11 @@ applyNodeStats state nid stats snapMs = do
   -- from the daemon's. The agent reports its short git hash in
   -- 'NodeStats.agentVersion'; the daemon was built from the
   -- same library, so 'NS.agentVersion' is the local truth. On
-  -- mismatch we flip the node to 'NodeDraining' so the
+  -- mismatch we flip the node to 'NodeMaintenance' so the
   -- scheduler skips it but existing VMs / network state survive
   -- — and log loudly so the operator notices. Only fire on a
   -- NEW mismatch (previous version differs from current) so an
-  -- operator's manual @crv node edit --admin-state online@ is
+  -- operator's manual @crv node set-state <NODE> online@ is
   -- sticky across subsequent pushes from the same agent build.
   when
     ( not (T.null ver)
@@ -544,12 +544,12 @@ applyNodeStats state nid stats snapMs = do
     maybeIfNonZero64 :: Int64 -> Maybe Int64
     maybeIfNonZero64 x = if x == 0 then Nothing else Just (fromIntegral x)
 
--- | Flip a mismatched-agent node to 'NodeDraining' on a newly-
+-- | Flip a mismatched-agent node to 'NodeMaintenance' on a newly-
 -- observed agent version that differs from the daemon. The
 -- caller ('applyNodeStats') gates this on
 -- @prevAgentVersion \/= Just ver@, so this only fires when the
 -- agent build changes (first push, or a rebuild that still
--- doesn't match). A manual @crv node edit --admin-state online@
+-- doesn't match). A manual @crv node set-state <NODE> online@
 -- without an agent rebuild leaves the stored version equal to
 -- the current snapshot's version, so the gate skips the call
 -- and the operator's intent sticks.
@@ -559,7 +559,7 @@ refuseMismatchedAgent state nid agentVer = do
   case mNode of
     Just n | M.nodeAdminState n == M.NodeOnline -> do
       runSqlPool
-        (update nid [M.NodeAdminState =. M.NodeDraining])
+        (updateWhere [M.NodeId ==. nid, M.NodeAdminState ==. M.NodeOnline, M.NodeAgentVersion ==. Just agentVer] [M.NodeAdminState =. M.NodeMaintenance])
         (ssDbPool state)
       runServerLogging state $
         logWarnN $
@@ -569,7 +569,7 @@ refuseMismatchedAgent state nid agentVer = do
             <> agentVer
             <> " does not match daemon "
             <> NS.agentVersion
-            <> "; marking draining so the scheduler skips it"
+            <> "; marking maintenance so the scheduler skips it"
     _ -> pure ()
 
 millisToUtc :: Int64 -> UTCTime

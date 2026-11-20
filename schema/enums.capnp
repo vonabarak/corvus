@@ -127,8 +127,8 @@ enum TaskResult {
 
 enum NodeAdminState {
   online      @0;
-  draining    @1;
-  maintenance @2;
+  maintenance @1;
+  offline     @2;
 }
 
 # How aggressive to be about in-guest filesystem quiescence when

@@ -274,7 +274,7 @@ main = do
     -- 'spawnAllNodeSupervisors' gets retired here too.
     liftIO $ do
       m <- readTVarIO (ssAgents state')
-      mapM_ (cancel . ncSupervisor) (Map.elems m)
+      mapM_ (mapM_ cancel . ncSupervisor) (Map.elems m)
     -- Belt-and-braces: any supervisor we somehow missed gets
     -- cancelled here too.
     liftIO $ mapM_ cancel nodeSupervisors

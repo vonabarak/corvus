@@ -503,13 +503,13 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self._delete_silent(base_name)
 
     def test_refuses_target_not_online(self) -> None:
-        """Drain beta, then attempt copy — should refuse. Restore
+        """Put beta in maintenance, then attempt copy — should refuse. Restore
         beta to `online` before leaving so subsequent tests work."""
-        name = _uniq("draining")
+        name = _uniq("maintenance")
         self.client_alpha.disks.create(name, size=16777216, format="qcow2")
         beta_cap = self.client_alpha.nodes.get(self.beta_name)
         try:
-            beta_cap.drain()
+            beta_cap.set_state("maintenance")
             try:
                 self._assert_transfer_fails(
                     self.client_alpha.disks.copy,
@@ -518,7 +518,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
                     message_must_match=["not online"],
                 )
             finally:
-                beta_cap.edit(admin_state="online")
+                beta_cap.set_state("online")
         finally:
             self._delete_silent(name)
 

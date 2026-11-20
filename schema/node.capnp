@@ -103,10 +103,8 @@ struct NodeEditParams {
   basePath         @9  :Text;
   hasDescription   @10 :Bool;
   description      @11 :Text;
-  hasAdminState    @12 :Bool;
-  adminState       @13 :Enums.NodeAdminState;
-  hasNetdDisabled  @14 :Bool;
-  netdDisabled     @15 :Bool;
+  hasNetdDisabled  @12 :Bool;
+  netdDisabled     @13 :Bool;
 }
 
 # ---------------------------------------------------------------------
@@ -122,9 +120,7 @@ interface NodeManager {
 interface Node {
   show   @0 () -> (details :NodeDetails);
   edit   @1 (params :NodeEditParams) -> ();
-  # Operator shortcut for `edit { adminState = draining }`; the
-  # scheduler skips draining nodes when picking placement.
-  drain  @2 () -> ();
+  setState @2 (hasState :Bool, state :Enums.NodeAdminState) -> ();
   # Refuses while any VMs / disks / networks reference this node.
   # Deletion never cascades to referenced resources.
   delete @3 () -> ();

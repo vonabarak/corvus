@@ -1,7 +1,7 @@
 """Node CRUD against the inner daemon.
 
 Closes a gap in the integration suite: `crv node` verbs (`add`,
-`edit`, `drain`, `delete`, `show`, `list`) have no direct test —
+`edit`, `set-state`, `delete`, `show`, `list`) have no direct test —
 existing coverage only spot-checks the side-effects of node
 registration (`test_quickstart.py`, `test_vde_networking.py`,
 `test_vm_migration.py`).
@@ -11,9 +11,9 @@ The harness's `open_client()` already registers a self-pointing
 (`inner.py:_register_self_node`). For SingleNodeCase that's
 ``"single"`` — every test below drives that one row.
 
-Resource-safety: tests that flip ``admin_state`` to ``draining``
+Resource-safety: tests that flip ``admin_state`` to ``maintenance``
 or ``maintenance`` always revert to ``online`` in their ``finally``
-block. A leaked draining row would break sibling tests by making
+block. A leaked maintenance row would break sibling tests by making
 every subsequent VM create fail with "no online node available".
 """
 
@@ -137,21 +137,33 @@ class TestNodes(SingleNodeCase):
             else:
                 node.edit(description=original)
 
-    def test_drain_blocks_scheduler(self) -> None:
-        """A draining node can't host a fresh VM whose create asks
+    def test_crv_node_set_state_offline_and_resume(self) -> None:
+        name = self.node.short_name
+        node = self.client.nodes.get(name)
+        try:
+            self.node.run(f"/opt/corvus/bin/crv node set-state {name} offline")
+            assert node.show().admin_state == "offline"
+            assert not node.ping().reachable
+            self.node.run(f"/opt/corvus/bin/crv node set-state {name} online")
+            assert node.show().admin_state == "online"
+        finally:
+            node.set_state("online")
+
+    def test_maintenance_blocks_scheduler(self) -> None:
+        """A maintenance node can't host a fresh VM whose create asks
         the scheduler to pick. Once reverted to ``online``, the
         same create succeeds.
 
         Drives the path documented in `doc/multi-node.md`: the
         scheduler filters to `admin_state == online` first, and a
-        single-node deployment with the one node in `draining`
+        single-node deployment with the one node in `maintenance`
         leaves zero candidates."""
         self_name = self.node.short_name
         node = self.client.nodes.get(self_name)
-        vm_name = f"corvus-it-drain-{secrets.token_hex(3)}"
-        node.drain()
+        vm_name = f"corvus-it-maintenance-{secrets.token_hex(3)}"
+        node.set_state("maintenance")
         try:
-            assert node.show().admin_state == "draining"
+            assert node.show().admin_state == "maintenance"
             with pytest.raises(CorvusError) as excinfo:
                 # No `node=` arg → scheduler picks.
                 self.client.vms.create(
@@ -161,9 +173,9 @@ class TestNodes(SingleNodeCase):
                     headless=True,
                 )
             msg = str(excinfo.value)
-            assert "no online node" in msg or "draining" in msg.lower(), msg
+            assert "no online node" in msg or "maintenance" in msg.lower(), msg
         finally:
-            node.edit(admin_state="online")
+            node.set_state("online")
         # After revert the same create succeeds.
         vm = self.client.vms.create(
             vm_name,

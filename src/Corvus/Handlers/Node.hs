@@ -15,7 +15,7 @@ module Corvus.Handlers.Node
   , NodeForget (..)
   , nodeForgetPreview
   , NodeEdit (..)
-  , NodeDrain (..)
+  , NodeSetState (..)
 
     -- * Handlers
   , handleNodeList
@@ -25,7 +25,8 @@ module Corvus.Handlers.Node
 where
 
 import Control.Concurrent.Async (cancel)
-import Control.Concurrent.STM (readTVarIO)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVar, readTVarIO)
+import Control.Exception (mask_)
 import qualified Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
@@ -96,9 +97,12 @@ handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminSta
       logInfoN $ "Adding node: " <> name <> " (" <> host <> ":" <> T.pack (show nodeAgentPort) <> ")"
       now <- liftIO getCurrentTime
       resolved <-
-        if T.null basePath
-          then liftIO $ resolveBasePathFromAgent state name host nodeAgentPort
-          else pure (Right basePath)
+        if not (T.null basePath)
+          then pure (Right basePath)
+          else
+            if adminState == M.NodeOffline
+              then pure (Left "Offline nodes require an explicit base path")
+              else liftIO $ resolveBasePathFromAgent state name host nodeAgentPort
       case resolved of
         Left err -> pure (RespError err)
         Right effectiveBasePath -> do
@@ -132,7 +136,10 @@ handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminSta
               -- Fork the per-node reconnect supervisor right away so
               -- the operator doesn't need to restart the daemon
               -- before the new node starts accepting workloads.
-              _ <- liftIO $ spawnNodeSupervisor state (Entity key node)
+              Control.Monad.when (adminState /= M.NodeOffline) $
+                liftIO $
+                  Control.Monad.void $
+                    spawnNodeSupervisor state (Entity key node)
               pure $ RespNodeCreated (fromSqlKey key)
             Nothing ->
               pure $
@@ -252,11 +259,10 @@ handleNodeEdit
   -> Maybe Text
   -> Maybe (Maybe Text)
   -- ^ description: 'Nothing' = leave unchanged; 'Just Nothing' = clear; 'Just (Just t)' = set.
-  -> Maybe M.NodeAdminState
   -> Maybe Bool
   -- ^ netd-disabled: 'Nothing' = leave unchanged.
   -> IO Response
-handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled = runServerLogging state $ do
+handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mNetdDisabled = runServerLogging state $ do
   let key = toSqlKey nodeId :: M.NodeId
       pool = ssDbPool state
   mNode <- liftIO $ runSqlPool (get key) pool
@@ -281,7 +287,6 @@ handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath m
                   ++ maybe [] (\v -> [M.NodeNetAgentPort =. v]) mNetAgentPort
                   ++ maybe [] (\v -> [M.NodeBasePath =. v]) mBasePath
                   ++ maybe [] (\v -> [M.NodeDescription =. v]) mDesc
-                  ++ maybe [] (\v -> [M.NodeAdminState =. v]) mAdminState
                   ++ maybe [] (\v -> [M.NodeNetdDisabled =. v]) mNetdDisabled
           case updates of
             [] -> pure RespNodeEdited
@@ -299,7 +304,7 @@ handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath m
                       || Data.Maybe.isJust mNodeAgentPort
                       || Data.Maybe.isJust mNetAgentPort
                       || Data.Maybe.isJust mNetdDisabled
-              Control.Monad.when supervisorMoved $ do
+              Control.Monad.when (supervisorMoved && nodeAdminState node /= M.NodeOffline) $ do
                 liftIO $ cancelNodeSupervisor state key
                 mNodeRefreshed <- liftIO $ runSqlPool (get key) pool
                 case mNodeRefreshed of
@@ -311,7 +316,7 @@ handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath m
               pure RespNodeEdited
 
 --------------------------------------------------------------------------------
--- handleNodeDrain
+-- handleNodeSetState
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
@@ -405,7 +410,7 @@ cancelNodeSupervisor :: ServerState -> M.NodeId -> IO ()
 cancelNodeSupervisor state nid = do
   m <- readTVarIO (ssAgents state)
   case Map.lookup nid m of
-    Just nc -> cancel (ncSupervisor nc)
+    Just nc -> mapM_ cancel (ncSupervisor nc)
     Nothing -> pure ()
   removeNodeConns state nid
 
@@ -516,7 +521,6 @@ data NodeEdit = NodeEdit
   , nedBasePath :: !(Maybe Text)
   , nedDescription :: !(Maybe (Maybe Text))
   -- ^ 'Nothing' = leave unchanged; 'Just Nothing' = clear; 'Just (Just t)' = set.
-  , nedAdminState :: !(Maybe M.NodeAdminState)
   , nedNetdDisabled :: !(Maybe Bool)
   }
 
@@ -552,16 +556,45 @@ instance Action NodeEdit where
               (nedNetAgentPort a)
               (nedBasePath a)
               (nedDescription a)
-              (nedAdminState a)
               (nedNetdDisabled a)
 
-newtype NodeDrain = NodeDrain {ndrNodeId :: Int64}
+data NodeSetState = NodeSetState Int64 M.NodeAdminState
 
-instance Action NodeDrain where
+instance Action NodeSetState where
   actionSubsystem _ = M.SubNode
-  actionCommand _ = "drain"
-  actionEntityId = Just . fromIntegral . ndrNodeId
-  actionExecute ctx a = runActionAsSubtask ctx (NodeEdit (ndrNodeId a) Nothing Nothing Nothing Nothing Nothing Nothing (Just M.NodeDraining) Nothing)
+  actionCommand _ = "set-state"
+  actionEntityId (NodeSetState ident _) = Just (fromIntegral ident)
+  actionExecute ctx (NodeSetState ident desired) = mask_ $ do
+    let state = acState ctx
+        key = toSqlKey ident
+        pool = ssDbPool state
+    runSqlPool (get key) pool >>= \case
+      Nothing -> pure RespNodeNotFound
+      Just row -> do
+        let previous = nodeAdminState row
+        Control.Monad.when (previous == M.NodeOffline && desired /= M.NodeOffline) $
+          suspendNodeSupervisor state key
+        Control.Monad.when (previous /= desired) $
+          runSqlPool (update key [M.NodeAdminState =. desired]) pool
+        if desired == M.NodeOffline
+          then suspendNodeSupervisor state key
+          else
+            Control.Monad.when (previous == M.NodeOffline) $
+              Control.Monad.void $
+                spawnNodeSupervisor state (Entity key row {nodeAdminState = desired})
+        pure RespNodeEdited
+
+-- | Keep the first-connect autostart flags for the next resume. Retain
+-- the worker handle until cancellation completes so a retry can join it.
+suspendNodeSupervisor :: ServerState -> M.NodeId -> IO ()
+suspendNodeSupervisor state key = do
+  let agents = ssAgents state
+  supervisor <- atomically $ do
+    current <- readTVar agents
+    modifyTVar' agents $ Map.adjust (\nc -> nc {ncNodeAgent = Nothing, ncNetAgent = Nothing}) key
+    pure (Map.lookup key current >>= ncSupervisor)
+  mapM_ cancel supervisor
+  atomically $ modifyTVar' agents $ Map.adjust (\nc -> nc {ncSupervisor = Nothing}) key
 
 -- | Probe only the supervisor-owned session; never allocate a task or resource.
 handleNodePing :: ServerState -> Int64 -> IO (Either Response (Bool, Text))
@@ -570,6 +603,7 @@ handleNodePing state nodeId = do
   found <- runSqlPool (get key) (ssDbPool state)
   case found of
     Nothing -> pure (Left RespNodeNotFound)
+    Just row | nodeAdminState row == M.NodeOffline -> pure (Right (False, "Node is administratively offline"))
     Just _ -> do
       agent <- lookupNodeAgent state key
       case agent of

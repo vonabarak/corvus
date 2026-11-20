@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from .form_dialog import FormDialog
 from .payload_types import NodePayload
 
-_ADMIN_STATES = ("online", "draining", "maintenance")
+_ADMIN_STATES = ("online", "maintenance", "offline")
 
 
 class NodeAddDialog(FormDialog):

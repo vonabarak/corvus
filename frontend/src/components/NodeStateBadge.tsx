@@ -2,16 +2,14 @@ import { Badge } from "@/components/ui/badge";
 
 /**
  * NodeAdminState enum from src/Corvus/Model.hs:
- *   online | draining | maintenance | offline
+ *   online | maintenance | offline
  *
- * online → success, draining → warning, the rest muted.
+ * online → success, maintenance → warning, offline → destructive.
  */
 export function NodeStateBadge({ state }: { state: string }) {
   switch (state) {
     case "online":
       return <Badge variant="success">online</Badge>;
-    case "draining":
-      return <Badge variant="warning">draining</Badge>;
     case "maintenance":
       return <Badge variant="warning">maintenance</Badge>;
     case "offline":

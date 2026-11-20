@@ -13,7 +13,7 @@ module Corvus.Client.Capnp.Rpc.Node
     -- * Node lifecycle
   , rpcNodeAdd
   , rpcNodeEdit
-  , rpcNodeDrain
+  , rpcNodeSetState
   , rpcNodeDelete
   , rpcNodeForget
 
@@ -26,7 +26,7 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Node as CGNode
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
-import Corvus.Model (NodeAdminState (..))
+import Corvus.Model (NodeAdminState)
 import Corvus.Protocol (NodeForgetImpact)
 import qualified Corvus.Protocol.Node as PNode
 import Corvus.Wire.Common (EntityRef, toCapnpEntityRef)
@@ -121,10 +121,9 @@ rpcNodeEdit
   -> Maybe Int
   -> Maybe Text
   -> Maybe (Maybe Text)
-  -> Maybe NodeAdminState
   -> Maybe Bool
   -> IO ()
-rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminSt mNetdDisabled = do
+rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mNetdDisabled = do
   nClient <- getNodeClient conn ref
   let (hasDesc, descText) = case mDesc of
         Nothing -> (False, "")
@@ -144,18 +143,16 @@ rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mA
           , CGNode.basePath = Data.Maybe.fromMaybe "" mBasePath
           , CGNode.hasDescription = hasDesc
           , CGNode.description = descText
-          , CGNode.hasAdminState = Data.Maybe.isJust mAdminSt
-          , CGNode.adminState = maybe (toCapnpNodeAdminState NodeOnline) toCapnpNodeAdminState mAdminSt
           , CGNode.hasNetdDisabled = Data.Maybe.isJust mNetdDisabled
           , CGNode.netdDisabled = Data.Maybe.fromMaybe False mNetdDisabled
           }
   _ <- callOn #edit CGNode.Node'edit'params {CGNode.params = p} nClient
   pure ()
 
-rpcNodeDrain :: CapnpConnection -> EntityRef -> IO ()
-rpcNodeDrain conn ref = do
+rpcNodeSetState :: CapnpConnection -> EntityRef -> NodeAdminState -> IO ()
+rpcNodeSetState conn ref desired = do
   nClient <- getNodeClient conn ref
-  _ <- callOn #drain CGNode.Node'drain'params nClient
+  _ <- callOn #setState (CGNode.Node'setState'params True (toCapnpNodeAdminState desired)) nClient
   pure ()
 
 rpcNodeDelete :: CapnpConnection -> EntityRef -> IO ()

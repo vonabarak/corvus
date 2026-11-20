@@ -218,7 +218,7 @@ class CorvusBridge(QObject):
     # Nodes / multi-node ops (Phase 10).
     node_list_ready = Signal(object)  # list[NodeInfo]
     node_detail_ready = Signal(object)  # NodeDetails
-    # action ∈ "create" | "edit" | "drain" | "delete"
+    # action ∈ "create" | "edit" | "set-state" | "delete"
     node_action_completed = Signal(int, str)  # (node_id, action) — id=0 on create
     # vm_migrate_started carries the task id for the migration.
     vm_migrate_started = Signal(int, int)  # (vm_id, task_id)
@@ -721,8 +721,8 @@ class CorvusBridge(QObject):
     def node_edit(self, node_id: int, **kwargs: Unpack[_NodeEditKwargs]) -> None:
         self._enqueue(self._do_node_edit(node_id, kwargs))
 
-    def node_drain(self, node_id: int) -> None:
-        self._enqueue(self._do_node_drain(node_id))
+    def node_set_state(self, node_id: int, state: str) -> None:
+        self._enqueue(self._do_node_set_state(node_id, state))
 
     def node_delete(self, node_id: int) -> None:
         self._enqueue(self._do_node_delete(node_id))
@@ -1976,18 +1976,18 @@ class CorvusBridge(QObject):
             return
         self.node_action_completed.emit(node_id, "edit")
 
-    async def _do_node_drain(self, node_id: int) -> None:
+    async def _do_node_set_state(self, node_id: int, state: str) -> None:
         client = self._client
         if client is None:
-            self.operation_failed.emit("node_drain", "not connected")
+            self.operation_failed.emit("node_set_state", "not connected")
             return
         try:
             node = await client.nodes.get(node_id)
-            await node.drain()
+            await node.set_state(state)
         except CorvusError as e:
-            self.operation_failed.emit("node_drain", _friendly_error(e))
+            self.operation_failed.emit("node_set_state", _friendly_error(e))
             return
-        self.node_action_completed.emit(node_id, "drain")
+        self.node_action_completed.emit(node_id, "set-state")
 
     async def _do_node_delete(self, node_id: int) -> None:
         client = self._client

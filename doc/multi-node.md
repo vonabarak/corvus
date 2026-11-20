@@ -30,7 +30,7 @@ crv node add <NAME> --host <IP> [--node-agent-port 9878] \
                                 [--net-agent-port 9877] \
                                 [--base-path PATH] \
                                 [--description TEXT] \
-                                [--admin-state online|draining|maintenance] \
+                                [--admin-state online|maintenance|offline] \
                                 [--netd-disabled]
 ```
 
@@ -47,10 +47,8 @@ crv node add <NAME> --host <IP> [--node-agent-port 9878] \
     `disk_image_node` join are resolved against this base. When
     omitted, the daemon asks the target nodeagent for its `$HOME/VMs`.
     Pass an explicit absolute path to override that node-local default.
-  * **--admin-state** — `online` (default), `maintenance`
-    (refuse new VM placements), or `draining` (same as
-    `maintenance`, but also a strong signal that ops is about
-    to drain workloads off the node).
+  * **--admin-state** — `online` (default), `maintenance`, or `offline`.
+    Offline registration requires an explicit `--base-path`.
   * **--netd-disabled** — register a node without `corvus-netd`.
     Managed networks are unavailable; only `user` and `vde` interfaces can be
     attached to VMs on the node.
@@ -80,20 +78,23 @@ release, agent version, and per-agent healthcheck timestamps.
 
 ```
 crv node edit alpha --host 192.168.1.20
-crv node edit alpha --admin-state draining
 crv node edit alpha --description "decom'd 2026-08-01"
 ```
 
 Changing `--host`, `--node-agent-port`, or `--net-agent-port`
-triggers a daemon-side supervisor respawn against the new
+triggers a supervisor respawn for online and maintenance nodes, using the new
 endpoint — no daemon restart needed. Other fields leave the
-existing connection alone.
+existing connection alone. Offline nodes use the updated endpoint when they resume.
 
-### `crv node drain <NODE>`
+### `crv node set-state <NODE> <online|maintenance|offline>`
 
-Shortcut for `crv node edit <NODE> --admin-state draining`.
-The scheduler skips draining nodes when picking placement,
-but existing VMs / networks / disks on the node keep running.
+Use `maintenance` to block new placements while keeping both agent
+connections available for management and evacuation. Use `offline` before
+a planned shutdown or during an extended outage. The daemon closes both
+agent connections, stops retrying, and preserves the state across daemon
+restarts. Existing resources stay assigned to the node. Use `online` to
+resume scheduling and agent connections. Python clients use
+`node.set_state("maintenance")` or the corresponding state.
 
 ### `crv node delete <NODE>`
 
@@ -233,8 +234,8 @@ Cap'n Proto schema additions for multi-node:
     against the new endpoint; in-flight RPCs see "node X
     unavailable" for the few seconds it takes to reconnect.
 
-  * **Per-node maintenance**. `crv node drain <NAME>` marks
-    the node as draining so the scheduler skips it. Existing
+  * **Per-node maintenance**. `crv node set-state <NAME> maintenance`
+    blocks new placements on the node. Existing
     VMs keep running until you explicitly stop / delete them
     or migrate them with `crv vm migrate <VM> --to-node <NEW>`.
 
@@ -296,12 +297,11 @@ Cap'n Proto schema additions for multi-node:
 
   * **No resource quotas.** Scheduling uses available RAM and storage
     when choosing among nodes, as described above; migration also checks
-    destination capacity. Set `admin_state = draining` to prevent new
+    destination capacity. Set `admin_state = maintenance` to prevent new
     placements on a node.
 
-  * **Heterogeneous agent versions**. `Node.agent_version` is
-    recorded but the daemon doesn't yet refuse a mismatched
-    agent.
+  * **Heterogeneous agent versions**. When the daemon detects a mismatched
+    nodeagent version, it puts an online node in maintenance.
 
 ## Remove a permanently unavailable node
 

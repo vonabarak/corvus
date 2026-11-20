@@ -368,13 +368,13 @@ fromCapnpTaskResult = \case
 toCapnpNodeAdminState :: M.NodeAdminState -> CGE.NodeAdminState
 toCapnpNodeAdminState = \case
   M.NodeOnline -> CGE.NodeAdminState'online
-  M.NodeDraining -> CGE.NodeAdminState'draining
+  M.NodeOffline -> CGE.NodeAdminState'offline
   M.NodeMaintenance -> CGE.NodeAdminState'maintenance
 
 fromCapnpNodeAdminState :: CGE.NodeAdminState -> Either WireError M.NodeAdminState
 fromCapnpNodeAdminState = \case
   CGE.NodeAdminState'online -> Right M.NodeOnline
-  CGE.NodeAdminState'draining -> Right M.NodeDraining
+  CGE.NodeAdminState'offline -> Right M.NodeOffline
   CGE.NodeAdminState'maintenance -> Right M.NodeMaintenance
   CGE.NodeAdminState'unknown' n -> Left (WireUnknownEnum "NodeAdminState" n)
 

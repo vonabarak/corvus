@@ -41,7 +41,7 @@ spec = sequential $ withTestDb $ do
     testCase "rejects a draining explicit target before creating the VM" $ do
       _ <- whenTemplateCreate (minimalYaml "draining-template")
       nodeId <- seedTestNode
-      runDb $ P.update nodeId [M.NodeAdminState P.=. M.NodeDraining]
+      runDb $ P.update nodeId [M.NodeAdminState P.=. M.NodeMaintenance]
       _ <- withState $ \state -> runAction state "alice" (TemplateInstantiate 1 "draining-vm" "test-node")
       responseIs $ \case
         RespError message -> message == "node test-node is not online"

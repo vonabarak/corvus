@@ -8,7 +8,7 @@ module Corvus.Client.Commands.Node
   , handleNodeList
   , handleNodeShow
   , handleNodeEdit
-  , handleNodeDrain
+  , handleNodeSetState
   , handleNodeDelete
   , handleNodeForget
   )
@@ -154,56 +154,26 @@ handleNodeEdit
   -- ^ new basePath
   -> Maybe (Maybe Text)
   -- ^ description: Nothing = leave; Just Nothing = clear; Just (Just t) = set.
-  -> Maybe Text
-  -- ^ admin state text (online | draining | maintenance)
   -> Maybe Bool
   -- ^ netd-disabled: Nothing = leave unchanged.
   -> IO Bool
-handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminText mNetdDisabled = do
-  case traverse parseAdminState mAdminText of
-    Left err -> do
-      emitError fmt "bad_arg" err $ putStrLn ("Invalid admin-state: " ++ T.unpack err)
-      pure False
-    Right mAdminSt -> do
-      r <-
-        try @SomeException $
-          CR.rpcNodeEdit
-            conn
-            (entityRefFromText nRef)
-            mName
-            mHost
-            mNodeAgentPort
-            mNetAgentPort
-            mBasePath
-            mDesc
-            mAdminSt
-            mNetdDisabled
-      case r of
-        Right () -> do
-          emitOk fmt $ putStrLn "Node updated."
-          pure True
-        Left e -> do
-          emitRpcError fmt e $
-            putStrLn ("Failed to edit node: " ++ show e)
-          pure False
-  where
-    parseAdminState = enumFromText :: Text -> Either Text NodeAdminState
-
---------------------------------------------------------------------------------
--- handleNodeDrain
---------------------------------------------------------------------------------
-
-handleNodeDrain :: OutputFormat -> CapnpConnection -> Text -> IO Bool
-handleNodeDrain fmt conn nRef = do
-  r <- try @SomeException (CR.rpcNodeDrain conn (entityRefFromText nRef))
+handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mNetdDisabled = do
+  r <-
+    try @SomeException $
+      CR.rpcNodeEdit conn (entityRefFromText nRef) mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mNetdDisabled
   case r of
-    Right () -> do
-      emitOk fmt $ putStrLn "Node set to draining; scheduler will skip it."
-      pure True
-    Left e -> do
-      emitRpcError fmt e $
-        putStrLn ("Failed to drain node: " ++ show e)
-      pure False
+    Right () -> emitOk fmt (putStrLn "Node updated.") >> pure True
+    Left e -> emitRpcError fmt e (putStrLn ("Failed to edit node: " ++ show e)) >> pure False
+
+handleNodeSetState :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleNodeSetState fmt conn nRef desired =
+  case enumFromText desired of
+    Left err -> emitError fmt "bad_arg" err (putStrLn (T.unpack err)) >> pure False
+    Right target -> do
+      r <- try @SomeException (CR.rpcNodeSetState conn (entityRefFromText nRef) target)
+      case r of
+        Right () -> emitOk fmt (putStrLn ("Node state set to " ++ T.unpack desired ++ ".")) >> pure True
+        Left e -> emitRpcError fmt e (putStrLn ("Failed to set node state: " ++ show e)) >> pure False
 
 --------------------------------------------------------------------------------
 -- handleNodeDelete

@@ -28,7 +28,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, finally, onException, throwIO, try)
 import Control.Monad (void, when)
-import Corvus.Action (ActionContext (acIgnoreCancellation), executeWithOperationLeases, runAction, runActionAsSubtask, runActionAsyncWithId)
+import Corvus.Action (ActionContext (acIgnoreCancellation), executeWithOperationLeases, nodePlacementError, objectResources, pinNode, runAction, runActionAsSubtask, runActionAsyncWithId, withContextOperationLeases)
 import Corvus.Handlers.Disk.Cleanup (DiskCleanup (..), previewDiskCleanup)
 import Corvus.Handlers.Disk.Create (DiskCreate (..), DiskRegister (..))
 import Corvus.Handlers.Disk.Derive (DiskClone (..), DiskCreateOverlay (..))
@@ -50,8 +50,10 @@ import Corvus.Handlers.Disk.SnapshotAutoStop (SnapshotRollbackAutoStop (..))
 import Corvus.Handlers.Disk.Tags (DiskTag (..), DiskUntag (..))
 import Corvus.Handlers.Disk.Upload (DiskUploadDiscard (..), DiskUploadFinalize (..), DiskUploadPlan (..), DiskUploadSession (..), checkDiskUpload, prepareDiskUpload)
 import Corvus.Handlers.Resolve (resolveDisk, resolveNode, resolveSnapshot)
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Model (EnumText (enumToText))
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.OperationGuard (ObjectKind (..), ResourceAccess (..))
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import Corvus.Protocol.Disk (UploadIfExists (..))
@@ -330,26 +332,32 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               putMVar ready (Right (Left key))
               pure RespOk
             Nothing -> do
-              plan <- either throwFailed pure =<< prepareDiskUpload ctx name fmt (emptyToNothing path) ephemeral (P.unRef nodeRef') (emptyToNothing sourcePath)
-              agent <- either throwFailed pure =<< lookupNodeAgent st (dupNodeId plan)
-              sink <- either (throwFailed . T.pack . show) pure =<< NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
-              written <- newIORef False
-              let abort = void $ try @SomeException $ callSink #abort CGS.ByteSink'abort'params sink
-              ( do
-                  putMVar ready (Right (Right sink))
-                  finish <- takeMVar command
-                  case finish of
-                    Nothing -> pure (RespError "Upload aborted")
-                    Just digest -> do
-                      callSink #end CGS.ByteSink'end'params sink
-                      writeIORef written True
-                      runActionAsSubtask ctx (DiskUploadFinalize plan digest)
-                )
-                `finally` ( do
-                              abort
-                              owned <- readIORef written
-                              when owned $ void (executeWithOperationLeases (ctx {acIgnoreCancellation = True}) (DiskUploadDiscard plan))
-                          )
+              pinned <- either throwError pure =<< pinNode st (P.unRef nodeRef') (pickNodeForDisk st)
+              let nodeId = read (T.unpack pinned)
+              nodeLocks <- objectResources st SharedAccess NodeObject nodeId
+              withContextOperationLeases ctx nodeLocks $ \leased -> do
+                blocked <- nodePlacementError st (toSqlKey nodeId)
+                mapM_ throwFailed blocked
+                plan <- either throwFailed pure =<< prepareDiskUpload leased name fmt (emptyToNothing path) ephemeral pinned (emptyToNothing sourcePath)
+                agent <- either throwFailed pure =<< lookupNodeAgent st (dupNodeId plan)
+                sink <- either (throwFailed . T.pack . show) pure =<< NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
+                written <- newIORef False
+                let abort = void $ try @SomeException $ callSink #abort CGS.ByteSink'abort'params sink
+                ( do
+                    putMVar ready (Right (Right sink))
+                    finish <- takeMVar command
+                    case finish of
+                      Nothing -> pure (RespError "Upload aborted")
+                      Just digest -> do
+                        callSink #end CGS.ByteSink'end'params sink
+                        writeIORef written True
+                        runActionAsSubtask leased (DiskUploadFinalize plan digest)
+                  )
+                  `finally` ( do
+                                abort
+                                owned <- readIORef written
+                                when owned $ void (executeWithOperationLeases (leased {acIgnoreCancellation = True}) (DiskUploadDiscard plan))
+                            )
         void $ tryPutMVar ready (Left response)
         putMVar completed response
       prepared <- takeMVar ready `onException` void (tryPutMVar command Nothing)

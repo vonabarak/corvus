@@ -60,13 +60,17 @@ withSelectedDiskNode state nodeRefText action
       eNid <- liftIO $ pickNodeForDisk state
       case eNid of
         Left err -> pure $ RespError err
-        Right nid -> action nid
+        Right nid -> place nid
   | otherwise = do
       result <- liftIO $ resolveNode (Ref nodeRefText) (ssDbPool state)
       case result of
         Left (RefNotFound _ _) -> pure RespNodeNotFound
         Left resolveErr -> pure $ RespAmbiguousRef (resolveErrorMessage resolveErr)
-        Right nidRaw -> action (M.toSqlKey nidRaw)
+        Right nidRaw -> place (M.toSqlKey nidRaw)
+  where
+    place nid = do
+      blocked <- liftIO $ nodePlacementError state nid
+      maybe (action nid) (pure . RespError) blocked
 
 --------------------------------------------------------------------------------
 -- Disk copy / move (inter-node)

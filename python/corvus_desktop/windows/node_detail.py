@@ -1,4 +1,4 @@
-"""Node detail — summary + edit / drain / delete."""
+"""Node detail — summary + edit / set state / delete."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -45,14 +46,14 @@ class NodeDetailWidget(QWidget):
         self._badge = StatusBadge("vm")
 
         self._btn_edit = QPushButton("Edit…")
-        self._btn_drain = QPushButton("Drain")
+        self._btn_set_state = QPushButton("Set state…")
         self._btn_delete = QPushButton("Delete")
         self._btn_edit.clicked.connect(self._on_edit)
-        self._btn_drain.clicked.connect(self._on_drain)
+        self._btn_set_state.clicked.connect(self._on_set_state)
         self._btn_delete.clicked.connect(self._on_delete)
         actions = QHBoxLayout()
         actions.addWidget(self._btn_edit)
-        actions.addWidget(self._btn_drain)
+        actions.addWidget(self._btn_set_state)
         actions.addWidget(self._btn_delete)
         actions.addStretch(1)
 
@@ -173,10 +174,16 @@ class NodeDetailWidget(QWidget):
         if dlg.exec():
             self._bridge.node_edit(self._node_id, **dlg.payload())
 
-    def _on_drain(self) -> None:
-        if self._node_id is None:
+    def _on_set_state(self) -> None:
+        if self._node_id is None or self._node is None:
             return
-        self._bridge.node_drain(self._node_id)
+        states = ["online", "maintenance", "offline"]
+        current = self._node.admin_state
+        state, accepted = QInputDialog.getItem(
+            self, "Set node state", "State", states, states.index(current), False
+        )
+        if accepted:
+            self._bridge.node_set_state(self._node_id, state)
 
     def _on_delete(self) -> None:
         if self._node_id is None:
@@ -184,7 +191,7 @@ class NodeDetailWidget(QWidget):
         reply = QMessageBox.question(
             self,
             "Delete node",
-            "Delete this node? Drain it first (no VMs / disks left on it).",
+            "Delete this node? Move or delete its resources first.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

@@ -62,7 +62,7 @@ stubConns = do
     NodeConns
       { ncNodeAgent = Nothing
       , ncNetAgent = Nothing
-      , ncSupervisor = sup
+      , ncSupervisor = Just sup
       , ncVmAutostartFired = vmAS
       , ncNetAutostartFired = netAS
       }

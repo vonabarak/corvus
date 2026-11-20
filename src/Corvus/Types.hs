@@ -202,7 +202,7 @@ data NodeConns = NodeConns
   -- disconnected / unreachable.
   , ncNetAgent :: !(Maybe NetAgentClient)
   -- ^ Live netd cap for this node.
-  , ncSupervisor :: !(Async ())
+  , ncSupervisor :: !(Maybe (Async ()))
   -- ^ The async that holds both connections open and reconnects
   -- on drop. Cancelled when the node is deleted via @crv node
   -- delete@ or when the daemon shuts down.

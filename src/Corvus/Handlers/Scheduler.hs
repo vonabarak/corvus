@@ -22,11 +22,11 @@
 --     by free RAM, free storage (in GiB), and a small load
 --     penalty, breaking ties by node name. When stats are still
 --     'Nothing' (e.g. before the first nodeagent push), the
---     filter degrades to "any online, non-draining node" and
+--     filter degrades to "any eligible online node" and
 --     ties break by name.
 --   * 'pickNodeForDisk' and 'pickNodeForNetwork' have no
 --     objective criteria yet — they pick the first online
---     non-draining node ordered by id. Phase 3 (disks) and a
+--     eligible node ordered by id. Phase 3 (disks) and a
 --     follow-up (networks) will plug richer policies in.
 module Corvus.Handlers.Scheduler
   ( pickNodeForVm
@@ -169,7 +169,7 @@ hasCapacityFor state nodeId requestedRam = do
 
 -- | Pick a node to host a new disk image. No backing-image
 -- affinity to take into account, so we pick the lowest-id
--- online non-draining node. For operations on an existing disk
+-- online eligible node. For operations on an existing disk
 -- (overlay, clone, snapshot, rebase, compact) use
 -- 'pickNodeForExistingDisk' instead — the file must live on the
 -- node the operation runs on.

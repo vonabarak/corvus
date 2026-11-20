@@ -122,10 +122,15 @@ executeApply ctx config = do
               case same of
                 Left err -> pure $ Left err
                 Right True -> sink (EntityStart phaseName name "skip") >> sink (EntityEnd phaseName name TaskSuccess "" eid) >> pure (Right ((name, eid), True))
-                Right False -> fmap (,False) <$> overwrite phaseName name eid (makeOverwrite leased eid) (create leased)
-            (Just eid, IfExistsOverwrite) -> fmap (,False) <$> overwrite phaseName name eid (makeOverwrite leased eid) (create leased)
+                Right False -> fmap (,False) <$> overwrite phaseName name scope eid (makeOverwrite leased eid) (create leased)
+            (Just eid, IfExistsOverwrite) -> fmap (,False) <$> overwrite phaseName name scope eid (makeOverwrite leased eid) (create leased)
             _ -> fmap (,False) <$> subtask phaseName kind name (create leased)
-    overwrite phaseName name eid ow create = do
+    overwrite phaseName name scope eid ow create = do
+      blocked <- maybe (pure Nothing) (nodePlacementError state . toSqlKey) scope
+      case blocked of
+        Just err -> pure (Left err)
+        Nothing -> overwriteAvailable phaseName name eid ow create
+    overwriteAvailable phaseName name eid ow create = do
       sink (EntityStart phaseName name "overwrite")
       pre <- oPreflight ow
       case pre of

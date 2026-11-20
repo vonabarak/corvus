@@ -62,8 +62,8 @@ nodeAddCommand =
       ( long "admin-state"
           <> metavar "STATE"
           <> value "online"
-          <> help "Initial admin state: online | draining | maintenance (default: online)"
-          <> completeWith ["online", "draining", "maintenance"]
+          <> help "Initial admin state: online | maintenance | offline (default: online)"
+          <> completeWith ["online", "maintenance", "offline"]
       )
     <*> switch
       ( long "netd-disabled"
@@ -113,15 +113,6 @@ nodeEditCommand =
           )
       )
     <*> optional
-      ( T.pack
-          <$> strOption
-            ( long "admin-state"
-                <> metavar "STATE"
-                <> help "online | draining | maintenance"
-                <> completeWith ["online", "draining", "maintenance"]
-            )
-      )
-    <*> optional
       ( option
           readBool
           ( long "netd-disabled"
@@ -131,13 +122,14 @@ nodeEditCommand =
           )
       )
 
--- | Parser for @crv node drain@.
-nodeDrainCommand :: Parser Command
-nodeDrainCommand =
-  NodeDrain
+-- | Parser for @crv node set-state@.
+nodeSetStateCommand :: Parser Command
+nodeSetStateCommand =
+  NodeSetState
     <$> argument
       (T.pack <$> str)
-      (metavar "NODE" <> help "Name or ID of the node to drain")
+      (metavar "NODE" <> help "Name or ID of the node")
+    <*> argument (T.pack <$> str) (metavar "STATE" <> completeWith ["online", "maintenance", "offline"])
 
 -- | Parser for @crv node delete@.
 nodeDeleteCommand :: Parser Command
@@ -164,8 +156,8 @@ nodeCommandParser =
           "edit"
           (info nodeEditCommand (progDesc "Edit node properties"))
         <> command
-          "drain"
-          (info nodeDrainCommand (progDesc "Stop the scheduler from picking this node"))
+          "set-state"
+          (info nodeSetStateCommand (progDesc "Set the administrative state of a node"))
         <> command
           "forget"
           ( info

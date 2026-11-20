@@ -64,6 +64,9 @@ handleVmCreate ctx name nodeRefText cpuCount ram description headless guestAgent
           -- older wire clients keep working unchanged.
           cpuModel = if T.null cpuModel0 then "host" else cpuModel0
           placeOn nodeKey = do
+            blocked <- nodePlacementError state nodeKey
+            maybe (placeAvailable nodeKey) (pure . RespError) blocked
+          placeAvailable nodeKey = do
             duplicate <- runSqlPool (getBy (UniqueVmNamePerNode nodeKey name)) pool
             case duplicate of
               Just _ -> pure $ RespError ("VM already exists on this node: " <> name)

@@ -350,7 +350,7 @@ withCapnpDaemon env action = do
               NodeConns
                 { ncNodeAgent = Just nac
                 , ncNetAgent = Nothing
-                , ncSupervisor = stubSup
+                , ncSupervisor = Just stubSup
                 , ncVmAutostartFired = vmAS
                 , ncNetAutostartFired = netAS
                 }

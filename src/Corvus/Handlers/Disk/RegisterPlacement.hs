@@ -31,19 +31,23 @@ instance Action DiskRegisterPlacement where
     let state = acState ctx
         key = toSqlKey imageId
         nid = toSqlKey nodeId
-    image <- runSqlPool (get key) (ssDbPool state)
-    case image of
-      Nothing -> pure RespDiskNotFound
-      Just disk -> do
-        base <- nodeBasePathFor state nid
-        let requested = T.unpack path
-            absolute = if isAbsolute requested then requested else base </> requested
-        inspected <- getImageInfoViaAgent state nid absolute
-        case inspected of
-          Left err -> pure (RespError err)
-          Right info
-            | iiFormat info /= diskImageFormat disk -> pure (RespError "Replica format differs from image version")
-            | maybe False (/= iiVirtualSize info) (diskImageSize disk) -> pure (RespError "Replica size differs from image version")
-            | otherwise -> do
-                runSqlPool (recordDiskImageNode key nid (makeRelativeToBase base absolute)) (ssDbPool state)
-                pure RespDiskOk
+    blocked <- nodePlacementError state nid
+    case blocked of
+      Just reason -> pure (RespError reason)
+      Nothing -> do
+        image <- runSqlPool (get key) (ssDbPool state)
+        case image of
+          Nothing -> pure RespDiskNotFound
+          Just disk -> do
+            base <- nodeBasePathFor state nid
+            let requested = T.unpack path
+                absolute = if isAbsolute requested then requested else base </> requested
+            inspected <- getImageInfoViaAgent state nid absolute
+            case inspected of
+              Left err -> pure (RespError err)
+              Right info
+                | iiFormat info /= diskImageFormat disk -> pure (RespError "Replica format differs from image version")
+                | maybe False (/= iiVirtualSize info) (diskImageSize disk) -> pure (RespError "Replica size differs from image version")
+                | otherwise -> do
+                    runSqlPool (recordDiskImageNode key nid (makeRelativeToBase base absolute)) (ssDbPool state)
+                    pure RespDiskOk
