@@ -35,5 +35,13 @@ home_initialize() {
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
-    home_initialize /run/initramfs/rescue-media /root
+    media=/run/initramfs/rescue-media
+    if [[ " $(cat /proc/cmdline) " == *" corvus.rescue.ram=1 "* ]]; then
+        test "$(findmnt -nr -o FSTYPE --mountpoint "$media")" = tmpfs
+        timeout 10 mount --bind "$media" /root
+        mount -o remount,bind,nosuid,nodev /root
+        echo 'Rescue home: copied to RAM (changes will be lost)'
+    else
+        home_initialize "$media" /root
+    fi
 fi

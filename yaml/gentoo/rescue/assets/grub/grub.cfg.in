@@ -33,3 +33,10 @@ menuentry 'Gentoo rescue (verify boot files)' {
         sleep --interruptible 300
     fi
 }
+
+menuentry 'Gentoo rescue (copy to RAM)' {
+    if search --no-floppy --fs-uuid --set=root @CARRIER_UUID@; then
+        linux /vmlinuz root=rescue:UUID=@CARRIER_UUID@ corvus.rescue.ram=1 ro fsck.mode=skip rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.dm=0 rd.auto=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 vt.color=0x02 console=tty0 console=ttyS0,115200n8
+        initrd /initramfs.img
+    fi
+}

@@ -479,7 +479,12 @@ class RescueKernelStage(GentooStage):
         listing = subprocess.check_output(
             ["chroot", str(root), "lsinitrd", archive], text=True
         )
-        for name in ("rescue-root", "rescue-generator", "rescue-shutdown"):
+        for name in (
+            "rescue-root",
+            "rescue-generator",
+            "rescue-shutdown",
+            "usr/bin/cp",
+        ):
             if name not in listing:
                 raise ValueError(f"Initramfs lacks {name}")
         for module in [

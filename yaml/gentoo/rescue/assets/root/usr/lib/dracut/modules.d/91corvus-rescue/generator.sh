@@ -9,6 +9,12 @@ case "$uuid" in *[!0-9a-fA-F-]*|'') exit 1 ;; esac
 # Override the generic fstab generator's interpretation of root=rescue:...
 # using systemd's higher-priority generator directory.
 out=$2
+mode=disk
+service_timeout=90
+if getarg corvus.rescue.ram=1 >/dev/null; then
+    mode=ram
+    service_timeout=1800
+fi
 device=$(systemd-escape --path --suffix=device "/dev/disk/by-uuid/$uuid")
 mkdir -p "$out/initrd-root-fs.target.requires" "$out/$device.d"
 cat > "$out/$device.d/rescue.conf" <<'CONF'
@@ -27,8 +33,8 @@ OnFailure=emergency.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/sbin/rescue-root $uuid
-TimeoutStartSec=90
+ExecStart=/sbin/rescue-root $uuid $mode
+TimeoutStartSec=$service_timeout
 CONF
 cat > "$out/sysroot.mount" <<'CONF'
 [Unit]

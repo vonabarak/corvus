@@ -119,12 +119,15 @@ def test_rescue_grub_uses_validated_carrier_uuid(
             return
         stage.execute(context)
     cfg = (esp / "grub/grub.cfg").read_text()
-    assert cfg.count(f"linux /vmlinuz root=rescue:UUID={uuid}") == 2
-    assert cfg.count("initrd /initramfs.img") == 2
+    assert cfg.count(f"linux /vmlinuz root=rescue:UUID={uuid}") == 3
+    assert cfg.count("initrd /initramfs.img") == 3
     verified = cfg.split("menuentry 'Gentoo rescue (verify boot files)'")[1]
     assert verified.index("hashsum --hash sha256 --check /SHA256SUMS --keep-going") < (
         verified.index("linux /vmlinuz")
     )
+    assert cfg.count("corvus.rescue.ram=1") == 1
+    ram = cfg.split("menuentry 'Gentoo rescue (copy to RAM)'")[1]
+    assert "corvus.rescue.ram=1" in ram
     if shutil.which("grub-script-check"):
         subprocess.run(["grub-script-check", str(esp / "grub/grub.cfg")], check=True)
     assert "rd.lvm=0" in cfg and "rd.md=0" in cfg
@@ -193,3 +196,65 @@ def test_rescue_assets_are_validated_and_installed(
     monkeypatch.setattr(rescue, "ASSETS", tmp_path / "absent-assets")
     with pytest.raises(ValueError, match="Missing rescue asset"):
         rescue.RescueRepositoryStage(settings).validate(context)
+
+
+@pytest.mark.parametrize("failure", ["", "cp", "umount"])
+def test_ram_boot_copies_home_before_mounting_root(
+    tmp_path: Path, failure: str
+) -> None:
+    module = RECIPE / "assets/root/usr/lib/dracut/modules.d/91corvus-rescue"
+    source = tmp_path / "rescue-source"
+    source.mkdir()
+    (source / "root.squashfs").touch()
+    (source / ".profile").write_text("home")
+    (source / "lost+found").mkdir()
+    (source / "nested/lost+found").mkdir(parents=True)
+    (source / "linked").hardlink_to(source / ".profile")
+    hooks = (
+        "\n"
+        "need_shutdown() { :; }\n"
+        'mount() { printf \'mount %s\\n\' "$*" >> "$LOG"; }\n'
+        "mountpoint() { return 1; }\n"
+        'timeout() { shift; "$@"; }\n'
+        "awk() { echo 524288; }\n"
+        "cp() {\n"
+        '    [ "$FAILURE" != cp ] || return 1\n'
+        '    command cp "$@"\n'
+        "}\n"
+        "umount() {\n"
+        '    printf \'umount %s\\n\' "$*" >> "$LOG"\n'
+        '    [ "$FAILURE" != umount ]\n'
+        "}\n"
+        "losetup() {\n"
+        '    printf \'losetup %s\\n\' "$*" >> "$LOG"\n'
+        "    echo /dev/loop0\n"
+        "}\n"
+    )
+    script = (
+        (module / "prepare-root.sh")
+        .read_text()
+        .replace(". /lib/dracut-lib.sh", hooks)
+        .replace("/run/initramfs", str(tmp_path))
+        .replace("/sysroot", str(tmp_path / "sysroot"))
+    )
+    log = tmp_path / "commands"
+    result = subprocess.run(
+        ["sh", "-c", script, "rescue-root", "test-uuid", "ram"],
+        env={"FAILURE": failure, "LOG": str(log), "PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+    )
+    operations = log.read_text()
+    assert "-o ro,noload,noatime" in operations
+    if failure:
+        assert result.returncode != 0
+        assert "Rescue RAM boot failed" in result.stderr
+        assert "losetup" not in operations
+        return
+    assert result.returncode == 0, result.stderr
+    assert operations.index("umount") < operations.index("losetup")
+    media = tmp_path / "rescue-media"
+    assert (media / ".profile").read_text() == "home"
+    assert (media / ".profile").samefile(media / "linked")
+    assert not (media / "lost+found").exists()
+    assert (media / "nested/lost+found").is_dir()

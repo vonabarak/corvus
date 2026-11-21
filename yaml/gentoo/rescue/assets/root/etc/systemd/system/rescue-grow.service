@@ -1,6 +1,7 @@
 [Unit]
 Description=Expand the rescue storage partition when space is available
 DefaultDependencies=no
+ConditionKernelCommandLine=!corvus.rescue.ram=1
 Before=rescue-home.service
 After=systemd-udev-trigger.service
 Conflicts=shutdown.target

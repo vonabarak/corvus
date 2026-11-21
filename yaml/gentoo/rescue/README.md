@@ -146,6 +146,19 @@ Requires x86-64, BIOS or UEFI with Secure Boot disabled. Start with 4 GiB RAM;
 no persistent system overlay. Initial installation replaces the stick; subsequent
 updates replace the three payload files and their checksums offline.
 
+## Boot from RAM
+
+Select **Gentoo rescue (copy to RAM)** to copy the `rescue-data` files into
+tmpfs, including the kernel, initramfs, compressed root, and home dotfiles.
+The copy skips the top-level `lost+found` directory. The USB is safe to remove
+once the login prompt or shell appears. Home starts with the USB's SSH keys
+and network profiles. Session changes disappear at reboot.
+
+The copy must fit within half of physical RAM and leave at least 1 GiB of
+boot-time available memory. It can take several minutes on a slow drive.
+If RAM preparation fails, check `journalctl -u rescue-root.service` from
+the emergency shell, or reboot and select **Gentoo rescue**.
+
 ## Export rescue payloads
 
 Run this command with the Corvus Python client installed in the selected Python
@@ -218,6 +231,13 @@ renames together are not: do not interrupt this step, and restore a complete
 matching set if interrupted. Existing home, filesystem UUID and ESP remain in
 place. New payloads do not embed the exporting stick's UUID; the existing ESP
 configuration supplies the destination UUID at boot.
+
+To add the RAM entry to an existing stick, install the matching payloads as
+above. Mount that stick's ESP and back up its `grub/grub.cfg`. Render the new
+`assets/grub/grub.cfg.in` using the stick's own ext4 UUID (from
+`blkid -s UUID -o value` on partition 3) in place of every `@CARRIER_UUID@`.
+Validate the rendered file with `grub-script-check` before replacing the ESP
+configuration. Sync and unmount both partitions before booting.
 
 ## Validation
 

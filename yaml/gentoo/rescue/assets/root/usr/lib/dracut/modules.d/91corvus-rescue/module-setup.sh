@@ -5,6 +5,8 @@ depends() { echo 'systemd systemd-initrd kernel-modules shutdown'; }
 installkernel() { hostonly='' instmods ext4 squashfs loop overlay; }
 install() {
     inst_multiple mount umount mountpoint losetup blockdev timeout mkdir systemd-escape
+    inst_multiple cp
+    inst_multiple awk
     inst_hook cmdline 95 "$moddir/parse-rescue.sh"
     inst_script "$moddir/prepare-root.sh" /sbin/rescue-root
     inst_script "$moddir/generator.sh" "$systemdutildir/system-generators/rescue-generator"
