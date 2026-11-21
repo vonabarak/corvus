@@ -1,13 +1,13 @@
 """Check dedicated cloud-init entry points and init-system configuration."""
 
 import os
-import runpy
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from corvus_image_builder.bundle import bundle
 from corvus_image_builder.core import BuildContext
 from corvus_image_builder.gentoo import Settings
 from corvus_image_builder.gentoo.cloudinit import CloudInitStage
@@ -20,7 +20,6 @@ DIRECTORY = ROOT / "yaml/gentoo"
 
 @pytest.mark.parametrize("flavor", ["glibc-systemd-headless", "musl-openrc-headless"])
 def test_cloudinit_bundle_and_overlay(flavor: str, tmp_path: Path) -> None:
-    bundle = runpy.run_path(str(DIRECTORY / "bundle.py"))["bundle"]
     archive = tmp_path / "cloudinit.pyz"
     bundle(DIRECTORY / flavor / "build-cloudinit.py", archive)
     result = subprocess.run(

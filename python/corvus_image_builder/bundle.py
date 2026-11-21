@@ -8,10 +8,11 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 def bundle(
     script: Path, destination: Path, *, include_modules: tuple[str, ...] = ()
 ) -> None:
-    source = Path(__file__).resolve().parents[2] / "python/corvus_image_builder"
+    source = Path(__file__).resolve().parent
     files = {
         f"corvus_image_builder/{p.relative_to(source).as_posix()}": p.read_bytes()
         for p in sorted(source.rglob("*.py"))
+        if p != source / "bundle.py"
     }
     files["__main__.py"] = script.read_bytes()
     for name in include_modules:

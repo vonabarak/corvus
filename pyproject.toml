@@ -79,6 +79,7 @@ packages = [
     "corvus_client._async",
     "corvus_client._sync",
     "corvus_image_builder",
+    "corvus_image_builder.gentoo",
     "corvus_admin",
     "corvus_test_harness",
     "corvus_web",

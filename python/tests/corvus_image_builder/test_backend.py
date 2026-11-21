@@ -1,4 +1,3 @@
-import importlib.util
 import os
 import runpy
 import subprocess
@@ -7,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+from corvus_image_builder.bundle import bundle
 from corvus_image_builder.core import BuildContext, BuildManager, CommandRunner
 from corvus_image_builder.gentoo import Settings
 from corvus_image_builder.portage import InstallRequest, PortageBackend
@@ -55,15 +55,9 @@ def test_plan_does_not_require_gentoo_or_touch_disk(tmp_path: Path) -> None:
 
 
 def test_bundle_deterministic(tmp_path: Path) -> None:
-    spec = importlib.util.spec_from_file_location(
-        "bundle", ROOT / "yaml/gentoo/bundle.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     first, second = tmp_path / "first.pyz", tmp_path / "second.pyz"
-    module.bundle(ROOT / "yaml/gentoo/glibc-systemd-headless/build-base.py", first)
-    module.bundle(ROOT / "yaml/gentoo/glibc-systemd-headless/build-base.py", second)
+    bundle(ROOT / "yaml/gentoo/glibc-systemd-headless/build-base.py", first)
+    bundle(ROOT / "yaml/gentoo/glibc-systemd-headless/build-base.py", second)
     assert first.read_bytes() == second.read_bytes()
 
 
@@ -134,14 +128,8 @@ def test_bundle_runs_without_repository_path(flavor: str, tmp_path: Path) -> Non
     import subprocess
     import sys
 
-    spec = importlib.util.spec_from_file_location(
-        "bundle", ROOT / "yaml/gentoo/bundle.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     archive = tmp_path / "flavor.pyz"
-    module.bundle(ROOT / f"yaml/gentoo/{flavor}/build-base.py", archive)
+    bundle(ROOT / f"yaml/gentoo/{flavor}/build-base.py", archive)
     result = subprocess.run(
         [sys.executable, "-I", str(archive)],
         cwd=tmp_path,

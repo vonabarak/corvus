@@ -18,7 +18,7 @@ build: $(BUILD_DEPENDENCIES)
 
 # Only the check helper's missing-output status permits publication.
 define ensure-images
-	+@status=0; "$(IMAGE_CHECK)" $(1) || status=$$?; \
+	+@status=0; bash "$(IMAGE_CHECK)" $(1) || status=$$?; \
 	case $$status in \
 	  0) ;; \
 	  3) $(MAKE) --no-print-directory $(2) IMAGE_POLICY=skip ;; \
@@ -30,7 +30,7 @@ ensure: dependencies
 	$(call ensure-images,$(OUTPUTS),publish)
 
 check:
-	@"$(IMAGE_CHECK)" $(OUTPUTS)
+	@bash "$(IMAGE_CHECK)" $(OUTPUTS)
 
 dependencies:
 

@@ -329,13 +329,15 @@ To add a flavor, create matching Python and YAML files, select the proper native
 builder in the YAML, upload the generated archive and kernel configuration, and
 invoke the archive with Python. Add its name and builder mapping to the local
 Makefile's `IMAGES` and `BUILDER_<flavor>` definitions. Keep dependency imports in
-their owning recipes. The archive can also be produced directly:
+their owning recipes. With the Corvus Python distribution installed, run this
+from the recipe directory:
 
 ```sh
-python3 yaml/gentoo/bundle.py yaml/gentoo/my-flavor/build.py yaml/gentoo/my-flavor/build.pyz
+python3 -m corvus_image_builder.bundle build.py build.pyz
 ```
 
-Here `my-flavor/build.py` is the new script you create. Bundle creation is deterministic
+To use the builder from a Corvus checkout, put its `python/` directory on
+`PYTHONPATH`. Bundle creation is deterministic
 for identical source files; complete image builds depend on repository state,
 packages, and build timestamps and are not guaranteed byte-for-byte reproducible.
 Use `--include-module filename.py` for each sibling Python module the recipe
@@ -443,30 +445,6 @@ shared isolated subnet, DHCP, and outbound NAT used by development and node imag
 
 ### Removable rescue media
 
-Build with `make -C yaml/gentoo build IMAGE=rescue`, or inspect the
-pipeline with `make -C yaml/gentoo plan IMAGE=rescue`. This recipe publishes
-`gentoo-rescue` and prepares the registered glibc builder.
-
-The rescue stages install stable glibc/systemd packages into a 16 GiB tmpfs on
-a 32 GiB helper. The 2 GiB raw disk contains BIOS and removable UEFI bootloaders,
-a 64 MiB ESP, and an ext4 carrier holding the kernel, initramfs, compressed
-root, checksums, and persistent home. It does not contain an unpacked OS.
-Distribution-kernel and dracut checks replace the VM-specific kernel stage.
-The rescue package stages select the base system and rescue utilities explicitly.
-Portage resolves build dependencies against the helper VM, which also supplies
-GCC's shared runtime libraries.
-After initramfs generation, rescue cleanup removes kernel sources, the installed
-package database, development headers, and GCC executables while retaining
-shared runtimes and kernel modules. The helper VM installs and runs the
-SquashFS tools. Publication follows bootloader verification.
-All mounts are owned resources. Failed builds retain their workspace for inspection.
-
-The Python bundle performs all build orchestration. Existing home/growth and
-dracut shell assets remain runtime inputs; legacy build scripts are not uploaded.
-The standalone [export script](../yaml/gentoo/rescue/export.py) uses a temporary
-`gentoo-musl-openrc-headless` VM on the first Corvus node. Run
-`make -C yaml/gentoo export IMAGE=rescue` with the Python client installed
-to download the four verified payload and checksum files from
-`gentoo-rescue:latest` through QGA.
-See [rescue operations and acceptance tests](../yaml/gentoo/rescue/README.md) for BIOS/UEFI,
-read-only media, persistence, growth, and offline update verification.
+The standalone `gentoo-rescue` project uses the installed Corvus image builder
+and the shared glibc/systemd builder recipe. See its README for build, export,
+and boot test commands.

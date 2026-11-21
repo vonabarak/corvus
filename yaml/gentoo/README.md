@@ -15,5 +15,4 @@ fills missing outputs. The upstream cloud image is owned by its import recipe.
 No build recipe imports another recipe's source image.
 
 Guest runtime shell hooks remain assets, not image-building orchestration.
-See [builder architecture](../../doc/image-builder.md) and
-[rescue operations](rescue/README.md).
+See [builder architecture](../../doc/image-builder.md).

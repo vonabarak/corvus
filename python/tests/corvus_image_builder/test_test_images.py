@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from corvus_image_builder.bundle import bundle
 from corvus_image_builder.core import BuildContext, BuildManager, CommandRunner
 from corvus_image_builder.gentoo import (
     BootloaderStage,
@@ -55,7 +56,6 @@ def test_workspace_normalizes_restrictive_umask_and_restores_it(
 
 @pytest.mark.parametrize("flavor", ["corvus-test-node", "corvus-test-vm"])
 def test_standalone_bundle_and_recipe_contract(flavor: str, tmp_path: Path) -> None:
-    bundle = runpy.run_path(str(DIRECTORY / "bundle.py"))["bundle"]
     first, second = tmp_path / "first.pyz", tmp_path / "second.pyz"
     bundle(DIRECTORY / flavor / "build.py", first)
     bundle(DIRECTORY / flavor / "build.py", second)

@@ -1,5 +1,0 @@
-Gentoo rescue: local root console, volatile system, persistent /root when usable.
-Only rescue storage is mounted and expanded automatically. Other disks, swap, RAID and LVM require manual activation.
-Update kernel, initramfs and squashfs offline to preserve /root. Back up /root before reflashing.
-Wired DHCP and SSH are enabled. Configure Wi-Fi using nmcli.
-For SSH login, install an authorized key in /root/.ssh/authorized_keys first.

@@ -1,7 +1,7 @@
 # Select a complete recipe, including its cloud-init variants and templates.
 .DEFAULT_GOAL := all
 IMAGE ?= glibc-systemd-headless
-IMAGES := corvus-test musl-openrc-headless glibc-systemd-builder-cloudinit corvus-test-node glibc-systemd-headless rescue corvus-test-vm musl-openrc-builder glibc-systemd-upstream-cloudinit
+IMAGES := corvus-test musl-openrc-headless glibc-systemd-builder-cloudinit corvus-test-node glibc-systemd-headless corvus-test-vm musl-openrc-builder glibc-systemd-upstream-cloudinit
 ifneq ($(words $(IMAGE)),1)
 $(error Select one IMAGE from: $(IMAGES))
 endif
@@ -15,7 +15,6 @@ DISKS_glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-cloudinit
 DISKS_glibc-systemd-headless := gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit
 DISKS_musl-openrc-builder := gentoo-musl-openrc-builder
 DISKS_musl-openrc-headless := gentoo-musl-openrc-headless gentoo-musl-openrc-headless-cloudinit
-DISKS_rescue := gentoo-rescue
 DISKS_corvus-test := gentoo-corvus-test
 DISKS_corvus-test-vm := corvus-test-vm
 DISKS_corvus-test-node := corvus-test-node
@@ -24,14 +23,12 @@ TEMPLATES_glibc-systemd-builder-cloudinit := gentoo-glibc-systemd-builder-cloudi
 TEMPLATES_glibc-systemd-headless := gentoo-glibc-systemd-builder-cloudinit-bake gentoo-glibc-systemd-headless gentoo-glibc-systemd-headless-cloudinit gentoo-glibc-systemd-headless-uefi gentoo-glibc-systemd-headless-cloudinit-uefi
 TEMPLATES_musl-openrc-builder := gentoo-musl-openrc-builder-bake
 TEMPLATES_musl-openrc-headless := gentoo-musl-openrc-builder-bake gentoo-musl-openrc-headless gentoo-musl-openrc-headless-uefi gentoo-musl-openrc-headless-cloudinit gentoo-musl-openrc-headless-cloudinit-uefi
-TEMPLATES_rescue := gentoo-rescue-bake gentoo-rescue
 TEMPLATES_corvus-test-node := corvus-test-node-bake corvus-test-node
 
 PARENT_glibc-systemd-builder-cloudinit := glibc-systemd-upstream-cloudinit
 PARENT_glibc-systemd-headless := glibc-systemd-builder-cloudinit
 PARENT_musl-openrc-builder := glibc-systemd-builder-cloudinit
 PARENT_musl-openrc-headless := musl-openrc-builder
-PARENT_rescue := glibc-systemd-builder-cloudinit
 PARENT_corvus-test := glibc-systemd-headless
 PARENT_corvus-test-vm := musl-openrc-builder
 PARENT_corvus-test-node := glibc-systemd-headless
@@ -140,16 +137,12 @@ latest-sha256:
 	$(LATEST_SHA256_SH)
 
 PYTHON ?= python3
+BUNDLE_PYTHON = $(if $(wildcard ../../python/corvus_image_builder/__init__.py),PYTHONPATH=../../python) "$(PYTHON)"
 SCRIPTS := $(wildcard $(IMAGE)/build*.py)
-.PHONY: bundle plan test export
+.PHONY: bundle plan test
 bundle:
-	$(foreach script,$(SCRIPTS),$(PYTHON) bundle.py $(script) $(script:.py=.pyz) $(if $(filter rescue/build.py,$(script)),--include-module rescue_stages.py);)
+	$(foreach script,$(SCRIPTS),$(BUNDLE_PYTHON) -m corvus_image_builder.bundle $(script) $(script:.py=.pyz) &&) true
 plan: bundle
 	$(foreach script,$(SCRIPTS),IMAGE_BUILD_PLAN=1 $(PYTHON) $(script:.py=.pyz);)
 test:
 	PYTHONPATH=../../python $(PYTHON) -m pytest ../../python/tests/corvus_image_builder
-ifeq ($(IMAGE),rescue)
-OUTPUT_DIR ?= build/gentoo-rescue
-export:
-	$(PYTHON) rescue/export.py "$(OUTPUT_DIR)"
-endif

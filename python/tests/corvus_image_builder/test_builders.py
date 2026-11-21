@@ -3,15 +3,14 @@
 import errno
 import hashlib
 import os
-import runpy
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import Mock
-from zipfile import ZipFile
 
 import pytest
+from corvus_image_builder.bundle import bundle
 from corvus_image_builder.core import BuildContext
 from corvus_image_builder.gentoo import Settings
 from corvus_image_builder.gentoo.builders import (
@@ -124,14 +123,8 @@ def test_builder_cleanup_preserves_underlying_cache_mountpoints(
 
 @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: str(p.relative_to(DIRECTORY)))
 def test_standalone_recipe_plan(script: Path, tmp_path: Path) -> None:
-    bundle = runpy.run_path(str(DIRECTORY / "bundle.py"))["bundle"]
     archive = tmp_path / "build.pyz"
-    is_rescue = script == DIRECTORY / "rescue/build.py"
-    modules = ("rescue_stages.py",) if is_rescue else ()
-    bundle(script, archive, include_modules=modules)
-    with ZipFile(archive) as bundled:
-        assert ("rescue_stages.py" in bundled.namelist()) == is_rescue
-        assert "corvus_image_builder/gentoo/rescue.py" not in bundled.namelist()
+    bundle(script, archive)
     result = subprocess.run(
         [sys.executable, "-I", str(archive)],
         cwd=tmp_path,
@@ -144,8 +137,6 @@ def test_standalone_recipe_plan(script: Path, tmp_path: Path) -> None:
     assert "Workspace" in stages[0]
     assert any("Repository" in stage for stage in stages)
     assert len(stages) >= 4
-    if is_rescue:
-        assert stages[-1] == "RescueBootloaderStage"
 
 
 def test_stage3_uses_verified_cache_without_download(

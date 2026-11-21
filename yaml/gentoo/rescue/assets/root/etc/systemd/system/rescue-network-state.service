@@ -1,9 +1,0 @@
-[Unit]
-Description=Prepare persistent network and SSH state
-Requires=rescue-home.service
-After=rescue-home.service
-Before=NetworkManager.service sshd.service
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/sbin/rescue-network-state

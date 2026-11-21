@@ -1,8 +1,0 @@
-#!/bin/sh
-set -eu
-install -d -m 700 /root/.config/NetworkManager/system-connections /root/.ssh/host-keys
-mountpoint -q /etc/NetworkManager/system-connections || mount --bind /root/.config/NetworkManager/system-connections /etc/NetworkManager/system-connections
-for type in ed25519 rsa ecdsa; do
-  key=/root/.ssh/host-keys/ssh_host_${type}_key
-  test -f "$key" || ssh-keygen -q -t "$type" -N '' -f "$key"
-done
