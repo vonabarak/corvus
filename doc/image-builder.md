@@ -117,6 +117,8 @@ root; `MuslPackageInstallStage` bootstraps native musl/OpenRC system packages.
 
 `KernelStage` installs kernel sources into the builder, compiles using the
 provided configuration, and installs the kernel and modules into the target.
+Its optional `cache_prefix` constructor argument changes the archive filename
+prefix from `kernel` while retaining the source revision and configuration digest.
 `SystemdConfigurationStage` configures glibc locales and systemd networking,
 DNS, SSH, QGA, and serial login. `OpenRCConfigurationStage` configures the
 corresponding OpenRC services, dhcpcd, logging, C.UTF-8, and VSOCK forwarding to SSH.

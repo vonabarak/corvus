@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +11,7 @@ from pathlib import Path
 from ..core import BuildContext
 from ._validation import validate_kernel
 from .base import GentooStage
+from .settings import Settings
 
 
 class KernelStage(GentooStage):
@@ -21,6 +23,12 @@ class KernelStage(GentooStage):
 
     requires = frozenset({"system"})
     produces = frozenset({"kernel"})
+
+    def __init__(self, settings: Settings, *, cache_prefix: str = "kernel"):
+        super().__init__(settings)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", cache_prefix):
+            raise ValueError("Invalid kernel cache prefix")
+        self.cache_prefix = cache_prefix
 
     def validate(self, context: BuildContext) -> None:
         if (
@@ -46,7 +54,7 @@ class KernelStage(GentooStage):
             self.settings.cache
             / "kernels"
             / f"{self.settings.libc}-{self.settings.init}"
-            / f"kernel-{version}-{digest}.tar.gz"
+            / f"{self.cache_prefix}-{version}-{digest}.tar.gz"
         )
         if archive.is_file():
             self.command(context, "tar", "-xzpf", str(archive), "-C", str(context.root))
