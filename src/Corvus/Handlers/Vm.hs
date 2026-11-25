@@ -23,7 +23,6 @@ module Corvus.Handlers.Vm
   , handleVmViewGrant
   , generateSpicePassword
   , getVmWithStatus
-  , getVmStatusOnly
   , setVmStatus
   , claimVmReset
   , claimVmStart
@@ -51,7 +50,6 @@ import Corvus.Handlers.Vm.Db
   ( claimVmReset
   , claimVmStart
   , completeVmReset
-  , getVmStatusOnly
   , getVmWithStatus
   , hasNetdMediatedNetIf
   , setVmErrorIfCurrent

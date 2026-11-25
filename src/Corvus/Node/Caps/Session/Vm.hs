@@ -27,7 +27,6 @@ module Corvus.Node.Caps.Session.Vm
   , reapEntryAfterQuit
   , pollOutgoingMigrate
   , qmpMigrateWithConnectGrace
-  , outgoingMigrateTimeoutSec
   , decodeVmSpec
   , decodeVmDriveSpec
   , decodeVmNetIfSpec

@@ -4,6 +4,7 @@
 module Corvus.Handlers.Vm.Start
   ( VmStart (..)
   , autostartVmsOnNode
+  , waitForStartCompletion
   , autostartClientName
   )
 where
@@ -21,19 +22,23 @@ import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Corvus.Node.SpicePort (withAllocatedSpicePort)
+import qualified Corvus.Node.VmSpec as VS
 import Corvus.Node.VsockCid (withAllocatedVsockCid)
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
+import Corvus.StartupTimeout (savedStateMigrationTimeoutSec)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word64)
 import Database.Persist
 import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
+import GHC.Clock (getMonotonicTimeNSec)
 
 startVariantFor :: Vm -> VmStatus -> VmAction
 startVariantFor vm = \case
@@ -104,23 +109,7 @@ handleVmStartExecute ctx vmId = do
           -- @setVmStatus@ inside 'launchVmViaAgent' is now a
           -- no-op when the row is already in @nextStatus@.
           liftIO $ runSqlPool (setVmStatus vmId nextStatus) (ssDbPool state)
-          resp <- startQemuAndMonitor ctx vmId vm nextStatus
-          case resp of
-            RespVmStateChanged s
-              | s `elem` [VmStarting, VmLoading] ->
-                  -- The agent's vmStart returns after QEMU spawn,
-                  -- before the first QGA ping (cold start) or before
-                  -- QMP @cont@ on the incoming migration stream (load
-                  -- from saved). Block here until the push channel
-                  -- finishes the transition — either to 'VmRunning'
-                  -- (ping landed / load complete) or 'VmError' (first
-                  -- ping never came / QEMU crashed early). Without
-                  -- this poll, callers passing @wait=true@ would see
-                  -- the RPC return early and immediately fail their
-                  -- first @vm.exec@.
-                  liftIO $ waitForStartCompletion state vmId
-              | otherwise -> pure resp
-            _ -> pure resp
+          startQemuAndMonitor ctx vmId vm nextStatus
   where
     -- A stopped cold boot and a saved-state load each create a new QEMU
     -- incarnation. Claim them before slow work so the nodeagent can reject a
@@ -133,54 +122,36 @@ handleVmStartExecute ctx vmId = do
           pure $ case mCurrent of
             Nothing -> RespVmNotFound
             Just (_, status) -> RespInvalidTransition status "VM lifecycle operation was superseded"
-        Just claimedVm -> runServerLogging state $ do
-          resp <- startQemuAndMonitor ctx vmId claimedVm nextStatus
-          case resp of
-            RespVmStateChanged VmStarting ->
-              liftIO $ waitForStartCompletion state vmId
-            RespVmStateChanged VmLoading ->
-              liftIO $ waitForStartCompletion state vmId
-            _ -> pure resp
+        Just claimedVm -> runServerLogging state $ startQemuAndMonitor ctx vmId claimedVm nextStatus
 
--- | Block until the DB row for @vmId@ leaves 'VmStarting'.
--- Returns the final response (always one of 'VmRunning',
--- 'VmError', or 'RespError' if the row vanishes / wait
--- timeout). Used by the @wait=true@ start path to preserve the
--- old "block until fully booted" semantics now that the agent
--- returns from 'vmStart' before QGA is ready.
-waitForStartCompletion :: ServerState -> Int64 -> IO Response
-waitForStartCompletion state vmId = go (330 * 10 :: Int)
+-- | Wait for the nodeagent's final startup status, with a delivery grace period.
+waitForStartCompletion :: IO Word64 -> IO () -> Pool SqlBackend -> VS.VmSpec -> IO Response
+waitForStartCompletion clock pause pool spec = do
+  started <- clock
+  go (started + budgetMs * 1000000)
   where
-    pool = ssDbPool state
-    -- Five-minute QGA budget plus 30 seconds for status delivery.
-    go remaining
-      | remaining <= 0 =
-          pure $
-            RespError $
-              "VM "
-                <> T.pack (show vmId)
-                <> " did not finish starting within 5 minutes 30 seconds; "
-                <> "the agent's first-QGA-ping watcher may be stuck"
-      | otherwise = do
-          mStatus <- runSqlPool (getVmStatusOnly vmId) pool
-          case mStatus of
-            Nothing -> pure RespVmNotFound
-            Just s | s `elem` [VmStarting, VmLoading] -> do
-              threadDelay 100000
-              go (remaining - 1)
-            Just VmRunning -> pure $ RespVmStateChanged VmRunning
-            Just VmError -> do
-              -- Read the persisted error message so the RPC
-              -- caller sees what the agent reported.
-              mVm <- runSqlPool (get (toSqlKey vmId :: VmId)) pool
-              let msg = case mVm of
-                    Just v -> fromMaybe "VM start failed" (vmErrorMessage v)
-                    Nothing -> "VM start failed"
-              pure $ RespError msg
-            -- Anything else: the start was overtaken by another
-            -- handler (reset / delete). Report whatever the
-            -- terminal state is so the caller doesn't loop.
-            Just s -> pure $ RespVmStateChanged s
+    vmId = VS.vsVmId spec
+    restoreSec = if VS.vsLoadFromSavedState spec then savedStateMigrationTimeoutSec else 0
+    budgetMs = fromIntegral (VS.vsWaitForGuestAgentMs spec) + fromIntegral (restoreSec + 30) * 1000
+    go deadline = do
+      current <- runSqlPool (getVmWithStatus vmId) pool
+      case current of
+        Nothing -> pure RespVmNotFound
+        Just (vm, VmError) -> pure $ RespError $ fromMaybe "VM start failed" (vmErrorMessage vm)
+        Just (_, status)
+          | status `elem` [VmStarting, VmLoading] -> do
+              now <- clock
+              if now >= deadline
+                then
+                  pure $
+                    RespError $
+                      "VM "
+                        <> T.pack (show vmId)
+                        <> " did not receive a final startup status within "
+                        <> T.pack (show (budgetMs `div` 1000))
+                        <> " seconds"
+                else pause >> go deadline
+          | otherwise -> pure $ RespVmStateChanged status
 
 -- | Resume a paused VM via @vmResume@ (agent issues QMP @cont@).
 resumeFromPaused :: ServerState -> Int64 -> Vm -> LoggingT IO Response
@@ -352,8 +323,9 @@ launchVmViaAgentAttempt state vmId vm pool nextStatus attempt = do
             -- succeeds.
             liftIO $ attachVmMonitor state vmId
             case nextStatus of
-              VmStarting -> pure $ RespVmStateChanged VmStarting
-              VmLoading -> pure $ RespVmStateChanged VmLoading
+              status
+                | status `elem` [VmStarting, VmLoading] ->
+                    liftIO $ waitForStartCompletion getMonotonicTimeNSec (threadDelay 100000) pool spec
               _ -> do
                 updated <- liftIO $ runSqlPool (setVmStartedIfCurrent vmId (vmLifecycleRevision vm) (fromMaybe (vmLifecycleRevision vm) (vmRuntimeGeneration vm)) VmRunning) (ssDbPool state)
                 pure $ if updated then RespVmStateChanged VmRunning else RespInvalidTransition nextStatus "VM lifecycle operation was superseded"

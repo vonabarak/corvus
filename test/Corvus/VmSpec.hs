@@ -29,13 +29,15 @@ import Corvus.Handlers.Vm.Db
   , setVmErrorIfCurrent
   , setVmStartedIfCurrent
   )
+import Corvus.Handlers.Vm.Start (waitForStartCompletion)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.NodeAgentClient.Spec (assembleVmSpec)
 import Corvus.Qemu.Config (defaultQemuConfig)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe)
 import Database.Persist (getJust, insert, update, (=.))
-import Database.Persist.Sql (toSqlKey)
+import Database.Persist.Sql (runSqlPool, toSqlKey)
 import Test.DSL.Core (getDbPool, runDb)
 
 spec :: Spec
@@ -53,6 +55,46 @@ spec = sequential $ withTestDb $ do
       budget 1200000
       runDb $ update (toSqlKey vid :: M.VmId) [M.VmGuestAgent =. False]
       budget 0
+    testCase "waits past the old cutoff and returns the final VM status or agent error" $ do
+      vid <- insertVm "slow-readiness" VmStarting
+      pool <- getDbPool
+      let key = toSqlKey vid :: M.VmId
+      specResult <- liftIO $ assembleVmSpec pool defaultQemuConfig Nothing vid 1 1 >>= either (fail . T.unpack) pure
+      let startupSpec = specResult {VS.vsWaitForGuestAgentMs = 1200000}
+      forM_ [(VmRunning, RespVmStateChanged VmRunning), (VmError, RespError "QGA startup failed")] $ \(status, expected) -> do
+        runDb $ update key [M.VmStatus =. VmStarting]
+        liftIO $ do
+          clock <- newIORef 0
+          let pause = do
+                now <- readIORef clock
+                case now of
+                  0 -> writeIORef clock 331000000000
+                  331000000000 -> do
+                    runSqlPool (update key [M.VmStatus =. status, M.VmErrorMessage =. Just "QGA startup failed"]) pool
+                    writeIORef clock 1230000000000
+                  _ -> expectationFailure "unexpected extra startup poll"
+          waitForStartCompletion (readIORef clock) pause pool startupSpec `shouldReturn` expected
+
+    testCase "bounds cold and saved startup waits using the spec budget" $ do
+      vid <- insertVm "missing-readiness" VmStarting
+      pool <- getDbPool
+      specResult <- liftIO $ assembleVmSpec pool defaultQemuConfig Nothing vid 1 1 >>= either (fail . T.unpack) pure
+      forM_ [(False, 120000, 150), (False, 1200000, 1230), (False, 4294967000, 4294997), (True, 1200000, 1530), (True, 0, 330)] $ \(loading, budgetMs, deadlineSec) -> do
+        runDb $ update (toSqlKey vid :: M.VmId) [M.VmStatus =. if loading then VmLoading else VmStarting]
+        liftIO $ do
+          let startupSpec = specResult {VS.vsWaitForGuestAgentMs = budgetMs, VS.vsLoadFromSavedState = loading}
+              deadline = deadlineSec * 1000000000
+          clock <- newIORef 0
+          let pause = do
+                now <- readIORef clock
+                case now of
+                  0 -> writeIORef clock (deadline - 1)
+                  _ | now == deadline - 1 -> writeIORef clock deadline
+                  _ -> expectationFailure "startup waited past its deadline"
+              expected = RespError $ "VM " <> T.pack (show vid) <> " did not receive a final startup status within " <> T.pack (show deadlineSec) <> " seconds"
+          waitForStartCompletion (readIORef clock) pause pool startupSpec `shouldReturn` expected
+          readIORef clock `shouldReturn` deadline
+
   describe "manual balloon targets" $ do
     testCase "rejects a missing VM" $ do
       resp <- vmSetBalloon 999 1

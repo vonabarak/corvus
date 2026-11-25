@@ -20,7 +20,6 @@ module Corvus.Node.Caps.Session.Vm.Lifecycle
   , handleVmPause
   , handleVmResume
   , handleVmSave
-  , outgoingMigrateTimeoutSec
   , pollOutgoingMigrate
   , qmpMigrateWithConnectGrace
   , reapEntryAfterQuit
@@ -57,6 +56,7 @@ import qualified Corvus.Node.Runtime as NR
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
+import Corvus.StartupTimeout (savedStateMigrationTimeoutSec)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -336,7 +336,7 @@ handleVmSave sc vmId = do
           atomically $ writeTVar (L.vlsStopRequested live) False
           throwFailed ("vmSave: qmp migrate connect failed: " <> err)
         NQ.QmpSuccess -> do
-          pollRes <- pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
+          pollRes <- pollOutgoingMigrate cfg vmId savedStateMigrationTimeoutSec
           case pollRes of
             Left err -> do
               atomically $ writeTVar (L.vlsStopRequested live) False
@@ -357,13 +357,6 @@ handleVmSave sc vmId = do
                   throwFailed ("vmSave: qmp quit failed: " <> err)
                 NQ.QmpConnectionFailed err ->
                   throwFailed ("vmSave: qmp quit connect failed: " <> err)
-
--- | 5 minutes. Empirically generous: a 4 GiB VM with a tmpfs
--- destination clocks in under 10 s; this leaves headroom for
--- slow disks and large RAM. Hitting this cap means something is
--- wrong with the guest or storage and the operator should know.
-outgoingMigrateTimeoutSec :: Int
-outgoingMigrateTimeoutSec = 300
 
 -- | Wait for @query-migrate@ to report @completed@. 500 ms cadence,
 -- bounded by the supplied second budget. Returns @Right ()@ on

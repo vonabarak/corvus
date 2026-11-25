@@ -61,6 +61,7 @@ import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..))
+import Corvus.StartupTimeout (savedStateMigrationTimeoutSec)
 import Corvus.Wire.Enums (fromCapnpGraphicsAdapter)
 import Corvus.Wire.Errors (WireError)
 import Data.Int (Int32, Int64)
@@ -81,7 +82,7 @@ import System.Process
   , std_out
   )
 
-import Corvus.Node.Caps.Session.Vm.Lifecycle (outgoingMigrateTimeoutSec, pollOutgoingMigrate)
+import Corvus.Node.Caps.Session.Vm.Lifecycle (pollOutgoingMigrate)
 import Corvus.Node.Caps.Session.Vm.Process (prepareVmRuntime, reapSpawnedHelpers, reapVmHelpers, spawnVmHelpers)
 import Corvus.Node.Caps.Session.Vm.Startup (forkVmReaper, stopVmAfterStartFailure)
 import Corvus.Node.QemuStartup (waitForVsockOwnership)
@@ -562,7 +563,7 @@ needsGuestAgentWait spec =
 restoreIncomingState :: SessionCap -> QemuConfig -> L.VmLiveState -> FilePath -> IO Bool
 restoreIncomingState sc cfg live savedStateFile = do
   let vmId = VS.vsVmId (L.vlsSpec live)
-  pollRes <- pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
+  pollRes <- pollOutgoingMigrate cfg vmId savedStateMigrationTimeoutSec
   case pollRes of
     Left reason -> failIncomingState sc cfg live ("query-migrate: " <> reason)
     Right () -> do

@@ -25,7 +25,7 @@ networks:
     # DHCP option 6: advertise these resolvers to every guest on
     # this network. Required so bake VMs / cloud-init can resolve
     # public mirror hostnames (e.g. deb.debian.org); without it
-    # `apt-get update` hangs and cloud-init misses the daemon's
-    # 300 s first-QGA-ping deadline.
+    # `apt-get update` hangs and cloud-init can miss the configured
+    # first-QGA-ping deadline.
     dnsServers:
       - 1.1.1.1

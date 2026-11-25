@@ -3,6 +3,7 @@
 -- | Startup readiness budgets, in seconds at public boundaries.
 module Corvus.StartupTimeout
   ( defaultStartupTimeoutSec
+  , savedStateMigrationTimeoutSec
   , validateStartupTimeoutSec
   , startupTimeoutField
   ) where
@@ -15,6 +16,10 @@ import Data.Word (Word32)
 
 defaultStartupTimeoutSec :: Int
 defaultStartupTimeoutSec = 120
+
+-- | Migration allowance for saving and restoring QEMU state.
+savedStateMigrationTimeoutSec :: Int
+savedStateMigrationTimeoutSec = 300
 
 validateStartupTimeoutSec :: Int -> Either Text ()
 validateStartupTimeoutSec seconds

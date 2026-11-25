@@ -490,6 +490,10 @@ setting is available in apply/template YAML as `startupTimeoutSec` and in both
 Python clients as `startup_timeout_sec`. List/show responses expose
 `startup_timeout_sec`.
 
+The daemon waits for the startup result for the configured budget plus 30
+seconds for status delivery. Starts from saved state also include the 300-second
+restore allowance.
+
 A readiness timeout marks the VM `error` and keeps QEMU alive for diagnosis.
 `crv vm view <vm>` can open the serial console or SPICE viewer while that
 process is alive, including when the VM is in `error`. Reset the VM before

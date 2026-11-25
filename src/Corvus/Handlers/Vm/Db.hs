@@ -6,7 +6,6 @@
 module Corvus.Handlers.Vm.Db
   ( -- * Queries
     getVmWithStatus
-  , getVmStatusOnly
   , hasNetdMediatedNetIf
 
     -- * Status updates
@@ -45,10 +44,6 @@ getVmWithStatus vmId = do
   pure $ case mVm of
     Nothing -> Nothing
     Just vm -> Just (vm, vmStatus vm)
-
--- | Just the current status, or 'Nothing' if the row is gone.
-getVmStatusOnly :: Int64 -> SqlPersistT IO (Maybe VmStatus)
-getVmStatusOnly vmId = fmap vmStatus <$> get (toSqlKey vmId :: VmId)
 
 -- | Set VM status (without changing PID). Clears any prior error
 -- reason when transitioning out of 'VmError'; leaves it alone for
